@@ -70,7 +70,8 @@ def test_extended_429_never_dead_letters_a_proven_rejection(tmp_path: Path) -> N
     claimed = queue.claim_next("worker", now=time.time(), lease_seconds=30.0)
     assert claimed is not None
 
-    def rejected(_message: str, *, pin_chat: bool = False) -> None:
+    def rejected(message: str, *, pin_chat: bool = False) -> None:
+        del message, pin_chat
         raise RateLimitError("429 retry later", retry_after=7200)
 
     state = tmp_path / "state.sqlite3"
@@ -86,7 +87,9 @@ def test_extended_429_never_dead_letters_a_proven_rejection(tmp_path: Path) -> N
     assert saved is not None
     assert saved["status"] == "rate_limited"
     assert saved["retry_attempt"] == 13
-    assert float(saved["retry_at"]) >= time.time() + 7190
+    retry_at = saved["retry_at"]
+    assert isinstance(retry_at, (int, float))
+    assert retry_at >= time.time() + 7190
     assert queue.claim_next("other", now=time.time(), lease_seconds=30.0) is None
 
 
