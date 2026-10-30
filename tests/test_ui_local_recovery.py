@@ -38,13 +38,16 @@ def test_local_recovery_controls_restore_list_pins_detail_and_turns(
             expect(page.get_by_text("Chat list temporarily unavailable")).to_be_visible()
             expect(page.get_by_role("button", name="Retry pins")).to_be_visible()
 
+            # Exercise Retry while the injected outage is still active. If the
+            # route is removed first, a background refresh may already have
+            # restored the view and detached the button before Playwright clicks.
+            page.get_by_role("button", name="Retry pins").click()
+            expect(page.get_by_role("button", name="Retry pins")).to_be_visible()
             page.unroute("**/api/results?*")
             page.unroute("**/api/local-chat-pins")
-            # A successful list refresh can also restore pins and remove the
-            # second control. Retry the independent pin request first.
-            page.get_by_role("button", name="Retry pins").click()
-            page.get_by_role("button", name="Retry chats").click()
+            page.evaluate("window.dispatchEvent(new Event('online'))")
             expect(page.locator(".chats-list .chat-row").filter(has_text="Local recovery probe")).to_be_visible()
+            expect(page.get_by_role("button", name="Retry chats")).to_have_count(0)
             expect(page.get_by_role("button", name="Retry pins")).to_have_count(0)
 
             page.route("**/api/results/local-recovery-run", lambda route: route.fulfill(status=503))
@@ -60,3 +63,34 @@ def test_local_recovery_controls_restore_list_pins_detail_and_turns(
             expect(page.get_by_role("button", name="Retry replies")).to_have_count(0)
             assert remote == []
             browser.close()
+
+
+@pytest.mark.parametrize("width,height", [(1440, 900), (390, 844)])
+def test_retry_chats_recovers_list_without_a_pin_failure(
+    tmp_path: Path, width: int, height: int,
+) -> None:
+    executable = os.environ.get("PROMPTA_TEST_CHROMIUM", "")
+    if not executable or not Path(executable).exists():
+        pytest.skip("Headless Chromium unavailable")
+    with server(tmp_path) as (app, port), sync_playwright() as playwright:
+        completed_run(app, "list-only-outage", "List-only recovery probe", time.time())
+        browser = playwright.chromium.launch(executable_path=executable, headless=True)
+        page = browser.new_page(viewport={"width": width, "height": height})
+        posts: list[str] = []
+        page.on("request", lambda request: posts.append(request.url) if request.method == "POST" else None)
+        page.route("**/api/events", lambda route: route.abort())
+        page.route("**/api/results?*", lambda route: route.fulfill(status=503))
+        # Complete the independent pins request before repairing the list.
+        with page.expect_response(lambda response: "/api/local-chat-pins" in response.url):
+            page.goto(f"http://127.0.0.1:{port}/?view=chats")
+        expect(page.get_by_role("button", name="Retry chats")).to_be_visible()
+        # Click before lifting the failure, then prove the reconnect repairs
+        # the list even if another refresh starts as soon as the outage ends.
+        page.get_by_role("button", name="Retry chats").click()
+        expect(page.get_by_role("button", name="Retry chats")).to_be_visible()
+        page.unroute("**/api/results?*")
+        page.evaluate("window.dispatchEvent(new Event('online'))")
+        expect(page.locator(".chats-list .chat-row").filter(has_text="List-only recovery probe")).to_be_visible()
+        expect(page.get_by_role("button", name="Retry chats")).to_have_count(0)
+        assert posts == []
+        browser.close()
