@@ -36,7 +36,7 @@ def test_only_one_live_claimant_owns_delivery(tmp_path: Path) -> None:
     assert seed.claim_next("worker-c", now=110.0, lease_seconds=30.0) is None
 
 
-def test_expired_delivery_lease_is_reclaimable_and_renewal_extends_it(tmp_path: Path) -> None:
+def test_expired_delivery_lease_is_quarantined_and_renewal_extends_it(tmp_path: Path) -> None:
     store = DeliveryQueueStore(tmp_path / "delivery.sqlite3")
     store.upsert(_queued_record())
 
@@ -46,10 +46,14 @@ def test_expired_delivery_lease_is_reclaimable_and_renewal_extends_it(tmp_path: 
     assert store.renew_lease("send-1", "worker-a", now=105.0, lease_seconds=10.0)
     assert store.claim_next("worker-b", now=111.0, lease_seconds=10.0) is None
 
-    reclaimed = store.claim_next("worker-b", now=116.0, lease_seconds=10.0)
-    assert reclaimed is not None
-    assert reclaimed["send_id"] == "send-1"
-    assert reclaimed["lease_owner"] == "worker-b"
+    assert store.claim_next("worker-b", now=116.0, lease_seconds=10.0) is None
+    unknown = store.get("send-1")
+    assert unknown is not None
+    assert unknown["status"] == "outcome_unknown"
+    assert unknown["lease_owner"] == ""
+    assert "Automatic resubmission is disabled" in str(unknown["last_error"])
+    assert store.health_metrics(now=117.0)["outcome_unknown"] == 1
+    assert store.claim_next("worker-c", now=117.0, lease_seconds=10.0) is None
 
 
 def test_health_metrics_cover_pending_and_last_success(tmp_path: Path) -> None:
@@ -126,16 +130,18 @@ def test_completion_is_idempotent_and_rejects_stale_owner(tmp_path: Path) -> Non
     assert again["finished_at"] == 102.0
 
 
-def test_expired_delivery_lease_is_reclaimable_at_exact_boundary(tmp_path: Path) -> None:
+def test_expired_delivery_lease_is_not_resent_at_exact_boundary(tmp_path: Path) -> None:
     store = DeliveryQueueStore(tmp_path / "delivery.sqlite3")
     store.upsert(_queued_record())
     assert store.claim_next("worker-a", now=100.0, lease_seconds=10.0) is not None
 
-    reclaimed = store.claim_next("worker-b", now=110.0, lease_seconds=10.0)
-
-    assert reclaimed is not None
-    assert reclaimed["lease_owner"] == "worker-b"
-    assert reclaimed["lease_acquired_at"] == 110.0
+    assert store.claim_next("worker-b", now=110.0, lease_seconds=10.0) is None
+    unknown = store.get("send-1")
+    assert unknown is not None
+    assert unknown["status"] == "outcome_unknown"
+    assert unknown["finished_at"] == 110.0
+    assert unknown["lease_acquired_at"] == 0.0
+    assert not store.complete_claim("send-1", "worker-a", now=111.0)
 
 
 def test_retry_backoff_controls_claim_eligibility(tmp_path: Path) -> None:
@@ -199,3 +205,17 @@ def test_non_ui_manual_queue_does_not_pin_local_sidebar_by_default(tmp_path: Pat
     receipt = queue.enqueue_manual("Manual CLI or job run", now=12.0)
     assert receipt["pin_chat"] is False
     assert queue.results.local_pinned_runs() == []
+
+
+def test_expired_running_delivery_does_not_block_new_work(tmp_path: Path) -> None:
+    store = DeliveryQueueStore(tmp_path / "delivery.sqlite3")
+    store.upsert(_queued_record("old", client_id="client-old"))
+    store.upsert(_queued_record("new", client_id="client-new"))
+    first = store.claim_next("worker-a", now=100.0, lease_seconds=10.0)
+    assert first is not None and first["send_id"] == "old"
+    next_claim = store.claim_next("worker-b", now=110.0, lease_seconds=10.0)
+    assert next_claim is not None and next_claim["send_id"] == "new"
+    old = store.get("old")
+    new = store.get("new")
+    assert old is not None and old["status"] == "outcome_unknown"
+    assert new is not None and new["status"] == "running"

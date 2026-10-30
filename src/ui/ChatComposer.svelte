@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount, untrack } from "svelte";
+  import { clearComposerDraft, readComposerDraft, rememberComposerDraft } from "./composerDraftMemory";
 
   type ImageRef = { ref: string; name: string; url: string };
   type SendResult = { ok: boolean; message: string; ambiguous?: boolean; fallbackAvailable?: boolean };
@@ -25,6 +26,8 @@
   let hasLocalDraft = $state(false);
   let images = $state<ImageRef[]>([]);
   let uploading = $state(false);
+  let uploadGeneration = 0;
+  let uploadAbort: AbortController | null = null;
   let sending = $state(false);
   let feedback = $state("");
   let fallbackAvailable = $state(false);
@@ -42,12 +45,25 @@
     untrack(() => {
       if (key === hydratedKey) return;
       hydratedKey = key;
-      let saved = "";
-      let found = false;
-      try {
-        const cached = key ? localStorage.getItem(key) : null;
-        if (cached !== null) { saved = cached.slice(0, 32000); found = true; }
-      } catch { /* Storage may be unavailable. */ }
+      // An upload started for an old chat must never attach its late receipt
+      // to the composer after a route/mode change.
+      uploadGeneration += 1;
+      uploadAbort?.abort();
+      uploadAbort = null;
+      uploading = false;
+      // Memory wins over readable-but-unwritable storage with stale values.
+      let saved = key ? readComposerDraft(key) || "" : "";
+      let found = !!key && readComposerDraft(key) !== undefined;
+      if (!found) {
+        try {
+          const cached = key ? localStorage.getItem(key) : null;
+          if (cached !== null) {
+            saved = cached.slice(0, 32000);
+            found = true;
+            rememberComposerDraft(key, saved);
+          }
+        } catch { /* Storage may be unavailable. */ }
+      }
       draft = saved;
       hasLocalDraft = found;
       images = [];
@@ -71,6 +87,7 @@
     if (!sending && !hasLocalDraft) {
       draft = restoreDraft;
       hasLocalDraft = true;
+      rememberComposerDraft(draftStorageKey, draft);
       try { if (draftStorageKey) localStorage.setItem(draftStorageKey, draft); } catch { /* In-memory editing still works. */ }
       requestAnimationFrame(resizeTextarea);
     }
@@ -80,7 +97,12 @@
     if (mode === "fresh") textarea?.focus();
     requestAnimationFrame(resizeTextarea);
     window.addEventListener("resize", resizeTextarea);
-    return () => window.removeEventListener("resize", resizeTextarea);
+    return () => {
+      window.removeEventListener("resize", resizeTextarea);
+      uploadGeneration += 1;
+      uploadAbort?.abort();
+      uploadAbort = null;
+    };
   });
 
   function resizeTextarea() {
@@ -96,6 +118,7 @@
     hasLocalDraft = true;
     fallbackAvailable = false;
     if (draftStorageKey) {
+      rememberComposerDraft(draftStorageKey, (event.currentTarget as HTMLTextAreaElement).value);
       try { localStorage.setItem(draftStorageKey, (event.currentTarget as HTMLTextAreaElement).value); } catch { /* In-memory editing still works. */ }
     }
     resizeTextarea();
@@ -111,14 +134,24 @@
       feedback = "At most four images per fresh chat.";
       return;
     }
+    // Validate the entire selection first: an invalid later file must not
+    // leave an unexpected partial batch of attachments.
+    if (files.some((file) => !["image/png", "image/jpeg", "image/gif", "image/webp"].includes(file.type))) {
+      feedback = "Only PNG, JPEG, GIF or WebP images are supported.";
+      return;
+    }
+    if (files.some((file) => file.size > 8 * 1024 * 1024)) {
+      feedback = "Images must be 8 MiB or smaller.";
+      return;
+    }
+    const key = draftStorageKey;
+    const generation = ++uploadGeneration;
+    const controller = new AbortController();
+    uploadAbort = controller;
     uploading = true;
     feedback = "";
     try {
       for (const file of files) {
-        if (!["image/png", "image/jpeg", "image/gif", "image/webp"].includes(file.type)) {
-          throw new Error("Only PNG, JPEG, GIF or WebP images are supported.");
-        }
-        if (file.size > 8 * 1024 * 1024) throw new Error("Images must be 8 MiB or smaller.");
         const data = await new Promise<string>((resolve, reject) => {
           const reader = new FileReader();
           reader.onerror = () => reject(new Error("Could not read image."));
@@ -129,11 +162,14 @@
           };
           reader.readAsDataURL(file);
         });
+        if (generation !== uploadGeneration || key !== draftStorageKey) return;
         const response = await fetch("./api/images", {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ name: file.name, data }),
+          signal: controller.signal,
         });
+        if (generation !== uploadGeneration || key !== draftStorageKey) return;
         if (!response.ok) throw new Error("Image upload failed.");
         const result = await response.json() as { image?: ImageRef };
         if (!result.image?.ref || !result.image.url.startsWith("./api/images/")) {
@@ -142,9 +178,14 @@
         images = [...images, result.image];
       }
     } catch (error) {
-      feedback = error instanceof Error ? error.message : "Image upload failed.";
+      if (generation === uploadGeneration && key === draftStorageKey) {
+        feedback = error instanceof Error ? error.message : "Image upload failed.";
+      }
     } finally {
-      uploading = false;
+      if (generation === uploadGeneration && key === draftStorageKey) {
+        uploadAbort = null;
+        uploading = false;
+      }
     }
   }
 
@@ -162,6 +203,7 @@
         draft = "";
         images = [];
         feedback = result.message;
+        clearComposerDraft(submittedKey);
         try { if (draftStorageKey) localStorage.removeItem(draftStorageKey); } catch { /* Storage may be unavailable. */ }
         hasLocalDraft = false;
         fallbackAvailable = false;
@@ -236,8 +278,8 @@
         {/if}
         {#if uploading}<small role="status">Uploading images…</small>{/if}
       </div>
-      {#if !hasDraft && !sending}
-        <button class="composer-send composer-new-chat" type="button" onclick={onNewChat}
+      {#if !hasDraft && images.length === 0 && !uploading && !sending}
+        <button class="composer-send composer-new-chat" type="button" disabled={disabled || uploading} onclick={onNewChat}
           aria-label="New chat" title="New chat">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7M16 4l4 4M9 15l3.5-.7L21 5.8a2.1 2.1 0 0 0-3-3l-8.5 8.5L9 15Z" /></svg>
         </button>

@@ -1,4 +1,5 @@
 import sqlite3
+import threading
 from datetime import time
 from pathlib import Path
 
@@ -7,7 +8,12 @@ from sqlalchemy.exc import OperationalError
 
 from prompta.config import WorkingHours
 from prompta.delivery_queue import DeliveryQueueStore
-from prompta.delivery_worker import DeliveryAdmission, _deliver_one, _sqlite_busy
+from prompta.delivery_worker import (
+    DeliveryAdmission,
+    _deliver_one,
+    _renew_lease_until_done,
+    _sqlite_busy,
+)
 from prompta.jobs import add_job, load_jobs
 from prompta.scheduler_runtime import SchedulerRuntime
 from prompta.scheduler_service import DurableSchedulerProducer
@@ -380,3 +386,46 @@ def test_send_429_retries_only_its_own_delivery_without_read_throttling(
         "",
         0.0,
     )
+
+
+def test_renewal_thread_survives_transient_database_error(monkeypatch) -> None:
+    import prompta.delivery_worker as worker
+
+    monkeypatch.setattr(worker, "_LEASE_RENEW_SECONDS", 0.001)
+    monkeypatch.setattr(worker, "_LEASE_RENEW_RETRY_SECONDS", 0.001)
+    stop, lost = threading.Event(), threading.Event()
+
+    class FlakyQueue:
+        calls = 0
+
+        def renew_lease(self, send_id: str, owner: str, *, lease_seconds: float) -> bool:
+            self.calls += 1
+            if self.calls == 1:
+                raise RuntimeError("temporary lease store failure")
+            stop.set()
+            return True
+
+    queue = FlakyQueue()
+    _renew_lease_until_done(queue, "send-1", "worker", stop, lost)
+    assert queue.calls == 2
+    assert not lost.is_set()
+
+
+def test_renewal_thread_marks_lease_lost_on_persistent_failure(monkeypatch) -> None:
+    import prompta.delivery_worker as worker
+
+    monkeypatch.setattr(worker, "_LEASE_RENEW_SECONDS", 0.001)
+    monkeypatch.setattr(worker, "_LEASE_RENEW_RETRY_SECONDS", 0.001)
+    stop, lost = threading.Event(), threading.Event()
+
+    class BrokenQueue:
+        calls = 0
+
+        def renew_lease(self, send_id: str, owner: str, *, lease_seconds: float) -> bool:
+            self.calls += 1
+            raise RuntimeError("persistent failure")
+
+    queue = BrokenQueue()
+    _renew_lease_until_done(queue, "send-1", "worker", stop, lost)
+    assert queue.calls == 3
+    assert lost.is_set()

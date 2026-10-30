@@ -5146,10 +5146,10 @@ function start() {
 		source.addEventListener("jobs", () => notify("jobs"));
 		source.addEventListener("chats", () => notify("chats"));
 	}
-	fallbackTimer = window.setInterval(() => {
-		if (!source || source.readyState !== EventSource.OPEN) refreshBoth();
-	}, 6e4);
+	fallbackTimer = window.setInterval(refreshBoth, 12e4);
 	document.addEventListener("visibilitychange", visibleAgain);
+	window.addEventListener("online", visibleAgain);
+	window.addEventListener("pageshow", visibleAgain);
 }
 function stop() {
 	source?.close();
@@ -5157,6 +5157,8 @@ function stop() {
 	window.clearInterval(fallbackTimer);
 	fallbackTimer = void 0;
 	document.removeEventListener("visibilitychange", visibleAgain);
+	window.removeEventListener("online", visibleAgain);
+	window.removeEventListener("pageshow", visibleAgain);
 }
 function subscribeLiveUpdates(topic, listener) {
 	const wasEmpty = listeners.jobs.size === 0 && listeners.chats.size === 0;
@@ -6435,6 +6437,24 @@ function JobsPage($$anchor, $$props) {
 }
 delegate(["click", "change"]);
 //#endregion
+//#region src/ui/composerDraftMemory.ts
+var drafts = /* @__PURE__ */ new Map();
+function readComposerDraft(key) {
+	return key ? drafts.get(key) : void 0;
+}
+function rememberComposerDraft(key, value) {
+	if (!key) return;
+	drafts.delete(key);
+	drafts.set(key, value.slice(0, 32e3));
+	if (drafts.size > 48) {
+		const oldest = drafts.keys().next().value;
+		if (oldest) drafts.delete(oldest);
+	}
+}
+function clearComposerDraft(key) {
+	drafts.delete(key);
+}
+//#endregion
 //#region src/ui/ChatComposer.svelte
 var root$4 = /* @__PURE__ */ from_html(`<div class="composer-preview"><img/> <button type="button">×</button></div>`);
 var root_1$4 = /* @__PURE__ */ from_html(`<div class="composer-previews" aria-label="Images to attach"></div>`);
@@ -6459,6 +6479,8 @@ function ChatComposer($$anchor, $$props) {
 	let hasLocalDraft = /* @__PURE__ */ state(false);
 	let images = /* @__PURE__ */ state(proxy([]));
 	let uploading = /* @__PURE__ */ state(false);
+	let uploadGeneration = 0;
+	let uploadAbort = null;
 	let sending = /* @__PURE__ */ state(false);
 	let feedback = /* @__PURE__ */ state("");
 	let fallbackAvailable = /* @__PURE__ */ state(false);
@@ -6475,13 +6497,18 @@ function ChatComposer($$anchor, $$props) {
 		untrack(() => {
 			if (key === hydratedKey) return;
 			hydratedKey = key;
-			let saved = "";
-			let found = false;
-			try {
+			uploadGeneration += 1;
+			uploadAbort?.abort();
+			uploadAbort = null;
+			set(uploading, false);
+			let saved = key ? readComposerDraft(key) || "" : "";
+			let found = !!key && readComposerDraft(key) !== void 0;
+			if (!found) try {
 				const cached = key ? localStorage.getItem(key) : null;
 				if (cached !== null) {
 					saved = cached.slice(0, 32e3);
 					found = true;
+					rememberComposerDraft(key, saved);
 				}
 			} catch {}
 			set(draft, saved, true);
@@ -6504,6 +6531,7 @@ function ChatComposer($$anchor, $$props) {
 		if (!get(sending) && !get(hasLocalDraft)) {
 			set(draft, restoreDraft());
 			set(hasLocalDraft, true);
+			rememberComposerDraft(get(draftStorageKey), get(draft));
 			try {
 				if (get(draftStorageKey)) localStorage.setItem(get(draftStorageKey), get(draft));
 			} catch {}
@@ -6514,7 +6542,12 @@ function ChatComposer($$anchor, $$props) {
 		if ($$props.mode === "fresh") get(textarea)?.focus();
 		requestAnimationFrame(resizeTextarea);
 		window.addEventListener("resize", resizeTextarea);
-		return () => window.removeEventListener("resize", resizeTextarea);
+		return () => {
+			window.removeEventListener("resize", resizeTextarea);
+			uploadGeneration += 1;
+			uploadAbort?.abort();
+			uploadAbort = null;
+		};
 	});
 	function resizeTextarea() {
 		if (!get(textarea)) return;
@@ -6527,9 +6560,12 @@ function ChatComposer($$anchor, $$props) {
 	function draftChanged(event) {
 		set(hasLocalDraft, true);
 		set(fallbackAvailable, false);
-		if (get(draftStorageKey)) try {
-			localStorage.setItem(get(draftStorageKey), event.currentTarget.value);
-		} catch {}
+		if (get(draftStorageKey)) {
+			rememberComposerDraft(get(draftStorageKey), event.currentTarget.value);
+			try {
+				localStorage.setItem(get(draftStorageKey), event.currentTarget.value);
+			} catch {}
+		}
 		resizeTextarea();
 	}
 	async function addFiles(files) {
@@ -6542,17 +6578,27 @@ function ChatComposer($$anchor, $$props) {
 			set(feedback, "At most four images per fresh chat.");
 			return;
 		}
+		if (files.some((file) => ![
+			"image/png",
+			"image/jpeg",
+			"image/gif",
+			"image/webp"
+		].includes(file.type))) {
+			set(feedback, "Only PNG, JPEG, GIF or WebP images are supported.");
+			return;
+		}
+		if (files.some((file) => file.size > 8388608)) {
+			set(feedback, "Images must be 8 MiB or smaller.");
+			return;
+		}
+		const key = get(draftStorageKey);
+		const generation = ++uploadGeneration;
+		const controller = new AbortController();
+		uploadAbort = controller;
 		set(uploading, true);
 		set(feedback, "");
 		try {
 			for (const file of files) {
-				if (![
-					"image/png",
-					"image/jpeg",
-					"image/gif",
-					"image/webp"
-				].includes(file.type)) throw new Error("Only PNG, JPEG, GIF or WebP images are supported.");
-				if (file.size > 8388608) throw new Error("Images must be 8 MiB or smaller.");
 				const data = await new Promise((resolve, reject) => {
 					const reader = new FileReader();
 					reader.onerror = () => reject(/* @__PURE__ */ new Error("Could not read image."));
@@ -6563,23 +6609,29 @@ function ChatComposer($$anchor, $$props) {
 					};
 					reader.readAsDataURL(file);
 				});
+				if (generation !== uploadGeneration || key !== get(draftStorageKey)) return;
 				const response = await fetch("./api/images", {
 					method: "POST",
 					headers: { "content-type": "application/json" },
 					body: JSON.stringify({
 						name: file.name,
 						data
-					})
+					}),
+					signal: controller.signal
 				});
+				if (generation !== uploadGeneration || key !== get(draftStorageKey)) return;
 				if (!response.ok) throw new Error("Image upload failed.");
 				const result = await response.json();
 				if (!result.image?.ref || !result.image.url.startsWith("./api/images/")) throw new Error("Image upload receipt was invalid.");
 				set(images, [...get(images), result.image], true);
 			}
 		} catch (error) {
-			set(feedback, error instanceof Error ? error.message : "Image upload failed.", true);
+			if (generation === uploadGeneration && key === get(draftStorageKey)) set(feedback, error instanceof Error ? error.message : "Image upload failed.", true);
 		} finally {
-			set(uploading, false);
+			if (generation === uploadGeneration && key === get(draftStorageKey)) {
+				uploadAbort = null;
+				set(uploading, false);
+			}
 		}
 	}
 	async function submit(useFallback = false) {
@@ -6595,6 +6647,7 @@ function ChatComposer($$anchor, $$props) {
 				set(draft, "");
 				set(images, [], true);
 				set(feedback, result.message, true);
+				clearComposerDraft(submittedKey);
 				try {
 					if (get(draftStorageKey)) localStorage.removeItem(get(draftStorageKey));
 				} catch {}
@@ -6693,6 +6746,7 @@ function ChatComposer($$anchor, $$props) {
 	var node_3 = sibling(div_4, 2);
 	var consequent_3 = ($$anchor) => {
 		var button_2 = root_4$3();
+		template_effect(() => button_2.disabled = disabled() || get(uploading));
 		delegated("click", button_2, function(...$$args) {
 			$$props.onNewChat?.apply(this, $$args);
 		});
@@ -6719,7 +6773,7 @@ function ChatComposer($$anchor, $$props) {
 		append($$anchor, button_3);
 	};
 	if_block(node_3, ($$render) => {
-		if (!get(hasDraft) && !get(sending)) $$render(consequent_3);
+		if (!get(hasDraft) && get(images).length === 0 && !get(uploading) && !get(sending)) $$render(consequent_3);
 		else $$render(alternate_1, -1);
 	});
 	reset(div_3);

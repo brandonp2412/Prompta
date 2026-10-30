@@ -43,6 +43,7 @@ def _sqlite_busy(exc: OperationalError) -> bool:
 DEFAULT_STATE_PATH = DEFAULT_RUNTIME_PATH
 _LEASE_SECONDS = 300.0
 _LEASE_RENEW_SECONDS = 30.0
+_LEASE_RENEW_RETRY_SECONDS = 2.0
 _MAX_REJECTED_ATTEMPTS = 5
 _RETRY_BASE_SECONDS = 2.0
 _RETRY_CAP_SECONDS = 300.0
@@ -106,14 +107,33 @@ def _renew_lease_until_done(
     stop: threading.Event,
     lost: threading.Event,
 ) -> None:
-    while not stop.wait(_LEASE_RENEW_SECONDS):
-        if not queue.renew_lease(
-            send_id,
-            owner,
-            lease_seconds=_LEASE_SECONDS,
-        ):
+    failures = 0
+    wait_seconds = _LEASE_RENEW_SECONDS
+    while not stop.wait(wait_seconds):
+        try:
+            renewed = queue.renew_lease(
+                send_id,
+                owner,
+                lease_seconds=_LEASE_SECONDS,
+            )
+        except Exception as exc:
+            # The renewer is a daemon thread. Never allow it to silently die
+            # and leave the sender thinking its lease is still protected.
+            failures += 1
+            logger.warning(
+                "Delivery lease renewal failed send_id=%s attempt=%d error_type=%s",
+                send_id, failures, type(exc).__name__,
+            )
+            if failures >= 3:
+                lost.set()
+                return
+            wait_seconds = _LEASE_RENEW_RETRY_SECONDS
+            continue
+        if not renewed:
             lost.set()
             return
+        failures = 0
+        wait_seconds = _LEASE_RENEW_SECONDS
 
 
 def _retry(

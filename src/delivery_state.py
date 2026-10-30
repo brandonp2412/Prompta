@@ -23,8 +23,10 @@ def claimable_delivery(record: Mapping[str, object], *, now: float) -> bool:
         return True
     if status in RETRY_DELIVERY_STATUSES:
         return float_value(record.get("retry_at")) <= now
+    # Once a worker claims a send, a crash can occur after ChatGPT accepts it.
+    # Lease expiry is not evidence that resubmission is safe.
     if status == "running":
-        return float_value(record.get("lease_expires_at")) <= now
+        return False
     return False
 
 

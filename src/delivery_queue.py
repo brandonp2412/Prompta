@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 import time
 import uuid
@@ -11,6 +12,7 @@ from pathlib import Path
 from sqlalchemy import case, func, or_, select, update
 from sqlalchemy.dialects.sqlite import insert
 from sqlalchemy.engine import Connection
+from sqlalchemy.exc import SQLAlchemyError
 
 from .delivery_state import (
     RETRY_DELIVERY_STATUSES,
@@ -22,6 +24,12 @@ from .image_store import image_refs
 from .persistence import create_database, job_deliveries
 from .response_store import ResponseStore
 from .strict_types import float_value, int_value
+
+logger = logging.getLogger(__name__)
+_EXPIRED_LEASE_ERROR = (
+    "Worker lease expired before a durable send receipt; acceptance is unknown. "
+    "Automatic resubmission is disabled."
+)
 
 
 class DeliveryQueueStore:
@@ -323,11 +331,31 @@ class DeliveryQueueStore:
     ) -> dict[str, object] | None:
         at = time.time() if now is None else float(now)
         with self.engine.begin() as connection:
+            # An expired running lease may already have submitted to ChatGPT.
+            # Quarantine it atomically before choosing another queued delivery.
+            expired_ids = connection.execute(
+                update(job_deliveries)
+                .where(
+                    job_deliveries.c.status == "running",
+                    job_deliveries.c.lease_expires_at <= at,
+                )
+                .values(
+                    status="outcome_unknown",
+                    error=_EXPIRED_LEASE_ERROR,
+                    last_error=_EXPIRED_LEASE_ERROR,
+                    updated_at=at,
+                    finished_at=at,
+                    retry_at=0,
+                    lease_owner="",
+                    lease_acquired_at=0,
+                    lease_expires_at=0,
+                )
+                .returning(job_deliveries.c.send_id)
+            ).scalars().all()
             claimable = or_(
                 (job_deliveries.c.status == "queued") & (job_deliveries.c.retry_at <= at),
                 job_deliveries.c.status.in_(RETRY_DELIVERY_STATUSES)
                 & (job_deliveries.c.retry_at <= at),
-                (job_deliveries.c.status == "running") & (job_deliveries.c.lease_expires_at <= at),
             )
             manual = job_deliveries.c.client_id.like("manual:%")
             sequence = (
@@ -353,6 +381,16 @@ class DeliveryQueueStore:
                 .mappings()
                 .one_or_none()
             )
+        # This is a second SQLite store; an unavailable result receipt must
+        # never roll back a queue claim or cause the uncertain send to replay.
+        for expired_id in expired_ids:
+            try:
+                self.results.unavailable(str(expired_id))
+            except (OSError, SQLAlchemyError) as exc:
+                logger.warning(
+                    "Expired delivery result reconciliation failed send_id=%s error_type=%s",
+                    expired_id, type(exc).__name__,
+                )
         return self.record_from_row(row) if row is not None else None
 
     def renew_lease(

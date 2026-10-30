@@ -31,11 +31,13 @@ function start() {
     source.addEventListener("jobs", () => notify("jobs"));
     source.addEventListener("chats", () => notify("chats"));
   }
-  // If the stream is unsupported or offline, use a slower safety-net refresh.
-  fallbackTimer = window.setInterval(() => {
-    if (!source || source.readyState !== EventSource.OPEN) refreshBoth();
-  }, 60000);
+  // Even a connected stream can miss an invalidation (process restart,
+  // observer fault or dropped frame). Repair stale local views periodically;
+  // subscribers already coalesce their GETs and keep existing data visible.
+  fallbackTimer = window.setInterval(refreshBoth, 120000);
   document.addEventListener("visibilitychange", visibleAgain);
+  window.addEventListener("online", visibleAgain);
+  window.addEventListener("pageshow", visibleAgain);
 }
 
 function stop() {
@@ -44,6 +46,8 @@ function stop() {
   window.clearInterval(fallbackTimer);
   fallbackTimer = undefined;
   document.removeEventListener("visibilitychange", visibleAgain);
+  window.removeEventListener("online", visibleAgain);
+  window.removeEventListener("pageshow", visibleAgain);
 }
 
 export function subscribeLiveUpdates(topic: Topic, listener: Listener): () => void {
