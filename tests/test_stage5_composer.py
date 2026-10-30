@@ -492,7 +492,7 @@ def test_fresh_chat_immediately_enters_sidebar_without_horizontal_scroll(
         page.get_by_role("button", name="Send fresh chat").click()
         page.wait_for_url("**/?view=chats&run=manual-*")
         if width < 681:
-            page.get_by_role("button", name="Open chat sidebar").click()
+            page.get_by_role("button", name="Back to chats").click()
         page.locator(".chats-list .chat-row").filter(has_text="Instant new sidebar chat").wait_for(
             timeout=2000,
         )
@@ -501,7 +501,7 @@ def test_fresh_chat_immediately_enters_sidebar_without_horizontal_scroll(
         ).wait_for(timeout=3000)
         page.reload()
         if width < 681:
-            page.get_by_role("button", name="Open chat sidebar").click()
+            expect(page.locator(".chats-sidebar")).to_be_visible()
         page.locator(".chat-entry").filter(has_text="Instant new sidebar chat").locator(
             ".chat-pin[aria-pressed='true']"
         ).wait_for(timeout=3000)

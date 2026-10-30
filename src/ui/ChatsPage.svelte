@@ -71,6 +71,8 @@
   let markingAllRead = $state(false);
   let baselineAt = $state(0);
   let drawerOpen = $state(false);
+  let drawerProgress = $state<number | null>(null);
+  const visibleDrawerProgress = $derived(drawerProgress ?? (drawerOpen ? 1 : 0));
   let filtersOpen = $state(false);
   let expandedPrompts = $state<Record<string, boolean>>({});
   let total = $state(0);
@@ -85,6 +87,7 @@
   let copyState = $state("");
   let scrollPane = $state<HTMLDivElement>();
   let listPane = $state<HTMLDivElement>();
+  let sidebarPane = $state<HTMLElement>();
   let jobsWorkspace = $state<HTMLDivElement>();
   let searchInput = $state<HTMLInputElement>();
   let loadingList = $state(true);
@@ -96,7 +99,18 @@
   let detailGeneration = 0;
   let searchTimer: ReturnType<typeof setTimeout> | undefined;
   let liveRefreshTimer: ReturnType<typeof setTimeout> | undefined;
-  let swipeStart: { x: number; y: number; opening: boolean } | null = null;
+  let swipeStart: {
+    identifier: number;
+    x: number;
+    y: number;
+    opening: boolean;
+    width: number;
+    locked: boolean;
+    rejected: boolean;
+    lastX: number;
+    lastTime: number;
+    velocityX: number;
+  } | null = null;
 
   const activity = (item: RunSummary) => item.updated_at || item.created_at;
   const newestFirst = (a: RunSummary, b: RunSummary) =>
@@ -695,25 +709,77 @@
     }
   }
 
+  const clampDrawer = (value: number) => Math.max(0, Math.min(1, value));
+
+  function cancelSwipe() {
+    swipeStart = null;
+    drawerProgress = null;
+  }
+
   function startSwipe(event: TouchEvent) {
-    if (!window.matchMedia("(max-width: 680px)").matches || event.touches.length !== 1) return;
+    if (swipeStart || !window.matchMedia("(max-width: 680px)").matches || event.touches.length !== 1) return;
     const touch = event.touches[0];
     const showList = view === "chats" && !selectedRunId && !newChatOpen;
-    if (drawerOpen || (!showList && touch.clientX <= 120)) {
-      swipeStart = { x: touch.clientX, y: touch.clientY, opening: !drawerOpen };
+    if (showList || (!drawerOpen && touch.clientX > 120)) return;
+    swipeStart = {
+      identifier: touch.identifier,
+      x: touch.clientX,
+      y: touch.clientY,
+      opening: !drawerOpen,
+      width: sidebarPane?.getBoundingClientRect().width || Math.min(340, innerWidth - 44),
+      locked: false,
+      rejected: false,
+      lastX: touch.clientX,
+      lastTime: performance.now(),
+      velocityX: 0,
+    };
+  }
+
+  function moveSwipe(event: TouchEvent) {
+    const gesture = swipeStart;
+    if (!gesture || gesture.rejected) return;
+    if (event.touches.length !== 1 || event.touches[0].identifier !== gesture.identifier) {
+      cancelSwipe();
+      return;
     }
+    const touch = event.touches[0];
+    const dx = touch.clientX - gesture.x;
+    const dy = touch.clientY - gesture.y;
+    if (!gesture.locked) {
+      if (Math.max(Math.abs(dx), Math.abs(dy)) < 10) return;
+      if (Math.abs(dy) >= Math.abs(dx) / 1.15) {
+        gesture.rejected = true;
+        return;
+      }
+      if ((gesture.opening && dx <= 0) || (!gesture.opening && dx >= 0)) return;
+      gesture.locked = true;
+    }
+    // Own only horizontal gestures; leave vertical chat scrolling and text inputs alone.
+    event.preventDefault();
+    const now = performance.now();
+    const dt = now - gesture.lastTime;
+    if (dt > 0) {
+      const instantVelocity = (touch.clientX - gesture.lastX) / dt;
+      gesture.velocityX = gesture.velocityX * 0.35 + instantVelocity * 0.65;
+    }
+    gesture.lastX = touch.clientX;
+    gesture.lastTime = now;
+    drawerProgress = clampDrawer((gesture.opening ? 0 : 1) + dx / gesture.width);
   }
 
   function finishSwipe(event: TouchEvent) {
-    if (!swipeStart || event.changedTouches.length !== 1) return;
-    const touch = event.changedTouches[0];
-    const dx = touch.clientX - swipeStart.x;
-    const dy = touch.clientY - swipeStart.y;
-    if (Math.abs(dx) >= 64 && Math.abs(dx) > Math.abs(dy) * 1.25) {
-      if (swipeStart.opening && dx > 0) drawerOpen = true;
-      else if (!swipeStart.opening && dx < 0) drawerOpen = false;
+    const gesture = swipeStart;
+    if (!gesture) return;
+    const touch = Array.from(event.changedTouches).find((item) => item.identifier === gesture.identifier);
+    if (!touch) return;
+    if (gesture.locked) {
+      const dx = touch.clientX - gesture.x;
+      const progress = clampDrawer((gesture.opening ? 0 : 1) + dx / gesture.width);
+      const fling = Math.abs(dx) >= 30 && Math.abs(gesture.velocityX) >= 0.45 &&
+        performance.now() - gesture.lastTime < 120;
+      drawerOpen = fling ? gesture.velocityX > 0 : gesture.opening ? progress >= 0.35 : progress > 0.65;
     }
-    swipeStart = null;
+    cancelSwipe();
   }
 
   function selectRun(item: RunSummary) {
@@ -774,6 +840,7 @@
     });
     void loadQueue();
     window.addEventListener("storage", onReadStorage);
+    window.addEventListener("touchmove", moveSwipe, { passive: false });
     queuePollTimer = setInterval(() => { if (document.visibilityState === "visible") void loadQueue(); }, 15000);
     // Poll only Prompta's local turn record while an explicit reply is active.
     // This never opens ChatGPT or submits another message.
@@ -792,6 +859,7 @@
       unsubscribe();
       unsubscribeJobs();
       window.removeEventListener("storage", onReadStorage);
+      window.removeEventListener("touchmove", moveSwipe);
       clearInterval(queuePollTimer);
       clearInterval(detailPollTimer);
       clearTimeout(liveRefreshTimer);
@@ -800,7 +868,7 @@
   });
 </script>
 
-<svelte:window onkeydown={escapeDrawer} ontouchstart={startSwipe} ontouchend={finishSwipe} ontouchcancel={() => swipeStart = null} />
+<svelte:window onkeydown={escapeDrawer} ontouchstart={startSwipe} ontouchend={finishSwipe} ontouchcancel={cancelSwipe} />
 
 {#snippet chatItem(item: RunSummary)}
   <div class:chosen={view === "chats" && selectedRunId === item.send_id} class:unread={isUnread(item)} class="chat-entry">
@@ -828,11 +896,12 @@
   </div>
 {/snippet}
 
-<section class:drawer-open={drawerOpen} class:show-list={view === "chats" && !selectedRunId && !newChatOpen} class="chats-layout" aria-label="Prompta local chats and jobs">
-  {#if drawerOpen}
-    <button type="button" class="drawer-backdrop" aria-label="Close chat sidebar" onclick={() => drawerOpen = false}></button>
-  {/if}
-  <aside class="chats-sidebar" aria-label="Local chat sidebar">
+<section class:drawer-open={drawerOpen} class:drawer-interacting={drawerProgress !== null}
+  class:show-list={view === "chats" && !selectedRunId && !newChatOpen} class="chats-layout"
+  style:--drawer-offset={`${(visibleDrawerProgress - 1) * 100}%`}
+  style:--drawer-opacity={visibleDrawerProgress * 0.6} aria-label="Prompta local chats and jobs">
+  <button type="button" class="drawer-backdrop" aria-label="Close chat sidebar" tabindex={drawerOpen ? 0 : -1} onclick={() => drawerOpen = false}></button>
+  <aside class="chats-sidebar" aria-label="Local chat sidebar" bind:this={sidebarPane}>
     <div class="sidebar-brand">
       <div><strong>Prompta</strong></div>
       <button class="sidebar-close" type="button" aria-label="Close sidebar" onclick={() => drawerOpen = false}>×</button>
@@ -916,7 +985,13 @@
 
   <div class="chats-detail">
     <div class="workspace-header">
-      <button class="sidebar-menu" type="button" aria-label="Open chat sidebar" aria-expanded={drawerOpen} onclick={() => drawerOpen = true}>☰</button>
+      {#if view === "chats" && selectedRunId}
+        <button class="chat-header-back" type="button" aria-label="Back to chats" title="Back to chats" onclick={() => onSelect(null)}>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6" /></svg>
+        </button>
+      {:else}
+        <button class="sidebar-menu" type="button" aria-label="Open chat sidebar" aria-expanded={drawerOpen} onclick={() => drawerOpen = true}>☰</button>
+      {/if}
       <strong>{view === "jobs" ? "Jobs" : (detail?.title || detail?.job_name || "Chats")}</strong>
     </div>
     {#if view === "jobs"}
@@ -927,9 +1002,6 @@
     {:else if !selectedRunId}
       <div class="chats-detail-empty"><button class="sidebar-primary" onclick={createChat}>New chat</button></div>
     {:else}
-      <div class="chat-detail-toolbar">
-        <button class="chat-detail-back" onclick={() => onSelect(null)}>‹ <span>All chats</span></button>
-      </div>
       <div class="chat-transcript-scroll" bind:this={scrollPane}>
       {#if detailError}
         <div class="result-error recovery-error" role="alert">

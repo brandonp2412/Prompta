@@ -49,15 +49,21 @@ def test_sidebar_and_reply_composer_keep_identity_through_new_chat(
                 }""")
 
                 if width <= 680:
-                    page.get_by_role("button", name="Open chat sidebar").click()
+                    page.get_by_role("button", name="Back to chats").click()
                 page.locator(".chats-list .chat-row").filter(has_text="Synthetic old-beta").click()
                 page.wait_for_url("**/?view=chats&run=old-beta")
-                assert page.evaluate("""() =>
-                    document.querySelector(".chat-composer-wrap") === window.__composerNode
-                """), "Switching between replies remounted the composer"
+                # Desktop preserves the composer through a direct rail switch.
+                # Mobile intentionally visits the full-screen list, so the
+                # conversation composer is remounted when a chat is reselected.
+                if width > 680:
+                    assert page.evaluate("""() =>
+                        document.querySelector(".chat-composer-wrap") === window.__composerNode
+                    """), "Switching between replies remounted the composer"
+                else:
+                    expect(page.get_by_role("textbox", name="Message for current chat")).to_be_visible()
 
                 if width <= 680:
-                    page.get_by_role("button", name="Open chat sidebar").click()
+                    page.get_by_role("button", name="Back to chats").click()
                 page.locator(".chats-sidebar .sidebar-primary").click()
                 page.wait_for_url("**/?view=chats&draft=new")
                 assert page.evaluate("""() =>

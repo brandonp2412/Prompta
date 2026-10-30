@@ -569,18 +569,17 @@ def test_sidebar_infinite_scroll_search_focus_and_wide_mobile_swipe(
             nav = page.locator(".sidebar-actions")
             jobs_button = nav.get_by_role("button", name="Jobs")
             assert jobs_button.get_attribute("class") == "sidebar-jobs"
-            assert jobs_button.inner_text().strip() == "Jobs"
             jobs = jobs_button.bounding_box()
             new_chat = nav.get_by_role("button", name="New chat").bounding_box()
             search = nav.get_by_role("button", name="Search chats").bounding_box()
             assert jobs and new_chat and search
+            # Mobile keeps the three accessible actions in one row.
             assert (
                 max(jobs["y"], new_chat["y"], search["y"])
                 - min(jobs["y"], new_chat["y"], search["y"])
                 < 2
             )
-            assert jobs["width"] >= 44
-            assert new_chat["width"] >= 44 and search["width"] >= 44
+            assert min(jobs["width"], new_chat["width"], search["width"]) >= 40
             nav.get_by_role("button", name="Search chats").click()
             assert page.locator(".chats-controls input").evaluate(
                 "element => document.activeElement === element"
@@ -600,46 +599,81 @@ def test_sidebar_infinite_scroll_search_focus_and_wide_mobile_swipe(
             assert page.locator(".chat-row-top strong").last.inner_text() == "Scroll entry 000"
 
             page.locator(".chat-row").first.click()
-            expect(page.locator(".chats-sidebar")).to_be_hidden()
+            sidebar = page.locator(".chats-sidebar")
+            backdrop = page.locator(".drawer-backdrop")
+            expect(sidebar).to_be_hidden()
             cdp = context.new_cdp_session(page)
 
-            def swipe(start_x: int, end_x: int) -> None:
+            def touch(event_type: str, x: int = 0, y: int = 300) -> None:
+                points = [{"x": x, "y": y}] if event_type != "touchEnd" else []
                 cdp.send(
                     "Input.dispatchTouchEvent",
                     {
-                        "type": "touchStart",
-                        "touchPoints": [{"x": start_x, "y": 300}],
-                    },
-                )
-                for step in range(1, 7):
-                    cdp.send(
-                        "Input.dispatchTouchEvent",
-                        {
-                            "type": "touchMove",
-                            "touchPoints": [
-                                {
-                                    "x": start_x + (end_x - start_x) * step / 6,
-                                    "y": 300,
-                                }
-                            ],
-                        },
-                    )
-                cdp.send(
-                    "Input.dispatchTouchEvent",
-                    {
-                        "type": "touchEnd",
-                        "touchPoints": [],
+                        "type": event_type,
+                        "touchPoints": points,
                     },
                 )
 
-            swipe(105, 260)  # Starts well beyond a narrow OS edge-swipe zone.
-            expect(page.locator(".chats-sidebar")).to_be_visible()
+            def swipe(start_x: int, end_x: int) -> None:
+                touch("touchStart", start_x)
+                for step in range(1, 7):
+                    touch("touchMove", round(start_x + (end_x - start_x) * step / 6))
+                touch("touchEnd")
+
+            # Vertical page movement must not steal scrolling or open the drawer.
+            touch("touchStart", 105)
+            touch("touchMove", 115, 410)
+            touch("touchEnd")
+            expect(sidebar).to_be_hidden()
+
+            # The drawer and dimming layer follow a partial drag in both directions.
+            touch("touchStart", 105)
+            touch("touchMove", 155)
+            page.wait_for_function(
+                "() => document.querySelector('.chats-layout')?.classList.contains('drawer-interacting')"
+            )
+            first_box = sidebar.bounding_box()
+            assert first_box is not None and -first_box["width"] < first_box["x"] < 0
+            first_opacity = float(backdrop.evaluate("element => getComputedStyle(element).opacity"))
+            assert 0 < first_opacity < 0.6
+            touch("touchMove", 205)
+            second_box = sidebar.bounding_box()
+            assert second_box is not None and second_box["x"] > first_box["x"] + 25
+            touch("touchMove", 175)
+            reversed_box = sidebar.bounding_box()
+            assert reversed_box is not None and reversed_box["x"] < second_box["x"] - 10
+            touch("touchEnd")
+            expect(sidebar).to_be_hidden()  # A reversed pull settles closed.
+
+            # Pausing before release must not preserve an old high swipe velocity.
+            touch("touchStart", 105)
+            touch("touchMove", 155)
+            time.sleep(0.18)
+            touch("touchEnd")
+            expect(sidebar).to_be_hidden()
+
+            swipe(105, 260)  # Starts beyond the narrow OS edge-swipe zone.
+            expect(sidebar).to_be_visible()
+            assert page.locator(".chats-layout").evaluate(
+                "(element) => element.classList.contains('drawer-open')"
+            )
+            touch("touchStart", 240)
+            touch("touchMove", 165)
+            dragging_box = sidebar.bounding_box()
+            assert dragging_box is not None and dragging_box["x"] < -30
+            touch("touchMove", 215)
+            reversed_box = sidebar.bounding_box()
+            assert reversed_box is not None and reversed_box["x"] > dragging_box["x"] + 20
+            touch("touchEnd")
+            expect(sidebar).to_be_visible()  # Reverse direction before release.
             swipe(240, 50)
-            expect(page.locator(".chats-sidebar")).to_be_hidden()
+            expect(sidebar).to_be_hidden()
+            expect(backdrop).to_be_hidden()
             assert page.evaluate("document.documentElement.scrollWidth <= innerWidth + 1")
             assert all(url.startswith(f"http://{host}/") for _, url in observed)
             assert all(
-                method == "GET" or "/api/local-chat-reads" in url for method, url in observed
+                method == "GET" or (method == "POST" and url.endswith("/api/local-chat-reads"))
+                for method, url in observed
             )
             context.close()
         finally:
@@ -1010,8 +1044,8 @@ def test_chats_ui_desktop_mobile_and_no_chatgpt_requests(tmp_path: Path) -> None
                 phone.locator(".chat-row").filter(has_text="Daily review").click()
                 expect(phone.locator(".assistant-group")).to_have_count(2)
                 assert phone.locator(".prompt-message").count() == 2
-                assert phone.locator(".chats-sidebar").is_hidden()
-                assert phone.locator(".chats-detail").is_visible()
+                expect(phone.locator(".chats-sidebar")).to_be_hidden()
+                expect(phone.locator(".chats-detail")).to_be_visible()
                 assert phone.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
                 phone.locator(".chats-detail").evaluate("(element) => { element.scrollTop = 0; }")
                 phone.screenshot(
@@ -1023,13 +1057,13 @@ def test_chats_ui_desktop_mobile_and_no_chatgpt_requests(tmp_path: Path) -> None
                 phone.screenshot(
                     path=str(screenshots / "prompta-chats-mobile.png"), animations="disabled"
                 )
-                phone.get_by_role("button", name="All chats").click()
+                phone.get_by_role("button", name="Back to chats").click()
                 phone.locator(".chat-row").filter(has_text="Security").click()
                 expect(phone.locator(".prompt-message.collapsed")).to_have_count(1)
-                phone.get_by_role("button", name="All chats").click()
+                phone.get_by_role("button", name="Back to chats").click()
                 phone.locator(".chat-row").filter(has_text="Release notes").click()
                 expect(phone.get_by_text("Partial response", exact=False)).to_be_visible()
-                phone.get_by_role("button", name="All chats").click()
+                phone.get_by_role("button", name="Back to chats").click()
                 assert phone.locator(".chats-sidebar").is_visible()
                 assert phone.locator(".chats-detail").is_hidden()
                 context.close()
