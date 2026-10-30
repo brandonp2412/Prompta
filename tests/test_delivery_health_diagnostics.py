@@ -13,7 +13,7 @@ from test_web_results import get, server
 
 def test_health_distinguishes_http_liveness_from_browser_readiness(tmp_path: Path) -> None:
     with server(tmp_path) as (app, port):
-        for service in ("ui", "scheduler", "delivery_worker", "browser"):
+        for service in ("ui", "scheduler", "delivery_worker", "manual_reply_worker", "browser"):
             assert app.health.beat(service)
         with patch("prompta.web.browser_page_count", return_value=(False, 0)):
             status, health, _ = get(port, "/api/health")

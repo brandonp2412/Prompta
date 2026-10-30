@@ -1,0 +1,29 @@
+[Unit]
+Description=Prompta explicit manual reply worker and passive capture
+Wants=network-online.target prompta-browser.service
+After=network-online.target prompta-browser.service
+
+[Service]
+Slice=prompta.slice
+Type=simple
+WorkingDirectory=%h/prompta
+Environment=PYTHONUNBUFFERED=1
+Environment=TMPDIR=%h/.local/state/prompta/tmp
+Environment=PROMPTA_CHROME_DEBUGGER_ADDRESS=127.0.0.1:9222
+ExecStartPre=/usr/bin/mkdir -p %h/.local/state/prompta/tmp
+ExecStart=%h/prompta/.venv/bin/python -m prompta.manual_reply_worker
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=%h/.local/state/prompta %h/.config/prompta
+MemoryHigh=512M
+MemoryMax=1G
+TasksMax=256
+# Preserve a verified, long-running reply across deployments and UI reloads.
+TimeoutStopSec=3000s
+
+[Install]
+WantedBy=prompta.target

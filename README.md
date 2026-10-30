@@ -25,7 +25,7 @@ systemctl --user daemon-reload
 systemctl --user enable --now prompta.target prompta-browser-watchdog.timer
 ```
 
-The Jobs and Chats UI is at `http://127.0.0.1:8765`. Its Chats view reads only Prompta's private local SQLite results. The CLI is available as `uv run prompta`, for example:
+The Jobs and Chats UI is at `http://127.0.0.1:8765`. Its Chats view reads only Prompta's private local SQLite results. Explicit Send clicks durably enqueue their exact-branch replies to `prompta-manual-reply-worker.service`, so redeploying the UI does not terminate an accepted reply capture. Prepared-only intents cannot be sent by this worker, and ambiguous sends are never retried automatically. The CLI is available as `uv run prompta`, for example:
 
 ```bash
 uv run prompta add nightly-review "Review the project and improve it" --daily-at 21:00

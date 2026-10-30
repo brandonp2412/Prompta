@@ -118,10 +118,8 @@ class PromptaJobServer(ThreadingHTTPServer):
             return
         self.health.beat("ui", now=now)
         self.replies.recover_orphans(now=now)
-        try:
-            self.reply_dispatch.pump_queued()
-        except Exception as exc:
-            logger.warning("Queued follow-up scan failed error_type=%s", type(exc).__name__)
+        # The separate manual-reply worker owns every explicit send and its
+        # long-running capture; UI restarts must not terminate those threads.
         notify_watchdog()
         self._last_health_beat = now
 
@@ -413,11 +411,10 @@ class PromptaJobHandler(BaseHTTPRequestHandler):
                         raise ValueError("Invalid queued follow-up fields")
                     turn = self.server.replies.queue_followup(send_id, reply_id, text)
                     self._json({"ok": True, "turn": turn}, HTTPStatus.ACCEPTED)
-                    self.server.reply_dispatch.pump_queued()
                     return
                 intent = ReplyIntent.parse(payload)
                 if send_reply_path:
-                    turn = self.server.reply_dispatch.submit(send_id, intent)
+                    turn = self.server.replies.queue_explicit_send(send_id, intent)
                     self._json(
                         {"ok": True, "dispatched": False, "queued_for_explicit_dispatch": turn["status"] == "prepared", "turn": turn},
                         HTTPStatus.ACCEPTED,

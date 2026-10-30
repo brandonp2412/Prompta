@@ -1231,6 +1231,49 @@ def test_explicit_reply_intent_contract_is_local_and_not_dispatched(
         assert "Private answer" not in caplog.text
 
 
+def test_explicit_reply_is_durably_handed_to_worker_not_ui(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A UI restart cannot own or duplicate a user-authorized reply."""
+    from prompta.reply_contracts import ReplyIntent
+
+    payload: dict[str, object] = {
+        "reply_id": "reply-independent-worker-1234",
+        "conversation_id": "conversation-1234567890",
+        "parent_id": "assistant-1234567890",
+        "text": "Reply from the real Send button",
+    }
+    with server(tmp_path) as (app, port):
+        app.results.ensure_queued("known", "Original", now=100)
+        assert app.results.accept("known", "test-owner", deadline=300, now=101)
+        assert app.results.write("known", "test-owner", CaptureResult(
+            "sse", "complete", "Original answer", "conversation-1234567890",
+            "assistant-1234567890", "user-1234567890123",
+        ), now=102)
+        intent = ReplyIntent.parse(payload)
+        assert app.replies.prepare("known", intent)["status"] == "prepared"
+        assert app.replies.next_queued_intent() is None
+
+        def no_ui_dispatch(*_args: object, **_kwargs: object) -> None:
+            raise AssertionError("The UI process must never dispatch a reply")
+
+        monkeypatch.setattr(app.reply_dispatch, "submit", no_ui_dispatch)
+        monkeypatch.setattr(app.reply_dispatch, "pump_queued", no_ui_dispatch)
+        status, response = post_json(port, "/api/results/known/reply-send", payload)
+        assert status == 202 and response["dispatched"] is False
+        turn = string_object_dict(response["turn"])
+        assert turn is not None and turn["queued_by_user"] is True
+        assert app.replies.next_queued_intent() == ("known", intent)
+        # A lost HTTP receipt or second click must not create another turn.
+        assert post_json(port, "/api/results/known/reply-send", payload)[0] == 202
+        assert len(app.replies.turns("known") or []) == 2
+
+    # Restart the whole UI; only the separate worker can claim this durable row.
+    with server(tmp_path) as (restored, _port):
+        assert restored.replies.next_queued_intent() == ("known", ReplyIntent.parse(payload))
+        assert len(restored.replies.turns("known") or []) == 2
+
+
 def test_unread_badges_follow_completed_answers_not_metadata(tmp_path: Path) -> None:
     """End-to-end: no false badge for queued/partial/status writes or unsent replies."""
     from sqlalchemy import update

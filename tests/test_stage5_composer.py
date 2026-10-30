@@ -266,7 +266,6 @@ def test_existing_chat_reply_composer_is_explicit_and_branch_bound(
             "observer-1" if missing_parent else None,
         ),
     )
-    calls: list[tuple[str, str, str]] = []
     recoveries: list[str] = []
 
     def recover(send_id: str) -> dict[str, str]:
@@ -281,14 +280,6 @@ def test_existing_chat_reply_composer_is_explicit_and_branch_bound(
 
     monkeypatch.setattr(app.reply_dispatch, "recover", recover)
 
-    def local_dispatch(send_id: str, intent: object) -> dict[str, object]:
-        from prompta.reply_contracts import ReplyIntent
-
-        assert isinstance(intent, ReplyIntent)
-        calls.append((send_id, intent.conversation_id, intent.parent_id))
-        return app.replies.prepare(send_id, intent)
-
-    monkeypatch.setattr(app.reply_dispatch, "submit", local_dispatch)
     thread = threading.Thread(target=app.serve_forever, daemon=True)
     thread.start()
     port = int(app.server_address[1])
@@ -314,7 +305,7 @@ def test_existing_chat_reply_composer_is_explicit_and_branch_bound(
             )
             assert page.get_by_role("button", name="Reply to this chat").count() == 0
             assert page.get_by_role("button", name="Send saved reply").count() == 0
-            assert not recoveries and not calls
+            assert not recoveries
             empty_action = page.locator(".chat-composer-wrap").get_by_role(
                 "button", name="New chat"
             )
@@ -322,7 +313,7 @@ def test_existing_chat_reply_composer_is_explicit_and_branch_bound(
             assert page.get_by_role("button", name="Send reply").count() == 0
             empty_action.click()
             page.wait_for_url("**/?view=chats&draft=new")
-            assert not recoveries and not calls
+            assert not recoveries
             page.goto(f"http://127.0.0.1:{port}/?view=chats&run=run-1")
             composer = page.get_by_role("textbox", name="Message for current chat")
             composer.fill("Synthetic follow-up")
@@ -347,7 +338,12 @@ def test_existing_chat_reply_composer_is_explicit_and_branch_bound(
                 composer.press("Enter")
             assert sent.value.status == 202
             page.locator(".message-group.user-group").nth(1).wait_for()
-            assert calls == [("run-1", conversation_id, parent_id)]
+            persisted = app.replies.turns("run-1") or []
+            assert len(persisted) == 2
+            assert persisted[-1]["status"] == "prepared"
+            assert persisted[-1]["queued_by_user"] is True
+            assert persisted[-1]["conversation_id"] == conversation_id
+            assert persisted[-1]["parent_id"] == parent_id
             assert recoveries == (["run-1"] if missing_parent else [])
             assert len(
                 [1 for method, url in observed if method == "POST" and "/reply-recover" in url]
@@ -370,7 +366,12 @@ def test_existing_chat_reply_composer_is_explicit_and_branch_bound(
             composer = page.get_by_role("textbox", name="Message for current chat")
             expect(composer).to_have_value("")
             expect(page.locator(".message-group.user-group")).to_have_count(2)
-            assert calls == [("run-1", conversation_id, parent_id)]
+            persisted = app.replies.turns("run-1") or []
+            assert len(persisted) == 2
+            assert persisted[-1]["status"] == "prepared"
+            assert persisted[-1]["queued_by_user"] is True
+            assert persisted[-1]["conversation_id"] == conversation_id
+            assert persisted[-1]["parent_id"] == parent_id
             assert (
                 len([1 for method, url in observed if method == "POST" and "/reply-send" in url])
                 == 1

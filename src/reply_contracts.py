@@ -199,6 +199,31 @@ class ManualReplyStore:
             "status": "prepared", "created_at": at, "updated_at": at,
         }
 
+    def queue_explicit_send(self, send_id: str, intent: ReplyIntent) -> dict[str, object]:
+        """A user click durably authorizes one immutable send for the reply worker.
+
+        Preparing an intent alone does not authorize dispatch. The worker sees
+        only prepared rows explicitly opted in by this method. Ambiguous or
+        already-claimed requests are never rearmed automatically.
+        """
+        turn = self.prepare(send_id, intent)
+        if turn["status"] == "preflight_failed":
+            turn = self.retry_preflight(intent.reply_id)
+        if turn["status"] == "prepared":
+            with self.engine.begin() as connection:
+                connection.execute(update(replies).where(
+                    replies.c.reply_id == intent.reply_id,
+                    replies.c.send_id == send_id,
+                    replies.c.conversation_id == intent.conversation_id,
+                    replies.c.parent_id == intent.parent_id,
+                    replies.c.user_text == intent.text,
+                    replies.c.status == "prepared",
+                ).values(queued_by_user=True))
+            saved = self.get(intent.reply_id)
+            assert saved is not None
+            return saved
+        return turn
+
     def queue_followup(
         self, send_id: str, reply_id: str, text: str, *, now: float | None = None,
     ) -> dict[str, object]:

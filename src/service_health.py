@@ -20,6 +20,7 @@ SERVICE_STALE_AFTER_SECONDS = {
     "ui": 20.0,
     "scheduler": 20.0,
     "delivery_worker": 20.0,
+    "manual_reply_worker": 20.0,
     "browser": 30.0,
 }
 ACTIVE_DELIVERY_ACTIVITY_MAX_AGE_SECONDS = 125.0

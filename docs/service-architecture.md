@@ -6,9 +6,10 @@ Prompta is a job-centric scheduler and fresh-chat dispatcher. Its only conversat
 
 | Unit | Owns | Does not own |
 | --- | --- | --- |
-| prompta-ui.service | Jobs CRUD/status plus local SQLite-only `/api/results` and read-only Chats view | ChatGPT browser access, account-wide history, replies |
+| prompta-ui.service | Jobs CRUD/status, local Chats view, and durable user-clicked reply enqueue | ChatGPT reply transport or long-running reply capture |
 | prompta-scheduler.service | Due-time calculation and durable job-delivery enqueue | Browser automation or result tracking |
 | prompta-delivery-worker.service | Fresh-chat delivery, independent passive captures, and paced read-only recovery of exact verified conversations | Account-wide history enumeration, internal history API requests, or retries after ambiguous sends |
+| prompta-manual-reply-worker.service | User-clicked, exact-branch reply dispatch and independent passive capture; gracefully drains active captures on shutdown | Prepared-only intents, unattended conversation continuation, or ambiguous-send retries |
 | prompta-browser.service | Authenticated Chromium/CDP session | Scheduling or job state |
 | prompta-connector-approval-watch.service | Opt-in scan of unread ChatGPT sidebar markers, temporary background approval tabs, and permission-only checks in already-open non-Prompta chats | Chat bodies, history APIs, prompt submission, or navigation/closure of user tabs |
 
@@ -57,7 +58,11 @@ The read cooldown starts at five minutes, doubles for repeated rate limits up to
 ## Service control
 
     systemctl --user restart prompta-ui prompta-scheduler prompta-delivery-worker prompta-browser
-    systemctl --user status prompta-ui prompta-scheduler prompta-delivery-worker prompta-browser
+    systemctl --user status prompta-ui prompta-manual-reply-worker prompta-scheduler prompta-delivery-worker prompta-browser
+
+The manual-reply worker is intentionally omitted from routine UI restarts. Its SIGTERM
+handler waits for active captures (up to the owned-tab lifetime) before exit; a
+service restart must not force-kill an accepted reply to speed deployment.
 
 There is no prompta-conversation-worker.service.
 

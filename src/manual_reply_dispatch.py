@@ -117,6 +117,11 @@ class ManualReplyDispatcher:
             raise ReplyConflict("Manual reply worker is unavailable") from None
         return turn
 
+    def active_count(self) -> int:
+        """Number of captured or preflighted replies still owned by this process."""
+        with self._lock:
+            return len(self._active)
+
     def pump_queued(self) -> None:
         """Dispatch only explicit user-clicked follow-ups whose parent is ready.
 
