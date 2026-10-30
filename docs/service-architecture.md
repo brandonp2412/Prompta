@@ -10,8 +10,9 @@ Prompta is a job-centric scheduler and fresh-chat dispatcher. Its only conversat
 | prompta-scheduler.service | Due-time calculation and durable job-delivery enqueue | Browser automation or result tracking |
 | prompta-delivery-worker.service | Fresh-chat delivery, independent passive captures, and paced read-only recovery of exact verified conversations | Account-wide history enumeration, internal history API requests, or retries after ambiguous sends |
 | prompta-browser.service | Authenticated Chromium/CDP session | Scheduling or job state |
+| prompta-connector-approval-watch.service | Opt-in scan of rendered unread ChatGPT sidebar markers and temporary background approval tabs | Chat bodies, history APIs, prompt submission, or existing user tabs |
 
-prompta.target starts these four services. The old conversation worker does not exist.
+prompta.target starts these services. The old conversation worker does not exist.
 
 ## Data flow
 

@@ -1,0 +1,25 @@
+[Unit]
+Description=Prompta background ChatGPT unread-chat connector approval watcher
+Wants=network-online.target prompta-flaresolverr.service
+After=network-online.target prompta-flaresolverr.service
+
+[Service]
+Slice=prompta.slice
+Type=simple
+WorkingDirectory=%h/prompta
+Environment=PYTHONUNBUFFERED=1
+Environment=TMPDIR=/tmp
+Environment=PROMPTA_CHROME_DEBUGGER_ADDRESS=127.0.0.1:9223
+ExecStart=%h/prompta/.venv/bin/python -m prompta.connector_approval_watch
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+MemoryHigh=256M
+MemoryMax=512M
+TasksMax=128
+
+[Install]
+WantedBy=prompta.target

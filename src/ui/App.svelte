@@ -3,13 +3,13 @@
   import ChatsPage from "./ChatsPage.svelte";
 
   let { serverName }: { serverName: string } = $props();
-  let view = $state<"jobs" | "chats">("jobs");
+  let view = $state<"jobs" | "chats">("chats");
   let selectedRunId = $state<string | null>(null);
   let newChatOpen = $state(false);
 
   function syncRoute() {
     const params = new URLSearchParams(window.location.search);
-    view = params.get("view") === "chats" ? "chats" : "jobs";
+    view = params.get("view") === "jobs" ? "jobs" : "chats";
     selectedRunId = view === "chats" ? params.get("run") : null;
     newChatOpen = view === "chats" && !selectedRunId && params.get("draft") === "new";
   }
@@ -23,7 +23,7 @@
     if (nextView === "chats") {
       url.searchParams.set("view", "chats");
       if (run) url.searchParams.set("run", run);
-    } else url.searchParams.delete("view");
+    } else url.searchParams.set("view", "jobs");
     window.history.pushState(null, "", url);
     syncRoute();
   }

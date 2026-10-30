@@ -77,7 +77,7 @@ def test_foundations_readability_and_editor_hit_testing(
                 requests: list[tuple[str, str]] = []
                 page.on("request", lambda request: requests.append((request.method, request.url)))
                 base = f"http://127.0.0.1:{port}/"
-                page.goto(base, wait_until="networkidle")
+                page.goto(base + "?view=jobs", wait_until="networkidle")
                 expect(page.get_by_role("heading", name="Jobs", exact=True)).to_be_visible()
                 atlas_root = os.environ.get("PROMPTA_ATLAS_OUTPUT")
                 tablet_dir = Path(atlas_root) / "768x1024" if atlas_root and width == 768 else None

@@ -138,4 +138,4 @@ Passive response capture retains each Prompta-owned tab only until completion, i
 enabled = true
 ```
 
-Restart `prompta-delivery-worker` after changing this setting. Delivery is acknowledged immediately; approval handling and passive response capture run in the background without making any additional ChatGPT requests.
+Restart `prompta-delivery-worker` and `prompta-connector-approval-watch` after changing this setting. Delivery is acknowledged immediately; approval handling and passive response capture run independently. The separate watcher stays alive across deliveries, inspects only unread indicators in the rendered ChatGPT sidebar, and opens those chats in background tabs to grant successive permission dialogs for at most 45 minutes per chat. It never reads conversation text, calls a history API, or sends messages. Automatically granting **Always allow** authorizes the requested connector permissions; only enable this for an account where you intend that behaviour.

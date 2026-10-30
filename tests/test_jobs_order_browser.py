@@ -54,7 +54,7 @@ def test_jobs_table_sorts_next_run_before_pagination(
                     status=200, content_type="application/json", body=json.dumps({"jobs": jobs})
                 ),
             )
-            page.goto(f"http://127.0.0.1:{port}/", wait_until="domcontentloaded")
+            page.goto(f"http://127.0.0.1:{port}/?view=jobs", wait_until="domcontentloaded")
             first_page = [f"Job-{index:02}" for index in range(11, 1, -1)]
             expect(page.locator(".job-row")).to_have_count(10)
             assert page.locator(".job-row .job-name").all_text_contents() == first_page

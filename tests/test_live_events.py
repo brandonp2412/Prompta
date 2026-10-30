@@ -127,7 +127,7 @@ def test_browser_updates_jobs_and_chats_without_timer_polling(tmp_path: Path) ->
                 page = browser.new_page(viewport={"width": 390, "height": 844})
                 requests: list[str] = []
                 page.on("request", lambda request: requests.append(request.url))
-                page.goto(f"http://127.0.0.1:{port}/", wait_until="domcontentloaded")
+                page.goto(f"http://127.0.0.1:{port}/?view=jobs", wait_until="domcontentloaded")
                 expect(page.locator(".jobs-panel")).to_be_visible()
                 expect(page.locator(".job-name")).to_have_count(0)
                 page.wait_for_timeout(1000)

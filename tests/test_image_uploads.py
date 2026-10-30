@@ -131,7 +131,7 @@ def test_mobile_image_previews_do_not_hide_under_footer(tmp_path: Path) -> None:
             )
             try:
                 page = browser.new_page(viewport={"width": 320, "height": 568})
-                page.goto(f"http://127.0.0.1:{server.server_port}/")
+                page.goto(f"http://127.0.0.1:{server.server_port}/?view=jobs")
                 page.get_by_role("button", name="Run once").first.click()
                 page.locator("textarea").fill("Check four image previews")
                 page.locator('input[type="file"]').set_input_files(files)

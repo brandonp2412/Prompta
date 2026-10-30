@@ -1,6 +1,6 @@
 [Unit]
-Description=Prompta jobs-only service stack
-Wants=prompta-browser-watchdog.timer prompta-browser.service prompta-scheduler.service prompta-delivery-worker.service prompta-ui.service
+Description=Prompta scheduler, Chats UI and approval watcher
+Wants=prompta-browser-watchdog.timer prompta-browser.service prompta-scheduler.service prompta-delivery-worker.service prompta-ui.service prompta-connector-approval-watch.service
 After=network-online.target
 
 [Install]

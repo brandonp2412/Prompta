@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import threading
 import time
 from collections.abc import Generator
@@ -74,6 +75,26 @@ def completed_run(app: PromptaJobServer, send_id: str, name: str, now: float) ->
     assert app.results.write(send_id, f"100:{send_id}", CaptureResult(
         "sse", "complete", f"**Answer** for {name}\n\n```py\nprint(1)\n```", "c1", "m1", "p1"
     ), now=now + 2)
+
+
+def test_default_route_opens_chats_and_jobs_remains_linkable(tmp_path: Path) -> None:
+    with server(tmp_path) as (_app, port):
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True, executable_path="/usr/bin/chromium")
+            try:
+                page = browser.new_page(viewport={"width": 1440, "height": 900})
+                page.goto(f"http://127.0.0.1:{port}/")
+                expect(page).to_have_title(re.compile(r"^Prompta · Chats · "))
+                expect(page.locator(".chats-layout")).to_be_visible()
+                page.locator(".sidebar-jobs").click()
+                expect(page).to_have_url(f"http://127.0.0.1:{port}/?view=jobs")
+                expect(page).to_have_title(re.compile(r"^Prompta · Jobs · "))
+                page.reload()
+                expect(page).to_have_title(re.compile(r"^Prompta · Jobs · "))
+                page.goto(f"http://127.0.0.1:{port}/?view=chats")
+                expect(page).to_have_title(re.compile(r"^Prompta · Chats · "))
+            finally:
+                browser.close()
 
 
 def test_results_api_lists_only_local_runs_with_filter_search_and_pagination(tmp_path: Path) -> None:
@@ -800,7 +821,7 @@ def test_mobile_jobs_editor_navigation_and_touch_targets(tmp_path: Path) -> None
                     viewport={"width": 390, "height": 844},
                     device_scale_factor=1, is_mobile=True, has_touch=True,
                 )
-                page.goto(f"http://127.0.0.1:{port}/", wait_until="networkidle")
+                page.goto(f"http://127.0.0.1:{port}/?view=jobs", wait_until="networkidle")
                 expect(page.locator(".job-row")).to_have_count(10)
                 page.screenshot(path=str(screenshots / "mobile-jobs-top.png"), animations="disabled")
                 pane = page.locator(".jobs-workspace")

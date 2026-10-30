@@ -9834,12 +9834,12 @@ var root = /* @__PURE__ */ from_html(`<meta name="apple-mobile-web-app-title"/>`
 var root_1 = /* @__PURE__ */ from_html(`<main class="jobs-app"><!></main>`);
 function App($$anchor, $$props) {
 	push($$props, true);
-	let view = /* @__PURE__ */ state("jobs");
+	let view = /* @__PURE__ */ state("chats");
 	let selectedRunId = /* @__PURE__ */ state(null);
 	let newChatOpen = /* @__PURE__ */ state(false);
 	function syncRoute() {
 		const params = new URLSearchParams(window.location.search);
-		set(view, params.get("view") === "chats" ? "chats" : "jobs", true);
+		set(view, params.get("view") === "jobs" ? "jobs" : "chats", true);
 		set(selectedRunId, get(view) === "chats" ? params.get("run") : null, true);
 		set(newChatOpen, get(view) === "chats" && !get(selectedRunId) && params.get("draft") === "new", true);
 	}
@@ -9852,7 +9852,7 @@ function App($$anchor, $$props) {
 		if (nextView === "chats") {
 			url.searchParams.set("view", "chats");
 			if (run) url.searchParams.set("run", run);
-		} else url.searchParams.delete("view");
+		} else url.searchParams.set("view", "jobs");
 		window.history.pushState(null, "", url);
 		syncRoute();
 	}

@@ -149,7 +149,7 @@ def test_mobile_ux_inventory_atlas(tmp_path: Path, width: int, height: int) -> N
                 page.on("request", lambda request: requests.append((request.method, request.url)))
                 page.on("dialog", lambda dialog: dialog.dismiss())
                 base = f"http://127.0.0.1:{port}/"
-                page.goto(base, wait_until="networkidle")
+                page.goto(base + "?view=jobs", wait_until="networkidle")
                 expect(page.get_by_role("heading", name="Jobs", exact=True)).to_be_visible()
                 screenshot(page, root, "01-jobs", notes)
                 page.locator(".job-row").last.scroll_into_view_if_needed()
@@ -195,7 +195,7 @@ def test_mobile_ux_inventory_atlas(tmp_path: Path, width: int, height: int) -> N
                 expect(page.locator(".name-field input")).to_have_count(0)
                 screenshot(page, root, "07-run-once", notes)
                 page.get_by_role("button", name="Cancel").click()
-                page.goto(base, wait_until="networkidle")
+                page.goto(base + "?view=jobs", wait_until="networkidle")
                 page.locator(".job-row").first.get_by_role("button", name="Edit").click()
                 screenshot(page, root, "08-edit-job", notes)
                 page.get_by_role("button", name="Cancel").click()
@@ -323,7 +323,7 @@ def test_mobile_ux_empty_and_error_states(tmp_path: Path, width: int, height: in
             )
             page = context.new_page()
             base = f"http://127.0.0.1:{port}/"
-            page.goto(base, wait_until="networkidle")
+            page.goto(base + "?view=jobs", wait_until="networkidle")
             screenshot(page, output, "20-jobs-empty", notes)
             page.goto(base + "?view=chats", wait_until="networkidle")
             screenshot(page, output, "21-chats-empty", notes)
@@ -347,7 +347,7 @@ def test_mobile_ux_empty_and_error_states(tmp_path: Path, width: int, height: in
                     body='{"error":"Synthetic unavailable"}',
                 ),
             )
-            page.goto(base, wait_until="networkidle")
+            page.goto(base + "?view=jobs", wait_until="networkidle")
             screenshot(page, output, "23-jobs-error", notes)
             context.close()
         finally:
@@ -371,7 +371,7 @@ def test_mobile_ux_named_one_time_job_is_persisted_only_in_fixture(tmp_path: Pat
                     viewport={"width": 390, "height": 844}, is_mobile=True, has_touch=True
                 )
                 base = f"http://127.0.0.1:{port}/"
-                page.goto(base, wait_until="networkidle")
+                page.goto(base + "?view=jobs", wait_until="networkidle")
                 page.get_by_role("button", name="New job").click()
                 page.locator(".name-field input").fill("Synthetic one-time fixture")
                 page.locator(".editor-settings select").select_option("once")
@@ -413,7 +413,7 @@ def test_mobile_ux_destructive_job_confirmation_is_dismissed_in_fixture(tmp_path
                     dialog.dismiss()
 
                 page.on("dialog", dismiss)
-                page.goto(f"http://127.0.0.1:{port}/", wait_until="networkidle")
+                page.goto(f"http://127.0.0.1:{port}/?view=jobs", wait_until="networkidle")
                 page.locator(".job-row").first.get_by_role("button", name="Remove").click()
                 page.get_by_role("button", name="Clear all jobs").click()
                 assert len(dialogs) == 2, dialogs
