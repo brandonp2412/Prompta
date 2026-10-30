@@ -37,3 +37,9 @@ Jobs list and scrolling/pagination, status chips, row action affordances, new re
 ## Follow-up handoff (UX01-004)
 
 At 320×700, the Add images row visually begins below the sticky footer on editor entry. The proposed portrait static footer changed scroll and focus behavior and failed real touchscreen tap hit-testing after visual viewport shrank for a keyboard (tap over Cancel landed on footer background); it was reverted. Preserve the working sticky portrait footer until a revised layout is validated with actual taps at 320, 360, 390, 412, keyboard focus/resize, repeated scroll and edit/back states, plus Galaxy S25 when unlocked. Reuse isolated fixtures and the existing browser atlas. Do not send live messages.
+
+## UX01-004 follow-up closure — 30 October 2026
+
+The original P2 `UX01-004` entry above describes the 29 October inventory state, **not the current state**. The 320×700 Add images/footer overlap was subsequently corrected in ancestor `a7e6e5a`. A remaining desktop picker obstruction was corrected in `src/static/app.css` by `e32e1dd`, with portrait/landscape footer rules preserved. See `docs/mobile-ux-ux01-004-closeout.md` for the precise defect ledger and owner-only screenshot locations.
+
+The six-viewport real-coordinate Playwright gate passed against both isolated local fixtures (BUILDQ #2942, #2959) and deployed Nox static assets with synthetic API fixtures (BUILDQ #2963). Full Ruff, Ty, pytest (551 passed, 43 skipped), Bun/Svelte/Vite passed after rebase; all five relevant systemd services were active, `/api/health` HTTP 200, and served CSS matched deployed main byte-for-byte. Main was pushed with final closeout at `5cc2413`. Physical Galaxy S25 validation was skipped because Rotta was foreground; no user app was interrupted. **UX01-004 closed.**
