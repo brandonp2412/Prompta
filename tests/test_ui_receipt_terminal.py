@@ -50,7 +50,9 @@ def test_unknown_delivery_receipt_is_not_presented_as_success(
             page.get_by_role("button", name="Send fresh chat").click()
             expect(page.get_by_text("may have reached ChatGPT", exact=False)).to_be_visible()
             assert len(posts) == 1, "An uncertain send cannot be automatically repeated"
-            assert app.queue.get(str(claimed["send_id"]))["status"] == "outcome_unknown"
+            terminal = app.queue.get(str(claimed["send_id"]))
+            assert terminal is not None
+            assert terminal["status"] == "outcome_unknown"
             browser.close()
 
 

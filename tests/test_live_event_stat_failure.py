@@ -16,10 +16,10 @@ def test_live_revisions_continue_when_a_database_stat_fails(
     baseline = signals.snapshot()
     stat = Path.stat
 
-    def intermittent(path: Path, *args: object, **kwargs: object):
+    def intermittent(path: Path, *, follow_symlinks: bool = True):
         if path == state:
             raise PermissionError("Transient metadata failure")
-        return stat(path, *args, **kwargs)
+        return stat(path, follow_symlinks=follow_symlinks)
 
     monkeypatch.setattr(Path, "stat", intermittent)
     degraded = signals.snapshot()
