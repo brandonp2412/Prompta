@@ -72,6 +72,16 @@ def _branch_wait_probe(conversation_id: str, parent_id: str) -> str:
     )
 
 
+def _reply_delivery_probe(conversation_id: str, parent_id: str, text: str) -> str:
+    """Verify the exact new user turn in the explicitly owned conversation."""
+    return (
+        load_browser_script("verify_manual_reply_delivery.js")
+        .replace("__CONVERSATION__", json.dumps(conversation_id))
+        .replace("__PARENT__", json.dumps(parent_id))
+        .replace("__REPLY__", json.dumps(text))
+    )
+
+
 class ManualReplyDispatcher:
     def __init__(self, store: ManualReplyStore, state_path: Path) -> None:
         self.store = store
@@ -317,11 +327,55 @@ class ManualReplyDispatcher:
                     confirmed = True
                     break
                 await asyncio.sleep(0.2)
+            delivery_proof: dict[str, object] = {}
             if not confirmed:
+                # ChatGPT may render an accepted reply even when CDP misses its
+                # POST response. Only the exact new user turn on this owned
+                # conversation, after the verified parent, can prove delivery.
+                try:
+                    probe = await driver.eval(
+                        _reply_delivery_probe(conversation_id, parent_id, text)
+                    )
+                    if isinstance(probe, dict):
+                        delivery_proof = {
+                            key: value for key, value in probe.items()
+                            if isinstance(key, str)
+                        }
+                except (PlaywrightError, RuntimeError, TimeoutError):
+                    pass
+                confirmed = delivery_proof.get("verified") is True
+            if not confirmed:
+                logger.warning(
+                    "Explicit reply send unconfirmed request_seen=%s "
+                    "response_started=%s status=%s fetch_error=%s ambiguous=%s",
+                    bool(capture.get("request_id")),
+                    bool(capture.get("response_started")),
+                    int_value(capture.get("status")),
+                    bool(capture.get("fetch_error")),
+                    bool(capture.get("ambiguous_request")),
+                )
                 self.store.finish(reply_id, owner, uncertain=True)
                 return
-            # A verified response to this tab's original POST is accepted activity.
+            if not self.store.acknowledge_submission(
+                reply_id, owner, conversation_id=conversation_id, parent_id=parent_id,
+            ):
+                return
+            # Verified acceptance is durable before waiting for a final answer.
             driver.record_verified_activity()
+            if delivery_proof.get("complete") is True:
+                response_id = str(delivery_proof.get("message_id") or "")
+                answer = str(delivery_proof.get("text") or "")
+                if response_id and answer:
+                    result = CaptureResult(
+                        "dom", "complete", answer, conversation_id, response_id, None,
+                    )
+                    if self.store.accepted(
+                        reply_id, owner, conversation_id=conversation_id,
+                        parent_id=parent_id, message_id=response_id,
+                        response_parent_id="",
+                    ) and self.store.observe(reply_id, owner, result):
+                        completed = True
+                        return
             approval_task: asyncio.Task[None] | None = None
             if sender.connector_approval:
                 approval_task = asyncio.create_task(

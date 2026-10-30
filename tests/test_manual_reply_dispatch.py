@@ -308,6 +308,50 @@ def test_accepted_post_with_exact_dom_final_completes_without_sse_body(
     assert fake.calls == 1
 
 
+class MissedPostDriver(FakeDriver):
+    def __init__(self, *, verified: bool) -> None:
+        super().__init__()
+        self.verified = verified
+
+    async def eval(self, script: str) -> object:
+        if "const targetReply =" in script:
+            return {
+                "verified": self.verified,
+                "complete": self.verified,
+                "message_id": "a" * 32 if self.verified else "",
+                "text": "Verified DOM final" if self.verified else "",
+            }
+        return await super().eval(script)
+
+    def captured_send_response(self, _capture: dict[str, object]) -> None:
+        return None
+
+    def captured_assistant_response(self, _capture: dict[str, object]) -> None:
+        return None
+
+
+@pytest.mark.parametrize("verified", [True, False])
+def test_exact_dom_reply_confirmation_survives_missed_post(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, verified: bool,
+) -> None:
+    store, state = completed_store(tmp_path)
+    fake = MissedPostDriver(verified=verified)
+    monkeypatch.setattr(dispatch, "PlaywrightDriver", lambda **_kwargs: fake)
+    monkeypatch.setattr(dispatch, "BrowserDeliverySender", FakeSender)
+    monkeypatch.setattr(dispatch, "_CONFIRM_SECONDS", 0.02)
+    service = dispatch.ManualReplyDispatcher(store, state)
+    intent = ReplyIntent(REPLY_ID, CONVERSATION, PARENT, "Synthetic explicit reply")
+    assert service.submit("send-1", intent)["status"] == "prepared"
+    until = time.monotonic() + 3.0
+    while time.monotonic() < until and REPLY_ID in service._active:
+        time.sleep(0.02)
+    turns = store.turns("send-1")
+    assert turns is not None
+    assert turns[-1]["status"] == ("completed" if verified else "outcome_unknown")
+    assert turns[-1]["assistant_text"] == ("Verified DOM final" if verified else "")
+    assert fake.calls == 1
+
+
 class MissingRouteSseDriver(DomOnlyDriver):
     async def wait_capture_update(self, *, timeout: float) -> None:
         del timeout

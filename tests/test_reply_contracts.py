@@ -200,6 +200,52 @@ def test_single_claim_proven_branch_terminal_and_second_turn(tmp_path: Path) -> 
     assert store.recover_orphans(now=999) == 0
 
 
+def test_verified_submission_is_not_unknown_when_generation_interrupts(tmp_path: Path) -> None:
+    store = seed(tmp_path)
+    assert store.prepare("run", intent(), now=200)["status"] == "prepared"
+    owner = f"{os.getpid()}:submitted"
+    assert store.claim(REPLY_ID, owner, deadline=400, now=201)
+    assert not store.acknowledge_submission(
+        REPLY_ID, "wrong-owner", conversation_id=CONVERSATION, parent_id=PARENT, now=202,
+    )
+    assert not store.acknowledge_submission(
+        REPLY_ID, owner, conversation_id="wrong", parent_id=PARENT, now=202,
+    )
+    assert store.acknowledge_submission(
+        REPLY_ID, owner, conversation_id=CONVERSATION, parent_id=PARENT, now=202,
+    )
+    turns = store.turns("run")
+    assert turns is not None and turns[-1]["status"] == "accepted"
+    assert turns[-1]["message_id"] == ""
+    assert not store.acknowledge_submission(
+        REPLY_ID, owner, conversation_id=CONVERSATION, parent_id=PARENT, now=203,
+    )
+    assert store.finish(REPLY_ID, owner, uncertain=True, now=204)
+    turns = store.turns("run")
+    assert turns is not None and turns[-1]["status"] == "interrupted"
+    assert not store.claim(REPLY_ID, owner, deadline=500, now=205)
+
+
+def test_verified_submission_can_bind_a_later_assistant_message(tmp_path: Path) -> None:
+    store = seed(tmp_path)
+    store.prepare("run", intent(), now=200)
+    owner = f"{os.getpid()}:submitted"
+    assert store.claim(REPLY_ID, owner, deadline=400, now=201)
+    assert store.acknowledge_submission(
+        REPLY_ID, owner, conversation_id=CONVERSATION, parent_id=PARENT, now=202,
+    )
+    assert store.accepted(
+        REPLY_ID, owner, conversation_id=CONVERSATION,
+        parent_id=PARENT, message_id=MESSAGE, now=203,
+    )
+    assert store.observe(REPLY_ID, owner, CaptureResult(
+        "dom", "complete", "Final reply", CONVERSATION, MESSAGE, None,
+    ), now=204)
+    turns = store.turns("run")
+    assert turns is not None and turns[-1]["status"] == "completed"
+    assert turns[-1]["assistant_text"] == "Final reply"
+
+
 def test_ambiguous_claim_crash_and_partial_recovery_never_resend(tmp_path: Path) -> None:
     store = seed(tmp_path)
     store.prepare("run", intent(), now=200)

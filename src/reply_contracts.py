@@ -432,6 +432,27 @@ class ManualReplyStore:
                      lease_deadline=deadline, updated_at=at))
         return changed.rowcount == 1
 
+    def acknowledge_submission(
+        self, reply_id: str, owner: str, *, conversation_id: str, parent_id: str,
+        now: float | None = None,
+    ) -> bool:
+        """Persist verified POST/DOM acceptance before an assistant message exists.
+
+        This transition distinguishes a submitted but unfinished reply from an
+        unconfirmed irreversible send, without manufacturing a response ID.
+        """
+        at = time.time() if now is None else now
+        with self.engine.begin() as connection:
+            changed = connection.execute(update(replies).where(
+                replies.c.reply_id == reply_id,
+                replies.c.status == "dispatching",
+                replies.c.lease_owner == owner,
+                replies.c.lease_deadline > at,
+                replies.c.conversation_id == conversation_id,
+                replies.c.parent_id == parent_id,
+            ).values(status="accepted", updated_at=at))
+        return changed.rowcount == 1
+
     def accepted(
         self, reply_id: str, owner: str, *, conversation_id: str, parent_id: str,
         message_id: str, response_parent_id: str | None = None,
@@ -443,7 +464,9 @@ class ManualReplyStore:
             return False
         with self.engine.begin() as connection:
             changed = connection.execute(update(replies).where(
-                replies.c.reply_id == reply_id, replies.c.status == "dispatching",
+                replies.c.reply_id == reply_id,
+                replies.c.status.in_(("dispatching", "accepted")),
+                replies.c.message_id == "",
                 replies.c.lease_owner == owner, replies.c.lease_deadline > at,
                 replies.c.conversation_id == conversation_id, replies.c.parent_id == parent_id,
             ).values(status="accepted", message_id=message_id,
