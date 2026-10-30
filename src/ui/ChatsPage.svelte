@@ -5,8 +5,10 @@
   import ResultMarkdown from "./ResultMarkdown.svelte";
   import ToolCalls from "./ToolCalls.svelte";
   import { subscribeLiveUpdates } from "./liveUpdates";
+  import { recoverVisibleTurns } from "./turnRecovery";
   import { localGet, localReadTimeoutMs } from "./localRead";
   import { localPost } from "./localMutation";
+  import { acknowledgeExactReplyRequest, pendingExactReplyRequest } from "./pendingExactReply";
   import { acknowledgeFreshQueueRequest, findFreshQueueReceipt, freshQueueRequest } from "./freshQueueReceipt";
   import {
     chatMessageTime, formatStoredResponse, statusLabel, turnStatus,
@@ -56,6 +58,8 @@
   let queueSnapshot = $state<QueueSnapshot>({ max_workers: null, occupied_slots: 0, waiting: [] });
   let queueError = $state("");
   let queueGeneration = 0;
+  let queueInFlight = false;
+  let queueRefreshPending = false;
   let queuePollTimer: ReturnType<typeof setInterval> | undefined;
   let detailPollTimer: ReturnType<typeof setInterval> | undefined;
   let items = $state<RunSummary[]>([]);
@@ -100,6 +104,8 @@
   let listGeneration = 0;
   let pinsGeneration = 0;
   let detailGeneration = 0;
+  let detailInFlightFor: string | null = null;
+  let detailRefreshFor: string | null = null;
   let searchTimer: ReturnType<typeof setTimeout> | undefined;
   let liveRefreshTimer: ReturnType<typeof setTimeout> | undefined;
   let swipeStart: {
@@ -333,6 +339,11 @@
   }
 
   async function loadQueue() {
+    if (queueInFlight) {
+      queueRefreshPending = true;
+      return;
+    }
+    queueInFlight = true;
     const generation = ++queueGeneration;
     try {
       const response = await localGet("./api/queue-status");
@@ -345,6 +356,12 @@
     } catch {
       // Keep the last confirmed snapshot, but never present it as live status.
       if (generation === queueGeneration) queueError = "Waiting-job status may be out of date.";
+    } finally {
+      queueInFlight = false;
+      if (queueRefreshPending) {
+        queueRefreshPending = false;
+        void loadQueue();
+      }
     }
   }
 
@@ -422,6 +439,13 @@
 
   async function loadDetail(id: string) {
     if (selectedRunId !== id || view !== "chats") return;
+    if (detailInFlightFor === id) {
+      // Coalesce five-second polling and stream invalidations. Otherwise each
+      // request could supersede the previous one during a slow local outage.
+      detailRefreshFor = id;
+      return;
+    }
+    detailInFlightFor = id;
     const generation = ++detailGeneration;
     const newSelection = detail?.send_id !== id;
     if (newSelection) { detail = null; turns = []; }
@@ -439,12 +463,14 @@
       const saved = replyResponse.ok ? await replyResponse.json() as { turns: LocalTurn[] } : null;
       if (generation !== detailGeneration || selectedRunId !== id) return;
       detail = body;
-      turns = saved?.turns?.length ? saved.turns : [{
+      turns = recoverVisibleTurns(saved?.turns ?? null, turns, {
         reply_id: "", user_text: body.user_text, assistant_text: body.assistant_text,
         tool_calls: body.tool_calls,
         status: body.status, created_at: body.created_at, updated_at: body.updated_at,
-      }];
-      turnsError = !replyResponse.ok ? "Saved replies are temporarily unavailable locally." : "";
+      }, !newSelection);
+      turnsError = !replyResponse.ok
+        ? "Saved replies are temporarily unavailable; showing the last confirmed turns."
+        : "";
       detailError = "";
       if (view === "chats" && selectedRunId === id) markRead(body);
       await tick();
@@ -453,10 +479,16 @@
       if (generation === detailGeneration) detailError = "This run is unavailable locally.";
     } finally {
       if (generation === detailGeneration) loadingDetail = false;
+      if (detailInFlightFor === id) {
+        detailInFlightFor = null;
+        if (detailRefreshFor === id) {
+          detailRefreshFor = null;
+          if (selectedRunId === id && view === "chats") void loadDetail(id);
+        }
+      }
     }
   }
 
-  let pendingReply: { sendId: string; replyId: string; conversationId: string; parentId: string; text: string } | null = null;
   let pendingQueued: { sendId: string; replyId: string; text: string } | null = null;
 
    async function sendFresh(text: string, images: string[]) {
@@ -616,22 +648,28 @@
     if (selectedRunId !== sendId) {
       return { ok: false, message: "The selected chat changed. Nothing was sent." };
     }
-    const previous = pendingReply;
-    const replyId = previous?.sendId === sendId && previous.conversationId === latest.conversation_id &&
-      previous.parentId === parentId && previous.text === text
-      ? previous.replyId : crypto.randomUUID().replaceAll("-", "");
-    pendingReply = { sendId, replyId, conversationId: latest.conversation_id, parentId, text };
+    // Persist the immutable parent/text fingerprint before any possible dispatch.
+    // A lost response followed by a reload must reuse the same server receipt ID.
+    let request: Awaited<ReturnType<typeof pendingExactReplyRequest>>;
+    try {
+      request = await pendingExactReplyRequest(sendId, latest.conversation_id, parentId, text);
+    } catch {
+      return { ok: false, message: "A durable reply ID could not be created. Nothing was sent." };
+    }
+    if (selectedRunId !== sendId) {
+      return { ok: false, message: "The selected chat changed. Nothing was sent." };
+    }
     return sendExactReply(sendId, {
-      reply_id: replyId,
+      reply_id: request.replyId,
       conversation_id: latest.conversation_id,
       parent_id: parentId,
       text,
-    });
+    }, request);
   }
 
   async function sendExactReply(sendId: string, payload: {
     reply_id: string; conversation_id: string; parent_id: string; text: string;
-  }) {
+  }, request?: { replyId: string; fingerprint: string }) {
     try {
       const response = await localPost("./api/results/" + encodeURIComponent(sendId) + "/reply-send", payload);
       if (!response.ok) {
@@ -649,7 +687,7 @@
         if (selectedRunId === sendId) await loadDetail(sendId);
         return { ok: false, message: "The prior send is uncertain. Press Send to attempt branch recovery or continue in a new chat." };
       }
-      pendingReply = null;
+      if (request) acknowledgeExactReplyRequest(request.fingerprint, request.replyId);
       if (selectedRunId === sendId) await loadDetail(sendId);
       return { ok: true, message: "" };
     } catch {

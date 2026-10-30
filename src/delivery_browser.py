@@ -316,9 +316,30 @@ class BrowserDeliverySender:
                 threading.Thread(
                     target=deliver, name="prompta-connector-approval", daemon=True
                 ).start()
-                finished.wait()
+                received = finished.wait(
+                    timeout=self.delivery_hard_timeout_seconds + _HANDOFF_GRACE_SECONDS
+                )
+                if not received:
+                    # A stuck browser operation must not hold a worker forever.
+                    # Once the Send control was invoked its result is ambiguous.
+                    if dispatch_started.is_set():
+                        raise SendOutcomeUnknownError(
+                            "Connector approval delivery did not return a receipt after dispatch",
+                            stage="delivery_handoff",
+                        )
+                    raise DeliveryBackendUnavailableError(
+                        "Connector approval delivery stalled before dispatch"
+                    )
                 if errors:
-                    raise errors[0]
+                    exc = errors[0]
+                    if dispatch_started.is_set() and not isinstance(
+                        exc, (RateLimitError, SendNotAcceptedError, SendOutcomeUnknownError)
+                    ):
+                        raise SendOutcomeUnknownError(
+                            "Connector approval delivery failed after dispatch",
+                            stage="post_dispatch",
+                        ) from exc
+                    raise exc
             else:
                 asyncio.run(
                     self._send_browser(

@@ -5194,29 +5194,29 @@ function localPost(url, payload, { timeoutMs = localMutationTimeoutMs, signal } 
 }
 //#endregion
 //#region src/ui/freshQueueReceipt.ts
-var storageKey = "prompta.pending-fresh-requests.v1";
-var maxAgeMs = 12096e5;
-var memoryRecords = [];
-var memoryOnly = false;
-function valid(record, now) {
+var storageKey$1 = "prompta.pending-fresh-requests.v1";
+var maxAgeMs$1 = 12096e5;
+var memoryRecords$1 = [];
+var memoryOnly$1 = false;
+function valid$1(record, now) {
 	if (!record || typeof record !== "object") return false;
-	return "fingerprint" in record && typeof record.fingerprint === "string" && /^[a-f0-9]{64}$/.test(record.fingerprint) && "requestId" in record && typeof record.requestId === "string" && /^[a-f0-9]{32}$/.test(record.requestId) && "createdAt" in record && typeof record.createdAt === "number" && Number.isFinite(record.createdAt) && record.createdAt <= now && record.createdAt > now - maxAgeMs;
+	return "fingerprint" in record && typeof record.fingerprint === "string" && /^[a-f0-9]{64}$/.test(record.fingerprint) && "requestId" in record && typeof record.requestId === "string" && /^[a-f0-9]{32}$/.test(record.requestId) && "createdAt" in record && typeof record.createdAt === "number" && Number.isFinite(record.createdAt) && record.createdAt <= now && record.createdAt > now - maxAgeMs$1;
 }
-function records() {
+function records$1() {
 	const now = Date.now();
-	if (!memoryOnly) try {
-		const stored = JSON.parse(localStorage.getItem(storageKey) || "[]");
-		if (Array.isArray(stored)) return stored.filter((item) => valid(item, now)).slice(-128);
+	if (!memoryOnly$1) try {
+		const stored = JSON.parse(localStorage.getItem(storageKey$1) || "[]");
+		if (Array.isArray(stored)) return stored.filter((item) => valid$1(item, now)).slice(-128);
 	} catch {}
-	return memoryRecords.filter((item) => valid(item, now)).slice(-128);
+	return memoryRecords$1.filter((item) => valid$1(item, now)).slice(-128);
 }
-function persist(items) {
-	memoryRecords = items.slice(-128);
+function persist$1(items) {
+	memoryRecords$1 = items.slice(-128);
 	try {
-		localStorage.setItem(storageKey, JSON.stringify(memoryRecords));
-		memoryOnly = false;
+		localStorage.setItem(storageKey$1, JSON.stringify(memoryRecords$1));
+		memoryOnly$1 = false;
 	} catch {
-		memoryOnly = true;
+		memoryOnly$1 = true;
 	}
 }
 async function freshQueueRequest(prompt, images, scope = "chat") {
@@ -5227,7 +5227,7 @@ async function freshQueueRequest(prompt, images, scope = "chat") {
 	]));
 	const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
 	const fingerprint = Array.from(digest, (byte) => byte.toString(16).padStart(2, "0")).join("");
-	const saved = records();
+	const saved = records$1();
 	const previous = saved.find((entry) => entry.fingerprint === fingerprint);
 	if (previous) return {
 		requestId: previous.requestId,
@@ -5235,7 +5235,7 @@ async function freshQueueRequest(prompt, images, scope = "chat") {
 		reused: true
 	};
 	const requestId = crypto.randomUUID().replaceAll("-", "");
-	persist([...saved, {
+	persist$1([...saved, {
 		fingerprint,
 		requestId,
 		createdAt: Date.now()
@@ -5257,7 +5257,7 @@ async function findFreshQueueReceipt(requestId) {
 	}
 }
 function acknowledgeFreshQueueRequest(fingerprint, requestId) {
-	persist(records().filter((entry) => entry.fingerprint !== fingerprint || entry.requestId !== requestId));
+	persist$1(records$1().filter((entry) => entry.fingerprint !== fingerprint || entry.requestId !== requestId));
 }
 //#endregion
 //#region src/ui/JobsPage.svelte
@@ -5388,6 +5388,8 @@ function JobsPage($$anchor, $$props) {
 	let loadInFlight = false;
 	let refreshPending = false;
 	let dataGeneration = 0;
+	let healthInFlight = false;
+	let healthRefreshPending = false;
 	function reset$1() {
 		set(editing, "");
 		set(name, "");
@@ -5624,13 +5626,24 @@ function JobsPage($$anchor, $$props) {
 		});
 	}
 	async function loadDeliveryHealth() {
+		if (healthInFlight) {
+			healthRefreshPending = true;
+			return;
+		}
+		healthInFlight = true;
 		try {
 			const response = await localGet("./api/health");
 			if (!response.ok) throw new Error("Health unavailable");
 			set(deliveryHealth, await response.json(), true);
 			set(deliveryHealthError, "");
 		} catch {
-			set(deliveryHealthError, "Delivery health is temporarily unavailable.");
+			set(deliveryHealthError, "Delivery health is temporarily unavailable; showing the last confirmed status.");
+		} finally {
+			healthInFlight = false;
+			if (healthRefreshPending) {
+				healthRefreshPending = false;
+				loadDeliveryHealth();
+			}
 		}
 	}
 	async function load({ quiet = false } = {}) {
@@ -9081,6 +9094,71 @@ function ToolCalls($$anchor, $$props) {
 	pop();
 }
 //#endregion
+//#region src/ui/turnRecovery.ts
+function recoverVisibleTurns(stored, previous, original, sameRun) {
+	if (stored?.length) return stored;
+	if (stored === null && sameRun && previous.length) return previous;
+	return [original];
+}
+//#endregion
+//#region src/ui/pendingExactReply.ts
+var storageKey = "prompta.pending-exact-replies.v1";
+var maxAgeMs = 7776e6;
+var memoryRecords = [];
+var memoryOnly = false;
+function valid(record, now) {
+	if (!record || typeof record !== "object") return false;
+	return "fingerprint" in record && typeof record.fingerprint === "string" && /^[a-f0-9]{64}$/.test(record.fingerprint) && "replyId" in record && typeof record.replyId === "string" && /^[a-f0-9]{32}$/.test(record.replyId) && "createdAt" in record && typeof record.createdAt === "number" && Number.isFinite(record.createdAt) && record.createdAt <= now && record.createdAt > now - maxAgeMs;
+}
+function records() {
+	const now = Date.now();
+	if (!memoryOnly) try {
+		const stored = JSON.parse(localStorage.getItem(storageKey) || "[]");
+		if (Array.isArray(stored)) return stored.filter((item) => valid(item, now)).slice(-128);
+	} catch {}
+	return memoryRecords.filter((item) => valid(item, now)).slice(-128);
+}
+function persist(items) {
+	memoryRecords = items.slice(-128);
+	try {
+		localStorage.setItem(storageKey, JSON.stringify(memoryRecords));
+		memoryOnly = false;
+	} catch {
+		memoryOnly = true;
+	}
+}
+async function pendingExactReplyRequest(sendId, conversationId, parentId, text) {
+	const bytes = new TextEncoder().encode(JSON.stringify([
+		sendId,
+		conversationId,
+		parentId,
+		text
+	]));
+	const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
+	const fingerprint = Array.from(digest, (byte) => byte.toString(16).padStart(2, "0")).join("");
+	const saved = records();
+	const previous = saved.find((entry) => entry.fingerprint === fingerprint);
+	if (previous) return {
+		replyId: previous.replyId,
+		fingerprint,
+		reused: true
+	};
+	const replyId = crypto.randomUUID().replaceAll("-", "");
+	persist([...saved, {
+		fingerprint,
+		replyId,
+		createdAt: Date.now()
+	}]);
+	return {
+		replyId,
+		fingerprint,
+		reused: false
+	};
+}
+function acknowledgeExactReplyRequest(fingerprint, replyId) {
+	persist(records().filter((entry) => entry.fingerprint !== fingerprint || entry.replyId !== replyId));
+}
+//#endregion
 //#region src/ui/ChatsPage.svelte
 var root$1 = /* @__PURE__ */ from_html(`<span class="unread-indicator" title="Unread reply"><span class="sr-only">Unread reply</span></span>`);
 var root_1$1 = /* @__PURE__ */ from_html(`<div><button type="button" class="chat-row"><span class="chat-row-top"><!> <strong> </strong> <span><span class="sr-only"> </span></span></span></button> <button type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 3h6l-1 6 3 3v2H7v-2l3-3-1-6ZM12 14v7"></path></svg></button></div>`);
@@ -9222,6 +9300,8 @@ function ChatsPage($$anchor, $$props) {
 	}));
 	let queueError = /* @__PURE__ */ state("");
 	let queueGeneration = 0;
+	let queueInFlight = false;
+	let queueRefreshPending = false;
 	let queuePollTimer;
 	let detailPollTimer;
 	let items = /* @__PURE__ */ state(proxy([]));
@@ -9266,6 +9346,8 @@ function ChatsPage($$anchor, $$props) {
 	let listGeneration = 0;
 	let pinsGeneration = 0;
 	let detailGeneration = 0;
+	let detailInFlightFor = null;
+	let detailRefreshFor = null;
 	let searchTimer;
 	let liveRefreshTimer;
 	let swipeStart = null;
@@ -9457,6 +9539,11 @@ function ChatsPage($$anchor, $$props) {
 		});
 	}
 	async function loadQueue() {
+		if (queueInFlight) {
+			queueRefreshPending = true;
+			return;
+		}
+		queueInFlight = true;
 		const generation = ++queueGeneration;
 		try {
 			const response = await localGet("./api/queue-status");
@@ -9468,6 +9555,12 @@ function ChatsPage($$anchor, $$props) {
 			}
 		} catch {
 			if (generation === queueGeneration) set(queueError, "Waiting-job status may be out of date.");
+		} finally {
+			queueInFlight = false;
+			if (queueRefreshPending) {
+				queueRefreshPending = false;
+				loadQueue();
+			}
 		}
 	}
 	function resultsParams(offset) {
@@ -9541,6 +9634,11 @@ function ChatsPage($$anchor, $$props) {
 	}
 	async function loadDetail(id) {
 		if ($$props.selectedRunId !== id || $$props.view !== "chats") return;
+		if (detailInFlightFor === id) {
+			detailRefreshFor = id;
+			return;
+		}
+		detailInFlightFor = id;
 		const generation = ++detailGeneration;
 		const newSelection = get(detail)?.send_id !== id;
 		if (newSelection) {
@@ -9557,7 +9655,7 @@ function ChatsPage($$anchor, $$props) {
 			const saved = replyResponse.ok ? await replyResponse.json() : null;
 			if (generation !== detailGeneration || $$props.selectedRunId !== id) return;
 			set(detail, body, true);
-			set(turns, saved?.turns?.length ? saved.turns : [{
+			set(turns, recoverVisibleTurns(saved?.turns ?? null, get(turns), {
 				reply_id: "",
 				user_text: body.user_text,
 				assistant_text: body.assistant_text,
@@ -9565,8 +9663,8 @@ function ChatsPage($$anchor, $$props) {
 				status: body.status,
 				created_at: body.created_at,
 				updated_at: body.updated_at
-			}], true);
-			set(turnsError, !replyResponse.ok ? "Saved replies are temporarily unavailable locally." : "", true);
+			}, !newSelection), true);
+			set(turnsError, !replyResponse.ok ? "Saved replies are temporarily unavailable; showing the last confirmed turns." : "", true);
 			set(detailError, "");
 			if ($$props.view === "chats" && $$props.selectedRunId === id) markRead(body);
 			await tick();
@@ -9575,9 +9673,15 @@ function ChatsPage($$anchor, $$props) {
 			if (generation === detailGeneration) set(detailError, "This run is unavailable locally.");
 		} finally {
 			if (generation === detailGeneration) set(loadingDetail, false);
+			if (detailInFlightFor === id) {
+				detailInFlightFor = null;
+				if (detailRefreshFor === id) {
+					detailRefreshFor = null;
+					if ($$props.selectedRunId === id && $$props.view === "chats") loadDetail(id);
+				}
+			}
 		}
 	}
-	let pendingReply = null;
 	let pendingQueued = null;
 	async function sendFresh(text, images) {
 		let request;
@@ -9754,23 +9858,27 @@ function ChatsPage($$anchor, $$props) {
 			ok: false,
 			message: "The selected chat changed. Nothing was sent."
 		};
-		const previous = pendingReply;
-		const replyId = previous?.sendId === sendId && previous.conversationId === latest.conversation_id && previous.parentId === parentId && previous.text === text ? previous.replyId : crypto.randomUUID().replaceAll("-", "");
-		pendingReply = {
-			sendId,
-			replyId,
-			conversationId: latest.conversation_id,
-			parentId,
-			text
+		let request;
+		try {
+			request = await pendingExactReplyRequest(sendId, latest.conversation_id, parentId, text);
+		} catch {
+			return {
+				ok: false,
+				message: "A durable reply ID could not be created. Nothing was sent."
+			};
+		}
+		if ($$props.selectedRunId !== sendId) return {
+			ok: false,
+			message: "The selected chat changed. Nothing was sent."
 		};
 		return sendExactReply(sendId, {
-			reply_id: replyId,
+			reply_id: request.replyId,
 			conversation_id: latest.conversation_id,
 			parent_id: parentId,
 			text
-		});
+		}, request);
 	}
-	async function sendExactReply(sendId, payload) {
+	async function sendExactReply(sendId, payload, request) {
 		try {
 			const response = await localPost("./api/results/" + encodeURIComponent(sendId) + "/reply-send", payload);
 			if (!response.ok) {
@@ -9788,7 +9896,7 @@ function ChatsPage($$anchor, $$props) {
 					message: "The prior send is uncertain. Press Send to attempt branch recovery or continue in a new chat."
 				};
 			}
-			pendingReply = null;
+			if (request) acknowledgeExactReplyRequest(request.fingerprint, request.replyId);
 			if ($$props.selectedRunId === sendId) await loadDetail(sendId);
 			return {
 				ok: true,

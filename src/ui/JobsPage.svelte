@@ -124,6 +124,8 @@
   let loadInFlight = false;
   let refreshPending = false;
   let dataGeneration = 0;
+  let healthInFlight = false;
+  let healthRefreshPending = false;
 
   function reset() {
     editing = "";
@@ -398,13 +400,25 @@
   }
 
   async function loadDeliveryHealth() {
+    if (healthInFlight) {
+      healthRefreshPending = true;
+      return;
+    }
+    healthInFlight = true;
     try {
       const response = await localGet("./api/health");
       if (!response.ok) throw new Error("Health unavailable");
       deliveryHealth = await response.json() as DeliveryHealth;
       deliveryHealthError = "";
     } catch {
-      deliveryHealthError = "Delivery health is temporarily unavailable.";
+      // Retain the last good snapshot and make the stale state explicit.
+      deliveryHealthError = "Delivery health is temporarily unavailable; showing the last confirmed status.";
+    } finally {
+      healthInFlight = false;
+      if (healthRefreshPending) {
+        healthRefreshPending = false;
+        void loadDeliveryHealth();
+      }
     }
   }
 
