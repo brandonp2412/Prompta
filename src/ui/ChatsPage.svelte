@@ -5,6 +5,7 @@
   import ResultMarkdown from "./ResultMarkdown.svelte";
   import ToolCalls from "./ToolCalls.svelte";
   import { subscribeLiveUpdates } from "./liveUpdates";
+  import { acknowledgeFreshQueueRequest, findFreshQueueReceipt, freshQueueRequest } from "./freshQueueReceipt";
   import {
     chatMessageTime, formatStoredResponse, statusLabel, turnStatus,
     type LocalTurn, type ResultStatus, type RunDetail, type RunSummary,
@@ -274,6 +275,7 @@
       pinnedItems = body.items;
       pinnedIds = body.items.map((item) => item.send_id);
       pinsReady = true;
+      pinError = "";
     } catch {
       if (generation === pinsGeneration) pinError = "Pinned chats are temporarily unavailable.";
     }
@@ -437,47 +439,53 @@
     }
   }
 
-  let pendingFresh: { signature: string; requestId: string } | null = null;
   let pendingReply: { sendId: string; replyId: string; conversationId: string; parentId: string; text: string } | null = null;
   let pendingQueued: { sendId: string; replyId: string; text: string } | null = null;
 
-  async function sendFresh(text: string, images: string[]) {
-    const signature = JSON.stringify([text, images]);
-    const requestId = pendingFresh?.signature === signature
-      ? pendingFresh.requestId : crypto.randomUUID().replaceAll("-", "");
-    pendingFresh = { signature, requestId };
+   async function sendFresh(text: string, images: string[]) {
+    let request: Awaited<ReturnType<typeof freshQueueRequest>>;
+    try {
+      request = await freshQueueRequest(text, images);
+    } catch {
+      return { ok: false, message: "A durable request ID could not be created. Nothing was sent." };
+    }
+    const accepted = (sendId: string) => {
+      acknowledgeFreshQueueRequest(request.fingerprint, request.requestId);
+      // A confirmed queue receipt is enough to navigate; never send again.
+      search = "";
+      statusFilter = "";
+      onQueued(sendId);
+      void loadList();
+      void loadPins();
+      return { ok: true, message: "" };
+    };
+    // A previous POST may have persisted despite a lost response or page reload.
+    // Reconcile the exact local request first; a GET cannot dispatch another chat.
+    if (request.reused) {
+      const existing = await findFreshQueueReceipt(request.requestId);
+      if (existing) return accepted(existing);
+    }
     try {
       const response = await fetch("./api/chats", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ request_id: requestId, prompt: text, images }),
+        body: JSON.stringify({ request_id: request.requestId, prompt: text, images }),
       });
-      if (!response.ok) {
-        return {
-          ok: false, ambiguous: response.status >= 500,
-          message: response.status >= 500
-            ? "The queue result is uncertain. Check local Chats; no automatic resend."
-            : "The fresh chat was rejected. Review the prompt or images.",
-        };
+      if (response.ok) {
+        const body = await response.json() as { send_id?: string };
+        if (body.send_id === "manual-" + request.requestId) return accepted(body.send_id);
+      } else if (response.status < 500) {
+        return { ok: false, message: "The fresh chat was rejected. Review the prompt or images." };
       }
-      const body = await response.json() as { send_id?: string };
-      if (!body.send_id) throw new Error("Missing queue receipt");
-      // The queue has already persisted this run locally. Show it as soon as
-      // the receipt is confirmed, even if the previous list was filtered.
-      search = "";
-      statusFilter = "";
-      pendingFresh = null;
-      onQueued(body.send_id);
-      // Refetch in place: clearing the sidebar remounts every chat row and flashes.
-      void loadList();
-      void loadPins();
-      return { ok: true, message: "" };
     } catch {
-      return {
-        ok: false, ambiguous: true,
-        message: "Queue confirmation was lost. Check local Chats before another explicit send; no automatic retry.",
-      };
+      // The request may already exist. Check local SQLite before reporting loss.
     }
+    const recovered = await findFreshQueueReceipt(request.requestId);
+    if (recovered) return accepted(recovered);
+    return {
+      ok: false, ambiguous: true,
+      message: "Queue receipt is uncertain. The request ID is saved; press Send again to reconcile it safely.",
+    };
   }
 
   async function recoverReply(sendId: string): Promise<string> {
@@ -865,8 +873,18 @@
       </label>
     </div>
     {/if}
-    {#if listError}<div class="result-error" role="alert">{listError}</div>{/if}
-    {#if pinError}<div class="result-error" role="alert">{pinError}</div>{/if}
+    {#if listError}
+      <div class="result-error recovery-error" role="alert">
+        <span>{listError}</span>
+        <button type="button" onclick={() => void loadList(true)}>Retry chats</button>
+      </div>
+    {/if}
+    {#if pinError}
+      <div class="result-error recovery-error" role="alert">
+        <span>{pinError}</span>
+        <button type="button" onclick={() => void loadPins()}>Retry pins</button>
+      </div>
+    {/if}
     {#if readError}<div class="result-error" role="alert">{readError}</div>{/if}
     <div class="chats-list" bind:this={listPane} onscroll={maybeLoadMore}>
       {#if visibleWaiting.length}
@@ -889,7 +907,7 @@
       {#if loadingList && !items.length}
         <p class="chats-empty">Loading chats…</p>
       {:else if !items.length && !pinned.length && !visibleWaiting.length}
-        <p class="chats-empty">{search || statusFilter ? "No matching chats" : "No chats"}</p>
+        <p class="chats-empty">{listError ? "Chat list temporarily unavailable" : search || statusFilter ? "No matching chats" : "No chats"}</p>
       {:else}
         {#each unpinned as item (item.send_id)}{@render chatItem(item)}{/each}
       {/if}
@@ -913,11 +931,21 @@
         <button class="chat-detail-back" onclick={() => onSelect(null)}>‹ <span>All chats</span></button>
       </div>
       <div class="chat-transcript-scroll" bind:this={scrollPane}>
-      {#if detailError}<div class="result-error" role="alert">{detailError}</div>{/if}
+      {#if detailError}
+        <div class="result-error recovery-error" role="alert">
+          <span>{detailError}</span>
+          <button type="button" onclick={() => selectedRunId && void loadDetail(selectedRunId)}>Retry chat</button>
+        </div>
+      {/if}
       {#if loadingDetail && !detail}<p class="chats-empty">Loading run…</p>{/if}
       {#if detail}
         <div class="chat-detail-content">
-          {#if turnsError}<p class="result-error" role="alert">{turnsError}</p>{/if}
+          {#if turnsError}
+            <div class="result-error recovery-error" role="alert">
+              <span>{turnsError}</span>
+              <button type="button" onclick={() => selectedRunId && void loadDetail(selectedRunId)}>Retry replies</button>
+            </div>
+          {/if}
           {#each turns as turn, index (turn.reply_id || detail.send_id)}
             <div class="message-group user-group">
               <div class="message-role">

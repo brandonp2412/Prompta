@@ -115,6 +115,21 @@ button:disabled { cursor: default; opacity: 0.45; }
 .chats-pagination button:not(:disabled):hover { background: #303030; }
 .chats-empty, .result-error { color: #919191; font-size: .85rem; padding: 22px 20px; }
 .result-error { color: #e79a9a; }
+.recovery-error { display: flex; align-items: center; flex-wrap: wrap; gap: 9px; padding: 12px 16px; }
+.recovery-error button { border: 1px solid #686868; border-radius: 10px; background: #303030; color: #f0f0f0; font: inherit; cursor: pointer; min-height: 36px; padding: 7px 12px; }
+.recovery-error button:hover { background: #424242; }
+.recovery-error button:focus-visible { outline: 2px solid #b5b5ff; outline-offset: 2px; }
+.delivery-diagnostics { margin: 8px 0 10px; padding: 9px 14px; border: 1px solid #3d3d3d; border-radius: 13px; background: #252525; color: #cecece; font-size: .82rem; }
+.delivery-diagnostics summary { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; cursor: pointer; list-style-position: inside; font-weight: 600; }
+.delivery-indicator { display: inline-block; flex: none; width: 9px; height: 9px; border-radius: 50%; background: #59b896; }
+.delivery-indicator.degraded { background: #eab16a; }
+.delivery-count { padding: 2px 8px; border-radius: 999px; background: #353535; color: #bdbdbd; font-size: .76rem; font-weight: 400; }
+.delivery-diagnostics dl { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px; margin: 12px 0; }
+.delivery-diagnostics dl div { padding: 8px; border-radius: 9px; background: #303030; }
+.delivery-diagnostics dt { color: #a9a9a9; font-size: .74rem; }
+.delivery-diagnostics dd { margin: 4px 0 0; color: #f5f5f5; font-weight: 650; font-variant-numeric: tabular-nums; }
+.delivery-diagnostics p { margin: 9px 0 3px; line-height: 1.45; }
+.delivery-diagnostics button { border: 1px solid #636363; border-radius: 8px; background: #393939; padding: 5px 10px; color: #f5f5f5; cursor: pointer; }
 .chats-detail { min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow-y: auto; scrollbar-color: #454545 transparent; }
 .chats-detail-empty { margin: auto; max-width: 300px; text-align: center; color: #777; padding: 30px; }
 .chats-detail-empty h2 { font-size: 1rem; color: #bbb; margin: 12px 0 7px; }
@@ -1154,6 +1169,14 @@ select:focus-visible {
   }
   .editor-actions { flex-wrap: wrap; }
   .editor-actions > button { flex: 1 1 auto; }
+}
+
+/* Reduce scroll distance when the soft keyboard leaves very little vertical room. */
+@media (max-width: 420px) and (max-height: 600px) {
+  .editor-heading { padding-block: 8px; }
+  .editor-body { gap: 8px; padding-top: 10px; }
+  .editor-settings { gap: 7px; }
+  .editor-body textarea, .editor-body textarea:focus { height: 120px; min-height: 120px; }
 }
 
 /* Keep the desktop image picker above the sticky action bar without changing portrait or landscape footers. */

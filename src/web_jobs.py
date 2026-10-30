@@ -58,6 +58,14 @@ def _validated_pin_chat(value: object) -> bool:
     return value
 
 
+def _validated_request_id(value: object) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str) or re.fullmatch(r"[0-9a-f]{32}", value) is None:
+        raise ValueError("Invalid manual queue request identifier")
+    return value
+
+
 def serialize_scheduled_jobs(
     jobs: list[PromptJob],
     state_jobs: dict[str, object],
@@ -231,11 +239,21 @@ class WebJobService:
             job = load_jobs(self.jobs_path).get(name)
             if job is None:
                 raise ValueError("Unknown job: " + name)
-            fire_job_now(
-                job,
-                runtime=runtime,
-                queue=DeliveryQueueStore(self.state_path.parent / "ui-send-jobs.sqlite3"),
-            )
+            request_id = _validated_request_id(payload.get("request_id"))
+            queue = DeliveryQueueStore(self.state_path.parent / "ui-send-jobs.sqlite3")
+            existing = queue.get("manual-" + request_id) if request_id else None
+            if existing is not None:
+                client_id = f"manual:{'once:' if job.pin_chat else ''}{request_id}"
+                if (
+                    existing["client_id"] != client_id
+                    or existing["message"] != job.prompt
+                    or image_refs(existing["images"]) != job.images
+                ):
+                    raise ValueError("Manual queue identifier belongs to a different job payload")
+            else:
+                fire_job_now(
+                    job, runtime=runtime, queue=queue, request_id=request_id,
+                )
 
         elif normalized_action == "run_once":
             prompt = payload.get("prompt")
@@ -246,11 +264,14 @@ class WebJobService:
                 self.images.path(ref)
             delay_minutes = _validated_once_delay_minutes(payload.get("delay_minutes", 0))
             pin_chat = _validated_pin_chat(payload.get("pin_chat", False))
+            request_id = _validated_request_id(payload.get("request_id"))
             if delay_minutes == 0:
                 DeliveryQueueStore(self.state_path.parent / "ui-send-jobs.sqlite3").enqueue_manual(
-                    prompt.strip(), images=images, pin_chat=pin_chat
+                    prompt.strip(), images=images, pin_chat=pin_chat, request_id=request_id,
                 )
             else:
+                if request_id:
+                    raise ValueError("Delayed one-time jobs cannot use an immediate queue receipt")
                 run_at_epoch = time.time() + delay_minutes * 60
                 label = datetime.fromtimestamp(run_at_epoch).strftime("%d %b %H:%M")
                 name = f"Once {label} {uuid.uuid4().hex[:8]}"

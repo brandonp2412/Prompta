@@ -14,6 +14,7 @@ def fire_job_now(
     queue: DeliveryQueueStore,
     now: float | None = None,
     pin_chat: bool | None = None,
+    request_id: str | None = None,
 ) -> dict[str, object]:
     """Queue a fresh chat and restart an interval job's countdown."""
     fired_at = time.time() if now is None else float(now)
@@ -22,6 +23,7 @@ def fire_job_now(
         now=fired_at,
         pin_chat=job.pin_chat if pin_chat is None else pin_chat,
         images=job.images,
+        request_id=request_id,
     )
     if job.interval_seconds > 0 and job.daily_at is None and job.run_at_epoch is None:
         updates: dict[str, object] = {

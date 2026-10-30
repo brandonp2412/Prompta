@@ -610,10 +610,26 @@ class ResponseStore:
             ).scalar_one_or_none()
         return max(0.0, float(next_allowed or 0.0) - at)
 
-    def reserve_history_recovery_global_slot(self, *, now: float, interval: float) -> None:
-        self.schedule_history_recovery(
-            "__global_pacing__", next_attempt_at=now + interval, now=now,
+    def reserve_history_recovery_global_slot(self, *, now: float, interval: float) -> bool:
+        """Atomically grant one read slot across processes and worker restarts.
+
+        Checking the deadline and updating it in separate transactions allowed
+        concurrent recovery workers to navigate ChatGPT during the same slot.
+        """
+        stmt = insert(history_recovery_attempts).values(
+            send_id="__global_pacing__", attempt_count=1,
+            next_attempt_at=now + interval, last_attempt_at=now,
+        ).on_conflict_do_update(
+            index_elements=[history_recovery_attempts.c.send_id],
+            set_={
+                "attempt_count": history_recovery_attempts.c.attempt_count + 1,
+                "next_attempt_at": now + interval,
+                "last_attempt_at": now,
+            },
+            where=history_recovery_attempts.c.next_attempt_at <= now,
         )
+        with self.engine.begin() as connection:
+            return connection.execute(stmt).rowcount == 1
 
     def pause_history_recovery_security(self, *, until: float, now: float | None = None) -> None:
         self.schedule_history_recovery("__security_pause__", next_attempt_at=until, now=now)

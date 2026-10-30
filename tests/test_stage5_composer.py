@@ -1,4 +1,5 @@
 """Stage 5 fresh-composer contracts: one local enqueue per explicit send."""
+
 from __future__ import annotations
 
 import base64
@@ -27,7 +28,8 @@ _PNG = base64.b64decode(
 @contextmanager
 def serve_test_ui(tmp_path: Path) -> Generator[int]:
     app = PromptaJobServer(
-        ("127.0.0.1", 0), state_path=tmp_path / "state.sqlite3",
+        ("127.0.0.1", 0),
+        state_path=tmp_path / "state.sqlite3",
         jobs_path=tmp_path / "jobs.sqlite3",
     )
     thread = threading.Thread(target=app.serve_forever, daemon=True)
@@ -43,7 +45,9 @@ def serve_test_ui(tmp_path: Path) -> Generator[int]:
 def post(port: int, path: str, payload: dict[str, object]) -> tuple[int, dict[str, object]]:
     connection = HTTPConnection("127.0.0.1", port, timeout=4)
     try:
-        connection.request("POST", path, body=json.dumps(payload), headers={"content-type": "application/json"})
+        connection.request(
+            "POST", path, body=json.dumps(payload), headers={"content-type": "application/json"}
+        )
         response = connection.getresponse()
         return response.status, json_object(response.read(), label="fresh chat response")
     finally:
@@ -53,7 +57,9 @@ def post(port: int, path: str, payload: dict[str, object]) -> tuple[int, dict[st
 def test_fresh_chat_endpoint_is_idempotent_and_payload_bound(tmp_path: Path) -> None:
     with serve_test_ui(tmp_path) as port:
         payload: dict[str, object] = {
-            "request_id": "a" * 32, "prompt": "Private synthetic test", "images": [],
+            "request_id": "a" * 32,
+            "prompt": "Private synthetic test",
+            "images": [],
         }
         first_status, first = post(port, "/api/chats", payload)
         second_status, second = post(port, "/api/chats", payload)
@@ -65,7 +71,9 @@ def test_fresh_chat_endpoint_is_idempotent_and_payload_bound(tmp_path: Path) -> 
         assert results.set_local_pin(str(first["send_id"]), pinned=False)
         assert post(port, "/api/chats", payload)[0] == 202
         assert results.local_pinned_runs() == []
-        assert post(port, "/api/chats", {**payload, "prompt": "Different immutable message"})[0] == 400
+        assert (
+            post(port, "/api/chats", {**payload, "prompt": "Different immutable message"})[0] == 400
+        )
         assert post(port, "/api/chats", {**payload, "request_id": "bad"})[0] == 400
         assert post(port, "/api/chats", {**payload, "images": ["unverified-ref"]})[0] == 400
         assert post(port, "/api/chats", {**payload, "request_id": "b" * 32, "images": []})[0] == 202
@@ -76,16 +84,22 @@ def test_early_followup_http_queue_is_durable_and_idempotent(tmp_path: Path) -> 
     with serve_test_ui(tmp_path) as port:
         results = ResponseStore(tmp_path / "chat-results.sqlite3")
         results.ensure_queued("early", "Original private prompt")
-        payload: dict[str, object] = {"reply_id": "queued-" + "a" * 32, "text": "Additional context"}
+        payload: dict[str, object] = {
+            "reply_id": "queued-" + "a" * 32,
+            "text": "Additional context",
+        }
         first_status, first = post(port, "/api/results/early/reply-queue", payload)
         second_status, second = post(port, "/api/results/early/reply-queue", payload)
         assert first_status == second_status == 202
         assert first["turn"] == second["turn"]
         turn = json_object(json.dumps(first["turn"]).encode(), label="queued follow-up")
         assert turn["status"] == "queued"
-        assert post(port, "/api/results/early/reply-queue", {**payload, "text": "Different"})[0] == 409
+        assert (
+            post(port, "/api/results/early/reply-queue", {**payload, "text": "Different"})[0] == 409
+        )
         assert post(port, "/api/results/absent/reply-queue", payload)[0] == 409
         from prompta.reply_contracts import ManualReplyStore
+
         turns = ManualReplyStore(results.path).turns("early")
         assert turns is not None
         assert [turn["status"] for turn in turns] == ["queued", "queued"]
@@ -94,7 +108,9 @@ def test_early_followup_http_queue_is_durable_and_idempotent(tmp_path: Path) -> 
 
 @pytest.mark.parametrize("width,height", [(1440, 900), (390, 844)])
 def test_composer_queues_followup_while_first_answer_is_pending(
-    tmp_path: Path, width: int, height: int,
+    tmp_path: Path,
+    width: int,
+    height: int,
 ) -> None:
     executable = os.environ.get("PROMPTA_TEST_CHROMIUM", "")
     if not executable or not Path(executable).exists():
@@ -128,7 +144,9 @@ def test_composer_queues_followup_while_first_answer_is_pending(
 
 @pytest.mark.parametrize("width,height", [(1440, 900), (390, 844)])
 def test_real_composer_keyboard_image_and_overflow(
-    tmp_path: Path, width: int, height: int,
+    tmp_path: Path,
+    width: int,
+    height: int,
 ) -> None:
     executable = os.environ.get("PROMPTA_TEST_CHROMIUM", "")
     if not executable or not Path(executable).exists():
@@ -187,19 +205,27 @@ def test_real_composer_keyboard_image_and_overflow(
         assert page.locator(".composer-preview").count() == 3
         wrap = page.locator(".chat-composer-wrap").bounding_box()
         assert wrap is not None and wrap["y"] >= height * 0.5
-        assert page.locator(".chat-composer").evaluate(
-            "node => getComputedStyle(node).backgroundColor"
-        ) == "rgb(48, 48, 48)"
-        assert page.locator(".composer-attach input").evaluate(
-            "node => getComputedStyle(node).display"
-        ) == "none"
+        assert (
+            page.locator(".chat-composer").evaluate(
+                "node => getComputedStyle(node).backgroundColor"
+            )
+            == "rgb(48, 48, 48)"
+        )
+        assert (
+            page.locator(".composer-attach input").evaluate(
+                "node => getComputedStyle(node).display"
+            )
+            == "none"
+        )
         page.screenshot(path=str(images / f"stage5-{width}x{height}-composer.png"), full_page=True)
         (images / f"stage5-{width}x{height}-composer.png").chmod(0o600)
         assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth + 1")
         composer.press("Enter")
         page.wait_for_url("**/?view=chats&run=manual-*")
         assert page.evaluate("localStorage.getItem('prompta.new-chat-draft.v1')") is None
-        assert len([url for method, url in requests if method == "POST" and "/api/chats" in url]) == 1
+        assert (
+            len([url for method, url in requests if method == "POST" and "/api/chats" in url]) == 1
+        )
         assert all(url.startswith(f"http://127.0.0.1:{port}/") for _, url in requests)
         assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth + 1")
         browser.close()
@@ -208,14 +234,18 @@ def test_real_composer_keyboard_image_and_overflow(
 @pytest.mark.parametrize("width,height", [(1440, 900), (390, 844)])
 @pytest.mark.parametrize("missing_parent", [False, True])
 def test_existing_chat_reply_composer_is_explicit_and_branch_bound(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, width: int, height: int,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    width: int,
+    height: int,
     missing_parent: bool,
 ) -> None:
     executable = os.environ.get("PROMPTA_TEST_CHROMIUM", "")
     if not executable or not Path(executable).exists():
         pytest.skip("Headless Chromium unavailable")
     app = PromptaJobServer(
-        ("127.0.0.1", 0), state_path=tmp_path / "state.sqlite3",
+        ("127.0.0.1", 0),
+        state_path=tmp_path / "state.sqlite3",
         jobs_path=tmp_path / "jobs.sqlite3",
     )
     now = time.time()
@@ -224,10 +254,17 @@ def test_existing_chat_reply_composer_is_explicit_and_branch_bound(
     app.results.ensure_queued("run-1", "Synthetic original", now=now)
     assert app.results.accept("run-1", "owner", deadline=now + 4000)
     assert app.results.write(
-        "run-1", "owner",
-        CaptureResult("sse", "complete", "Synthetic original answer", conversation_id,
-                      "" if missing_parent else parent_id, "p" * 32,
-                      "observer-1" if missing_parent else None),
+        "run-1",
+        "owner",
+        CaptureResult(
+            "sse",
+            "complete",
+            "Synthetic original answer",
+            conversation_id,
+            "" if missing_parent else parent_id,
+            "p" * 32,
+            "observer-1" if missing_parent else None,
+        ),
     )
     calls: list[tuple[str, str, str]] = []
     recoveries: list[str] = []
@@ -235,7 +272,10 @@ def test_existing_chat_reply_composer_is_explicit_and_branch_bound(
     def recover(send_id: str) -> dict[str, str]:
         recoveries.append(send_id)
         assert app.replies.recover_original_parent(
-            send_id, conversation_id, parent_id, "Synthetic original answer",
+            send_id,
+            conversation_id,
+            parent_id,
+            "Synthetic original answer",
         )
         return {"message_id": parent_id}
 
@@ -243,6 +283,7 @@ def test_existing_chat_reply_composer_is_explicit_and_branch_bound(
 
     def local_dispatch(send_id: str, intent: object) -> dict[str, object]:
         from prompta.reply_contracts import ReplyIntent
+
         assert isinstance(intent, ReplyIntent)
         calls.append((send_id, intent.conversation_id, intent.parent_id))
         return app.replies.prepare(send_id, intent)
@@ -267,11 +308,16 @@ def test_existing_chat_reply_composer_is_explicit_and_branch_bound(
             assert page.locator(".chat-detail-title").count() == 0
             assert page.locator(".chat-detail-content h2").count() == 0
             assert page.locator(".user-group .message-timestamp").first.get_attribute("datetime")
-            assert "Time unavailable" not in page.locator(".user-group .message-timestamp").first.inner_text()
+            assert (
+                "Time unavailable"
+                not in page.locator(".user-group .message-timestamp").first.inner_text()
+            )
             assert page.get_by_role("button", name="Reply to this chat").count() == 0
             assert page.get_by_role("button", name="Send saved reply").count() == 0
             assert not recoveries and not calls
-            empty_action = page.locator(".chat-composer-wrap").get_by_role("button", name="New chat")
+            empty_action = page.locator(".chat-composer-wrap").get_by_role(
+                "button", name="New chat"
+            )
             expect(empty_action).to_be_enabled()
             assert page.get_by_role("button", name="Send reply").count() == 0
             empty_action.click()
@@ -284,40 +330,51 @@ def test_existing_chat_reply_composer_is_explicit_and_branch_bound(
             composer.type("second line")
             wrap = page.locator(".chat-composer-wrap").bounding_box()
             assert wrap is not None and wrap["y"] >= height * 0.5
-            assert page.locator(".chat-composer").evaluate(
-                "node => getComputedStyle(node).backgroundColor"
-            ) == "rgb(48, 48, 48)"
+            assert (
+                page.locator(".chat-composer").evaluate(
+                    "node => getComputedStyle(node).backgroundColor"
+                )
+                == "rgb(48, 48, 48)"
+            )
             suffix = "recover" if missing_parent else "known"
             path = screenshots / f"stage5-{width}x{height}-reply-{suffix}.png"
             page.screenshot(path=str(path), full_page=True)
             path.chmod(0o600)
             assert page.evaluate("document.documentElement.scrollWidth <= innerWidth + 1")
-            with page.expect_response(lambda response: response.url.endswith("/reply-send")) as sent:
+            with page.expect_response(
+                lambda response: response.url.endswith("/reply-send")
+            ) as sent:
                 composer.press("Enter")
             assert sent.value.status == 202
             page.locator(".message-group.user-group").nth(1).wait_for()
             assert calls == [("run-1", conversation_id, parent_id)]
             assert recoveries == (["run-1"] if missing_parent else [])
-            assert len([1 for method, url in observed if method == "POST" and "/reply-recover" in url]) == int(missing_parent)
-            assert len([1 for method, url in observed if method == "POST" and "/reply-send" in url]) == 1
+            assert len(
+                [1 for method, url in observed if method == "POST" and "/reply-recover" in url]
+            ) == int(missing_parent)
+            assert (
+                len([1 for method, url in observed if method == "POST" and "/reply-send" in url])
+                == 1
+            )
             assert page.get_by_role("button", name="Reply to this chat").count() == 0
             assert page.get_by_role("button", name="Send saved reply").count() == 0
             assert composer.count() == 1
             expect(composer).to_be_enabled()
             expect(composer).to_have_value("")
-            expect(page.locator(".chat-composer-wrap").get_by_role("button", name="New chat")).to_be_enabled()
-            # A stale prepared intent is restored inside the ordinary textbox
-            # after reload. A new explicit Enter reuses its immutable ID.
+            expect(
+                page.locator(".chat-composer-wrap").get_by_role("button", name="New chat")
+            ).to_be_enabled()
+            # Acknowledged prepared replies survive reload in the transcript,
+            # not the composer: replay must require a separate explicit intent.
             page.reload()
             composer = page.get_by_role("textbox", name="Message for current chat")
-            expect(composer).to_have_value("Synthetic follow-up\nsecond line")
-            expect(page.get_by_role("button", name="Send reply")).to_be_enabled()
-            with page.expect_response(lambda response: response.url.endswith("/reply-send")) as retried:
-                composer.press("Enter")
-            assert retried.value.status == 202
-            assert calls == [("run-1", conversation_id, parent_id)] * 2
-            assert len([1 for method, url in observed if method == "POST" and "/reply-send" in url]) == 2
-            assert page.locator(".message-group.user-group").count() == 2
+            expect(composer).to_have_value("")
+            expect(page.locator(".message-group.user-group")).to_have_count(2)
+            assert calls == [("run-1", conversation_id, parent_id)]
+            assert (
+                len([1 for method, url in observed if method == "POST" and "/reply-send" in url])
+                == 1
+            )
             assert all(url.startswith(f"http://127.0.0.1:{port}/") for _, url in observed)
             browser.close()
     finally:
@@ -335,14 +392,19 @@ def test_existing_chat_reply_composer_is_explicit_and_branch_bound(
     ],
 )
 def test_reply_composer_preserves_terminal_recovery_without_sending(
-    tmp_path: Path, width: int, height: int, status: str,
-    missing_conversation: bool, reply_allowed: bool,
+    tmp_path: Path,
+    width: int,
+    height: int,
+    status: str,
+    missing_conversation: bool,
+    reply_allowed: bool,
 ) -> None:
     executable = os.environ.get("PROMPTA_TEST_CHROMIUM", "")
     if not executable or not Path(executable).exists():
         pytest.skip("Headless Chromium unavailable")
     app = PromptaJobServer(
-        ("127.0.0.1", 0), state_path=tmp_path / "state.sqlite3",
+        ("127.0.0.1", 0),
+        state_path=tmp_path / "state.sqlite3",
         jobs_path=tmp_path / "jobs.sqlite3",
     )
     now = time.time()
@@ -350,9 +412,16 @@ def test_reply_composer_preserves_terminal_recovery_without_sending(
     assert app.results.accept("run-1", "owner", deadline=now + 4000)
     if status == "completed":
         assert app.results.write(
-            "run-1", "owner",
-            CaptureResult("dom", "complete", "Synthetic answer", None if missing_conversation else "c" * 32,
-                          "m" * 32, None),
+            "run-1",
+            "owner",
+            CaptureResult(
+                "dom",
+                "complete",
+                "Synthetic answer",
+                None if missing_conversation else "c" * 32,
+                "m" * 32,
+                None,
+            ),
         )
     elif status == "interrupted":
         assert app.results.finish("run-1", "owner", "interrupted")
@@ -373,14 +442,23 @@ def test_reply_composer_preserves_terminal_recovery_without_sending(
                 # Missing capture identity and interrupted reads cannot permanently block Send.
                 expect(send_button).to_be_enabled()
             else:
-                expect(page.get_by_text("Wait for the current response", exact=False)).to_be_visible()
+                expect(
+                    page.get_by_text("Wait for the current response", exact=False)
+                ).to_be_visible()
                 expect(send_button).to_be_disabled()
                 composer.press("Enter")
             assert not [
-                request for request in observed
-                if request[0] == "POST" and any(path in request[1] for path in (
-                    "/api/chats", "/reply-send", "/reply-recover",
-                ))
+                request
+                for request in observed
+                if request[0] == "POST"
+                and any(
+                    path in request[1]
+                    for path in (
+                        "/api/chats",
+                        "/reply-send",
+                        "/reply-recover",
+                    )
+                )
             ]
             assert page.evaluate("document.documentElement.scrollWidth <= innerWidth + 1")
             browser.close()
@@ -392,7 +470,9 @@ def test_reply_composer_preserves_terminal_recovery_without_sending(
 
 @pytest.mark.parametrize("width,height", [(1440, 900), (390, 844)])
 def test_fresh_chat_immediately_enters_sidebar_without_horizontal_scroll(
-    tmp_path: Path, width: int, height: int,
+    tmp_path: Path,
+    width: int,
+    height: int,
 ) -> None:
     executable = os.environ.get("PROMPTA_TEST_CHROMIUM", "")
     if not executable or not Path(executable).exists():
@@ -425,12 +505,19 @@ def test_fresh_chat_immediately_enters_sidebar_without_horizontal_scroll(
         page.locator(".chat-entry").filter(has_text="Instant new sidebar chat").locator(
             ".chat-pin[aria-pressed='true']"
         ).wait_for(timeout=3000)
-        assert page.locator(".chats-list .chat-row").first.inner_text().startswith(
-            "Instant new sidebar chat",
+        assert (
+            page.locator(".chats-list .chat-row")
+            .first.inner_text()
+            .startswith(
+                "Instant new sidebar chat",
+            )
         )
-        assert page.locator(".chats-list").evaluate(
-            "node => getComputedStyle(node).overflowX",
-        ) == "hidden"
+        assert (
+            page.locator(".chats-list").evaluate(
+                "node => getComputedStyle(node).overflowX",
+            )
+            == "hidden"
+        )
         sidebar = page.locator(".chats-sidebar")
         assert sidebar.evaluate("node => getComputedStyle(node).overflowX") == "clip"
         dimensions = page.locator(".chats-list").evaluate(

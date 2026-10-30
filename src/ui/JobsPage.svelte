@@ -2,6 +2,7 @@
   import { onMount, tick } from "svelte";
   import { isRepeatingJob, sortJobs } from "./jobSorting";
   import { subscribeLiveUpdates } from "./liveUpdates";
+  import { acknowledgeFreshQueueRequest, findFreshQueueReceipt, freshQueueRequest } from "./freshQueueReceipt";
 
   let { workspace }: { workspace?: HTMLDivElement } = $props();
 
@@ -25,6 +26,28 @@
     last_sent_at: number;
     last_uncertain_send_at: number;
   };
+
+  type DeliveryHealth = {
+    ready: boolean;
+    issues: string[];
+    queue: {
+      queued: number;
+      running: number;
+      retrying: number;
+      rate_limited: number;
+      dead_lettered: number;
+      outcome_unknown: number;
+      oldest_pending_age_seconds: number;
+    };
+  };
+  let deliveryHealth = $state<DeliveryHealth | null>(null);
+  let deliveryHealthError = $state("");
+  const pendingDeliveries = $derived(deliveryHealth
+    ? deliveryHealth.queue.queued + deliveryHealth.queue.running +
+      deliveryHealth.queue.retrying + deliveryHealth.queue.rate_limited
+    : 0);
+
+  type QueueRequestContext = { prompt: string; images: string[]; scope: string };
 
   type JobFilter = "pending" | "healthy" | "paused" | "unhealthy";
   const filterOptions: { key: JobFilter; label: string; title: string }[] = [
@@ -371,6 +394,17 @@
     jobsTitle?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
+  async function loadDeliveryHealth() {
+    try {
+      const response = await fetch("./api/health", { cache: "no-store" });
+      if (!response.ok) throw new Error("Health unavailable");
+      deliveryHealth = await response.json() as DeliveryHealth;
+      deliveryHealthError = "";
+    } catch {
+      deliveryHealthError = "Delivery health is temporarily unavailable.";
+    }
+  }
+
   async function load({ quiet = false }: { quiet?: boolean } = {}) {
     if (quiet && document.visibilityState !== "visible") return;
     if (loadInFlight) {
@@ -403,28 +437,54 @@
     }
   }
 
-  async function command(payload: Record<string, unknown>, success: string) {
+  async function command(
+    payload: Record<string, unknown>, success: string,
+    queueContext?: QueueRequestContext,
+  ) {
+    if (saving) return false;
     saving = true;
     dataGeneration += 1;
-    status = payload.action === "fire_now" || payload.action === "run_once" ? "Queuing fresh chat…" : "Saving…";
+    status = queueContext ? "Queuing fresh chat…" : "Saving…";
+    let request: Awaited<ReturnType<typeof freshQueueRequest>> | undefined;
+    let definitivelyRejected = false;
 
+    const reconcile = async () => {
+      if (!request || !await findFreshQueueReceipt(request.requestId)) return false;
+      acknowledgeFreshQueueRequest(request.fingerprint, request.requestId);
+      await load({ quiet: true });
+      status = success;
+      return true;
+    };
     try {
+      if (queueContext) {
+        request = await freshQueueRequest(
+          queueContext.prompt, queueContext.images, queueContext.scope,
+        );
+        if (request.reused && await reconcile()) return true;
+        payload = { ...payload, request_id: request.requestId };
+      }
       const response = await fetch("./api/jobs", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(payload),
       });
+      definitivelyRejected = !response.ok && response.status < 500;
       const result = await response.json();
       if (!response.ok) {
         throw new Error(String(result.error || String(response.status) + " " + response.statusText));
       }
-
+      if (request) acknowledgeFreshQueueRequest(request.fingerprint, request.requestId);
       const nextJobs: Job[] = Array.isArray(result.jobs) ? result.jobs : [];
       applyJobs(nextJobs);
       status = success;
       return true;
     } catch (error) {
-      status = "Job update failed: " + String(error).replace(/^Error:\s*/, "");
+      if (request && !definitivelyRejected) {
+        if (await reconcile()) return true;
+        status = "Queue receipt uncertain. The request ID is saved; press the same action again to reconcile safely.";
+      } else {
+        status = "Job update failed: " + String(error).replace(/^Error:\s*/, "");
+      }
       return false;
     } finally {
       saving = false;
@@ -486,9 +546,13 @@
 
     if (runOnce) {
       const delayMinutes = Number(onceDelay);
+      const refs = images.map((image) => image.ref);
       const queued = await command(
-        { action: "run_once", prompt: jobPrompt, images: images.map((image) => image.ref), delay_minutes: delayMinutes, pin_chat: pinChat },
+        { action: "run_once", prompt: jobPrompt, images: refs, delay_minutes: delayMinutes, pin_chat: pinChat },
         delayMinutes ? `Scheduled once in ${delayMinutes} minutes.` : "Queued one fresh chat.",
+        delayMinutes === 0
+          ? { prompt: jobPrompt, images: refs, scope: "jobs:run-once:" + pinChat }
+          : undefined,
       );
       if (queued) {
         initialForm = formSnapshot();
@@ -554,9 +618,17 @@
     window.addEventListener("resize", onViewportResize);
     window.visualViewport?.addEventListener("resize", onViewportResize);
     void load().then(syncEditorFromUrl);
+    void loadDeliveryHealth();
+    const healthTimer = setInterval(() => {
+      if (document.visibilityState === "visible") void loadDeliveryHealth();
+    }, 30000);
     window.addEventListener("popstate", syncEditorFromUrl);
-    const unsubscribe = subscribeLiveUpdates("jobs", () => { void load({ quiet: true }); });
+    const unsubscribe = subscribeLiveUpdates("jobs", () => {
+      void load({ quiet: true });
+      void loadDeliveryHealth();
+    });
     return () => {
+      clearInterval(healthTimer);
       unsubscribe();
       window.removeEventListener("beforeunload", onBeforeUnload);
       window.removeEventListener("resize", onViewportResize);
@@ -605,6 +677,42 @@
       <button class="primary-button" type="button" disabled={saving} onclick={beginNew}>New job</button>
     </div>
   </div>
+
+  {#if deliveryHealth || deliveryHealthError}
+    <details class="delivery-diagnostics">
+      <summary>
+        <span class:degraded={deliveryHealth?.ready === false} class="delivery-indicator"></span>
+        Delivery {deliveryHealth?.ready === false ? "needs attention" : deliveryHealth ? "online" : "status unavailable"}
+        {#if deliveryHealth}
+          <span class="delivery-count">{pendingDeliveries} pending</span>
+          {#if deliveryHealth.queue.outcome_unknown}
+            <span class="delivery-count">{deliveryHealth.queue.outcome_unknown} unconfirmed historically</span>
+          {/if}
+        {/if}
+      </summary>
+      {#if deliveryHealthError}
+        <p role="alert">{deliveryHealthError} <button type="button" onclick={() => void loadDeliveryHealth()}>Retry</button></p>
+      {/if}
+      {#if deliveryHealth}
+        {#if deliveryHealth.issues.length}
+          <p role="status">{deliveryHealth.issues.join(" · ")}</p>
+        {:else}
+          <p>UI, scheduler, delivery worker and browser are responding.</p>
+        {/if}
+        <dl>
+          <div><dt>Queued</dt><dd>{deliveryHealth.queue.queued}</dd></div>
+          <div><dt>Running</dt><dd>{deliveryHealth.queue.running}</dd></div>
+          <div><dt>Retrying</dt><dd>{deliveryHealth.queue.retrying}</dd></div>
+          <div><dt>Rate limited</dt><dd>{deliveryHealth.queue.rate_limited}</dd></div>
+          <div><dt>Dead letters</dt><dd>{deliveryHealth.queue.dead_lettered}</dd></div>
+          <div><dt>Unconfirmed sends</dt><dd>{deliveryHealth.queue.outcome_unknown}</dd></div>
+        </dl>
+        {#if deliveryHealth.queue.outcome_unknown}
+          <p>Unconfirmed sends are not automatically retried. Review the exact saved chat before sending again.</p>
+        {/if}
+      {/if}
+    </details>
+  {/if}
 
   <div class="jobs-summary" role="group" aria-label="Filter jobs">
     {#each filterOptions as option (option.key)}
@@ -681,7 +789,12 @@
             type="button"
             disabled={saving}
             title={job.daily_at || job.run_at_epoch ? "Launch a fresh chat without moving the fixed schedule" : "Launch a fresh chat and restart the interval countdown"}
-            onclick={() => void command({ action: "fire_now", name: job.name }, "Queued one fresh chat for " + job.name + ".")}
+            onclick={() => void command(
+              { action: "fire_now", name: job.name },
+              "Queued one fresh chat for " + job.name + ".",
+              { prompt: job.prompt, images: job.images.map((image) => image.ref),
+                scope: "jobs:fire:" + job.name + ":" + job.pin_chat },
+            )}
           >Fire now</button>
           {#if !job.run_at_epoch}
             <button class="row-action" type="button" disabled={saving} onclick={() => edit(job)}>Edit</button>

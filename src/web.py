@@ -8,6 +8,7 @@ import json
 import logging
 import mimetypes
 import os
+import re
 import socket
 import subprocess
 import time
@@ -130,10 +131,19 @@ class PromptaJobServer(ThreadingHTTPServer):
         browser_reachable, page_count = browser_page_count(debugger_address)
         if browser_reachable:
             self.health.beat("browser", now=now)
+        services = self.health.snapshot(now=now)
+        issues = [
+            service + " heartbeat stale"
+            for service, snapshot in services.items() if snapshot["stale"] is True
+        ]
+        if not browser_reachable:
+            issues.append("ChatGPT browser unreachable")
         return {
-            "ok": True,
+            "ok": True,  # The UI HTTP endpoint is alive; preserve watchdog semantics.
+            "ready": not issues,
+            "issues": issues,
             "server": self.host_name,
-            "services": self.health.snapshot(now=now),
+            "services": services,
             "browser": {"reachable": browser_reachable, "page_count": page_count},
             "queue": self.queue.health_metrics(now=now),
         }
@@ -144,7 +154,7 @@ class PromptaJobHandler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
     def log_message(self, format: str, *args: object) -> None:
-        if urlparse(self.path).path.startswith(("/api/results", "/api/images", "/api/local-chat-pins", "/api/local-chat-reads", "/api/queue-status")):
+        if urlparse(self.path).path.startswith(("/api/results", "/api/images", "/api/local-chat-pins", "/api/local-chat-reads", "/api/queue-status", "/api/chats/requests")):
             # Search terms and run identifiers can be sensitive; don't log request URLs.
             logger.info("%s - %s /api/results", self.address_string(), self.command)
             return
@@ -270,6 +280,20 @@ class PromptaJobHandler(BaseHTTPRequestHandler):
             return
         if path == "/api/jobs":
             self._json(self.server.jobs.scheduled_jobs())
+            return
+        if path.startswith("/api/chats/requests/"):
+            # Local-only acknowledgement lookup; never opens ChatGPT or resends.
+            request_id = path[len("/api/chats/requests/"):]
+            if not re.fullmatch(r"[0-9a-f]{32}", request_id):
+                self.send_error(HTTPStatus.NOT_FOUND)
+                return
+            record = self.server.queue.get("manual-" + request_id)
+            if record is None or record["client_id"] not in (
+                "manual:" + request_id, "manual:once:" + request_id,
+            ):
+                self._json({"error": "Queue request not found"}, HTTPStatus.NOT_FOUND)
+                return
+            self._json({"send_id": record["send_id"], "status": record["status"]})
             return
         if path.startswith("/api/images/"):
             ref = unquote(path[len("/api/images/"):])

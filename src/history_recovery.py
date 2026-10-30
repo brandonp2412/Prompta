@@ -159,9 +159,10 @@ class HistoryRecovery:
         candidate = pinned or reply or self.results.next_history_recovery(now=at)
         if candidate is None:
             return False
-        self.results.reserve_history_recovery_global_slot(
+        if not self.results.reserve_history_recovery_global_slot(
             now=at, interval=_GLOBAL_INTERVAL_SECONDS,
-        )
+        ):
+            return False
         reply_id = str(candidate["reply_id"]) if reply is not None else ""
         send_id = "reply:" + reply_id if reply_id else str(candidate["send_id"])
         conversation_id = str(candidate["conversation_id"])
