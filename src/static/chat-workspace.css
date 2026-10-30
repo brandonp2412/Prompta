@@ -123,7 +123,6 @@
   .chat-entry { margin: 0; }
   .chat-entry .chat-row { min-height: 44px; padding: 7px 4px 7px 8px; }
 
-  .chat-detail-toolbar { min-height: 44px; padding: 0 10px; }
   .chat-detail-content { padding: 12px 12px 24px; }
   .message-group { margin-bottom: 18px; }
   .message-role { margin-bottom: 6px; }

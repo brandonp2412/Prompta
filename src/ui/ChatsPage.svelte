@@ -967,7 +967,13 @@
 
   <div class="chats-detail">
     <div class="workspace-header">
-      <button class="sidebar-menu" type="button" aria-label="Open chat sidebar" aria-expanded={drawerOpen} onclick={() => drawerOpen = true}>☰</button>
+      {#if view === "chats" && selectedRunId}
+        <button class="chat-header-back" type="button" aria-label="Back to chats" title="Back to chats" onclick={() => onSelect(null)}>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6" /></svg>
+        </button>
+      {:else}
+        <button class="sidebar-menu" type="button" aria-label="Open chat sidebar" aria-expanded={drawerOpen} onclick={() => drawerOpen = true}>☰</button>
+      {/if}
       <strong>{view === "jobs" ? "Jobs" : (detail?.title || detail?.job_name || "Chats")}</strong>
     </div>
     {#if view === "jobs"}
@@ -978,9 +984,6 @@
     {:else if !selectedRunId}
       <div class="chats-detail-empty"><button class="sidebar-primary" onclick={createChat}>New chat</button></div>
     {:else}
-      <div class="chat-detail-toolbar">
-        <button class="chat-detail-back" onclick={() => onSelect(null)}>‹ <span>All chats</span></button>
-      </div>
       <div class="chat-transcript-scroll" bind:this={scrollPane}>
       {#if detailError}<div class="result-error" role="alert">{detailError}</div>{/if}
       {#if loadingDetail && !detail}<p class="chats-empty">Loading run…</p>{/if}

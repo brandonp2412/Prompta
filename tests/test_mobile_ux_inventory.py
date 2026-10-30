@@ -234,7 +234,11 @@ def test_mobile_ux_inventory_atlas(tmp_path: Path, width: int, height: int) -> N
                     page.set_viewport_size({"width": width, "height": min(height, 520)})
                     screenshot(page, root, "14-reply-keyboard", notes)
                     page.set_viewport_size({"width": width, "height": height})
-                page.get_by_role("button", name="All chats").click()
+                expect(page.locator(".chat-detail-toolbar")).to_have_count(0)
+                if width <= 680:
+                    page.get_by_role("button", name="Back to chats").click()
+                else:
+                    expect(page.locator(".chat-header-back")).to_be_hidden()
                 page.locator(".chat-row").filter(has_text="Synthetic long prompt").click()
                 expect(page.get_by_role("button", name="Show full prompt")).to_be_visible()
                 screenshot(page, root, "15-long-prompt-collapsed", notes)
