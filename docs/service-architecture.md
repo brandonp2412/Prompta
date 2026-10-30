@@ -10,9 +10,11 @@ Prompta is a job-centric scheduler and fresh-chat dispatcher. Its only conversat
 | prompta-scheduler.service | Due-time calculation and durable job-delivery enqueue | Browser automation or result tracking |
 | prompta-delivery-worker.service | Fresh-chat delivery, independent passive captures, and paced read-only recovery of exact verified conversations | Account-wide history enumeration, internal history API requests, or retries after ambiguous sends |
 | prompta-browser.service | Authenticated Chromium/CDP session | Scheduling or job state |
-| prompta-connector-approval-watch.service | Opt-in scan of rendered unread ChatGPT sidebar markers and temporary background approval tabs | Chat bodies, history APIs, prompt submission, or existing user tabs |
+| prompta-connector-approval-watch.service | Opt-in scan of unread ChatGPT sidebar markers, temporary background approval tabs, and permission-only checks in already-open non-Prompta chats | Chat bodies, history APIs, prompt submission, or navigation/closure of user tabs |
 
 prompta.target starts these services. The old conversation worker does not exist.
+
+Connector approval supervision uses the same scoped `approve_connector.js` matcher and `supervise_connector_approvals` loop in both paths. Live delivery/manual-reply capture tabs are primary and check every 200 ms while they own the exact conversation. The independent opt-in service is a slower, one-second-per-tab backup for rendered unread chats from anywhere in the authenticated account, including conversations outside Prompta. It also watches scoped permission controls in already-open non-Prompta ChatGPT tabs, which handles repeated prompts after a chat becomes read. It never sends messages or navigates/closes existing user tabs.
 
 ## Data flow
 

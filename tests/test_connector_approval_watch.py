@@ -3,7 +3,7 @@ from __future__ import annotations
 import shutil
 
 import pytest
-from playwright.async_api import Browser, BrowserContext, async_playwright
+from playwright.async_api import Browser, BrowserContext, Route, async_playwright
 
 from prompta.browser_script_loader import load_browser_script
 from prompta.connector_approval_watch import unread_chat_paths
@@ -77,11 +77,59 @@ async def test_background_watcher_opens_unread_chat_and_grants_permission(
 
     monkeypatch.setattr(watcher, "background_page", fake_background_page)
     monkeypatch.setattr(watcher, "_SCAN_INTERVAL_SECONDS", 0.05)
+
+    async def no_open_chat_candidates(_context: object, _excluded: object) -> list[object]:
+        return []
+
+    monkeypatch.setattr(watcher, "open_chat_candidates", no_open_chat_candidates)
     await watcher.watch_sidebar(object.__new__(Browser), object.__new__(BrowserContext))
     assert sidebar.closed
     assert chat.closed
     assert chat.url == "https://chatgpt.com" + CHAT_A
     assert chat.grants == 1
+
+
+@pytest.mark.asyncio
+async def test_open_non_prompta_tabs_get_backup_permission_without_navigation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import prompta.connector_approval_watch as watcher
+
+    chromium = shutil.which("chromium")
+    if chromium is None:
+        pytest.skip("System Chromium is unavailable")
+
+    async def fixture(route: Route) -> None:
+        await route.fulfill(
+            status=200,
+            content_type="text/html",
+            body='<div role="dialog"><button onclick="window.grants=(window.grants||0)+1;'
+                 'this.parentElement.remove()">Always allow</button><button>Allow once</button></div>',
+        )
+
+    monkeypatch.setattr(watcher.ConnectorApproval, "load", lambda: watcher.ConnectorApproval(True))
+    monkeypatch.setattr(watcher, "MAX_OWNED_TAB_AGE_SECONDS", 0.5)
+    async with async_playwright() as playwright:
+        browser = await playwright.chromium.launch(
+            executable_path=chromium, headless=True, args=["--no-sandbox"]
+        )
+        try:
+            context = await browser.new_context()
+            await context.route("https://chatgpt.com/c/**", fixture)
+            user_page = await context.new_page()
+            await user_page.goto("https://chatgpt.com" + CHAT_A)
+            owned_page = await context.new_page()
+            await owned_page.goto("https://chatgpt.com" + CHAT_B)
+            await owned_page.evaluate("window.name='prompta-delivery:123:owner:tab'")
+            candidates = await watcher.open_chat_candidates(context, set())
+            assert candidates == [(user_page, CHAT_A)]
+            await watcher.watch_open_chat(user_page, CHAT_A)
+            assert await user_page.evaluate("window.grants") == 1
+            assert not user_page.is_closed()
+            assert user_page.url == "https://chatgpt.com" + CHAT_A
+            assert await owned_page.evaluate("window.grants || 0") == 0
+        finally:
+            await browser.close()
 
 
 @pytest.mark.asyncio

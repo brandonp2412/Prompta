@@ -1,8 +1,9 @@
 """Watch rendered unread ChatGPT sidebar rows for connector approvals.
 
 This opt-in service uses one background sidebar tab plus temporary background
-conversation tabs. It never requests history APIs, reads message bodies, sends
-prompts, or touches a tab belonging to the user or delivery worker.
+conversation tabs. It also watches permission controls in already-open user
+conversation tabs without navigating or closing them. It never requests history
+APIs, reads message bodies, sends prompts, or modifies delivery-owned tabs.
 """
 
 from __future__ import annotations
@@ -12,12 +13,14 @@ import logging
 import os
 import re
 from collections import OrderedDict
+from urllib.parse import urlsplit
 
 from playwright.async_api import Browser, BrowserContext, Page, async_playwright
 
 from .browser_ownership import MAX_OWNED_TAB_AGE_SECONDS
 from .browser_script_loader import load_browser_script
 from .config import ConnectorApproval
+from .connector_approval_supervisor import supervise_connector_approvals
 
 logger = logging.getLogger(__name__)
 
@@ -25,9 +28,10 @@ _CHAT_PATH = re.compile(r"/c/[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}", re.IG
 _SCAN_INTERVAL_SECONDS = 5.0
 _SIDEBAR_REFRESH_SECONDS = 60.0
 _MAX_WATCHED_CHATS = 8
+_MAX_OPEN_CHAT_WATCHES = 16
 _MAX_REMEMBERED_CHATS = 512
-_APPROVAL_SCRIPT = load_browser_script("approve_connector.js")
 _UNREAD_SCRIPT = load_browser_script("find_unread_chats.js")
+_TAB_MARKER_SCRIPT = load_browser_script("get_window_name.js")
 
 
 def unread_chat_paths(value: object) -> list[str]:
@@ -52,46 +56,104 @@ async def background_page(browser: Browser, context: BrowserContext) -> Page:
         await session.detach()
 
 
-async def watch_chat(browser: Browser, context: BrowserContext, path: str) -> None:
+def chat_path_from_url(url: str) -> str | None:
+    parts = urlsplit(url)
+    if parts.scheme != "https" or parts.netloc != "chatgpt.com":
+        return None
+    return parts.path if _CHAT_PATH.fullmatch(parts.path) else None
+
+
+async def open_chat_candidates(
+    context: BrowserContext, excluded: set[Page]
+) -> list[tuple[Page, str]]:
+    """Identify open non-Prompta chats without reading their conversation content."""
+    result: list[tuple[Page, str]] = []
+    for page in context.pages:
+        if page.is_closed() or page in excluded:
+            continue
+        path = chat_path_from_url(page.url)
+        if path is None:
+            continue
+        try:
+            marker = await asyncio.wait_for(page.evaluate(_TAB_MARKER_SCRIPT), timeout=0.75)
+        except Exception:
+            continue
+        if not isinstance(marker, str) or marker.startswith(("prompta:", "prompta-delivery:")):
+            continue  # The live capture/reply watcher owns this tab.
+        result.append((page, path))
+        if len(result) >= _MAX_OPEN_CHAT_WATCHES:
+            break
+    return result
+
+
+async def watch_open_chat(page: Page, path: str) -> None:
+    """Backup permission clicks in user-opened chats; never navigate or close them."""
+    deadline = asyncio.get_running_loop().time() + MAX_OWNED_TAB_AGE_SECONDS
+
+    def active() -> bool:
+        return (
+            not page.is_closed()
+            and ConnectorApproval.load().enabled
+            and chat_path_from_url(page.url) == path
+        )
+
+    await supervise_connector_approvals(
+        page.evaluate,
+        deadline=deadline,
+        source="backup-open",
+        poll_interval_seconds=1.0,
+        active=active,
+    )
+
+
+async def watch_chat(
+    browser: Browser, context: BrowserContext, path: str, owned_pages: set[Page] | None = None
+) -> None:
     page: Page | None = None
-    approved_count = 0
     try:
         page = await background_page(browser, context)
+        if owned_pages is not None:
+            owned_pages.add(page)
         await page.goto("https://chatgpt.com" + path, wait_until="domcontentloaded", timeout=30000)
+        watched_page = page
         deadline = asyncio.get_running_loop().time() + MAX_OWNED_TAB_AGE_SECONDS
-        while not page.is_closed() and asyncio.get_running_loop().time() < deadline:
-            if not ConnectorApproval.load().enabled:
-                return
-            # A ChatGPT redirect/login is never a permission grant.
-            if page.url.split("?", 1)[0].rstrip("/") != "https://chatgpt.com" + path:
-                return
-            try:
-                approved = await asyncio.wait_for(page.evaluate(_APPROVAL_SCRIPT), timeout=5.0)
-                if approved is True:
-                    approved_count += 1
-                    logger.info("Background ChatGPT connector grant confirmed count=%d", approved_count)
-                    continue  # Successive permission dialogs can appear immediately.
-                if approved == "stuck":
-                    logger.warning("Background ChatGPT connector grant did not dismiss")
-            except Exception as exc:
-                logger.warning("Background ChatGPT permission check failed type=%s", type(exc).__name__)
-            await asyncio.sleep(1.0)
+
+        def active() -> bool:
+            return (
+                not watched_page.is_closed()
+                and ConnectorApproval.load().enabled
+                and watched_page.url.split("?", 1)[0].rstrip("/") == "https://chatgpt.com" + path
+            )
+
+        await supervise_connector_approvals(
+            watched_page.evaluate,
+            deadline=deadline,
+            source="backup",
+            poll_interval_seconds=1.0,
+            active=active,
+        )
     except asyncio.CancelledError:
         raise
     except Exception as exc:
         logger.warning("Background ChatGPT conversation watch failed type=%s", type(exc).__name__)
     finally:
-        if page is not None and not page.is_closed():
-            await page.close()
+        if page is not None:
+            if owned_pages is not None:
+                owned_pages.discard(page)
+            if not page.is_closed():
+                await page.close()
 
 
 async def watch_sidebar(browser: Browser, context: BrowserContext) -> None:
     sidebar: Page | None = None
     watches: dict[str, asyncio.Task[None]] = {}
+    open_watches: dict[Page, asyncio.Task[None]] = {}
+    owned_pages: set[Page] = set()
     remembered: OrderedDict[str, float] = OrderedDict()
     loop = asyncio.get_running_loop()
     try:
         sidebar = await background_page(browser, context)
+        owned_pages.add(sidebar)
         await sidebar.goto("https://chatgpt.com/", wait_until="domcontentloaded", timeout=30000)
         last_refresh = loop.time()
         while not sidebar.is_closed():
@@ -105,14 +167,25 @@ async def watch_sidebar(browser: Browser, context: BrowserContext) -> None:
                 if task.done():
                     await task
                     del watches[path]
-            # Only rendered unread markers: no account-wide history endpoints.
+            for page, task in list(open_watches.items()):
+                if task.done():
+                    await task
+                    del open_watches[page]
+            # An already-open non-Prompta chat may request another permission
+            # after its unread marker has disappeared. Never navigate/close it.
+            excluded = owned_pages | set(open_watches)
+            for page, path in await open_chat_candidates(context, excluded):
+                if len(open_watches) >= _MAX_OPEN_CHAT_WATCHES:
+                    break
+                open_watches[page] = asyncio.create_task(watch_open_chat(page, path))
+            # Rendered unread markers only: never fetch account history.
             raw = await asyncio.wait_for(sidebar.evaluate(_UNREAD_SCRIPT), timeout=5.0)
             for path in unread_chat_paths(raw):
                 if path in watches or remembered.get(path, 0.0) > now:
                     continue
                 if len(watches) >= _MAX_WATCHED_CHATS:
                     break
-                watches[path] = asyncio.create_task(watch_chat(browser, context, path))
+                watches[path] = asyncio.create_task(watch_chat(browser, context, path, owned_pages))
                 remembered[path] = now + MAX_OWNED_TAB_AGE_SECONDS
                 remembered.move_to_end(path)
                 if len(remembered) > _MAX_REMEMBERED_CHATS:
@@ -120,9 +193,9 @@ async def watch_sidebar(browser: Browser, context: BrowserContext) -> None:
                 logger.info("Background ChatGPT unread conversation watch started")
             await asyncio.sleep(_SCAN_INTERVAL_SECONDS)
     finally:
-        for task in watches.values():
+        for task in [*watches.values(), *open_watches.values()]:
             task.cancel()
-        await asyncio.gather(*watches.values(), return_exceptions=True)
+        await asyncio.gather(*watches.values(), *open_watches.values(), return_exceptions=True)
         if sidebar is not None and not sidebar.is_closed():
             await sidebar.close()
 

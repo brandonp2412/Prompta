@@ -14,6 +14,7 @@ from .browser_driver import BrowserDriver
 from .browser_ownership import MAX_OWNED_TAB_AGE_SECONDS
 from .browser_script_loader import load_browser_script
 from .config import ConnectorApproval
+from .connector_approval_supervisor import supervise_connector_approvals
 from .image_store import ImageStore, image_refs
 from .playwright_driver import PlaywrightDriver, _normalise_composer_text
 from .rate_limit import RateLimitError, captured_retry_after, is_rate_limited_text
@@ -310,29 +311,13 @@ class BrowserDeliverySender:
     async def _handle_connector_approvals(
         self, driver: PassiveCaptureDriver, *, deadline: float | None = None
     ) -> None:
-        deadline = deadline or asyncio.get_running_loop().time() + _CONNECTOR_APPROVAL_SECONDS
-        approved_count = 0
-        while (remaining := deadline - asyncio.get_running_loop().time()) > 0:
-            try:
-                approved = await asyncio.wait_for(
-                    driver.eval(load_browser_script("approve_connector.js")),
-                    timeout=min(5.0, remaining),
-                )
-                if approved is True:
-                    approved_count += 1
-                    logger.info(
-                        "Prompta confirmed Always allow permission dismissed count=%d",
-                        approved_count,
-                    )
-                    # A grant may immediately reveal another permission dialog.
-                    continue
-                elif approved == "stuck":
-                    logger.warning("Connector permission control remained after Always allow click")
-            except Exception as exc:
-                logger.info(
-                    "Connector permission check unavailable error_type=%s", type(exc).__name__
-                )
-            await asyncio.sleep(min(1.0, max(0.0, deadline - asyncio.get_running_loop().time())))
+        await supervise_connector_approvals(
+            driver.eval,
+            deadline=deadline or asyncio.get_running_loop().time() + _CONNECTOR_APPROVAL_SECONDS,
+            source="live",
+            poll_interval_seconds=0.2,
+            active=lambda: driver.is_connected,
+        )
 
     async def _capture_until_complete(
         self,
