@@ -1195,3 +1195,27 @@ select:focus-visible {
   .jobs-workspace .editor-body .prompt-field { flex: none; }
   .jobs-workspace .editor-body textarea { flex: none; height: min(38dvh, 420px); min-height: 220px; }
 }
+
+/* Keep recovery feedback visible without moving the chat or job workspace. */
+.live-updates-warning {
+  position: fixed;
+  z-index: 100;
+  bottom: calc(env(safe-area-inset-bottom) + 20px);
+  left: 50%;
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: calc(100vw - 32px);
+  padding: 10px 16px;
+  border: 1px solid #9a6c2c;
+  border-radius: 14px;
+  background: #30271c;
+  color: #ffe7ba;
+  box-shadow: 0 8px 24px #0005;
+  font-size: 14px;
+  line-height: 1.3;
+  text-align: center;
+  pointer-events: none;
+}
+.live-updates-warning.chat-view {
+  bottom: calc(env(safe-area-inset-bottom) + 150px);
+}

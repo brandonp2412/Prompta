@@ -1,11 +1,13 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import ChatsPage from "./ChatsPage.svelte";
+  import { subscribeLiveStatus } from "./liveUpdates";
 
   let { serverName }: { serverName: string } = $props();
   let view = $state<"jobs" | "chats">("chats");
   let selectedRunId = $state<string | null>(null);
   let newChatOpen = $state(false);
+  let updatesDelayed = $state(false);
 
   function syncRoute() {
     const params = new URLSearchParams(window.location.search);
@@ -42,7 +44,11 @@
   onMount(() => {
     syncRoute();
     window.addEventListener("popstate", syncRoute);
-    return () => window.removeEventListener("popstate", syncRoute);
+    const unsubscribeStatus = subscribeLiveStatus((delayed) => { updatesDelayed = delayed; });
+    return () => {
+      unsubscribeStatus();
+      window.removeEventListener("popstate", syncRoute);
+    };
   });
 </script>
 
@@ -52,6 +58,9 @@
 </svelte:head>
 
 <main class="jobs-app">
+  {#if updatesDelayed}
+    <div class="live-updates-warning" class:chat-view={view === "chats"} role="status">Live updates delayed. Checking automatically.</div>
+  {/if}
   <ChatsPage {view} {selectedRunId} {newChatOpen}
     onSelect={(id) => navigate("chats", id)}
     onNavigate={(nextView) => navigate(nextView)}

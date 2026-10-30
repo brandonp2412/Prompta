@@ -7,10 +7,12 @@ from collections.abc import Generator
 from contextlib import contextmanager
 from http.client import HTTPConnection, HTTPResponse
 from pathlib import Path
+from unittest.mock import patch
 
 from playwright.sync_api import expect, sync_playwright
 
 from prompta.jobs import add_job
+from prompta.live_events import LocalEventSignals
 from prompta.web import PromptaJobServer
 
 
@@ -115,6 +117,14 @@ def test_live_revisions_do_not_depend_on_private_payloads(tmp_path: Path) -> Non
         assert after_queue.jobs == after_job.jobs
 
 
+def test_live_revision_stat_failure_does_not_break_event_observation(tmp_path: Path) -> None:
+    signals = LocalEventSignals(tmp_path / "jobs.sqlite3", tmp_path / "runtime.sqlite3")
+    with patch.object(Path, "stat", side_effect=PermissionError("temporary IO failure")):
+        snapshot = signals.snapshot()
+    assert set(snapshot.jobs) == {(0, 0, 0)}
+    assert set(snapshot.chats) == {(0, 0, 0)}
+
+
 def test_browser_updates_jobs_and_chats_without_timer_polling(tmp_path: Path) -> None:
     """Real Chromium receives SSE invalidations and updates without clicking Refresh."""
     with live_server(tmp_path) as (app, port, jobs_path):
@@ -152,5 +162,66 @@ def test_browser_updates_jobs_and_chats_without_timer_polling(tmp_path: Path) ->
                 expect(page.locator(".chat-entry")).to_have_count(1, timeout=5000)
                 expect(page.locator(".chat-row strong", has_text="SSE live chat")).to_be_visible()
                 assert all(f"127.0.0.1:{port}" in request for request in requests)
+            finally:
+                browser.close()
+
+
+def test_browser_polls_during_sse_outage_and_recovers_without_reloading(tmp_path: Path) -> None:
+    """If SSE fails but the API works, stale Jobs recover without a full-page reload."""
+    with live_server(tmp_path) as (_, port, jobs_path):
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(
+                headless=True, executable_path="/usr/bin/chromium",
+                args=["--no-sandbox"],
+            )
+            try:
+                page = browser.new_page(viewport={"width": 390, "height": 844})
+                page_errors: list[str] = []
+                request_methods: list[str] = []
+                page.on("pageerror", lambda error: page_errors.append(str(error)))
+                page.on("request", lambda request: request_methods.append(request.method))
+                page.route("**/api/events", lambda route: route.abort())
+                page.goto(f"http://127.0.0.1:{port}/?view=jobs", wait_until="domcontentloaded")
+                expect(page.locator(".jobs-panel")).to_be_visible()
+                expect(page.locator(".live-updates-warning")).to_be_visible(
+                    timeout=14000
+                )
+                for width, height in ((360, 800), (390, 844), (412, 915), (1440, 900)):
+                    page.set_viewport_size({"width": width, "height": height})
+                    bounds = page.locator(".live-updates-warning").bounding_box()
+                    assert bounds is not None
+                    assert bounds["x"] >= 0
+                    assert bounds["x"] + bounds["width"] <= width + 1
+                    assert bounds["y"] > height / 2
+                    assert page.evaluate(
+                        "document.documentElement.scrollWidth <= document.documentElement.clientWidth"
+                    )
+                    page.screenshot(path=str(tmp_path / f"stream-outage-{width}.png"))
+                page.set_viewport_size({"width": 390, "height": 844})
+
+                add_job(jobs_path, "Offline SSE recovery", "Private prompt", 3600)
+                expect(page.locator(".job-name", has_text="Offline SSE recovery")).to_be_visible(
+                    timeout=19000
+                )
+
+                # EventSource retries its exact same-origin stream after the route
+                # is restored. The banner clears and SSE is again the fast path.
+                page.unroute("**/api/events")
+                expect(page.locator(".live-updates-warning")).to_have_count(
+                    0, timeout=15000
+                )
+                add_job(jobs_path, "Restored SSE", "Private prompt", 3600)
+                expect(page.locator(".job-name", has_text="Restored SSE")).to_be_visible(
+                    timeout=5000
+                )
+                page.route("**/api/events", lambda route: route.abort())
+                page.goto(
+                    f"http://127.0.0.1:{port}/?view=chats&draft=new",
+                    wait_until="domcontentloaded",
+                )
+                expect(page.locator(".live-updates-warning")).to_be_visible(timeout=14000)
+                page.screenshot(path=str(tmp_path / "stream-outage-chats-390.png"))
+                assert page_errors == []
+                assert "POST" not in request_methods
             finally:
                 browser.close()
