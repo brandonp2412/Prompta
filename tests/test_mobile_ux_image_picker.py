@@ -80,7 +80,7 @@ def test_ux01_004_image_picker_and_footer_real_touch(
                 requests: list[tuple[str, str]] = []
                 page.on("request", lambda request: requests.append((request.method, request.url)))
                 base = f"http://127.0.0.1:{port}/"
-                page.goto(base, wait_until="networkidle")
+                page.goto(f"{base}?view=jobs", wait_until="networkidle")
                 page.get_by_role("button", name="New job").click()
                 expect(page.locator(".job-editor")).to_be_visible()
                 expect(page.get_by_role("button", name="Add images")).to_be_visible()
