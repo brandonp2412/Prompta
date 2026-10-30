@@ -823,15 +823,29 @@ button:disabled { cursor: default; opacity: 0.45; }
   .chats-sidebar {
     display: flex; position: fixed; z-index: 12; top: 0; bottom: 0; left: 0;
     width: min(340px, calc(100% - 44px)); height: 100dvh;
-    transform: translateX(-105%); visibility: hidden; box-shadow: 9px 0 25px #0005;
-    transition: transform .18s ease-out;
+    transform: translate3d(-100%, 0, 0); visibility: hidden; box-shadow: 9px 0 25px #0005;
+    transition: transform .24s cubic-bezier(.2, .8, .2, 1), visibility 0s linear .24s;
   }
   .sidebar-close { display: block; border: 0; background: transparent; color: #bbb; font-size: 1.5rem; width: 36px; height: 36px; }
-  .chats-layout.drawer-open .chats-sidebar { display: flex; visibility: visible; transform: translateX(0); }
-  .chats-layout.drawer-open .drawer-backdrop {
-    display: block; position: fixed; z-index: 11; inset: 0;
-    width: 100%; height: 100%; border: 0; background: #0009;
+  .chats-layout.drawer-open .chats-sidebar {
+    display: flex; visibility: visible; transform: translate3d(0, 0, 0);
+    transition: transform .24s cubic-bezier(.2, .8, .2, 1), visibility 0s;
   }
+  .chats-layout.drawer-interacting .chats-sidebar {
+    visibility: visible; transform: translate3d(var(--drawer-offset), 0, 0); transition: none;
+  }
+  .drawer-backdrop {
+    display: block; position: fixed; z-index: 11; inset: 0;
+    width: 100%; height: 100%; border: 0; background: #000;
+    opacity: 0; visibility: hidden; pointer-events: none;
+    transition: opacity .24s ease-out, visibility 0s linear .24s;
+  }
+  .chats-layout.drawer-open .drawer-backdrop,
+  .chats-layout.drawer-interacting .drawer-backdrop {
+    visibility: visible; opacity: var(--drawer-opacity); pointer-events: auto;
+    transition: opacity .24s ease-out, visibility 0s;
+  }
+  .chats-layout.drawer-interacting .drawer-backdrop { transition: none; }
   .chats-layout.show-list:not(.drawer-open) .chats-sidebar {
     display: flex; visibility: visible; position: relative; transform: none;
     width: 100%; height: 100%; box-shadow: none;
@@ -849,7 +863,7 @@ button:disabled { cursor: default; opacity: 0.45; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .chats-sidebar { transition: none; }
+  .chats-sidebar, .drawer-backdrop { transition: none !important; }
 }
 
 /* On the mobile chat-list page there is no overlaid drawer to dismiss. */

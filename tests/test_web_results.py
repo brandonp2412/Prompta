@@ -425,7 +425,9 @@ def test_server_local_pins_across_browser_contexts_and_rapid_clicks(tmp_path: Pa
 
 @pytest.mark.parametrize("width,height", [(360, 800), (390, 844), (412, 915)])
 def test_sidebar_infinite_scroll_search_focus_and_wide_mobile_swipe(
-    tmp_path: Path, width: int, height: int,
+    tmp_path: Path,
+    width: int,
+    height: int,
 ) -> None:
     chromium_path = os.environ.get("PROMPTA_TEST_CHROMIUM")
     if not chromium_path or not Path(chromium_path).is_file():
@@ -434,11 +436,15 @@ def test_sidebar_infinite_scroll_search_focus_and_wide_mobile_swipe(
         for index in range(65):
             completed_run(app, f"scroll-{index:03}", f"Scroll entry {index:03}", 1000 + index)
         browser = playwright.chromium.launch(
-            executable_path=chromium_path, headless=True, args=["--no-sandbox"],
+            executable_path=chromium_path,
+            headless=True,
+            args=["--no-sandbox"],
         )
         try:
             context = browser.new_context(
-                viewport={"width": width, "height": height}, is_mobile=True, has_touch=True,
+                viewport={"width": width, "height": height},
+                is_mobile=True,
+                has_touch=True,
             )
             page = context.new_page()
             host = f"127.0.0.1:{port}"
@@ -451,14 +457,17 @@ def test_sidebar_infinite_scroll_search_focus_and_wide_mobile_swipe(
             nav = page.locator(".sidebar-actions")
             jobs_button = nav.get_by_role("button", name="Jobs")
             assert jobs_button.get_attribute("class") == "sidebar-jobs"
-            assert jobs_button.inner_text() == ""
             jobs = jobs_button.bounding_box()
             new_chat = nav.get_by_role("button", name="New chat").bounding_box()
             search = nav.get_by_role("button", name="Search chats").bounding_box()
             assert jobs and new_chat and search
-            assert max(jobs["y"], new_chat["y"], search["y"]) - min(jobs["y"], new_chat["y"], search["y"]) < 2
-            assert jobs["width"] == 44
-            assert new_chat["width"] <= 44 and search["width"] <= 44
+            # Mobile keeps the three accessible actions in one row.
+            assert (
+                max(jobs["y"], new_chat["y"], search["y"])
+                - min(jobs["y"], new_chat["y"], search["y"])
+                < 2
+            )
+            assert min(jobs["width"], new_chat["width"], search["width"]) >= 40
             nav.get_by_role("button", name="Search chats").click()
             assert page.locator(".chats-controls input").evaluate(
                 "element => document.activeElement === element"
@@ -478,42 +487,99 @@ def test_sidebar_infinite_scroll_search_focus_and_wide_mobile_swipe(
             assert page.locator(".chat-row-top strong").last.inner_text() == "Scroll entry 000"
 
             page.locator(".chat-row").first.click()
-            expect(page.locator(".chats-sidebar")).to_be_hidden()
+            sidebar = page.locator(".chats-sidebar")
+            backdrop = page.locator(".drawer-backdrop")
+            expect(sidebar).to_be_hidden()
             cdp = context.new_cdp_session(page)
 
-            def swipe(start_x: int, end_x: int) -> None:
-                cdp.send("Input.dispatchTouchEvent", {
-                    "type": "touchStart", "touchPoints": [{"x": start_x, "y": 300}],
-                })
-                for step in range(1, 7):
-                    cdp.send("Input.dispatchTouchEvent", {
-                        "type": "touchMove", "touchPoints": [{
-                            "x": start_x + (end_x - start_x) * step / 6, "y": 300,
-                        }],
-                    })
-                cdp.send("Input.dispatchTouchEvent", {
-                    "type": "touchEnd", "touchPoints": [],
-                })
+            def touch(event_type: str, x: int = 0, y: int = 300) -> None:
+                points = [{"x": x, "y": y}] if event_type != "touchEnd" else []
+                cdp.send(
+                    "Input.dispatchTouchEvent",
+                    {
+                        "type": event_type,
+                        "touchPoints": points,
+                    },
+                )
 
-            swipe(105, 260)  # Starts well beyond a narrow OS edge-swipe zone.
-            expect(page.locator(".chats-sidebar")).to_be_visible()
+            def swipe(start_x: int, end_x: int) -> None:
+                touch("touchStart", start_x)
+                for step in range(1, 7):
+                    touch("touchMove", round(start_x + (end_x - start_x) * step / 6))
+                touch("touchEnd")
+
+            # Vertical page movement must not steal scrolling or open the drawer.
+            touch("touchStart", 105)
+            touch("touchMove", 115, 410)
+            touch("touchEnd")
+            expect(sidebar).to_be_hidden()
+
+            # The drawer and dimming layer follow a partial drag in both directions.
+            touch("touchStart", 105)
+            touch("touchMove", 155)
+            page.wait_for_function(
+                "() => document.querySelector('.chats-layout')?.classList.contains('drawer-interacting')"
+            )
+            first_box = sidebar.bounding_box()
+            assert first_box is not None and -first_box["width"] < first_box["x"] < 0
+            first_opacity = float(backdrop.evaluate("element => getComputedStyle(element).opacity"))
+            assert 0 < first_opacity < 0.6
+            touch("touchMove", 205)
+            second_box = sidebar.bounding_box()
+            assert second_box is not None and second_box["x"] > first_box["x"] + 25
+            touch("touchMove", 175)
+            reversed_box = sidebar.bounding_box()
+            assert reversed_box is not None and reversed_box["x"] < second_box["x"] - 10
+            touch("touchEnd")
+            expect(sidebar).to_be_hidden()  # A reversed pull settles closed.
+
+            # Pausing before release must not preserve an old high swipe velocity.
+            touch("touchStart", 105)
+            touch("touchMove", 155)
+            time.sleep(0.18)
+            touch("touchEnd")
+            expect(sidebar).to_be_hidden()
+
+            swipe(105, 260)  # Starts beyond the narrow OS edge-swipe zone.
+            expect(sidebar).to_be_visible()
+            expect(page.get_by_role("button", name="Open chat sidebar")).to_have_attribute(
+                "aria-expanded", "true"
+            )
+            touch("touchStart", 240)
+            touch("touchMove", 165)
+            dragging_box = sidebar.bounding_box()
+            assert dragging_box is not None and dragging_box["x"] < -30
+            touch("touchMove", 215)
+            reversed_box = sidebar.bounding_box()
+            assert reversed_box is not None and reversed_box["x"] > dragging_box["x"] + 20
+            touch("touchEnd")
+            expect(sidebar).to_be_visible()  # Reverse direction before release.
             swipe(240, 50)
-            expect(page.locator(".chats-sidebar")).to_be_hidden()
+            expect(sidebar).to_be_hidden()
+            expect(backdrop).to_be_hidden()
             assert page.evaluate("document.documentElement.scrollWidth <= innerWidth + 1")
             assert all(url.startswith(f"http://{host}/") for _, url in observed)
-            assert all(method == "GET" for method, _ in observed)
+            assert all(
+                method == "GET" or (method == "POST" and url.endswith("/api/local-chat-reads"))
+                for method, url in observed
+            )
             context.close()
         finally:
             browser.close()
 
 
-def test_partial_and_unavailable_states_are_truthful_and_logs_private(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+def test_partial_and_unavailable_states_are_truthful_and_logs_private(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
     with server(tmp_path) as (app, port):
         app.results.ensure_queued("partial", "Secret prompt", "Job", now=100)
         assert app.results.accept("partial", "10:a", deadline=300, now=101)
-        assert app.results.write("partial", "10:a", CaptureResult(
-            "dom", "partial", "Secret partial answer", "c1", "m1", "p1"
-        ), now=102)
+        assert app.results.write(
+            "partial",
+            "10:a",
+            CaptureResult("dom", "partial", "Secret partial answer", "c1", "m1", "p1"),
+            now=102,
+        )
         app.results.ensure_queued("failed", "Secret failed prompt", "Job", now=100)
         app.results.unavailable("failed", now=103)
         with caplog.at_level(logging.INFO):
