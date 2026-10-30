@@ -12,7 +12,9 @@ TopicVersion = tuple[FileVersion, ...]
 def _version(path: Path) -> FileVersion:
     try:
         info = path.stat()
-    except FileNotFoundError:
+    except OSError:
+        # A transient filesystem error must not tear down every SSE stream.
+        # The next successful stat will restore a distinct revision.
         return (0, 0, 0)
     return (info.st_ino, info.st_size, info.st_mtime_ns)
 

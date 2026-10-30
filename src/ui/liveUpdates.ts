@@ -43,9 +43,10 @@ function start() {
   if (typeof EventSource !== "undefined") {
     source = new EventSource("./api/events");
     source.addEventListener("open", () => {
+      // The server immediately emits sync on each connection. Let that event
+      // own the GET invalidation to avoid two full fetches per reconnect.
       streamDisconnected = false;
       repairTicks = 0;
-      refreshBoth();
     });
     source.addEventListener("error", () => {
       const wasConnected = !streamDisconnected;

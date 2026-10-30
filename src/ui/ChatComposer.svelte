@@ -224,8 +224,18 @@
         feedback = result.message;
         fallbackAvailable = Boolean(result.fallbackAvailable);
       }
-    } catch {
-      if (draftStorageKey === submittedKey) feedback = "Send confirmation was lost. The draft is saved; press Send again to reconcile this request.";
+    } catch (error) {
+      if (draftStorageKey === submittedKey) {
+        // Receipt-ledger validation fails before any HTTP send. Explain that
+        // the saved IDs need recovery instead of calling it a lost acknowledgment.
+        const message = error instanceof Error ? error.message : "";
+        feedback = message.startsWith("Unresolved chat receipts") ||
+          message.startsWith("Unresolved reply receipts") ||
+          message.startsWith("Unresolved chat requests") ||
+          message.startsWith("Unresolved reply receipts are at capacity")
+          ? message
+          : "Send confirmation was lost. The draft is saved; press Send again to reconcile this request.";
+      }
     } finally {
       if (draftStorageKey === submittedKey) sending = false;
     }

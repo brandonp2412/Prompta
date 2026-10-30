@@ -15,7 +15,7 @@
     pendingExactReplyRequest,
     pendingQueuedFollowupRequest,
   } from "./pendingExactReply";
-  import { acknowledgeFreshQueueRequest, findFreshQueueReceipt, freshQueueRequest } from "./freshQueueReceipt";
+  import { acknowledgeFreshQueueRequest, findFreshQueueReceiptStatus, freshQueueRequest } from "./freshQueueReceipt";
   import {
     chatMessageTime, formatStoredResponse, statusLabel, turnStatus,
     type LocalTurn, type ResultStatus, type RunDetail, type RunSummary,
@@ -550,14 +550,35 @@
     }
   }
 
-   async function sendFresh(text: string, images: string[]) {
+  function receiptFailureMessage(error: unknown, fallback: string): string {
+    const message = error instanceof Error ? error.message : "";
+    return message.startsWith("Unresolved chat receipts") ||
+      message.startsWith("Unresolved chat requests") ||
+      message.startsWith("Unresolved reply receipts")
+      ? message : fallback;
+  }
+
+  async function sendFresh(text: string, images: string[]) {
     let request: Awaited<ReturnType<typeof freshQueueRequest>>;
     try {
       request = await freshQueueRequest(text, images);
-    } catch {
-      return { ok: false, message: "A durable request ID could not be created. Nothing was sent." };
+    } catch (error) {
+      return { ok: false, message: receiptFailureMessage(error, "A durable request ID could not be created. Nothing was sent.") };
     }
-    const accepted = (sendId: string) => {
+    const accepted = (sendId: string, status: string) => {
+      // A durable record is not necessarily a successful send. Never clear an
+      // uncertain request ID or present a dead-letter receipt as accepted.
+      if (status === "outcome_unknown") {
+        void loadList();
+        return { ok: false, message: "The previous fresh-chat send may have reached ChatGPT. No automatic resend was attempted; inspect its status in Chats." };
+      }
+      if (status === "cancelled" || status === "dead_lettered") {
+        void loadList();
+        return { ok: false, message: "The earlier request ended without a confirmed delivery. Review its status in Chats before starting another." };
+      }
+      if (!["queued", "running", "retrying", "rate_limited", "succeeded"].includes(status)) {
+        return { ok: false, message: "The queue receipt has an unknown state; the saved request ID was preserved." };
+      }
       acknowledgeFreshQueueRequest(request.fingerprint, request.requestId);
       // A confirmed queue receipt is enough to navigate; never send again.
       search = "";
@@ -570,22 +591,24 @@
     // A previous POST may have persisted despite a lost response or page reload.
     // Reconcile the exact local request first; a GET cannot dispatch another chat.
     if (request.reused) {
-      const existing = await findFreshQueueReceipt(request.requestId);
-      if (existing) return accepted(existing);
+      const existing = await findFreshQueueReceiptStatus(request.requestId);
+      if (existing) return accepted(existing.sendId, existing.status);
     }
     try {
       const response = await localPost("./api/chats", { request_id: request.requestId, prompt: text, images });
       if (response.ok) {
-        const body = await response.json() as { send_id?: string };
-        if (body.send_id === "manual-" + request.requestId) return accepted(body.send_id);
+        const body = await response.json() as { send_id?: string; status?: string };
+        if (body.send_id === "manual-" + request.requestId && typeof body.status === "string") {
+          return accepted(body.send_id, body.status);
+        }
       } else if (response.status < 500) {
         return { ok: false, message: "The fresh chat was rejected. Review the prompt or images." };
       }
     } catch {
       // The request may already exist. Check local SQLite before reporting loss.
     }
-    const recovered = await findFreshQueueReceipt(request.requestId);
-    if (recovered) return accepted(recovered);
+    const recovered = await findFreshQueueReceiptStatus(request.requestId);
+    if (recovered) return accepted(recovered.sendId, recovered.status);
     return {
       ok: false, ambiguous: true,
       message: "Queue receipt is uncertain. The request ID is saved; press Send again to reconcile it safely.",
@@ -629,8 +652,8 @@
     let request: Awaited<ReturnType<typeof pendingQueuedFollowupRequest>>;
     try {
       request = await pendingQueuedFollowupRequest(sendId, text);
-    } catch {
-      return { ok: false, message: "A durable follow-up ID could not be created. Nothing was sent." };
+    } catch (error) {
+      return { ok: false, message: receiptFailureMessage(error, "A durable follow-up ID could not be created. Nothing was sent.") };
     }
     try {
       const response = await localPost(
@@ -705,8 +728,8 @@
     let request: Awaited<ReturnType<typeof pendingExactReplyRequest>>;
     try {
       request = await pendingExactReplyRequest(sendId, latest.conversation_id, parentId, text);
-    } catch {
-      return { ok: false, message: "A durable reply ID could not be created. Nothing was sent." };
+    } catch (error) {
+      return { ok: false, message: receiptFailureMessage(error, "A durable reply ID could not be created. Nothing was sent.") };
     }
     if (selectedRunId !== sendId) {
       return { ok: false, message: "The selected chat changed. Nothing was sent." };

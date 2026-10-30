@@ -4,7 +4,7 @@
   import { subscribeLiveUpdates } from "./liveUpdates";
   import { localGet } from "./localRead";
   import { localPost, localUploadTimeoutMs } from "./localMutation";
-  import { acknowledgeFreshQueueRequest, findFreshQueueReceipt, freshQueueRequest } from "./freshQueueReceipt";
+  import { acknowledgeFreshQueueRequest, findFreshQueueReceiptStatus, freshQueueRequest } from "./freshQueueReceipt";
 
   let { workspace }: { workspace?: HTMLDivElement } = $props();
 
@@ -483,19 +483,36 @@
     let request: Awaited<ReturnType<typeof freshQueueRequest>> | undefined;
     let definitivelyRejected = false;
 
-    const reconcile = async () => {
-      if (!request || !await findFreshQueueReceipt(request.requestId)) return false;
+    const reconcile = async (): Promise<"confirmed" | "terminal" | "missing"> => {
+      if (!request) return "missing";
+      const receipt = await findFreshQueueReceiptStatus(request.requestId);
+      if (!receipt) return "missing";
+      if (["outcome_unknown", "cancelled", "dead_lettered"].includes(receipt.status)) {
+        // Existing terminal receipts must never be represented as a fresh success.
+        status = receipt.status === "outcome_unknown"
+          ? "The earlier run may have reached ChatGPT. No automatic resend was attempted."
+          : "The earlier run ended without confirmed delivery. Review Chats before retrying.";
+        await load({ quiet: true });
+        return "terminal";
+      }
+      if (!["queued", "running", "retrying", "rate_limited", "succeeded"].includes(receipt.status)) {
+        status = "The saved queue receipt has an unknown state. No resend was attempted.";
+        return "terminal";
+      }
       acknowledgeFreshQueueRequest(request.fingerprint, request.requestId);
       await load({ quiet: true });
       status = success;
-      return true;
+      return "confirmed";
     };
     try {
       if (queueContext) {
         request = await freshQueueRequest(
           queueContext.prompt, queueContext.images, queueContext.scope,
         );
-        if (request.reused && await reconcile()) return true;
+        if (request.reused) {
+          const previous = await reconcile();
+          if (previous !== "missing") return previous === "confirmed";
+        }
         payload = { ...payload, request_id: request.requestId };
       }
       const response = await localPost("./api/jobs", payload);
@@ -511,7 +528,8 @@
       return true;
     } catch (error) {
       if (request && !definitivelyRejected) {
-        if (await reconcile()) return true;
+        const recovered = await reconcile();
+        if (recovered !== "missing") return recovered === "confirmed";
         status = "Queue receipt uncertain. The request ID is saved; press the same action again to reconcile safely.";
       } else {
         status = definitivelyRejected
