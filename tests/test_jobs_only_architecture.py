@@ -29,9 +29,14 @@ def test_ui_keeps_jobs_and_forbids_unsafe_chat_actions() -> None:
     local_reads = Path("src/ui/localRead.ts").read_text()
     assert 'cache: "no-store"' in local_reads
     assert "AbortSignal.timeout" in local_reads
-    assert 'fetch("./api/results/"' in sidebar
+    assert 'localPost("./api/results/"' in sidebar
     assert "localStorage.setItem(preferencesKey" in sidebar
-    assert 'fetch("./api/local-chat-pins"' in sidebar
+    assert 'localPost("./api/local-chat-pins"' in sidebar
+    local_mutations = Path("src/ui/localMutation.ts").read_text()
+    assert 'cache: "no-store"' in local_mutations
+    assert "AbortSignal.timeout(timeoutMs)" in local_mutations
+    assert 'method: "POST"' in local_mutations
+    assert "return fetch(url, {" in local_mutations
     assert "pinnedIds = Array.isArray(prefs.pinnedIds)" not in sidebar
     assert "/backend-api/pins" not in sidebar
     assert "onNewChat" in sidebar
@@ -43,7 +48,9 @@ def test_ui_keeps_jobs_and_forbids_unsafe_chat_actions() -> None:
 
 def test_jobs_api_requests_are_relative_to_deployment_prefix() -> None:
     page = Path("src/ui/JobsPage.svelte").read_text()
-    assert 'fetch("./api/jobs"' in page
+    assert 'localPost("./api/jobs", payload)' in page
+    assert 'localGet("./api/jobs")' in page
+    assert 'localPost("/api/jobs"' not in page
     assert 'fetch("/api/jobs"' not in page
 
 

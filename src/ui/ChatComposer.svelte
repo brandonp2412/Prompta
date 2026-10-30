@@ -2,6 +2,7 @@
   import { onMount, untrack } from "svelte";
   import { clearComposerDraft, clearComposerImages, readComposerDraft, readComposerImages, rememberComposerDraft, rememberComposerImages } from "./composerDraftMemory";
   import type { ComposerImageRef } from "./composerDraftMemory";
+  import { localPost, localUploadTimeoutMs } from "./localMutation";
 
   type ImageRef = ComposerImageRef;
   type SendResult = { ok: boolean; message: string; ambiguous?: boolean; fallbackAvailable?: boolean };
@@ -165,11 +166,8 @@
           reader.readAsDataURL(file);
         });
         if (generation !== uploadGeneration || key !== draftStorageKey) return;
-        const response = await fetch("./api/images", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ name: file.name, data }),
-          signal: controller.signal,
+        const response = await localPost("./api/images", { name: file.name, data }, {
+          signal: controller.signal, timeoutMs: localUploadTimeoutMs,
         });
         if (generation !== uploadGeneration || key !== draftStorageKey) return;
         if (!response.ok) throw new Error("Image upload failed.");
@@ -189,7 +187,9 @@
         // Roll back this batch if a later file fails; retain older attachments.
         images = images.filter((image) => !batchRefs.includes(image.ref));
         rememberComposerImages(key, images);
-        feedback = error instanceof Error ? error.message : "Image upload failed.";
+        feedback = error instanceof DOMException && error.name === "TimeoutError"
+          ? "Image upload timed out. The unsent attachments were restored; try again."
+          : error instanceof Error ? error.message : "Image upload failed.";
       }
     } finally {
       if (generation === uploadGeneration && key === draftStorageKey) {

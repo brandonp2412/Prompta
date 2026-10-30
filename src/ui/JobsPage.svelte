@@ -3,6 +3,7 @@
   import { isRepeatingJob, sortJobs } from "./jobSorting";
   import { subscribeLiveUpdates } from "./liveUpdates";
   import { localGet } from "./localRead";
+  import { localPost, localUploadTimeoutMs } from "./localMutation";
   import { acknowledgeFreshQueueRequest, findFreshQueueReceipt, freshQueueRequest } from "./freshQueueReceipt";
 
   let { workspace }: { workspace?: HTMLDivElement } = $props();
@@ -469,11 +470,7 @@
         if (request.reused && await reconcile()) return true;
         payload = { ...payload, request_id: request.requestId };
       }
-      const response = await fetch("./api/jobs", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(payload),
-      });
+      const response = await localPost("./api/jobs", payload);
       definitivelyRejected = !response.ok && response.status < 500;
       const result = await response.json();
       if (!response.ok) {
@@ -489,7 +486,9 @@
         if (await reconcile()) return true;
         status = "Queue receipt uncertain. The request ID is saved; press the same action again to reconcile safely.";
       } else {
-        status = "Job update failed: " + String(error).replace(/^Error:\s*/, "");
+        status = definitivelyRejected
+          ? "Job update failed: " + String(error).replace(/^Error:\s*/, "")
+          : "Job update could not be confirmed. Refresh Jobs before repeating the action.";
       }
       return false;
     } finally {
@@ -505,12 +504,22 @@
       editorError = "At most four images per job.";
       return;
     }
+    // Reject the entire batch before uploading anything, so selection errors
+    // cannot leave a surprising subset of new attachments.
+    if (files.some((file) => !["image/png", "image/jpeg", "image/gif", "image/webp"].includes(file.type))) {
+      editorError = "Only PNG, JPEG, GIF or WebP images are supported.";
+      return;
+    }
+    if (files.some((file) => file.size > 8 * 1024 * 1024)) {
+      editorError = "Images must be 8 MiB or smaller.";
+      return;
+    }
     const route = activeEditorRoute;
+    const originalImages = [...images];
     uploadingImage = true;
     editorError = "";
     try {
       for (const file of files) {
-        if (file.size > 8 * 1024 * 1024) throw new Error("Images must be 8 MiB or smaller.");
         const data = await new Promise<string>((resolve, reject) => {
           const reader = new FileReader();
           reader.onerror = () => reject(new Error("Could not read image."));
@@ -521,15 +530,15 @@
           };
           reader.readAsDataURL(file);
         });
-        const response = await fetch("./api/images", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ name: file.name, data }),
-        });
-        const result = await response.json();
-        if (!response.ok) throw new Error(String(result.error || "Image upload failed."));
+        const response = await localPost("./api/images", { name: file.name, data }, { timeoutMs: localUploadTimeoutMs });
+        if (!response.ok) throw new Error("Image upload failed.");
+        const result = await response.json() as { image?: ImageRef };
+        if (!result.image?.ref || !result.image.url.startsWith("./api/images/")) {
+          throw new Error("Image upload receipt was invalid.");
+        }
         if (activeEditorRoute !== route) return;
-        images = [...images, result.image as ImageRef];
+        if (images.some((image) => image.ref === result.image?.ref)) continue;
+        images = [...images, result.image];
         await tick();
         imagePreviewList?.scrollIntoView({
           block: "nearest",
@@ -537,7 +546,12 @@
         });
       }
     } catch (error) {
-      if (activeEditorRoute === route) editorError = String(error).replace(/^Error:\s*/, "");
+      if (activeEditorRoute === route) {
+        images = originalImages;
+        editorError = error instanceof DOMException && error.name === "TimeoutError"
+          ? "Image upload timed out. No new attachments were added; try again."
+          : String(error).replace(/^Error:\s*/, "");
+      }
     } finally {
       uploadingImage = false;
     }

@@ -5179,6 +5179,20 @@ function localGet(url) {
 	});
 }
 //#endregion
+//#region src/ui/localMutation.ts
+var localMutationTimeoutMs = 3e4;
+var localUploadTimeoutMs = 6e4;
+function localPost(url, payload, { timeoutMs = localMutationTimeoutMs, signal } = {}) {
+	const timeout = AbortSignal.timeout(timeoutMs);
+	return fetch(url, {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		cache: "no-store",
+		body: JSON.stringify(payload),
+		signal: signal ? AbortSignal.any([signal, timeout]) : timeout
+	});
+}
+//#endregion
 //#region src/ui/freshQueueReceipt.ts
 var storageKey = "prompta.pending-fresh-requests.v1";
 var maxAgeMs = 12096e5;
@@ -5672,11 +5686,7 @@ function JobsPage($$anchor, $$props) {
 					request_id: request.requestId
 				};
 			}
-			const response = await fetch("./api/jobs", {
-				method: "POST",
-				headers: { "content-type": "application/json" },
-				body: JSON.stringify(payload)
-			});
+			const response = await localPost("./api/jobs", payload);
 			definitivelyRejected = !response.ok && response.status < 500;
 			const result = await response.json();
 			if (!response.ok) throw new Error(String(result.error || String(response.status) + " " + response.statusText));
@@ -5688,7 +5698,7 @@ function JobsPage($$anchor, $$props) {
 			if (request && !definitivelyRejected) {
 				if (await reconcile()) return true;
 				set(status, "Queue receipt uncertain. The request ID is saved; press the same action again to reconcile safely.");
-			} else set(status, "Job update failed: " + String(error).replace(/^Error:\s*/, ""));
+			} else set(status, definitivelyRejected ? "Job update failed: " + String(error).replace(/^Error:\s*/, "") : "Job update could not be confirmed. Refresh Jobs before repeating the action.", true);
 			return false;
 		} finally {
 			set(saving, false);
@@ -5702,12 +5712,25 @@ function JobsPage($$anchor, $$props) {
 			set(editorError, "At most four images per job.");
 			return;
 		}
+		if (files.some((file) => ![
+			"image/png",
+			"image/jpeg",
+			"image/gif",
+			"image/webp"
+		].includes(file.type))) {
+			set(editorError, "Only PNG, JPEG, GIF or WebP images are supported.");
+			return;
+		}
+		if (files.some((file) => file.size > 8388608)) {
+			set(editorError, "Images must be 8 MiB or smaller.");
+			return;
+		}
 		const route = get(activeEditorRoute);
+		const originalImages = [...get(images)];
 		set(uploadingImage, true);
 		set(editorError, "");
 		try {
 			for (const file of files) {
-				if (file.size > 8388608) throw new Error("Images must be 8 MiB or smaller.");
 				const data = await new Promise((resolve, reject) => {
 					const reader = new FileReader();
 					reader.onerror = () => reject(/* @__PURE__ */ new Error("Could not read image."));
@@ -5718,17 +5741,15 @@ function JobsPage($$anchor, $$props) {
 					};
 					reader.readAsDataURL(file);
 				});
-				const response = await fetch("./api/images", {
-					method: "POST",
-					headers: { "content-type": "application/json" },
-					body: JSON.stringify({
-						name: file.name,
-						data
-					})
-				});
+				const response = await localPost("./api/images", {
+					name: file.name,
+					data
+				}, { timeoutMs: localUploadTimeoutMs });
+				if (!response.ok) throw new Error("Image upload failed.");
 				const result = await response.json();
-				if (!response.ok) throw new Error(String(result.error || "Image upload failed."));
+				if (!result.image?.ref || !result.image.url.startsWith("./api/images/")) throw new Error("Image upload receipt was invalid.");
 				if (get(activeEditorRoute) !== route) return;
+				if (get(images).some((image) => image.ref === result.image?.ref)) continue;
 				set(images, [...get(images), result.image], true);
 				await tick();
 				get(imagePreviewList)?.scrollIntoView({
@@ -5737,7 +5758,10 @@ function JobsPage($$anchor, $$props) {
 				});
 			}
 		} catch (error) {
-			if (get(activeEditorRoute) === route) set(editorError, String(error).replace(/^Error:\s*/, ""), true);
+			if (get(activeEditorRoute) === route) {
+				set(images, originalImages, true);
+				set(editorError, error instanceof DOMException && error.name === "TimeoutError" ? "Image upload timed out. No new attachments were added; try again." : String(error).replace(/^Error:\s*/, ""), true);
+			}
 		} finally {
 			set(uploadingImage, false);
 		}
@@ -6636,14 +6660,12 @@ function ChatComposer($$anchor, $$props) {
 					reader.readAsDataURL(file);
 				});
 				if (generation !== uploadGeneration || key !== get(draftStorageKey)) return;
-				const response = await fetch("./api/images", {
-					method: "POST",
-					headers: { "content-type": "application/json" },
-					body: JSON.stringify({
-						name: file.name,
-						data
-					}),
-					signal: controller.signal
+				const response = await localPost("./api/images", {
+					name: file.name,
+					data
+				}, {
+					signal: controller.signal,
+					timeoutMs: localUploadTimeoutMs
 				});
 				if (generation !== uploadGeneration || key !== get(draftStorageKey)) return;
 				if (!response.ok) throw new Error("Image upload failed.");
@@ -6659,7 +6681,7 @@ function ChatComposer($$anchor, $$props) {
 			if (generation === uploadGeneration && key === get(draftStorageKey)) {
 				set(images, get(images).filter((image) => !batchRefs.includes(image.ref)), true);
 				rememberComposerImages(key, get(images));
-				set(feedback, error instanceof Error ? error.message : "Image upload failed.", true);
+				set(feedback, error instanceof DOMException && error.name === "TimeoutError" ? "Image upload timed out. The unsent attachments were restored; try again." : error instanceof Error ? error.message : "Image upload failed.", true);
 			}
 		} finally {
 			if (generation === uploadGeneration && key === get(draftStorageKey)) {
@@ -9309,12 +9331,7 @@ function ChatsPage($$anchor, $$props) {
 		const reads = Object.fromEntries(Object.entries(get(readRevisions)).filter(([id, revision]) => id.length > 0 && id.length <= 200 && /^[a-f0-9]{64}$/.test(revision)).slice(0, 2e3));
 		if (!Object.keys(reads).length) return false;
 		try {
-			if (!(await fetch("./api/local-chat-reads/import", {
-				method: "POST",
-				headers: { "content-type": "application/json" },
-				body: JSON.stringify({ reads }),
-				signal: AbortSignal.timeout(12e3)
-			})).ok) throw new Error("Read import failed");
+			if (!(await localPost("./api/local-chat-reads/import", { reads }, { timeoutMs: 12e3 })).ok) throw new Error("Read import failed");
 			set(readRevisions, {}, true);
 			set(readError, "");
 			savePreferences();
@@ -9338,14 +9355,10 @@ function ChatsPage($$anchor, $$props) {
 			[item.send_id]: revision
 		}, true);
 		try {
-			if (!(await fetch("./api/local-chat-reads", {
-				method: "POST",
-				headers: { "content-type": "application/json" },
-				body: JSON.stringify({
-					send_id: item.send_id,
-					revision
-				})
-			})).ok) throw new Error("Read receipt rejected");
+			if (!(await localPost("./api/local-chat-reads", {
+				send_id: item.send_id,
+				revision
+			}, { timeoutMs: 12e3 })).ok) throw new Error("Read receipt rejected");
 			set(readError, "");
 			try {
 				localStorage.setItem(readSyncKey, item.send_id + ":" + Date.now());
@@ -9365,11 +9378,7 @@ function ChatsPage($$anchor, $$props) {
 		set(markingAllRead, true);
 		set(readError, "");
 		try {
-			if (!(await fetch("./api/local-chat-reads/all", {
-				method: "POST",
-				headers: { "content-type": "application/json" },
-				body: "{}"
-			})).ok) throw new Error("Bulk read receipt rejected");
+			if (!(await localPost("./api/local-chat-reads/all", {}, { timeoutMs: 12e3 })).ok) throw new Error("Bulk read receipt rejected");
 			const asRead = (item) => item.last_reply_revision ? {
 				...item,
 				last_read_revision: item.last_reply_revision
@@ -9398,12 +9407,7 @@ function ChatsPage($$anchor, $$props) {
 		if (pendingPinWrites) return;
 		try {
 			if (legacyPinIds.length) {
-				if (!(await fetch("./api/local-chat-pins/import", {
-					method: "POST",
-					headers: { "content-type": "application/json" },
-					body: JSON.stringify({ send_ids: legacyPinIds }),
-					signal: AbortSignal.timeout(12e3)
-				})).ok) throw new Error("Local pin import failed");
+				if (!(await localPost("./api/local-chat-pins/import", { send_ids: legacyPinIds }, { timeoutMs: 12e3 })).ok) throw new Error("Local pin import failed");
 				legacyPinIds = [];
 				savePreferences();
 			}
@@ -9435,14 +9439,10 @@ function ChatsPage($$anchor, $$props) {
 		pendingPinWrites += 1;
 		pinWriteQueue = pinWriteQueue.then(async () => {
 			try {
-				if (!(await fetch("./api/local-chat-pins", {
-					method: "POST",
-					headers: { "content-type": "application/json" },
-					body: JSON.stringify({
-						send_id: item.send_id,
-						pinned: next
-					})
-				})).ok) throw new Error("Local pin update failed");
+				if (!(await localPost("./api/local-chat-pins", {
+					send_id: item.send_id,
+					pinned: next
+				}, { timeoutMs: 12e3 })).ok) throw new Error("Local pin update failed");
 				confirmedPins = next ? [item, ...confirmedPins.filter((confirmed) => confirmed.send_id !== item.send_id)] : confirmedPins.filter((confirmed) => confirmed.send_id !== item.send_id);
 			} catch {
 				set(pinError, "Could not save pinned chat.");
@@ -9606,14 +9606,10 @@ function ChatsPage($$anchor, $$props) {
 			if (existing) return accepted(existing);
 		}
 		try {
-			const response = await fetch("./api/chats", {
-				method: "POST",
-				headers: { "content-type": "application/json" },
-				body: JSON.stringify({
-					request_id: request.requestId,
-					prompt: text,
-					images
-				})
+			const response = await localPost("./api/chats", {
+				request_id: request.requestId,
+				prompt: text,
+				images
 			});
 			if (response.ok) {
 				const body = await response.json();
@@ -9635,11 +9631,7 @@ function ChatsPage($$anchor, $$props) {
 		if (get(recoveringReply)) return "";
 		set(recoveringReply, true);
 		try {
-			const response = await fetch("./api/results/" + encodeURIComponent(sendId) + "/reply-recover", {
-				method: "POST",
-				headers: { "content-type": "application/json" },
-				body: "{}"
-			});
+			const response = await localPost("./api/results/" + encodeURIComponent(sendId) + "/reply-recover", {}, { timeoutMs: 9e4 });
 			if (!response.ok) return "";
 			const recovered = await response.json();
 			return $$props.selectedRunId === sendId ? recovered.message_id ?? "" : "";
@@ -9681,13 +9673,9 @@ function ChatsPage($$anchor, $$props) {
 			}));
 		} catch {}
 		try {
-			const response = await fetch("./api/results/" + encodeURIComponent(sendId) + "/reply-queue", {
-				method: "POST",
-				headers: { "content-type": "application/json" },
-				body: JSON.stringify({
-					reply_id: replyId,
-					text
-				})
+			const response = await localPost("./api/results/" + encodeURIComponent(sendId) + "/reply-queue", {
+				reply_id: replyId,
+				text
 			});
 			if (!response.ok) {
 				const problem = response.status < 500 ? await response.json().catch(() => null) : null;
@@ -9784,11 +9772,7 @@ function ChatsPage($$anchor, $$props) {
 	}
 	async function sendExactReply(sendId, payload) {
 		try {
-			const response = await fetch("./api/results/" + encodeURIComponent(sendId) + "/reply-send", {
-				method: "POST",
-				headers: { "content-type": "application/json" },
-				body: JSON.stringify(payload)
-			});
+			const response = await localPost("./api/results/" + encodeURIComponent(sendId) + "/reply-send", payload);
 			if (!response.ok) {
 				const problem = response.status < 500 ? await response.json().catch(() => null) : null;
 				return {

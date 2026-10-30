@@ -6,6 +6,7 @@
   import ToolCalls from "./ToolCalls.svelte";
   import { subscribeLiveUpdates } from "./liveUpdates";
   import { localGet, localReadTimeoutMs } from "./localRead";
+  import { localPost } from "./localMutation";
   import { acknowledgeFreshQueueRequest, findFreshQueueReceipt, freshQueueRequest } from "./freshQueueReceipt";
   import {
     chatMessageTime, formatStoredResponse, statusLabel, turnStatus,
@@ -193,11 +194,7 @@
     ).slice(0, 2000));
     if (!Object.keys(reads).length) return false;
     try {
-      const response = await fetch("./api/local-chat-reads/import", {
-        method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ reads }),
-        signal: AbortSignal.timeout(localReadTimeoutMs),
-      });
+      const response = await localPost("./api/local-chat-reads/import", { reads }, { timeoutMs: localReadTimeoutMs });
       if (!response.ok) throw new Error("Read import failed");
       readRevisions = {};
       readError = "";
@@ -223,10 +220,7 @@
       optimisticReads[item.send_id] === revision) return;
     optimisticReads = { ...optimisticReads, [item.send_id]: revision };
     try {
-      const response = await fetch("./api/local-chat-reads", {
-        method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ send_id: item.send_id, revision }),
-      });
+      const response = await localPost("./api/local-chat-reads", { send_id: item.send_id, revision }, { timeoutMs: localReadTimeoutMs });
       if (!response.ok) throw new Error("Read receipt rejected");
       readError = "";
       // Notify other tabs only after SQLite has confirmed this read.
@@ -251,10 +245,7 @@
     markingAllRead = true;
     readError = "";
     try {
-      const response = await fetch("./api/local-chat-reads/all", {
-        method: "POST", headers: { "content-type": "application/json" },
-        body: "{}",
-      });
+      const response = await localPost("./api/local-chat-reads/all", {}, { timeoutMs: localReadTimeoutMs });
       if (!response.ok) throw new Error("Bulk read receipt rejected");
       // Keep already-loaded off-page entries in place while refreshing the first page.
       const asRead = (item: RunSummary): RunSummary => item.last_reply_revision
@@ -287,11 +278,7 @@
     if (pendingPinWrites) return;
     try {
       if (legacyPinIds.length) {
-        const imported = await fetch("./api/local-chat-pins/import", {
-          method: "POST", headers: { "content-type": "application/json" },
-          body: JSON.stringify({ send_ids: legacyPinIds }),
-          signal: AbortSignal.timeout(localReadTimeoutMs),
-        });
+        const imported = await localPost("./api/local-chat-pins/import", { send_ids: legacyPinIds }, { timeoutMs: localReadTimeoutMs });
         if (!imported.ok) throw new Error("Local pin import failed");
         legacyPinIds = [];
         savePreferences();
@@ -326,10 +313,7 @@
     // Serialize requests so rapid pin/unpin operations reach SQLite in click order.
     pinWriteQueue = pinWriteQueue.then(async () => {
       try {
-        const response = await fetch("./api/local-chat-pins", {
-          method: "POST", headers: { "content-type": "application/json" },
-          body: JSON.stringify({ send_id: item.send_id, pinned: next }),
-        });
+        const response = await localPost("./api/local-chat-pins", { send_id: item.send_id, pinned: next }, { timeoutMs: localReadTimeoutMs });
         if (!response.ok) throw new Error("Local pin update failed");
         confirmedPins = next
           ? [item, ...confirmedPins.filter((confirmed) => confirmed.send_id !== item.send_id)]
@@ -499,11 +483,7 @@
       if (existing) return accepted(existing);
     }
     try {
-      const response = await fetch("./api/chats", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ request_id: request.requestId, prompt: text, images }),
-      });
+      const response = await localPost("./api/chats", { request_id: request.requestId, prompt: text, images });
       if (response.ok) {
         const body = await response.json() as { send_id?: string };
         if (body.send_id === "manual-" + request.requestId) return accepted(body.send_id);
@@ -527,10 +507,7 @@
     try {
       // A Send click is the explicit user action that permits exact-branch
       // verification. Opening or refreshing a chat never contacts ChatGPT.
-      const response = await fetch(
-        "./api/results/" + encodeURIComponent(sendId) + "/reply-recover",
-        { method: "POST", headers: { "content-type": "application/json" }, body: "{}" },
-      );
+      const response = await localPost("./api/results/" + encodeURIComponent(sendId) + "/reply-recover", {}, { timeoutMs: 90_000 });
       if (!response.ok) return "";
       const recovered = await response.json() as { message_id?: string };
       return selectedRunId === sendId ? recovered.message_id ?? "" : "";
@@ -575,11 +552,7 @@
     // and a digest, never the user's message, in persistent browser storage.
     try { localStorage.setItem(storageKey, JSON.stringify({ replyId, fingerprint })); } catch { /* Keep the in-memory receipt. */ }
     try {
-      const response = await fetch("./api/results/" + encodeURIComponent(sendId) + "/reply-queue", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ reply_id: replyId, text }),
-      });
+      const response = await localPost("./api/results/" + encodeURIComponent(sendId) + "/reply-queue", { reply_id: replyId, text });
       if (!response.ok) {
         const problem = response.status < 500
           ? await response.json().catch(() => null) as { error?: string } | null : null;
@@ -660,11 +633,7 @@
     reply_id: string; conversation_id: string; parent_id: string; text: string;
   }) {
     try {
-      const response = await fetch("./api/results/" + encodeURIComponent(sendId) + "/reply-send", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(payload),
-      });
+      const response = await localPost("./api/results/" + encodeURIComponent(sendId) + "/reply-send", payload);
       if (!response.ok) {
         const problem = response.status < 500
           ? await response.json().catch(() => null) as { error?: string } | null : null;
