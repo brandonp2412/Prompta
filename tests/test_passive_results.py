@@ -440,6 +440,26 @@ def test_repeated_partial_snapshots_do_not_write_duplicate_wal_updates(tmp_path:
 
 
 @pytest.mark.asyncio
+async def test_transient_dom_identity_gap_keeps_original_capture(tmp_path: Path) -> None:
+    sender = BrowserDeliverySender(tmp_path / "runtime.sqlite3", connector_approval=False)
+    sender.results.ensure_queued("s", "Synthetic prompt")
+    owner = f"{os.getpid()}:gap"
+    assert sender.results.accept("s", owner, deadline=time.time() + 60)
+    invalid = CaptureResult("dom", "unknown", "", None, None, None)
+    driver = StreamDriver([_capture("Original partial"), invalid,
+                           _capture("Original complete", "complete")])
+    await sender._capture_until_complete(
+        driver, {"status": 200}, "s", owner, deadline=asyncio.get_running_loop().time() + 5,
+    )
+    row = sender.results.get("s")
+    assert row is not None
+    assert row["status"] == "completed"
+    assert row["assistant_text"] == "Original complete"
+    assert not driver.updates
+    assert driver.dom_reads == 0 and driver.eval_calls == 0
+
+
+@pytest.mark.asyncio
 async def test_dom_branch_rollover_preserves_partial_without_false_completion(tmp_path: Path) -> None:
     sender = BrowserDeliverySender(tmp_path / "runtime.sqlite3", connector_approval=False)
     sender.results.ensure_queued("s", "Synthetic prompt")
@@ -454,4 +474,5 @@ async def test_dom_branch_rollover_preserves_partial_without_false_completion(tm
     assert row is not None
     assert row["status"] == "unavailable"
     assert row["assistant_text"] == "Original partial"
-    assert len(driver.updates) == 1
+    # The transient gap is not proof of rollover; the distinct m2 identity is.
+    assert len(driver.updates) == 0

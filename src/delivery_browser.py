@@ -409,10 +409,10 @@ class BrowserDeliverySender:
                     and update.status == "unknown"
                     and update.message_id is None
                 ):
-                    final_status = (
-                        "unavailable"  # A fresh assistant branch replaced the tracked DOM node.
-                    )
-                    break
+                    # A transient DOM re-render can hide the assistant node.
+                    # Only a positively different branch identity (checked below)
+                    # proves rollover; do not discard an accepted response here.
+                    update = None
                 # Multiple ChatGPT-owned continuation POSTs can follow connector
                 # approvals. Do not splice their SSE data or close the tab;
                 # keep observing the unique semantic DOM answer until finality/TTL.
