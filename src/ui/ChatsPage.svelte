@@ -540,14 +540,21 @@
 
   async function queueEarlyReply(sendId: string, text: string) {
     const storageKey = "prompta.pending-followup.v1." + sendId;
-    let cached: { replyId: string; text: string } | null = null;
+    const digest = new Uint8Array(await crypto.subtle.digest(
+      "SHA-256", new TextEncoder().encode(JSON.stringify([sendId, text])),
+    ));
+    const fingerprint = Array.from(digest, (byte) => byte.toString(16).padStart(2, "0")).join("");
+    let cached: { replyId?: string; fingerprint?: string; text?: string } | null = null;
     try { cached = JSON.parse(localStorage.getItem(storageKey) || "null"); } catch { /* Storage is optional. */ }
     const previous = pendingQueued?.sendId === sendId ? pendingQueued : null;
+    const cachedMatches = cached?.fingerprint === fingerprint || cached?.text === text;
     const replyId = previous?.text === text ? previous.replyId
-      : cached?.text === text && /^[A-Za-z0-9_-]{16,200}$/.test(cached.replyId) ? cached.replyId
-      : crypto.randomUUID().replaceAll("-", "");
+      : cachedMatches && cached?.replyId && /^[A-Za-z0-9_-]{16,200}$/.test(cached.replyId)
+        ? cached.replyId : crypto.randomUUID().replaceAll("-", "");
     pendingQueued = { sendId, replyId, text };
-    try { localStorage.setItem(storageKey, JSON.stringify({ replyId, text })); } catch { /* Keep the in-memory receipt. */ }
+    // Migrate any older plaintext receipt as soon as it is used. Store only IDs
+    // and a digest, never the user's message, in persistent browser storage.
+    try { localStorage.setItem(storageKey, JSON.stringify({ replyId, fingerprint })); } catch { /* Keep the in-memory receipt. */ }
     try {
       const response = await fetch("./api/results/" + encodeURIComponent(sendId) + "/reply-queue", {
         method: "POST",

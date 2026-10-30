@@ -42,6 +42,7 @@
   };
   let deliveryHealth = $state<DeliveryHealth | null>(null);
   let deliveryHealthError = $state("");
+  let jobsLoadError = $state("");
   const pendingDeliveries = $derived(deliveryHealth
     ? deliveryHealth.queue.queued + deliveryHealth.queue.running +
       deliveryHealth.queue.retrying + deliveryHealth.queue.rate_limited
@@ -425,9 +426,13 @@
 
       const nextJobs: Job[] = Array.isArray(result.jobs) ? result.jobs : [];
       applyJobs(nextJobs);
+      jobsLoadError = "";
       if (!quiet) status = String(jobs.length) + " configured job" + (jobs.length === 1 ? "" : "s") + ".";
     } catch (error) {
-      if (!quiet) status = "Could not load jobs: " + String(error).replace(/^Error:\s*/, "");
+      if (requestGeneration === dataGeneration) {
+        jobsLoadError = "Jobs could not be refreshed. The list may be out of date.";
+        if (!quiet) status = "Could not load jobs: " + String(error).replace(/^Error:\s*/, "");
+      }
     } finally {
       loadInFlight = false;
       if (refreshPending) {
@@ -678,11 +683,18 @@
     </div>
   </div>
 
+  {#if jobsLoadError}
+    <div class="result-error recovery-error jobs-recovery-error" role="alert">
+      <span>{jobsLoadError}</span>
+      <button type="button" onclick={() => void load()}>Retry jobs</button>
+    </div>
+  {/if}
+
   {#if deliveryHealth || deliveryHealthError}
     <details class="delivery-diagnostics">
       <summary>
-        <span class:degraded={deliveryHealth?.ready === false} class="delivery-indicator"></span>
-        Delivery {deliveryHealth?.ready === false ? "needs attention" : deliveryHealth ? "online" : "status unavailable"}
+        <span class:degraded={Boolean(deliveryHealthError) || deliveryHealth?.ready === false} class="delivery-indicator"></span>
+        Delivery {deliveryHealthError ? "status unavailable" : deliveryHealth?.ready === false ? "needs attention" : deliveryHealth ? "online" : "status unavailable"}
         {#if deliveryHealth}
           <span class="delivery-count">{pendingDeliveries} pending</span>
           {#if deliveryHealth.queue.outcome_unknown}
@@ -694,9 +706,12 @@
         <p role="alert">{deliveryHealthError} <button type="button" onclick={() => void loadDeliveryHealth()}>Retry</button></p>
       {/if}
       {#if deliveryHealth}
+        {#if deliveryHealthError}
+          <p>Counts below are from the last successful check, not current service status.</p>
+        {/if}
         {#if deliveryHealth.issues.length}
           <p role="status">{deliveryHealth.issues.join(" · ")}</p>
-        {:else}
+        {:else if !deliveryHealthError}
           <p>UI, scheduler, delivery worker and browser are responding.</p>
         {/if}
         <dl>

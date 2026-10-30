@@ -7,9 +7,12 @@ type PendingFreshRequest = {
 };
 
 const storageKey = "prompta.pending-fresh-requests.v1";
-const maxRecords = 12;
+const maxRecords = 128;
 const maxAgeMs = 14 * 24 * 60 * 60 * 1000;
 let memoryRecords: PendingFreshRequest[] = [];
+// A browser can allow reads while rejecting writes (quota, policy or storage errors).
+// Once that happens, local memory must win until a later write succeeds.
+let memoryOnly = false;
 
 function valid(record: unknown, now: number): record is PendingFreshRequest {
   if (!record || typeof record !== "object") return false;
@@ -30,23 +33,27 @@ function valid(record: unknown, now: number): record is PendingFreshRequest {
 
 function records(): PendingFreshRequest[] {
   const now = Date.now();
-  try {
-    const stored: unknown = JSON.parse(localStorage.getItem(storageKey) || "[]");
-    if (Array.isArray(stored)) {
-      return stored.filter((item) => valid(item, now)).slice(-maxRecords);
+  if (!memoryOnly) {
+    try {
+      const stored: unknown = JSON.parse(localStorage.getItem(storageKey) || "[]");
+      if (Array.isArray(stored)) {
+        return stored.filter((item) => valid(item, now)).slice(-maxRecords);
+      }
+    } catch {
+      // Storage may be unavailable or damaged. Keep same-page safety in memory.
     }
-  } catch {
-    // Storage may be unavailable or damaged. Keep same-page safety in memory.
   }
-  return memoryRecords.filter((item) => valid(item, now));
+  return memoryRecords.filter((item) => valid(item, now)).slice(-maxRecords);
 }
 
 function persist(items: PendingFreshRequest[]): void {
   memoryRecords = items.slice(-maxRecords);
   try {
     localStorage.setItem(storageKey, JSON.stringify(memoryRecords));
+    memoryOnly = false;
   } catch {
-    // In-memory retry protection remains available for this page.
+    // A readable but unwritable store must not erase an unresolved request ID.
+    memoryOnly = true;
   }
 }
 
