@@ -8,7 +8,7 @@ import time
 from pathlib import Path
 
 import pytest
-from playwright.sync_api import expect, sync_playwright
+from playwright.sync_api import FilePayload, expect, sync_playwright
 from test_web_results import completed_run, server
 
 PNG = base64.b64decode(
@@ -195,4 +195,83 @@ def test_attached_image_cannot_be_discarded_by_empty_draft_new_chat_action(
         page.get_by_role("textbox", name="Message for new chat").fill("Keep the attachment")
         expect(send).to_be_enabled()
         assert sends == []
+        browser.close()
+
+
+@pytest.mark.parametrize("width,height", [(1440, 900), (390, 844)])
+def test_uploaded_image_and_draft_survive_navigation_until_removed(
+    tmp_path: Path, width: int, height: int,
+) -> None:
+    with server(tmp_path) as (app, port), sync_playwright() as playwright:
+        completed_run(app, "navigate-image", "Navigation image", time.time())
+        browser = playwright.chromium.launch(executable_path=_chromium(), headless=True)
+        page = browser.new_page(viewport={"width": width, "height": height})
+        posts: list[str] = []
+        page.on("request", lambda request: posts.append(request.url) if request.method == "POST" else None)
+        page.goto(f"http://127.0.0.1:{port}/?view=chats&draft=new")
+        message = page.get_by_role("textbox", name="Message for new chat")
+        message.fill("Keep draft with uploaded image")
+        page.get_by_label("Choose images").set_input_files(
+            {"name": "one.png", "mimeType": "image/png", "buffer": PNG}
+        )
+        expect(page.locator(".composer-preview")).to_have_count(1)
+
+        def visit_chat() -> None:
+            if width <= 680:
+                page.get_by_role("button", name="Open chat sidebar").click()
+            page.locator(".chats-list .chat-row").filter(has_text="Navigation image").click()
+            page.wait_for_url("**/?view=chats&run=navigate-image")
+
+        def back_to_fresh() -> None:
+            if width <= 680:
+                page.get_by_role("button", name="Back to chats").click()
+            page.locator(".chats-sidebar .sidebar-primary").click()
+            page.wait_for_url("**/?view=chats&draft=new")
+
+        visit_chat()
+        back_to_fresh()
+        expect(message).to_have_value("Keep draft with uploaded image")
+        expect(page.locator(".composer-preview")).to_have_count(1)
+        page.get_by_role("button", name="Remove one.png").click()
+        expect(page.locator(".composer-preview")).to_have_count(0)
+        visit_chat()
+        back_to_fresh()
+        expect(page.locator(".composer-preview")).to_have_count(0)
+        assert sum(url.endswith("/api/images") for url in posts) == 1
+        assert not any(url.endswith("/api/chats") for url in posts)
+        browser.close()
+
+
+@pytest.mark.parametrize("width,height", [(1440, 900), (390, 844)])
+def test_failed_upload_batch_rolls_back_and_duplicate_image_is_deduped(
+    tmp_path: Path, width: int, height: int,
+) -> None:
+    with server(tmp_path) as (_, port), sync_playwright() as playwright:
+        browser = playwright.chromium.launch(executable_path=_chromium(), headless=True)
+        page = browser.new_page(viewport={"width": width, "height": height})
+        page.goto(f"http://127.0.0.1:{port}/?view=chats&draft=new")
+        same: FilePayload = {"name": "same.png", "mimeType": "image/png", "buffer": PNG}
+        # The server uses content-addressed image references. A repeated
+        # attachment must not create duplicate keyed Svelte preview nodes.
+        page.get_by_label("Choose images").set_input_files([same, same])
+        expect(page.locator(".composer-preview")).to_have_count(1)
+        page.get_by_role("button", name="Remove same.png").click()
+        expect(page.locator(".composer-preview")).to_have_count(0)
+
+        calls = [0]
+
+        def fail_second(route) -> None:
+            calls[0] += 1
+            if calls[0] == 2:
+                route.fulfill(status=503, body="temporary upload failure")
+            else:
+                route.continue_()
+        page.route("**/api/images", fail_second)
+        page.get_by_label("Choose images").set_input_files([
+            {"name": "a.png", "mimeType": "image/png", "buffer": PNG},
+            {"name": "b.png", "mimeType": "image/png", "buffer": PNG},
+        ])
+        expect(page.get_by_text("Image upload failed.")).to_be_visible()
+        expect(page.locator(".composer-preview")).to_have_count(0)
+        assert calls == [2]
         browser.close()

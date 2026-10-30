@@ -100,8 +100,12 @@ class DeliveryAdmission:
         return allowed, reason, 0.0
 
 
+class DeliveryLeaseRenewer(Protocol):
+    def renew_lease(self, send_id: str, owner: str, *, lease_seconds: float) -> bool: ...
+
+
 def _renew_lease_until_done(
-    queue: DeliveryQueueStore,
+    queue: DeliveryLeaseRenewer,
     send_id: str,
     owner: str,
     stop: threading.Event,

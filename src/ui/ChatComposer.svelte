@@ -1,8 +1,9 @@
 <script lang="ts">
   import { onMount, untrack } from "svelte";
-  import { clearComposerDraft, readComposerDraft, rememberComposerDraft } from "./composerDraftMemory";
+  import { clearComposerDraft, clearComposerImages, readComposerDraft, readComposerImages, rememberComposerDraft, rememberComposerImages } from "./composerDraftMemory";
+  import type { ComposerImageRef } from "./composerDraftMemory";
 
-  type ImageRef = { ref: string; name: string; url: string };
+  type ImageRef = ComposerImageRef;
   type SendResult = { ok: boolean; message: string; ambiguous?: boolean; fallbackAvailable?: boolean };
 
   let { mode, chatId, onSend, onFallbackSend, onNewChat, disabled = false, sendDisabled = false, sendHint = "", restoreDraft = "", retryablePreflight = false }: {
@@ -66,7 +67,7 @@
       }
       draft = saved;
       hasLocalDraft = found;
-      images = [];
+      images = readComposerImages(key);
       feedback = "";
       fallbackAvailable = false;
       restoredDraft = "";
@@ -146,6 +147,7 @@
     }
     const key = draftStorageKey;
     const generation = ++uploadGeneration;
+    const batchRefs: string[] = [];
     const controller = new AbortController();
     uploadAbort = controller;
     uploading = true;
@@ -175,10 +177,18 @@
         if (!result.image?.ref || !result.image.url.startsWith("./api/images/")) {
           throw new Error("Image upload receipt was invalid.");
         }
-        images = [...images, result.image];
+        // A content-addressed image may have been selected more than once.
+        if (!images.some((image) => image.ref === result.image?.ref)) {
+          images = [...images, result.image];
+          batchRefs.push(result.image.ref);
+          rememberComposerImages(key, images);
+        }
       }
     } catch (error) {
       if (generation === uploadGeneration && key === draftStorageKey) {
+        // Roll back this batch if a later file fails; retain older attachments.
+        images = images.filter((image) => !batchRefs.includes(image.ref));
+        rememberComposerImages(key, images);
         feedback = error instanceof Error ? error.message : "Image upload failed.";
       }
     } finally {
@@ -202,6 +212,7 @@
       if (result.ok) {
         draft = "";
         images = [];
+        clearComposerImages(submittedKey);
         feedback = result.message;
         clearComposerDraft(submittedKey);
         try { if (draftStorageKey) localStorage.removeItem(draftStorageKey); } catch { /* Storage may be unavailable. */ }
@@ -252,7 +263,7 @@
           <div class="composer-preview">
             <img src={image.url} alt={image.name} />
             <button type="button" aria-label={"Remove " + image.name} disabled={!canAttach}
-              onclick={() => images = images.filter((item) => item.ref !== image.ref)}>×</button>
+              onclick={() => { images = images.filter((item) => item.ref !== image.ref); rememberComposerImages(draftStorageKey, images); }}>×</button>
           </div>
         {/each}
       </div>

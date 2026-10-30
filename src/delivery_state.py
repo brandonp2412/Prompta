@@ -20,7 +20,7 @@ class CompletionAction(StrEnum):
 def claimable_delivery(record: Mapping[str, object], *, now: float) -> bool:
     status = str(record.get("status") or "")
     if status == "queued":
-        return True
+        return float_value(record.get("retry_at")) <= now
     if status in RETRY_DELIVERY_STATUSES:
         return float_value(record.get("retry_at")) <= now
     # Once a worker claims a send, a crash can occur after ChatGPT accepts it.

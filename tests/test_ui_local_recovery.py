@@ -40,8 +40,10 @@ def test_local_recovery_controls_restore_list_pins_detail_and_turns(
 
             page.unroute("**/api/results?*")
             page.unroute("**/api/local-chat-pins")
-            page.get_by_role("button", name="Retry chats").click()
+            # A successful list refresh can also restore pins and remove the
+            # second control. Retry the independent pin request first.
             page.get_by_role("button", name="Retry pins").click()
+            page.get_by_role("button", name="Retry chats").click()
             expect(page.locator(".chats-list .chat-row").filter(has_text="Local recovery probe")).to_be_visible()
             expect(page.get_by_role("button", name="Retry pins")).to_have_count(0)
 

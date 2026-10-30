@@ -219,3 +219,37 @@ def test_expired_running_delivery_does_not_block_new_work(tmp_path: Path) -> Non
     new = store.get("new")
     assert old is not None and old["status"] == "outcome_unknown"
     assert new is not None and new["status"] == "running"
+
+
+def test_expired_owner_cannot_requeue_or_reclassify_uncertain_send(tmp_path: Path) -> None:
+    store = DeliveryQueueStore(tmp_path / "delivery.sqlite3")
+    for send_id in ("retry", "failed", "complete"):
+        store.upsert(_queued_record(send_id, client_id=send_id))
+        assert store.claim_next("worker-a", now=100.0, lease_seconds=10.0) is not None
+        # Restore the other rows to terminal states so each claim stays isolated.
+        # Every mutation below happens at the exact lease-expiry boundary.
+        if send_id == "retry":
+            assert not store.retry_claim(
+                send_id, "worker-a", retry_at=111.0, retry_attempt=1,
+                error="backend unavailable", now=110.0,
+            )
+        elif send_id == "failed":
+            assert not store.fail_claim(
+                send_id, "worker-a", status="dead_lettered",
+                error="too many failures", now=110.0,
+            )
+        else:
+            assert not store.complete_claim(send_id, "worker-a", now=110.0)
+        running = store.get(send_id)
+        assert running is not None and running["status"] == "running"
+        # A scan quarantines the receipt, but must never claim the expired send.
+        assert store.claim_next("worker-b", now=110.0, lease_seconds=10.0) is None
+        unknown = store.get(send_id)
+        assert unknown is not None and unknown["status"] == "outcome_unknown"
+
+
+def test_lease_can_be_committed_until_but_not_at_expiry(tmp_path: Path) -> None:
+    store = DeliveryQueueStore(tmp_path / "delivery.sqlite3")
+    store.upsert(_queued_record())
+    assert store.claim_next("worker-a", now=100.0, lease_seconds=10.0)
+    assert store.complete_claim("send-1", "worker-a", now=109.999)

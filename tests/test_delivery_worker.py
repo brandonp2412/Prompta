@@ -1,5 +1,6 @@
 import sqlite3
 import threading
+import time as epoch_time
 from datetime import time
 from pathlib import Path
 
@@ -123,7 +124,7 @@ def test_removed_job_is_cancelled_before_browser_dispatch(tmp_path: Path) -> Non
             "created_at": 10.0,
         }
     )
-    record = queue.claim_next("worker", now=20.0, lease_seconds=30.0)
+    record = queue.claim_next("worker", now=epoch_time.time(), lease_seconds=30.0)
     assert record is not None
 
     calls: list[str] = []
@@ -157,7 +158,7 @@ def test_queued_once_job_survives_scheduled_job_removal_and_respects_pin_choice(
     producer = DurableSchedulerProducer(runtime_path, runtime_path, queue_path)
     assert producer.tick(now=1000.0) == 1
     assert "one-time" not in load_jobs(runtime_path)
-    record = producer.queue.claim_next("worker", now=1001.0, lease_seconds=30.0)
+    record = producer.queue.claim_next("worker", now=epoch_time.time(), lease_seconds=30.0)
     assert record is not None
     calls: list[tuple[str, bool]] = []
 
@@ -220,7 +221,7 @@ def test_manual_queued_prompt_uses_standard_delivery_path(tmp_path: Path) -> Non
     state = tmp_path / "scheduler.sqlite3"
     queue = DeliveryQueueStore(tmp_path / "ui-send-jobs.sqlite3")
     receipt = queue.enqueue_manual("Deliver one chat", now=10.0)
-    claimed = queue.claim_next("worker", now=20.0, lease_seconds=30.0)
+    claimed = queue.claim_next("worker", now=epoch_time.time(), lease_seconds=30.0)
     assert claimed is not None
     messages: list[str] = []
 
@@ -362,7 +363,7 @@ def test_send_429_retries_only_its_own_delivery_without_read_throttling(
     runtime = SchedulerRuntime(state, state)
     queue = DeliveryQueueStore(tmp_path / "queue.sqlite3")
     receipt = queue.enqueue_manual("Send independently", now=10.0)
-    record = queue.claim_next("worker", now=20.0, lease_seconds=30.0)
+    record = queue.claim_next("worker", now=epoch_time.time(), lease_seconds=30.0)
     assert record is not None
 
     def send_rejected(message: str, *, pin_chat: bool = False) -> None:

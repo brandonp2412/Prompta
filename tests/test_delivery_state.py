@@ -8,6 +8,8 @@ from prompta.delivery_state import (
 
 def test_claimability_is_deterministic_at_retry_and_lease_boundaries() -> None:
     assert claimable_delivery({"status": "queued"}, now=10.0)
+    assert not claimable_delivery({"status": "queued", "retry_at": 10.1}, now=10.0)
+    assert claimable_delivery({"status": "queued", "retry_at": 10.0}, now=10.0)
     assert not claimable_delivery({"status": "retrying", "retry_at": 10.1}, now=10.0)
     assert claimable_delivery({"status": "retrying", "retry_at": 10.0}, now=10.0)
     assert claimable_delivery({"status": "rate_limited", "retry_at": 10.0}, now=10.0)

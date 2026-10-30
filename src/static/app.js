@@ -6439,6 +6439,7 @@ delegate(["click", "change"]);
 //#endregion
 //#region src/ui/composerDraftMemory.ts
 var drafts = /* @__PURE__ */ new Map();
+var images = /* @__PURE__ */ new Map();
 function readComposerDraft(key) {
 	return key ? drafts.get(key) : void 0;
 }
@@ -6453,6 +6454,21 @@ function rememberComposerDraft(key, value) {
 }
 function clearComposerDraft(key) {
 	drafts.delete(key);
+}
+function readComposerImages(key) {
+	return [...images.get(key) || []];
+}
+function rememberComposerImages(key, value) {
+	if (!key) return;
+	images.delete(key);
+	if (value.length) images.set(key, value.slice(0, 4));
+	if (images.size > 48) {
+		const oldest = images.keys().next().value;
+		if (oldest) images.delete(oldest);
+	}
+}
+function clearComposerImages(key) {
+	images.delete(key);
 }
 //#endregion
 //#region src/ui/ChatComposer.svelte
@@ -6513,7 +6529,7 @@ function ChatComposer($$anchor, $$props) {
 			} catch {}
 			set(draft, saved, true);
 			set(hasLocalDraft, found, true);
-			set(images, [], true);
+			set(images, readComposerImages(key), true);
 			set(feedback, "");
 			set(fallbackAvailable, false);
 			set(restoredDraft, "");
@@ -6593,6 +6609,7 @@ function ChatComposer($$anchor, $$props) {
 		}
 		const key = get(draftStorageKey);
 		const generation = ++uploadGeneration;
+		const batchRefs = [];
 		const controller = new AbortController();
 		uploadAbort = controller;
 		set(uploading, true);
@@ -6623,10 +6640,18 @@ function ChatComposer($$anchor, $$props) {
 				if (!response.ok) throw new Error("Image upload failed.");
 				const result = await response.json();
 				if (!result.image?.ref || !result.image.url.startsWith("./api/images/")) throw new Error("Image upload receipt was invalid.");
-				set(images, [...get(images), result.image], true);
+				if (!get(images).some((image) => image.ref === result.image?.ref)) {
+					set(images, [...get(images), result.image], true);
+					batchRefs.push(result.image.ref);
+					rememberComposerImages(key, get(images));
+				}
 			}
 		} catch (error) {
-			if (generation === uploadGeneration && key === get(draftStorageKey)) set(feedback, error instanceof Error ? error.message : "Image upload failed.", true);
+			if (generation === uploadGeneration && key === get(draftStorageKey)) {
+				set(images, get(images).filter((image) => !batchRefs.includes(image.ref)), true);
+				rememberComposerImages(key, get(images));
+				set(feedback, error instanceof Error ? error.message : "Image upload failed.", true);
+			}
 		} finally {
 			if (generation === uploadGeneration && key === get(draftStorageKey)) {
 				uploadAbort = null;
@@ -6646,6 +6671,7 @@ function ChatComposer($$anchor, $$props) {
 			if (result.ok) {
 				set(draft, "");
 				set(images, [], true);
+				clearComposerImages(submittedKey);
 				set(feedback, result.message, true);
 				clearComposerDraft(submittedKey);
 				try {
@@ -6698,7 +6724,10 @@ function ChatComposer($$anchor, $$props) {
 				set_attribute(button, "aria-label", "Remove " + get(image).name);
 				button.disabled = !get(canAttach);
 			});
-			delegated("click", button, () => set(images, get(images).filter((item) => item.ref !== get(image).ref), true));
+			delegated("click", button, () => {
+				set(images, get(images).filter((item) => item.ref !== get(image).ref), true);
+				rememberComposerImages(get(draftStorageKey), get(images));
+			});
 			append($$anchor, div_2);
 		});
 		reset(div_1);

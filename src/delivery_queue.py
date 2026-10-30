@@ -431,6 +431,7 @@ class DeliveryQueueStore:
                     job_deliveries.c.send_id == send_id,
                     job_deliveries.c.status == "running",
                     job_deliveries.c.lease_owner == owner,
+                    job_deliveries.c.lease_expires_at > at,
                 )
                 .values(
                     status=status,
@@ -463,12 +464,16 @@ class DeliveryQueueStore:
                 return True
             if action is CompletionAction.REJECT:
                 return False
+            # A stale owner cannot commit a send after its safety lease expires.
+            if float_value(row["lease_expires_at"]) <= at:
+                return False
             result = connection.execute(
                 update(job_deliveries)
                 .where(
                     job_deliveries.c.send_id == send_id,
                     job_deliveries.c.status == "running",
                     job_deliveries.c.lease_owner == owner,
+                    job_deliveries.c.lease_expires_at > at,
                 )
                 .values(
                     status="succeeded",
@@ -499,6 +504,7 @@ class DeliveryQueueStore:
                     job_deliveries.c.send_id == send_id,
                     job_deliveries.c.status == "running",
                     job_deliveries.c.lease_owner == owner,
+                    job_deliveries.c.lease_expires_at > at,
                 )
                 .values(
                     status=status,
