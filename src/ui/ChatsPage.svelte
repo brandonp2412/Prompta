@@ -972,7 +972,7 @@
       <ChatComposer mode="reply" chatId={selectedRunId} onSend={sendReply}
         onFallbackSend={(text) => sendFresh(freshContinuationPrompt(text), originalImageRefs())}
         onNewChat={createChat}
-        restoreDraft={detail?.send_id === selectedRunId && ["prepared", "preflight_failed"].includes(turns.at(-1)?.status ?? "") ? turns.at(-1)?.user_text ?? "" : ""}
+        restoreDraft={detail?.send_id === selectedRunId && turns.at(-1)?.status === "preflight_failed" ? turns.at(-1)?.user_text ?? "" : ""}
         retryablePreflight={detail?.send_id === selectedRunId && turns.at(-1)?.status === "preflight_failed"}
         sendDisabled={detail?.send_id !== selectedRunId || Boolean(replyBlockedReason) || recoveringReply}
         sendHint={replyBlockedReason} />

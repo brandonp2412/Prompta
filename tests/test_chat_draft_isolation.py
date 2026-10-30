@@ -16,6 +16,62 @@ from prompta.web import PromptaJobServer
 
 
 @pytest.mark.parametrize("width,height", [(1440, 900), (390, 844)])
+def test_prepared_reply_does_not_repopulate_composer_until_preflight_fails(
+    tmp_path: Path,
+    width: int,
+    height: int,
+) -> None:
+    executable = os.environ.get("PROMPTA_TEST_CHROMIUM", "")
+    if not executable or not Path(executable).exists():
+        pytest.skip("Headless Chromium unavailable")
+
+    app = PromptaJobServer(
+        ("127.0.0.1", 0),
+        state_path=tmp_path / "state.sqlite3",
+        jobs_path=tmp_path / "jobs.sqlite3",
+    )
+    now = time.time()
+    send_id = "pending-reply"
+    reply_text = "Saved pending reply must not become a draft again"
+    app.results.ensure_queued(send_id, "Original completed chat", now=now)
+    assert app.results.accept(send_id, "owner", deadline=now + 3000)
+    assert app.results.write(
+        send_id,
+        "owner",
+        CaptureResult("sse", "complete", "Original answer", "c" * 32, "m" * 32, "p" * 32),
+    )
+    assert app.replies.prepare(
+        send_id,
+        ReplyIntent("r" * 32, "c" * 32, "m" * 32, reply_text),
+        now=now + 1,
+    )
+
+    thread = threading.Thread(target=app.serve_forever, daemon=True)
+    thread.start()
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(executable_path=executable, headless=True)
+            page = browser.new_page(viewport={"width": width, "height": height})
+            page.goto(f"http://127.0.0.1:{app.server_address[1]}/?view=chats&run={send_id}")
+            reply = page.get_by_role("textbox", name="Message for current chat")
+            expect(page.get_by_text(reply_text)).to_be_visible()
+            expect(reply).to_have_value("")
+            page.reload()
+            expect(reply).to_have_value("")
+
+            # Only a confirmed preflight failure restores the exact saved
+            # text for a deliberate retry; pending work is already durable.
+            assert app.replies.mark_preflight_failed("r" * 32)
+            page.reload()
+            expect(reply).to_have_value(reply_text)
+            browser.close()
+    finally:
+        app.shutdown()
+        thread.join(timeout=3)
+        app.server_close()
+
+
+@pytest.mark.parametrize("width,height", [(1440, 900), (390, 844)])
 def test_chat_drafts_are_scoped_during_spa_navigation_and_reload(
     tmp_path: Path,
     width: int,
