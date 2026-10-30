@@ -77,6 +77,7 @@
   let pendingPinWrites = 0;
   let pinWriteQueue: Promise<void> = Promise.resolve();
   let pinError = $state("");
+  let pinWriteError = false;
   let readAt = $state<Record<string, number>>({});
   let readRevisions = $state<Record<string, string>>({});
   let optimisticReads = $state<Record<string, string>>({});
@@ -312,9 +313,13 @@
       pinnedItems = body.items;
       pinnedIds = body.items.map((item) => item.send_id);
       pinsReady = true;
-      pinError = "";
+      // A successful read repairs the visible pins but cannot prove that an
+      // earlier failed POST was saved. Keep its error visible for the user.
+      if (!pinWriteError) pinError = "";
     } catch {
-      if (generation === pinsGeneration) pinError = "Pinned chats are temporarily unavailable.";
+      if (generation === pinsGeneration && !pinWriteError) {
+        pinError = "Pinned chats are temporarily unavailable.";
+      }
     }
   }
 
@@ -322,6 +327,7 @@
     if (!pinsReady) return;
     const next = !pinnedIds.includes(item.send_id);
     pinsGeneration += 1; // Ignore older GETs while an explicit change is pending.
+    pinWriteError = false;
     pinError = "";
     if (next) {
       pinnedIds = [item.send_id, ...pinnedIds];
@@ -339,7 +345,10 @@
         confirmedPins = next
           ? [item, ...confirmedPins.filter((confirmed) => confirmed.send_id !== item.send_id)]
           : confirmedPins.filter((confirmed) => confirmed.send_id !== item.send_id);
+        pinWriteError = false;
+        pinError = "";
       } catch {
+        pinWriteError = true;
         pinError = "Could not save pinned chat.";
       } finally {
         pendingPinWrites -= 1;
@@ -1045,7 +1054,7 @@
     {#if pinError}
       <div class="result-error recovery-error" role="alert">
         <span>{pinError}</span>
-        <button type="button" onclick={() => void loadPins()}>Retry pins</button>
+        <button type="button" onclick={() => { pinWriteError = false; void loadPins(); }}>Retry pins</button>
       </div>
     {/if}
     {#if readError && (view !== "chats" || !selectedRunId)}

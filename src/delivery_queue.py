@@ -143,6 +143,12 @@ class DeliveryQueueStore:
                 .order_by(job_deliveries.c.finished_at.desc())
                 .limit(1)
             ).scalar_one_or_none()
+            next_retry = connection.execute(
+                select(func.min(job_deliveries.c.retry_at)).where(
+                    job_deliveries.c.status.in_(("retrying", "rate_limited")),
+                    job_deliveries.c.retry_at > at,
+                )
+            ).scalar_one()
         count_by_status = {str(status): int(count) for status, count in counts}
         oldest = float(oldest_at or 0.0)
         return {
@@ -156,6 +162,7 @@ class DeliveryQueueStore:
             "cancelled": count_by_status.get("cancelled", 0),
             "oldest_pending_age_seconds": max(0.0, at - oldest) if oldest else 0.0,
             "last_successful_delivery_at": float(last_success or 0.0),
+            "next_retry_at_epoch": float(next_retry or 0.0),
         }
 
     def get(self, send_id: str) -> dict[str, object] | None:

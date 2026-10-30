@@ -244,20 +244,18 @@ def _deliver_one(
             # A rejected send is retried only as its own queued item. It must
             # never close admission for other independent, parallel deliveries.
             attempt = max(0, _record_int(record, "retry_attempt")) + 1
-            if attempt >= _MAX_REJECTED_ATTEMPTS:
-                queue.fail_claim(send_id, owner, status="dead_lettered", error=str(exc))
-                logger.error("Rate limited delivery exhausted retries send_id=%s", send_id)
-            else:
-                # Honor ChatGPT's per-request Retry-After. Short local retries
-                # would otherwise exhaust the budget before the limit resets.
-                delay = max(_retry_delay(attempt), float(exc.retry_after))
-                _retry(queue, record, owner, error=str(exc), delay=delay, status="rate_limited")
-                logger.warning(
-                    "Rate limited send_id=%s attempt=%d retry_in=%.1fs",
-                    send_id,
-                    attempt,
-                    delay,
-                )
+            # HTTP 429 proves this request was rejected, but does not imply
+            # that the user's queued job should permanently fail. Keep its
+            # original identity and retry after the server's backoff, even if
+            # an extended rate limit spans more than five attempts.
+            delay = max(_retry_delay(attempt), float(exc.retry_after))
+            _retry(queue, record, owner, error=str(exc), delay=delay, status="rate_limited")
+            logger.warning(
+                "Rate limited send_id=%s attempt=%d retry_in=%.1fs",
+                send_id,
+                attempt,
+                delay,
+            )
             return
         except DeliveryBackendUnavailableError as exc:
             attempt = max(0, _record_int(record, "retry_attempt")) + 1

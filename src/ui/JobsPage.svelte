@@ -50,6 +50,7 @@
       dead_lettered: number;
       outcome_unknown: number;
       oldest_pending_age_seconds: number;
+      next_retry_at_epoch?: number;
     };
   };
   let deliveryHealth = $state<DeliveryHealth | null>(null);
@@ -110,6 +111,8 @@
   let prompt = $state("");
   let images = $state<ImageRef[]>([]);
   let uploadingImage = $state(false);
+  let imageUploadGeneration = 0;
+  let imageUploadAbort: AbortController | null = null;
   let imageInput = $state<HTMLInputElement>();
   let schedule = $state<"interval" | "daily" | "once">("once");
   let interval = $state("40");
@@ -160,7 +163,15 @@
     return JSON.stringify({ name, prompt, images: images.map((image) => image.ref), schedule, interval, onceDelay, pinChat, dailyAt, exact });
   }
 
+  function cancelEditorUpload() {
+    imageUploadGeneration += 1;
+    imageUploadAbort?.abort();
+    imageUploadAbort = null;
+    uploadingImage = false;
+  }
+
   function closeEditorState() {
+    cancelEditorUpload();
     editorOpen = false;
     activeEditorRoute = "";
     confirmDiscard = false;
@@ -253,6 +264,7 @@
   }
 
   function showEditor(route: EditorRoute) {
+    cancelEditorUpload();
     if (route.kind === "new") {
       reset();
       if (route.once) schedule = "once";
@@ -543,6 +555,9 @@
       return;
     }
     const route = activeEditorRoute;
+    const generation = ++imageUploadGeneration;
+    const controller = new AbortController();
+    imageUploadAbort = controller;
     const originalImages = [...images];
     uploadingImage = true;
     editorError = "";
@@ -558,30 +573,37 @@
           };
           reader.readAsDataURL(file);
         });
-        const response = await localPost("./api/images", { name: file.name, data }, { timeoutMs: localUploadTimeoutMs });
+        if (generation !== imageUploadGeneration || activeEditorRoute !== route) return;
+        const response = await localPost("./api/images", { name: file.name, data }, {
+          timeoutMs: localUploadTimeoutMs, signal: controller.signal,
+        });
+        if (generation !== imageUploadGeneration || activeEditorRoute !== route) return;
         if (!response.ok) throw new Error("Image upload failed.");
         const result = await response.json() as { image?: ImageRef };
         if (!result.image?.ref || !result.image.url.startsWith("./api/images/")) {
           throw new Error("Image upload receipt was invalid.");
         }
-        if (activeEditorRoute !== route) return;
         if (images.some((image) => image.ref === result.image?.ref)) continue;
         images = [...images, result.image];
         await tick();
+        if (generation !== imageUploadGeneration || activeEditorRoute !== route) return;
         imagePreviewList?.scrollIntoView({
           block: "nearest",
           behavior: "smooth",
         });
       }
     } catch (error) {
-      if (activeEditorRoute === route) {
+      if (generation === imageUploadGeneration && activeEditorRoute === route) {
         images = originalImages;
         editorError = error instanceof DOMException && error.name === "TimeoutError"
           ? "Image upload timed out. No new attachments were added; try again."
           : String(error).replace(/^Error:\s*/, "");
       }
     } finally {
-      uploadingImage = false;
+      if (generation === imageUploadGeneration && activeEditorRoute === route) {
+        imageUploadAbort = null;
+        uploadingImage = false;
+      }
     }
   }
 
@@ -765,6 +787,9 @@
           <div><dt>Running</dt><dd>{deliveryHealth.queue.running}</dd></div>
           <div><dt>Retrying</dt><dd>{deliveryHealth.queue.retrying}</dd></div>
           <div><dt>Rate limited</dt><dd>{deliveryHealth.queue.rate_limited}</dd></div>
+          {#if deliveryHealth.queue.next_retry_at_epoch}
+            <div><dt>Next queued retry</dt><dd>{formatDate(deliveryHealth.queue.next_retry_at_epoch)}</dd></div>
+          {/if}
           <div><dt>Dead letters</dt><dd>{deliveryHealth.queue.dead_lettered}</dd></div>
           <div><dt>Unconfirmed sends</dt><dd>{deliveryHealth.queue.outcome_unknown}</dd></div>
         </dl>
@@ -785,6 +810,9 @@
         {/if}
         {#if deliveryHealth.recovery.missing_verified_identity > 0}
           <p>Chats without a verified conversation identity cannot be recovered automatically. Their local partial results remain available.</p>
+        {/if}
+        {#if deliveryHealth.queue.retrying || deliveryHealth.queue.rate_limited}
+          <p>Rejected or pre-dispatch attempts retry automatically after their backoff.</p>
         {/if}
         {#if deliveryHealth.queue.outcome_unknown}
           <p>Unconfirmed sends are not automatically retried. Review the exact saved chat before sending again.</p>
@@ -912,11 +940,13 @@
     </nav>
   {/if}
 
-  <footer class="jobs-footer">
-    <button class="row-action danger-text" type="button" disabled={!jobs.length || saving} onclick={() => void clearAll()}>
-      Clear all jobs
-    </button>
-  </footer>
+  {#if jobs.length}
+    <footer class="jobs-footer">
+      <button class="row-action danger-text" type="button" disabled={saving} onclick={() => void clearAll()}>
+        Clear all jobs
+      </button>
+    </footer>
+  {/if}
 
 </section>
 {/if}

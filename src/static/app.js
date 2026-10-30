@@ -5432,6 +5432,8 @@ function JobsPage($$anchor, $$props) {
 	let prompt = /* @__PURE__ */ state("");
 	let images = /* @__PURE__ */ state(proxy([]));
 	let uploadingImage = /* @__PURE__ */ state(false);
+	let imageUploadGeneration = 0;
+	let imageUploadAbort = null;
 	let imageInput = /* @__PURE__ */ state(void 0);
 	let schedule = /* @__PURE__ */ state("once");
 	let interval = /* @__PURE__ */ state("40");
@@ -5489,7 +5491,14 @@ function JobsPage($$anchor, $$props) {
 			exact: get(exact)
 		});
 	}
+	function cancelEditorUpload() {
+		imageUploadGeneration += 1;
+		imageUploadAbort?.abort();
+		imageUploadAbort = null;
+		set(uploadingImage, false);
+	}
 	function closeEditorState() {
+		cancelEditorUpload();
 		set(editorOpen, false);
 		set(activeEditorRoute, "");
 		set(confirmDiscard, false);
@@ -5574,6 +5583,7 @@ function JobsPage($$anchor, $$props) {
 		});
 	}
 	function showEditor(route) {
+		cancelEditorUpload();
 		if (route.kind === "new") {
 			reset$1();
 			if (route.once) set(schedule, "once");
@@ -5811,6 +5821,9 @@ function JobsPage($$anchor, $$props) {
 			return;
 		}
 		const route = get(activeEditorRoute);
+		const generation = ++imageUploadGeneration;
+		const controller = new AbortController();
+		imageUploadAbort = controller;
 		const originalImages = [...get(images)];
 		set(uploadingImage, true);
 		set(editorError, "");
@@ -5826,29 +5839,37 @@ function JobsPage($$anchor, $$props) {
 					};
 					reader.readAsDataURL(file);
 				});
+				if (generation !== imageUploadGeneration || get(activeEditorRoute) !== route) return;
 				const response = await localPost("./api/images", {
 					name: file.name,
 					data
-				}, { timeoutMs: localUploadTimeoutMs });
+				}, {
+					timeoutMs: localUploadTimeoutMs,
+					signal: controller.signal
+				});
+				if (generation !== imageUploadGeneration || get(activeEditorRoute) !== route) return;
 				if (!response.ok) throw new Error("Image upload failed.");
 				const result = await response.json();
 				if (!result.image?.ref || !result.image.url.startsWith("./api/images/")) throw new Error("Image upload receipt was invalid.");
-				if (get(activeEditorRoute) !== route) return;
 				if (get(images).some((image) => image.ref === result.image?.ref)) continue;
 				set(images, [...get(images), result.image], true);
 				await tick();
+				if (generation !== imageUploadGeneration || get(activeEditorRoute) !== route) return;
 				get(imagePreviewList)?.scrollIntoView({
 					block: "nearest",
 					behavior: "smooth"
 				});
 			}
 		} catch (error) {
-			if (get(activeEditorRoute) === route) {
+			if (generation === imageUploadGeneration && get(activeEditorRoute) === route) {
 				set(images, originalImages, true);
 				set(editorError, error instanceof DOMException && error.name === "TimeoutError" ? "Image upload timed out. No new attachments were added; try again." : String(error).replace(/^Error:\s*/, ""), true);
 			}
 		} finally {
-			set(uploadingImage, false);
+			if (generation === imageUploadGeneration && get(activeEditorRoute) === route) {
+				imageUploadAbort = null;
+				set(uploadingImage, false);
+			}
 		}
 	}
 	async function submit() {
@@ -6366,7 +6387,6 @@ function JobsPage($$anchor, $$props) {
 			set(showRepeatingJobs, !get(showRepeatingJobs));
 			set(page, 1);
 		});
-		delegated("click", button_14, () => void clearAll());
 		append($$anchor, section);
 	};
 	if_block(node, ($$render) => {
@@ -9659,6 +9679,7 @@ function ChatsPage($$anchor, $$props) {
 	let pendingPinWrites = 0;
 	let pinWriteQueue = Promise.resolve();
 	let pinError = /* @__PURE__ */ state("");
+	let pinWriteError = false;
 	let readAt = /* @__PURE__ */ state(proxy({}));
 	let readRevisions = /* @__PURE__ */ state(proxy({}));
 	let optimisticReads = /* @__PURE__ */ state(proxy({}));
@@ -9855,15 +9876,16 @@ function ChatsPage($$anchor, $$props) {
 			set(pinnedItems, body.items, true);
 			set(pinnedIds, body.items.map((item) => item.send_id), true);
 			set(pinsReady, true);
-			set(pinError, "");
+			if (!pinWriteError) set(pinError, "");
 		} catch {
-			if (generation === pinsGeneration) set(pinError, "Pinned chats are temporarily unavailable.");
+			if (generation === pinsGeneration && !pinWriteError) set(pinError, "Pinned chats are temporarily unavailable.");
 		}
 	}
 	function togglePin(item) {
 		if (!get(pinsReady)) return;
 		const next = !get(pinnedIds).includes(item.send_id);
 		pinsGeneration += 1;
+		pinWriteError = false;
 		set(pinError, "");
 		if (next) {
 			set(pinnedIds, [item.send_id, ...get(pinnedIds)], true);
@@ -9880,7 +9902,10 @@ function ChatsPage($$anchor, $$props) {
 					pinned: next
 				}, { timeoutMs: 12e3 })).ok) throw new Error("Local pin update failed");
 				confirmedPins = next ? [item, ...confirmedPins.filter((confirmed) => confirmed.send_id !== item.send_id)] : confirmedPins.filter((confirmed) => confirmed.send_id !== item.send_id);
+				pinWriteError = false;
+				set(pinError, "");
 			} catch {
+				pinWriteError = true;
 				set(pinError, "Could not save pinned chat.");
 			} finally {
 				pendingPinWrites -= 1;
