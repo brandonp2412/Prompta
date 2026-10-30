@@ -125,7 +125,14 @@ def test_retry_older_chats_retries_failed_page_without_resetting_list(
         page.goto(f"http://127.0.0.1:{port}/?view=chats")
         expect(page.locator(".chats-list .chat-entry")).to_have_count(20)
         page.locator(".chats-list").evaluate("node => node.scrollTop = node.scrollHeight")
-        expect(page.get_by_role("button", name="Retry older chats")).to_be_visible()
+        # Scrolling may immediately trigger a second fetch after the injected
+        # 503, so either the retry control or the recovered page is valid.
+        page.wait_for_function("""() =>
+            document.querySelectorAll('.chats-list .chat-entry').length === 25 ||
+            [...document.querySelectorAll('button')].some(
+                button => button.textContent?.trim() === 'Retry older chats'
+            )
+        """)
         # A narrow viewport can trigger an automatic second fetch while the
         # sidebar scroll settles. Click the retry if still present; either
         # recovery path must restore the older page without another POST.

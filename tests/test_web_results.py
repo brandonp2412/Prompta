@@ -901,6 +901,7 @@ def test_chats_ui_desktop_mobile_and_no_chatgpt_requests(tmp_path: Path) -> None
                 assert page.locator(".chat-row").count() == 4
                 page.locator(".chat-row").filter(has_text="Daily review").click()
                 assert page.locator(".result-markdown pre code").first.inner_text() == "print(1)"
+                expect(page.locator(".prompt-message")).to_have_count(2)
                 assert page.locator(".prompt-message").all_inner_texts() == [
                     "Prompt for Daily review",
                     "What changed?",
