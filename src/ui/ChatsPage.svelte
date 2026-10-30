@@ -6,6 +6,7 @@
   import ToolCalls from "./ToolCalls.svelte";
   import { subscribeLiveUpdates } from "./liveUpdates";
   import { recoverVisibleTurns } from "./turnRecovery";
+  import { reconcileResultPage } from "./resultListRefresh";
   import { localGet, localReadTimeoutMs } from "./localRead";
   import { localPost } from "./localMutation";
   import { acknowledgeExactReplyRequest, pendingExactReplyRequest } from "./pendingExactReply";
@@ -102,6 +103,8 @@
   let listError = $state("");
   let detailError = $state("");
   let listGeneration = 0;
+  let listInFlight = false;
+  let listRefreshPending = false;
   let pinsGeneration = 0;
   let detailGeneration = 0;
   let detailInFlightFor: string | null = null;
@@ -382,7 +385,14 @@
   }
 
   async function loadList(reset = false) {
+    if (!reset && listInFlight) {
+      // EventSource and periodic repairs must not repeatedly supersede a slow
+      // GET, leaving the list in a permanent loading or stale-error state.
+      listRefreshPending = true;
+      return;
+    }
     const generation = ++listGeneration;
+    listInFlight = true;
     loadingMore = false; // A fresh first-page response supersedes an in-flight append.
     if (reset) {
       items = [];
@@ -396,9 +406,9 @@
       if (!response.ok) throw new Error("Results could not be loaded");
       const body: { items: RunSummary[]; total: number } = await response.json();
       if (generation !== listGeneration) return;
-      items = reset ? body.items : mergeRuns(items, body.items);
+      items = reset ? body.items : reconcileResultPage(items, body.items, body.total, pageSize, statusFilter);
       total = body.total;
-      nextOffset = Math.max(nextOffset, body.items.length);
+      nextOffset = Math.min(body.total, Math.max(nextOffset, body.items.length));
       listError = "";
     } catch {
       if (generation === listGeneration) listError = "Local results are temporarily unavailable.";
@@ -407,6 +417,11 @@
         loadingList = false;
         await tick();
         maybeLoadMore();
+        listInFlight = false;
+        if (listRefreshPending) {
+          listRefreshPending = false;
+          void loadList();
+        }
       }
     }
   }

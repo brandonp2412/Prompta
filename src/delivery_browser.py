@@ -359,6 +359,23 @@ class BrowserDeliverySender:
                 "Prompta delivery deadline expired before dispatch"
             ) from exc
 
+    async def _pin_accepted_chat(self, driver: BrowserDriver) -> None:
+        """Best-effort pin after a durable send receipt, never before it."""
+        for attempt in range(2):
+            try:
+                await _timed_stage("once_chat_pin", driver.pin_current_chat(), timeout=25.0)
+                return
+            except Exception as exc:
+                # Pinning is optional and must not downgrade an accepted send.
+                logger.log(
+                    logging.ERROR if attempt else logging.WARNING,
+                    "Accepted Once job chat could not be pinned attempt=%d error_type=%s",
+                    attempt + 1,
+                    type(exc).__name__,
+                )
+                if attempt == 0:
+                    await asyncio.sleep(0.5)
+
     async def _handle_connector_approvals(
         self, driver: PassiveCaptureDriver, *, deadline: float | None = None
     ) -> None:
@@ -886,21 +903,8 @@ class BrowserDeliverySender:
             if not send_id and capture is not None:
                 driver.clear_send_capture(capture)
                 capture = None
-            if pin_chat:
-                for attempt in range(2):
-                    try:
-                        await _timed_stage("once_chat_pin", driver.pin_current_chat(), timeout=25.0)
-                        break
-                    except Exception as exc:
-                        # The prompt was accepted: retry the pin, never the send.
-                        logger.log(
-                            logging.ERROR if attempt else logging.WARNING,
-                            "Accepted Once job chat could not be pinned attempt=%d error_type=%s",
-                            attempt + 1,
-                            type(exc).__name__,
-                        )
-                        if attempt == 0:
-                            await asyncio.sleep(0.5)
+            if not send_id and pin_chat:
+                await self._pin_accepted_chat(driver)
             if send_id:
                 # An accepted POST is verified tab activity; the idle clock
                 # starts here, not at the earlier fresh-tab navigation.
@@ -937,6 +941,10 @@ class BrowserDeliverySender:
                     confirmed.set()
                 if accepted is not None:
                     accepted.set()
+                # An optional sidebar pin may take tens of seconds. Receipt and
+                # capture ownership must be durable before any such UI work.
+                if pin_chat:
+                    await self._pin_accepted_chat(driver)
                 try:
                     if lease_ok and capture is not None:
                         await self._capture_until_complete(

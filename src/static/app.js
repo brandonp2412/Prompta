@@ -9101,6 +9101,12 @@ function recoverVisibleTurns(stored, previous, original, sameRun) {
 	return [original];
 }
 //#endregion
+//#region src/ui/resultListRefresh.ts
+function reconcileResultPage(existing, firstPage, total, pageSize, status) {
+	const retained = total <= pageSize ? [] : existing.filter((item) => !status || item.status === status);
+	return [...new Map([...retained, ...firstPage].map((item) => [item.send_id, item])).values()].sort((a, b) => (b.updated_at || b.created_at) - (a.updated_at || a.created_at) || b.created_at - a.created_at || a.send_id.localeCompare(b.send_id)).slice(0, Math.max(0, total));
+}
+//#endregion
 //#region src/ui/pendingExactReply.ts
 var storageKey = "prompta.pending-exact-replies.v1";
 var maxAgeMs = 7776e6;
@@ -9344,6 +9350,8 @@ function ChatsPage($$anchor, $$props) {
 	let listError = /* @__PURE__ */ state("");
 	let detailError = /* @__PURE__ */ state("");
 	let listGeneration = 0;
+	let listInFlight = false;
+	let listRefreshPending = false;
 	let pinsGeneration = 0;
 	let detailGeneration = 0;
 	let detailInFlightFor = null;
@@ -9580,7 +9588,12 @@ function ChatsPage($$anchor, $$props) {
 		if (get(listPane).scrollTop + get(listPane).clientHeight >= get(listPane).scrollHeight - 240) loadMore();
 	}
 	async function loadList(reset = false) {
+		if (!reset && listInFlight) {
+			listRefreshPending = true;
+			return;
+		}
 		const generation = ++listGeneration;
+		listInFlight = true;
 		set(loadingMore, false);
 		if (reset) {
 			set(items, [], true);
@@ -9594,9 +9607,9 @@ function ChatsPage($$anchor, $$props) {
 			if (!response.ok) throw new Error("Results could not be loaded");
 			const body = await response.json();
 			if (generation !== listGeneration) return;
-			set(items, reset ? body.items : mergeRuns(get(items), body.items), true);
+			set(items, reset ? body.items : reconcileResultPage(get(items), body.items, body.total, pageSize, get(statusFilter)), true);
 			set(total, body.total, true);
-			set(nextOffset, Math.max(get(nextOffset), body.items.length), true);
+			set(nextOffset, Math.min(body.total, Math.max(get(nextOffset), body.items.length)), true);
 			set(listError, "");
 		} catch {
 			if (generation === listGeneration) set(listError, "Local results are temporarily unavailable.");
@@ -9605,6 +9618,11 @@ function ChatsPage($$anchor, $$props) {
 				set(loadingList, false);
 				await tick();
 				maybeLoadMore();
+				listInFlight = false;
+				if (listRefreshPending) {
+					listRefreshPending = false;
+					loadList();
+				}
 			}
 		}
 	}

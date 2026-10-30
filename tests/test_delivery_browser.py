@@ -210,6 +210,47 @@ async def test_pin_failure_never_resends_accepted_once_job(
     assert driver.closed_contexts == ["fresh-tab"]
 
 
+@pytest.mark.asyncio
+async def test_slow_optional_pin_never_blocks_durable_acceptance(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pin_started = asyncio.Event()
+    release_pin = asyncio.Event()
+
+    class SlowPinDriver(FakeDriver):
+        async def pin_current_chat(self) -> None:
+            pin_started.set()
+            await release_pin.wait()
+
+    driver = SlowPinDriver()
+    sender = BrowserDeliverySender(tmp_path / "runtime.sqlite3", driver_factory=lambda: driver)
+    sender.results.ensure_queued("pinned-owned-send", "Pin verification")
+    acknowledged = threading.Event()
+    confirmed = threading.Event()
+
+    async def finish_capture(
+        _driver: object, _capture: object, send_id: str, owner: str, *, deadline: float,
+    ) -> None:
+        assert deadline > 0
+        assert sender.results.finish(send_id, owner, "interrupted")
+
+    monkeypatch.setattr(sender, "_capture_until_complete", finish_capture)
+    task = asyncio.create_task(sender._send_browser(
+        "Pin verification", send_id="pinned-owned-send", pin_chat=True,
+        accepted=acknowledged, confirmed=confirmed,
+    ))
+    try:
+        await asyncio.wait_for(pin_started.wait(), timeout=2.0)
+        # The pin is still blocked, but the send is already durably accepted.
+        assert acknowledged.is_set() and confirmed.is_set()
+        saved = sender.results.get("pinned-owned-send")
+        assert saved is not None and saved["status"] == "accepted"
+    finally:
+        release_pin.set()
+        await asyncio.wait_for(task, timeout=5.0)
+    assert driver.closed_contexts == ["fresh-tab"]
+
+
 def test_delivery_deadline_before_dispatch_is_retryable_and_closes_tab(tmp_path: Path) -> None:
     import asyncio
 

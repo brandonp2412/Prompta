@@ -117,6 +117,36 @@ class FakeHistoryDriver:
         self.closed = True
 
 
+def test_transient_ambiguous_dom_does_not_discard_same_tab_recovery(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store = ResponseStore(tmp_path / "chat-results.sqlite3")
+    _expired(store)
+
+    class HydratingDriver(FakeHistoryDriver):
+        def __init__(self) -> None:
+            super().__init__()
+            self.probes = 0
+
+        async def eval(self, expression: str) -> object:
+            self.probes += 1
+            if self.probes == 1:
+                return {"verified": False, "ambiguous": True}
+            return await super().eval(expression)
+
+    async def no_delay(_delay: float) -> None:
+        return None
+
+    monkeypatch.setattr(history_recovery.asyncio, "sleep", no_delay)
+    driver = HydratingDriver()
+    runtime = SchedulerRuntime(tmp_path / "runtime.sqlite3", tmp_path / "jobs.json")
+    assert HistoryRecovery(store, runtime, lambda: driver).recover_once(now=150)
+    assert driver.probes == 2 and driver.closed
+    assert driver.visited == ["connect", "https://chatgpt.com/c/" + CONVERSATION]
+    row = store.get("manual-1")
+    assert row is not None and row["status"] == "completed"
+
+
 def test_read_only_recovery_restores_exact_run_without_dispatch(tmp_path: Path) -> None:
     store = ResponseStore(tmp_path / "chat-results.sqlite3")
     _expired(store)

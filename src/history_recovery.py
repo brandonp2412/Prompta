@@ -131,11 +131,11 @@ class HistoryRecovery:
                     if payload.get("rate_limited") is True:
                         raise RateLimitError()
                     if payload.get("ambiguous") is True:
-                        logger.warning(
-                            "Historical response branch verification failed conversation=%s",
-                            conversation_id,
-                        )
-                        return None
+                        # Hydration and streaming can transiently render two
+                        # candidate nodes. Keep observing this same permitted
+                        # tab until the deadline, without navigating again.
+                        await asyncio.sleep(2.0)
+                        continue
                     if payload.get("verified") is True:
                         result = normalize_dom_snapshot(payload)
                         if result.conversation_id == conversation_id and (result.text or result.tool_calls):
