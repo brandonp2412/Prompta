@@ -12,7 +12,8 @@ TopicVersion = tuple[FileVersion, ...]
 def _version(path: Path) -> FileVersion:
     try:
         info = path.stat()
-    except FileNotFoundError:
+    except OSError:
+        # Observation is best-effort: the next readable snapshot will differ.
         return (0, 0, 0)
     return (info.st_ino, info.st_size, info.st_mtime_ns)
 

@@ -9,6 +9,7 @@ from prompta.rate_limit import (
     RateLimitBackoff,
     RateLimitError,
     captured_retry_after,
+    parse_retry_after,
     parse_retry_after_header,
 )
 from prompta.scheduler_runtime import SchedulerRuntime
@@ -75,6 +76,16 @@ def test_retry_after_header_seconds_dates_and_ms() -> None:
     assert captured_retry_after({"retry_after": "60", "retry_after_ms": "900000"}) == 900
     assert captured_retry_after({"retry_after_ms": "NaN"}) == 0
     assert captured_retry_after({}) == 0
+
+
+def test_rate_limit_text_parses_fractional_and_compound_delays() -> None:
+    assert parse_retry_after("Try again in 1.5 hours") == 5400
+    assert parse_retry_after("Try again in 0.5 seconds") == 1
+    assert parse_retry_after("Try again in 1 hour 30 minutes") == 5400
+    assert parse_retry_after("Try again in 1 hour and 30 minutes") == 5400
+    assert parse_retry_after("Try again in 1 hour, 30 minutes") == 5400
+    assert parse_retry_after("Wait a few minutes") == 300
+    assert parse_retry_after("Try again later") == 300
 
 
 def test_success_resets_only_an_expired_read_cooldown(tmp_path: Path) -> None:
