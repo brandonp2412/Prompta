@@ -48,5 +48,20 @@
     const allow = controls(dialog).find(el => visible(el) && label(el) === 'allow');
     if (checkbox && allow) return await approve(allow, checkbox);
   }
+  // One-time approvals are permitted only inside a recognizable permission group,
+  // and only when no visible persistent grant exists in that group.
+  for (const button of controls(document)) {
+    if (!visible(button) || !enabled(button) || label(button) !== 'allow once') continue;
+    for (let group = button.parentElement; group && group !== document.body; group = group.parentElement) {
+      if (group.matches('main, article, [data-message-author-role]')) break;
+      const peers = controls(group).filter(visible);
+      const permission = group.matches('[role="dialog"], [role="alertdialog"]') ||
+        peers.some(el => ['deny', 'decline'].includes(label(el)));
+      if (permission) {
+        if (peers.some(el => label(el) === 'always allow')) break;
+        return await approve(button);
+      }
+    }
+  }
   return false;
 })()

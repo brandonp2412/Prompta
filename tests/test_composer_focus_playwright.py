@@ -63,6 +63,15 @@ async def test_connector_permission_controls() -> None:
             assert await page.evaluate('window.clicked') is True
             await page.set_content('<section><button onclick="window.clicked=true;this.remove()">Always allow</button><button>Allow once</button></section>')
             assert await page.evaluate(script) is True
+            await page.set_content('<div role="dialog"><button onclick="window.once=true;this.remove()">Allow once</button><button>Deny</button></div>')
+            assert await page.evaluate(script) is True
+            assert await page.evaluate('window.once') is True
+            await page.set_content('<div role="dialog"><button onclick="window.once=false">Allow once</button><button>Always allow</button><button>Deny</button></div>')
+            assert await page.evaluate(script) == "stuck"
+            assert await page.evaluate('window.once') is True
+            await page.set_content('<button onclick="window.outside=true">Allow once</button>')
+            assert await page.evaluate(script) is False
+            assert await page.evaluate('window.outside === true') is False
             await page.set_content('<div role="dialog"><label><input type="checkbox">Always allow</label><button onclick="window.checked=document.querySelector(\'input\').checked;this.remove()">Allow</button></div>')
             assert await page.evaluate(script) is True
             assert await page.evaluate('window.checked') is True
