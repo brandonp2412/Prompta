@@ -261,6 +261,11 @@ class ManualReplyDispatcher:
         completed = False
         preflight_stage = "connect"
         try:
+            # Explicit replies bypass working hours, but must honour the same
+            # account resource block that gates the fresh-chat worker.
+            preflight_stage = "account_resource_admission"
+            if sender.runtime.account_state(strict=True).get("resource_blocked") is True:
+                return
             # Only retry establishing the authenticated browser. No reply has
             # been claimed, typed or submitted at this point.
             for attempt in range(2):
@@ -304,6 +309,9 @@ class ManualReplyDispatcher:
             if _normalise_composer_text(
                 str(before_send.get("composer_text") or "")
             ) != _normalise_composer_text(text) or before_send.get("send_in_progress"):
+                return
+            preflight_stage = "account_resource_admission"
+            if sender.runtime.account_state(strict=True).get("resource_blocked") is True:
                 return
             preflight_stage = "irreversible_claim"
             claimed = self.store.claim(

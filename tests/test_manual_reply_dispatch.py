@@ -12,6 +12,7 @@ import pytest
 from prompta import manual_reply_dispatch as dispatch
 from prompta.reply_contracts import ManualReplyStore, ReplyIntent
 from prompta.response_capture import CaptureResult
+from prompta.scheduler_runtime import SchedulerRuntime
 
 CONVERSATION = "c" * 32
 PARENT = "m" * 32
@@ -94,7 +95,8 @@ class FakeDriver:
 
 class FakeSender:
     def __init__(self, state_path: Path, *, debugger_address: str) -> None:
-        del state_path, debugger_address
+        del debugger_address
+        self.runtime = SchedulerRuntime(state_path, state_path)
         self.profile = Path("/tmp/not-used")
         self.chrome_path = ""
         self.debugger_address = ""
@@ -157,6 +159,29 @@ def test_explicit_reply_requires_exact_last_assistant_and_single_claim(
         assert fake.calls == 1
         saved = store.get(REPLY_ID)
         assert saved is not None and saved["status"] == "completed"
+
+
+def test_explicit_reply_respects_shared_resource_admission(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store, state = completed_store(tmp_path)
+    SchedulerRuntime(state, state).set_resource_admission(False, "synthetic pressure")
+    fake = FakeDriver()
+    monkeypatch.setattr(dispatch, "PlaywrightDriver", lambda **_kwargs: fake)
+    monkeypatch.setattr(dispatch, "BrowserDeliverySender", FakeSender)
+    service = dispatch.ManualReplyDispatcher(store, state)
+    intent = ReplyIntent(REPLY_ID, CONVERSATION, PARENT, "Synthetic explicit reply")
+
+    assert service.submit("send-1", intent)["status"] == "prepared"
+    until = time.monotonic() + 3.0
+    while time.monotonic() < until and REPLY_ID in service._active:
+        time.sleep(0.02)
+
+    turns = store.turns("send-1")
+    assert turns is not None
+    assert turns[-1]["status"] == "preflight_failed"
+    assert fake.calls == 0
+    assert fake.type_calls == 0
 
 
 def test_blank_rich_text_composer_newline_is_not_an_existing_draft(
