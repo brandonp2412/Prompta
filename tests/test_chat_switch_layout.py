@@ -90,3 +90,45 @@ def test_chat_switch_keeps_transcript_and_composer_shell_stable(
             assert remote_posts == []
         finally:
             browser.close()
+
+
+@pytest.mark.parametrize("width,height", [(1440, 900), (390, 844)])
+def test_slow_saved_turns_does_not_block_primary_chat(
+    tmp_path: Path, width: int, height: int,
+) -> None:
+    chromium = Path(os.environ.get("PROMPTA_TEST_CHROMIUM", "/usr/bin/chromium"))
+    if not chromium.is_file():
+        pytest.skip("Chromium unavailable")
+    with server(tmp_path) as (app, port), sync_playwright() as playwright:
+        completed_run(app, "fast-alpha", "Fast Alpha", 100)
+        completed_run(app, "fast-beta", "Fast Beta", 200)
+        browser = playwright.chromium.launch(
+            executable_path=str(chromium), headless=True, args=["--no-sandbox"],
+        )
+        try:
+            page = browser.new_page(viewport={"width": width, "height": height})
+            page.route("**/api/events", lambda route: route.abort())
+            page.goto(f"http://127.0.0.1:{port}/?view=chats&run=fast-alpha")
+            expect(page.locator(".chat-detail-content")).to_contain_text("Fast Alpha")
+            page.evaluate("""() => {
+                const original = window.fetch.bind(window);
+                window.fetch = (resource, options) => {
+                    if (String(resource).includes("/api/results/fast-beta/turns")) {
+                        return new Promise((resolve) =>
+                            setTimeout(() => resolve(original(resource, options)), 4000));
+                    }
+                    return original(resource, options);
+                };
+            }""")
+            if width <= 680:
+                page.get_by_role("button", name="Back to chats").click()
+            page.locator(".chats-list .chat-row").filter(has_text="Fast Beta").click()
+            expect(page.locator(".chat-detail-content")).to_contain_text(
+                "Fast Beta", timeout=2000,
+            )
+            expect(page.locator(".chat-switch-cover")).to_have_count(0, timeout=2000)
+            # The optional reply read still has seconds to go, but the
+            # confirmed primary response is already visible and usable.
+            expect(page.locator(".chat-composer-wrap")).to_be_visible()
+        finally:
+            browser.close()

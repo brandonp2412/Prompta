@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { reconcileResultPage } from "../src/ui/resultListRefresh";
+import { nextResultPageOffset, reconcileResultPage } from "../src/ui/resultListRefresh";
 import type { RunSummary } from "../src/ui/resultFormatting";
 
 function item(
@@ -56,4 +56,12 @@ test("a new first page updates rows without duplicates and respects the server t
   );
   expect(next.map((row) => row.send_id)).toEqual(["same", "newer"]);
   expect(next.find((row) => row.send_id === "same")?.status).toBe("completed");
+});
+
+test("stalled pagination halts automatic refetch until an explicit retry", () => {
+  expect(nextResultPageOffset(20, 0, 45)).toBeNull();
+  expect(nextResultPageOffset(20, 20, 45)).toBe(40);
+  expect(nextResultPageOffset(40, 10, 45)).toBe(45);
+  expect(nextResultPageOffset(45, 0, 45)).toBe(45);
+  expect(nextResultPageOffset(20, 0, 18)).toBe(18);
 });

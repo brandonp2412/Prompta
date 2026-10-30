@@ -3,7 +3,9 @@ from __future__ import annotations
 import concurrent.futures
 from pathlib import Path
 
+import pytest
 from sqlalchemy import inspect
+from sqlalchemy.exc import SQLAlchemyError
 
 from prompta.delivery_queue import DeliveryQueueStore
 
@@ -269,3 +271,32 @@ def test_lease_can_be_committed_until_but_not_at_expiry(tmp_path: Path) -> None:
     store.upsert(_queued_record())
     assert store.claim_next("worker-a", now=100.0, lease_seconds=10.0)
     assert store.complete_claim("send-1", "worker-a", now=109.999)
+
+
+@pytest.mark.parametrize("operation", ["cancel", "fail"])
+@pytest.mark.parametrize("failure", [OSError("results disk unavailable"), SQLAlchemyError("results database locked")])
+def test_terminal_receipt_survives_result_projection_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, operation: str, failure: Exception,
+) -> None:
+    queue = DeliveryQueueStore(tmp_path / "queue.sqlite3")
+    queue.upsert(_queued_record())
+    if operation == "fail":
+        record = queue.claim_next("owner", now=11.0, lease_seconds=30.0)
+        assert record is not None
+
+    def unavailable(_send_id: str) -> None:
+        raise failure
+
+    monkeypatch.setattr(queue.results, "unavailable", unavailable)
+    if operation == "cancel":
+        assert queue.cancel_pending("send-1", now=12.0)
+        status = "cancelled"
+    else:
+        assert queue.fail_claim(
+            "send-1", "owner", status="outcome_unknown", error="uncertain", now=12.0,
+        )
+        status = "outcome_unknown"
+
+    committed = queue.get("send-1")
+    assert committed is not None and committed["status"] == status
+    assert queue.claim_next("another", now=50.0, lease_seconds=30.0) is None

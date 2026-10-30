@@ -139,3 +139,20 @@ enabled = true
 ```
 
 Restart `prompta-delivery-worker` and `prompta-connector-approval-watch` after changing this setting. Delivery is acknowledged immediately; approval handling and passive response capture run independently. The live capture/reply watcher uses the same approval supervisor and checks its owned chat every 200 ms. The separate backup watcher stays alive across deliveries, inspects only unread indicators in the rendered ChatGPT sidebar, and opens those chats in background tabs to grant successive permission dialogs for at most 45 minutes per chat (checking each once per second). It also checks permission controls in already-open non-Prompta ChatGPT tabs, so another request is not missed after a conversation has been marked read; it does not navigate or close those tabs. It never reads conversation text, calls a history API, or sends messages. All background navigations and sidebar refreshes obey the same durable account-wide ChatGPT read-rate-limit backoff as historical recovery; observed HTTP 429s update that shared gate. A failed or unhydrated conversation is not considered an inspected approval, and can be retried after cooldown. Locally inspecting permission controls in an already-loaded tab does not make network read requests. Automatically granting **Always allow** authorizes the requested connector permissions; only enable this for an account where you intend that behaviour.
+
+## End-to-end delivery verification
+
+On the production host, an explicit canary can verify both the durable send
+receipt and the saved final answer from one **new** Prompta-owned ChatGPT chat:
+
+```bash
+.venv/bin/python scripts/run_chatgpt_e2e.py --verify-capture --timeout-seconds 240 --capture-timeout-seconds 360
+```
+
+The canary uses a unique request ID, may run outside scheduled working hours,
+and checks the exact final answer plus conversation/message identity from
+Prompta's local response store. It never reads account-wide history, submits a
+follow-up, prints private response contents, or automatically retries an
+ambiguous ChatGPT submission. Run it deliberately; it creates a real chat.
+Without `--verify-capture`, the command checks only the durable delivery
+receipt.

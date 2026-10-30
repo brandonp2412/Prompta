@@ -46,6 +46,17 @@ class DeliveryQueueStore:
     def connect(self) -> Connection:
         return self.engine.connect()
 
+    def _mark_result_unavailable(self, send_id: str) -> None:
+        # The queue and transcript are separate SQLite databases. A failed
+        # best-effort projection must not undo a terminal queue decision.
+        try:
+            self.results.unavailable(send_id)
+        except (OSError, SQLAlchemyError) as exc:
+            logger.warning(
+                "Delivery result reconciliation deferred send_id=%s error_type=%s",
+                send_id, type(exc).__name__,
+            )
+
     @staticmethod
     def record_from_row(row: Mapping[str, object]) -> dict[str, object]:
         return {
@@ -283,7 +294,7 @@ class DeliveryQueueStore:
             )
             cancelled = result.rowcount == 1
         if cancelled:
-            self.results.unavailable(send_id)
+            self._mark_result_unavailable(send_id)
         return cancelled
 
     def upsert(self, record: dict[str, object]) -> None:
@@ -391,13 +402,7 @@ class DeliveryQueueStore:
         # This is a second SQLite store; an unavailable result receipt must
         # never roll back a queue claim or cause the uncertain send to replay.
         for expired_id in expired_ids:
-            try:
-                self.results.unavailable(str(expired_id))
-            except (OSError, SQLAlchemyError) as exc:
-                logger.warning(
-                    "Expired delivery result reconciliation failed send_id=%s error_type=%s",
-                    expired_id, type(exc).__name__,
-                )
+            self._mark_result_unavailable(str(expired_id))
         return self.record_from_row(row) if row is not None else None
 
     def renew_lease(
@@ -527,5 +532,5 @@ class DeliveryQueueStore:
             )
             failed = result.rowcount == 1
         if failed:
-            self.results.unavailable(send_id)
+            self._mark_result_unavailable(send_id)
         return failed

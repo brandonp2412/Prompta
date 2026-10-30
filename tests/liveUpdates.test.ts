@@ -54,6 +54,7 @@ test("event-stream errors trigger fast repair while healthy streams retain a slo
     repair?.();
     expect([jobs, chats]).toEqual([2, 2]);
     emit("error");
+    emit("error"); // Duplicate browser disconnects must not issue extra GETs.
     repair?.();
     expect([jobs, chats]).toEqual([4, 4]);
     visibility = "hidden";

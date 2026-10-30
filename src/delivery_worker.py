@@ -150,7 +150,7 @@ def _retry(
     status: str = "retrying",
 ) -> None:
     attempt = max(0, _record_int(record, "retry_attempt")) + 1
-    queue.retry_claim(
+    retried = queue.retry_claim(
         str(record["send_id"]),
         owner,
         retry_at=time.time() + max(0.0, delay),
@@ -158,6 +158,12 @@ def _retry(
         error=error,
         status=status,
     )
+    if not retried:
+        logger.warning(
+            "Delivery retry receipt was not committed send_id=%s; "
+            "the lease may have expired and automatic replay remains disabled",
+            record["send_id"],
+        )
 
 
 def _scheduled_job_name(record: dict[str, object]) -> str:
@@ -292,13 +298,18 @@ def _deliver_one(
                 )
             return
         except SendOutcomeUnknownError as exc:
-            queue.results.unavailable(send_id)
-            queue.fail_claim(
+            quarantined = queue.fail_claim(
                 send_id,
                 owner,
                 status="outcome_unknown",
                 error=str(exc),
             )
+            if not quarantined:
+                logger.error(
+                    "Could not commit uncertain delivery receipt send_id=%s; "
+                    "lease expiry must quarantine the send",
+                    send_id,
+                )
             logger.error(
                 "Fresh-chat send outcome is unknown; automatic resend disabled send_id=%s stage=%s: %s",
                 send_id,

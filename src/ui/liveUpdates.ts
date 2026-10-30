@@ -48,9 +48,12 @@ function start() {
       refreshBoth();
     });
     source.addEventListener("error", () => {
+      const wasConnected = !streamDisconnected;
       streamDisconnected = true;
       repairTicks = 0;
-      refreshBoth();
+      // Repeated EventSource failures can fire while already offline.
+      // The 15s repair timer owns that state; do not bombard local GETs.
+      if (wasConnected) refreshBoth();
     });
     // An unconditional sync after each (re)connection covers missed events.
     source.addEventListener("sync", () => {

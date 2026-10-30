@@ -22,3 +22,14 @@ export function reconcileResultPage(
     )
     .slice(0, Math.max(0, total));
 }
+
+// A shrinking result set can leave an empty page below the advertised total.
+// Stop automatic scroll pagination instead of issuing the same GET indefinitely.
+export function nextResultPageOffset(
+  offset: number,
+  receivedCount: number,
+  total: number,
+): number | null {
+  if (receivedCount === 0 && offset < total) return null;
+  return Math.min(total, offset + receivedCount);
+}

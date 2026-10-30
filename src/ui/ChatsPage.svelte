@@ -6,7 +6,7 @@
   import ToolCalls from "./ToolCalls.svelte";
   import { subscribeLiveUpdates } from "./liveUpdates";
   import { recoverVisibleTurns } from "./turnRecovery";
-  import { reconcileResultPage } from "./resultListRefresh";
+  import { nextResultPageOffset, reconcileResultPage } from "./resultListRefresh";
   import { localGet, localReadTimeoutMs } from "./localRead";
   import { localPost } from "./localMutation";
   import {
@@ -452,9 +452,17 @@
       if (!response.ok) throw new Error("Results could not be loaded");
       const body: { items: RunSummary[]; total: number } = await response.json();
       if (generation !== listGeneration) return;
+      const next = nextResultPageOffset(offset, body.items.length, body.total);
+      if (next === null) {
+        // Avoid a request storm when concurrent deletions invalidate the offset.
+        // An explicit Retry can revisit this page after the list settles.
+        morePageFailed = true;
+        listError = "Older chats changed while loading. Retry this page to resync.";
+        return;
+      }
       items = mergeRuns(items, body.items);
       total = body.total;
-      nextOffset = offset + body.items.length;
+      nextOffset = next;
       morePageFailed = false;
       listError = "";
     } catch {
@@ -494,31 +502,40 @@
     loadingDetail = true;
     try {
       const path = "./api/results/" + encodeURIComponent(id);
-      const [response, replyResponse] = await Promise.all([
-        localGet(path),
-        // A dropped/aborted turns GET must not hide the confirmed main result.
-        localGet(path + "/turns").catch(() => null),
-      ]);
+      // Both reads start together, but the optional turns endpoint cannot
+      // hold the primary transcript behind the chat-switch loading cover.
+      const replyRequest = localGet(path + "/turns").then(async (replyResponse): Promise<LocalTurn[] | null> => {
+        if (!replyResponse.ok) return null;
+        const saved = await replyResponse.json() as { turns?: LocalTurn[] };
+        return Array.isArray(saved.turns) ? saved.turns : null;
+      }).catch((): null => null);
+      const response = await localGet(path);
       if (!response.ok) throw new Error("Result not found");
       const body: RunDetail = await response.json();
-      const saved = replyResponse?.ok
-        ? await replyResponse.json().catch(() => null) as { turns?: LocalTurn[] } | null
-        : null;
-      const savedTurns = Array.isArray(saved?.turns) ? saved.turns : null;
       if (generation !== detailGeneration || selectedRunId !== id) return;
       detail = body;
-      turns = recoverVisibleTurns(savedTurns, turns, {
+      const originalTurn: LocalTurn = {
         reply_id: "", user_text: body.user_text, assistant_text: body.assistant_text,
         tool_calls: body.tool_calls,
         status: body.status, created_at: body.created_at, updated_at: body.updated_at,
-      }, !newSelection);
-      turnsError = !savedTurns
-        ? "Saved replies are temporarily unavailable; showing the last confirmed turns."
-        : "";
+      };
+      turns = recoverVisibleTurns(null, turns, originalTurn, !newSelection);
+      turnsError = "";
       detailError = "";
+      loadingDetail = false;
       if (view === "chats" && selectedRunId === id) markRead(body);
       await tick();
       if (followTail && scrollPane && selectedRunId === id) scrollPane.scrollTop = scrollPane.scrollHeight;
+      const savedTurns = await replyRequest;
+      if (generation !== detailGeneration || selectedRunId !== id) return;
+      turns = recoverVisibleTurns(savedTurns, turns, originalTurn, true);
+      turnsError = !savedTurns
+        ? "Saved replies are temporarily unavailable; showing the last confirmed turns."
+        : "";
+      if (followTail) {
+        await tick();
+        if (scrollPane && selectedRunId === id) scrollPane.scrollTop = scrollPane.scrollHeight;
+      }
     } catch {
       if (generation === detailGeneration) detailError = "This run is unavailable locally.";
     } finally {
