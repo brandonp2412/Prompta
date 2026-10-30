@@ -312,7 +312,9 @@
       pinnedItems = body.items;
       pinnedIds = body.items.map((item) => item.send_id);
       pinsReady = true;
-      pinError = "";
+      // A successful read does not prove a failed pin mutation was saved.
+      // Keep that error visible until the user explicitly retries a change.
+      if (pinError !== "Could not save pinned chat.") pinError = "";
     } catch {
       if (generation === pinsGeneration) pinError = "Pinned chats are temporarily unavailable.";
     }

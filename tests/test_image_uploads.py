@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import json
+import os
 import shutil
 import threading
 from pathlib import Path
@@ -112,7 +113,7 @@ def test_web_image_upload_preview_and_job_submission(tmp_path: Path) -> None:
 
 
 def test_mobile_image_previews_do_not_hide_under_footer(tmp_path: Path) -> None:
-    chromium = shutil.which("chromium")
+    chromium = os.environ.get("PROMPTA_TEST_CHROMIUM") or shutil.which("chromium")
     if chromium is None:
         pytest.skip("Chromium is not installed")
 
