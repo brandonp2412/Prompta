@@ -23,7 +23,7 @@ from .rate_limit import (
     captured_retry_after,
     is_rate_limited_text,
 )
-from .response_capture import CaptureResult
+from .response_capture import CaptureResult, conversation_id_from_path
 from .response_store import ResponseStore
 from .scheduler_runtime import SchedulerRuntime
 from .send_outcome import SendOutcomeUnknownError
@@ -649,12 +649,13 @@ class BrowserDeliverySender:
         context = ""
         capture: dict[str, object] | None = None
         send_attempted = False
+        verified_observation: CaptureResult | None = None
         tab_opened_at = 0.0
         tab_deadline = 0.0
         capture_owner = f"{os.getpid()}:{threading.get_ident()}:{time.monotonic_ns()}"
 
         async def dispatch() -> None:
-            nonlocal context, capture, send_attempted, tab_opened_at, tab_deadline
+            nonlocal context, capture, send_attempted, tab_opened_at, tab_deadline, verified_observation
             try:
                 if not driver.is_connected:
                     await _timed_stage("cdp_connect", driver.connect(), timeout=45.0)
@@ -793,14 +794,10 @@ class BrowserDeliverySender:
                             "prompta send rate limited",
                             retry_after=captured_retry_after(capture or {}) or DEFAULT_RETRY_AFTER,
                         )
-                    if status >= 500:
-                        raise SendOutcomeUnknownError(
-                            f"prompta send returned HTTP {status} after dispatch",
-                            stage="send_response",
-                        )
-                    if status >= 400:
+                    # HTTP 5xx is ambiguous; observe only the original owned tab.
+                    if 400 <= status < 500:
                         raise SendNotAcceptedError(f"prompta send failed with HTTP {status}")
-                    if capture is not None and capture.get("fetch_error"):
+                    if status < 500 and capture is not None and capture.get("fetch_error"):
                         raise SendOutcomeUnknownError(
                             "prompta send transport failed after dispatch",
                             stage="send_transport",
@@ -859,12 +856,7 @@ class BrowserDeliverySender:
                                 "prompta send rate limited",
                                 retry_after=captured_retry_after(capture or {}) or DEFAULT_RETRY_AFTER,
                             ) from exc
-                        if status >= 500:
-                            raise SendOutcomeUnknownError(
-                                f"prompta send returned HTTP {status} after dispatch",
-                                stage="send_response",
-                            ) from exc
-                        if status >= 400:
+                        if 400 <= status < 500:
                             raise SendNotAcceptedError(
                                 f"prompta send failed with HTTP {status}"
                             ) from exc
@@ -891,13 +883,36 @@ class BrowserDeliverySender:
                         last_path = path
 
                     rate_limit_text = str(state.get("rate_limit_text") or "")
-                    if is_rate_limited_text(rate_limit_text):
+                    if status < 500 and is_rate_limited_text(rate_limit_text):
                         raise RateLimitError.from_text(rate_limit_text)
 
                     route_confirmed = _is_conversation_path(path) and path != baseline_path
                     composer_now = _normalise_composer_text(str(state.get("composer_text") or ""))
+                    if status >= 500 and capture is not None:
+                        # An original-tab assistant mutation and exact route are
+                        # positive evidence; a route or Stop button alone is not.
+                        try:
+                            observation = await driver.wait_capture_update(
+                                timeout=min(1.0, max(0.01, deadline - asyncio.get_running_loop().time()))
+                            )
+                        except Exception as exc:
+                            logger.info(
+                                "Owned acceptance observation unavailable error_type=%s",
+                                type(exc).__name__,
+                            )
+                            observation = None
+                        if (
+                            observation is not None and observation.source == "dom"
+                            and observation.status in ("partial", "complete")
+                            and observation.text and observation.observer_id and observation.message_id
+                            and observation.conversation_id == conversation_id_from_path(path)
+                            and not capture.get("ambiguous_request")
+                        ):
+                            verified_observation = observation
+                            return
                     generation_confirmed = (
-                        not baseline_send_in_progress
+                        status < 500
+                        and not baseline_send_in_progress
                         and bool(state.get("send_in_progress"))
                         and not composer_now
                     )
@@ -984,16 +999,26 @@ class BrowserDeliverySender:
                 if isinstance(driver, VerifiedActivityDriver) and driver.record_verified_activity():
                     tab_opened_at = time.time()
                     tab_deadline = asyncio.get_running_loop().time() + MAX_OWNED_TAB_AGE_SECONDS
-                lease_ok = False
+                receipt_ok = False
                 try:
-                    lease_ok = self.results.accept(
-                        send_id,
-                        capture_owner,
-                        deadline=tab_opened_at + MAX_OWNED_TAB_AGE_SECONDS,
-                    )
+                    if verified_observation is not None:
+                        receipt_ok = self.results.accept_observed(
+                            send_id, capture_owner, verified_observation,
+                            deadline=tab_opened_at + MAX_OWNED_TAB_AGE_SECONDS,
+                        )
+                    else:
+                        receipt_ok = self.results.accept(
+                            send_id, capture_owner,
+                            deadline=tab_opened_at + MAX_OWNED_TAB_AGE_SECONDS,
+                        )
                 except Exception as exc:
                     logger.warning("Passive capture lease failed error_type=%s", type(exc).__name__)
-                if lease_ok:
+                if verified_observation is not None and not receipt_ok:
+                    raise SendOutcomeUnknownError(
+                        "Accepted owned-tab evidence could not be persisted",
+                        stage="receipt_persistence",
+                    )
+                if receipt_ok:
                     try:
                         path = await _timed_stage(
                             "capture_conversation_route",
@@ -1019,11 +1044,13 @@ class BrowserDeliverySender:
                 if pin_chat:
                     await self._pin_accepted_chat(driver)
                 try:
-                    if lease_ok and capture is not None:
+                    if receipt_ok and capture is not None and (
+                        verified_observation is None or verified_observation.status != "complete"
+                    ):
                         await self._capture_until_complete(
                             driver, capture, send_id, capture_owner, deadline=tab_deadline
                         )
-                    else:
+                    elif not receipt_ok:
                         self.results.unavailable(send_id)
                 except Exception as exc:
                     logger.warning("Passive capture stopped error_type=%s", type(exc).__name__)

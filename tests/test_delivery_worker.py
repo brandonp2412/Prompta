@@ -340,7 +340,7 @@ def test_worker_quarantines_expired_send_during_resource_pause(
     receipt = queue.get("expired-running")
     result = queue.results.get("expired-running")
     assert receipt is not None and receipt["status"] == "outcome_unknown"
-    assert result is not None and result["status"] == "unavailable"
+    assert result is not None and result["status"] == "outcome_unknown"
     assert queue.claim_next("new-owner", now=epoch_time.time(), lease_seconds=30.0) is None
 
 

@@ -64,6 +64,7 @@ export function createChatsPageController(initialProps: Props) {
     { value: "completed", label: "Completed" },
     { value: "interrupted", label: "Interrupted" },
     { value: "unavailable", label: "Unavailable" },
+    { value: "outcome_unknown", label: "Send unverified" },
     { value: "queued", label: "Queued" },
   ];
 
@@ -953,7 +954,7 @@ export function createChatsPageController(initialProps: Props) {
     return prefix + result + context + suffix;
   }
 
-  async function retryFailedInitialInNewChat(): Promise<void> {
+  async function continueUnverifiedInNewChat(): Promise<void> {
     const sendId = selectedRunId.value;
     const original = turns.value[0];
     if (
@@ -969,14 +970,39 @@ export function createChatsPageController(initialProps: Props) {
       return;
     startingNewChatFromFailure.value = true;
     try {
-      // Only this explicit button can create a new request for the same text.
-      // A stable source-scoped fingerprint still reconciles a lost queue receipt.
+      // A stale tab must recheck the durable local receipt before creating
+      // a separate request. This performs no ChatGPT navigation or send.
+      const response = await localGet("./api/results/" + encodeURIComponent(sendId));
+      if (!response.ok) {
+        if (selectedRunId.value === sendId)
+          turnsError.value = "Original delivery status could not be checked. Nothing was sent.";
+        return;
+      }
+      const latest = (await response.json()) as RunDetail;
+      if (
+        latest.accepted_at > 0 ||
+        latest.conversation_id ||
+        latest.assistant_text.trim() ||
+        !["interrupted", "unavailable", "outcome_unknown"].includes(latest.status)
+      ) {
+        if (selectedRunId.value === sendId) {
+          turnsError.value =
+            "The original send has new acceptance evidence. Review it before continuing.";
+          await loadDetail(sendId);
+        }
+        return;
+      }
       const result = await sendFresh(
-        original.user_text,
+        freshContinuationPrompt(
+          "Continue this task in a separate conversation. The prior send may already have been accepted; avoid duplicating completed work.",
+        ),
         originalImageRefs(),
-        "explicit-retry:" + sendId,
+        "explicit-continue:" + sendId,
       );
       if (!result.ok && selectedRunId.value === sendId) turnsError.value = result.message;
+    } catch {
+      if (selectedRunId.value === sendId)
+        turnsError.value = "Original delivery status could not be checked. Nothing was sent.";
     } finally {
       startingNewChatFromFailure.value = false;
     }
@@ -1508,7 +1534,7 @@ export function createChatsPageController(initialProps: Props) {
     sendFresh,
     freshContinuationPrompt,
     startFailedReplyInNewChat,
-    retryFailedInitialInNewChat,
+    continueUnverifiedInNewChat,
     originalImageRefs,
     sendReply,
     retryFailedTurn,

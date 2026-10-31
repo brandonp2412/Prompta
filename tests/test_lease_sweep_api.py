@@ -34,7 +34,7 @@ def test_expired_delivery_appears_terminal_in_live_api_without_replay(tmp_path: 
 
         status, detail, _ = get(port, "/api/results/lost-receipt")
         assert status == 200
-        assert detail["status"] == "unavailable"
+        assert detail["status"] == "outcome_unknown"
         assert app.queue.claim_next("another-worker", now=111.0, lease_seconds=30.0) is None
 
         # Health stays payload-free even while the UI can show the local receipt.

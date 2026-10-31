@@ -98,7 +98,7 @@ class DeliveryQueueStore:
         if not uncertain_ids:
             return 0
         try:
-            with self.results.engine.connect() as connection:
+            with self.results.engine.begin() as connection:
                 confirmed_ids = connection.execute(
                     select(response_records.c.send_id).where(
                         response_records.c.send_id.in_(uncertain_ids),
@@ -108,6 +108,14 @@ class DeliveryQueueStore:
                         )),
                     )
                 ).scalars().all()
+                # Older ambiguous receipts appeared as unavailable in Chats.
+                # Project their local status only when no acceptance was saved.
+                connection.execute(update(response_records).where(
+                    response_records.c.send_id.in_(uncertain_ids),
+                    response_records.c.status.in_(("queued", "unavailable")),
+                    response_records.c.accepted_at == 0,
+                    response_records.c.conversation_id == "",
+                ).values(status="outcome_unknown", updated_at=at, finished_at=at))
         except (OSError, SQLAlchemyError) as exc:
             logger.warning(
                 "Accepted delivery reconciliation deferred error_type=%s",
@@ -617,5 +625,14 @@ class DeliveryQueueStore:
             )
             failed = result.rowcount == 1
         if failed:
-            self._mark_result_unavailable(send_id)
+            if status == "outcome_unknown":
+                try:
+                    self.results.uncertain(send_id)
+                except (OSError, SQLAlchemyError) as exc:
+                    logger.warning(
+                        "Uncertain result projection deferred send_id=%s error_type=%s",
+                        send_id, type(exc).__name__,
+                    )
+            else:
+                self._mark_result_unavailable(send_id)
         return failed

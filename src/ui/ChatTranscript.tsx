@@ -41,7 +41,7 @@ export default function ChatTranscript({
     switchingChat,
     loadDetail,
     startFailedReplyInNewChat,
-    retryFailedInitialInNewChat,
+    continueUnverifiedInNewChat,
     retryFailedTurn,
     copyText,
     togglePrompt,
@@ -305,13 +305,14 @@ export default function ChatTranscript({
                             type="button"
                             disabled={startingNewChat.value}
                             aria-busy={startingNewChat.value}
-                            onClick={() => void retryFailedInitialInNewChat()}
+                            onClick={() => void continueUnverifiedInNewChat()}
                           >
-                            Retry original prompt in new chat
+                            Continue in new chat
                           </button>
                           <span>
-                            The first send may have reached ChatGPT. Retrying explicitly creates a
-                            separate chat and could duplicate it.
+                            The original send is unverified. Nothing will be resent automatically.
+                            Continuing creates a separate request with saved context and
+                            attachments.
                           </span>
                         </div>
                       )}

@@ -4,7 +4,8 @@ export type ResultStatus =
   | "generating"
   | "completed"
   | "interrupted"
-  | "unavailable";
+  | "unavailable"
+  | "outcome_unknown";
 
 export type ChatListStatus = ResultStatus | "needs_attention" | "";
 
@@ -88,7 +89,7 @@ export function responseBadge(status: LocalTurn["status"]): string {
     case "unavailable":
       return "Unavailable";
     case "outcome_unknown":
-      return "Uncertain";
+      return "Send unverified";
     case "preflight_failed":
       return "Not sent";
     case "dispatching":
@@ -132,7 +133,7 @@ export function turnStatus(status: LocalTurn["status"]): string {
     case "dispatching":
       return "Sending…";
     case "outcome_unknown":
-      return "Send outcome unknown · no automatic retry";
+      return "ChatGPT may have received this request. Acceptance remains unverified; no automatic resend.";
     case "accepted":
       return "Awaiting captured response";
     case "generating":
@@ -183,6 +184,8 @@ export function statusLabel(status: ResultStatus): string {
       return "Interrupted";
     case "unavailable":
       return "Unavailable";
+    case "outcome_unknown":
+      return "Send unverified";
   }
 }
 

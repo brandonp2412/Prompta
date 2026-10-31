@@ -125,10 +125,53 @@ class ResponseStore:
             changed = connection.execute(
                 update(results).where(
                     results.c.send_id == send_id,
-                    results.c.status.in_(("queued", "unavailable")),
+                    results.c.status.in_(("queued", "unavailable", "outcome_unknown")),
                 ).values(status="accepted", accepted_at=at, updated_at=at,
                          capture_owner=owner, capture_deadline=deadline)
             )
+        return changed.rowcount == 1
+
+    def accept_observed(
+        self, send_id: str, owner: str, capture: CaptureResult, *,
+        deadline: float, now: float | None = None,
+    ) -> bool:
+        """Atomically persist original-tab acceptance and exact branch evidence."""
+        at = time.time() if now is None else now
+        if (
+            deadline <= at or capture.source != "dom"
+            or capture.status not in ("partial", "complete")
+            or not capture.text or not capture.observer_id
+            or not capture.conversation_id or not capture.message_id
+            or conversation_id_from_path("/c/" + capture.conversation_id) != capture.conversation_id
+        ):
+            return False
+        try:
+            message_id = str(UUID(capture.message_id))
+        except ValueError:
+            return False
+        if message_id != capture.message_id:
+            return False
+        complete = capture.status == "complete"
+        with self.engine.begin() as connection:
+            changed = connection.execute(update(results).where(
+                results.c.send_id == send_id,
+                results.c.status.in_(("queued", "unavailable", "outcome_unknown")),
+                results.c.accepted_at == 0,
+                results.c.conversation_id == "",
+                results.c.message_id == "",
+            ).values(
+                status="completed" if complete else "generating",
+                source="dom",
+                assistant_text=capture.text[:_MAX_TEXT],
+                tool_calls_json=merge_tool_calls("[]", capture.tool_calls),
+                conversation_id=capture.conversation_id,
+                message_id=message_id,
+                parent_id=capture.parent_id or "",
+                accepted_at=at, updated_at=at,
+                finished_at=at if complete else 0,
+                capture_owner="" if complete else owner,
+                capture_deadline=deadline,
+            ))
         return changed.rowcount == 1
 
     def mark_generating(
@@ -296,6 +339,16 @@ class ResponseStore:
             connection.execute(update(results).where(
                 results.c.send_id == send_id, results.c.status == "queued"
             ).values(status="unavailable", updated_at=at, finished_at=at))
+
+    def uncertain(self, send_id: str, *, now: float | None = None) -> None:
+        at = time.time() if now is None else now
+        with self.engine.begin() as connection:
+            connection.execute(update(results).where(
+                results.c.send_id == send_id,
+                results.c.status.in_(("queued", "unavailable")),
+                results.c.accepted_at == 0,
+                results.c.conversation_id == "",
+            ).values(status="outcome_unknown", updated_at=at, finished_at=at))
 
     def recover_orphans(self, *, now: float | None = None) -> int:
         at = time.time() if now is None else now
@@ -709,7 +762,7 @@ class ResponseStore:
         """List only locally persisted Prompta runs; never touch browser state."""
         if status and status not in (
             "queued", "accepted", "generating", "completed", "interrupted", "unavailable",
-            "needs_attention",
+            "outcome_unknown", "needs_attention",
         ):
             raise ValueError("Invalid result status")
         if len(query) > 200 or not 1 <= limit <= 50 or not 0 <= offset <= 100_000:

@@ -12808,6 +12808,10 @@ function createChatsPageController(initialProps) {
 			label: "Unavailable"
 		},
 		{
+			value: "outcome_unknown",
+			label: "Send unverified"
+		},
+		{
 			value: "queued",
 			label: "Queued"
 		}
@@ -13451,7 +13455,7 @@ function createChatsPageController(initialProps) {
 		const context = transcript && contextBudget > 0 ? contextHeader + transcript.slice(-contextBudget) : "";
 		return prefix + result + context + suffix;
 	}
-	async function retryFailedInitialInNewChat() {
+	async function continueUnverifiedInNewChat() {
 		const sendId = selectedRunId.value;
 		const original = turns.value[0];
 		if (startingNewChatFromFailure.value || !sendId || detail.value?.send_id !== sendId || !original || ![
@@ -13461,8 +13465,27 @@ function createChatsPageController(initialProps) {
 		].includes(original.status) || Boolean(detail.value.conversation_id || original.conversation_id) || Boolean(original.assistant_text.trim()) || !original.user_text.trim()) return;
 		startingNewChatFromFailure.value = true;
 		try {
-			const result = await sendFresh(original.user_text, originalImageRefs(), "explicit-retry:" + sendId);
+			const response = await localGet("./api/results/" + encodeURIComponent(sendId));
+			if (!response.ok) {
+				if (selectedRunId.value === sendId) turnsError.value = "Original delivery status could not be checked. Nothing was sent.";
+				return;
+			}
+			const latest = await response.json();
+			if (latest.accepted_at > 0 || latest.conversation_id || latest.assistant_text.trim() || ![
+				"interrupted",
+				"unavailable",
+				"outcome_unknown"
+			].includes(latest.status)) {
+				if (selectedRunId.value === sendId) {
+					turnsError.value = "The original send has new acceptance evidence. Review it before continuing.";
+					await loadDetail(sendId);
+				}
+				return;
+			}
+			const result = await sendFresh(freshContinuationPrompt("Continue this task in a separate conversation. The prior send may already have been accepted; avoid duplicating completed work."), originalImageRefs(), "explicit-continue:" + sendId);
 			if (!result.ok && selectedRunId.value === sendId) turnsError.value = result.message;
+		} catch {
+			if (selectedRunId.value === sendId) turnsError.value = "Original delivery status could not be checked. Nothing was sent.";
 		} finally {
 			startingNewChatFromFailure.value = false;
 		}
@@ -13902,7 +13925,7 @@ function createChatsPageController(initialProps) {
 		sendFresh,
 		freshContinuationPrompt,
 		startFailedReplyInNewChat,
-		retryFailedInitialInNewChat,
+		continueUnverifiedInNewChat,
 		originalImageRefs,
 		sendReply,
 		retryFailedTurn,
@@ -16090,7 +16113,7 @@ function responseBadge(status) {
 		case "generating": return "Live";
 		case "interrupted": return "Interrupted";
 		case "unavailable": return "Unavailable";
-		case "outcome_unknown": return "Uncertain";
+		case "outcome_unknown": return "Send unverified";
 		case "preflight_failed": return "Not sent";
 		case "dispatching": return "Sending";
 		case "accepted": return "Waiting";
@@ -16115,7 +16138,7 @@ function turnStatus(status) {
 		case "prepared": return "Pending";
 		case "preflight_failed": return "Not sent · preflight check failed. Tap Send to retry.";
 		case "dispatching": return "Sending…";
-		case "outcome_unknown": return "Send outcome unknown · no automatic retry";
+		case "outcome_unknown": return "ChatGPT may have received this request. Acceptance remains unverified; no automatic resend.";
 		case "accepted": return "Awaiting captured response";
 		case "generating": return "Response is generating";
 		case "interrupted": return "Response capture interrupted";
@@ -16141,6 +16164,7 @@ function statusLabel(status) {
 		case "completed": return "Completed";
 		case "interrupted": return "Interrupted";
 		case "unavailable": return "Unavailable";
+		case "outcome_unknown": return "Send unverified";
 	}
 }
 function safeHref(href) {
@@ -18441,7 +18465,7 @@ function ToolCalls({ calls }) {
 //#region src/ui/ChatTranscript.tsx
 function ChatTranscript({ model, refs }) {
 	N$1();
-	const { selectedRunId, recoveryPauseSeconds: pauseSeconds, recoveryPauseReason: pauseReason, recoveryBacklog: recoveryQueue, recoveryUnverified: unverifiedCaptures, recoveryReplyBacklog: replyQueue, expandedPrompts, detail, turns, turnsError, startingNewChatFromFailure: startingNewChat, detailError, switchingChat, loadDetail, startFailedReplyInNewChat, retryFailedInitialInNewChat, retryFailedTurn, copyText, togglePrompt, copyState } = model;
+	const { selectedRunId, recoveryPauseSeconds: pauseSeconds, recoveryPauseReason: pauseReason, recoveryBacklog: recoveryQueue, recoveryUnverified: unverifiedCaptures, recoveryReplyBacklog: replyQueue, expandedPrompts, detail, turns, turnsError, startingNewChatFromFailure: startingNewChat, detailError, switchingChat, loadDetail, startFailedReplyInNewChat, continueUnverifiedInNewChat, retryFailedTurn, copyText, togglePrompt, copyState } = model;
 	function copyLabel(id) {
 		if (copyState.value === id) return "Copied";
 		if (copyState.value === "error:" + id) return "Copy failed";
@@ -18592,9 +18616,9 @@ function ChatTranscript({ model, refs }) {
 								type: "button",
 								disabled: startingNewChat.value,
 								"aria-busy": startingNewChat.value,
-								onClick: () => void retryFailedInitialInNewChat(),
-								children: "Retry original prompt in new chat"
-							}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "The first send may have reached ChatGPT. Retrying explicitly creates a separate chat and could duplicate it." })]
+								onClick: () => void continueUnverifiedInNewChat(),
+								children: "Continue in new chat"
+							}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "The original send is unverified. Nothing will be resent automatically. Continuing creates a separate request with saved context and attachments." })]
 						}),
 						index === 0 && ["interrupted", "unavailable"].includes(turn.status) && detail.value?.recovery?.eligible === false && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 							className: "chat-recovery-guidance",

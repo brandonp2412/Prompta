@@ -39,7 +39,7 @@ results = Table(
 Index("job_responses_active", results.c.status, results.c.capture_deadline)
 _reply_attention = table("manual_reply_turns", column("send_id"), column("status"))
 _attention_filter = or_(
-    results.c.status.in_(("interrupted", "unavailable")),
+    results.c.status.in_(("interrupted", "unavailable", "outcome_unknown")),
     select(_reply_attention.c.send_id)
     .where(
         _reply_attention.c.send_id == results.c.send_id,
