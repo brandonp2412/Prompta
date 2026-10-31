@@ -237,7 +237,7 @@ def test_mobile_ux_inventory_atlas(tmp_path: Path, width: int, height: int) -> N
                     page.set_viewport_size({"width": width, "height": height})
                 expect(page.locator(".chat-detail-toolbar")).to_have_count(0)
                 if width <= 680:
-                    page.get_by_role("button", name="Back to chats").click()
+                    page.get_by_role("button", name="Open chat sidebar").click()
                 else:
                     expect(page.locator(".chat-header-back")).to_be_hidden()
                 page.locator(".chat-row").filter(has_text="Synthetic long prompt").click()

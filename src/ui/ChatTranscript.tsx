@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useLayoutEffect } from "react";
 import { useSignals } from "@preact/signals-react/runtime";
 import type { createChatsPageController } from "./ChatsPageController";
 import ResultMarkdown from "./ResultMarkdown";
@@ -46,6 +46,10 @@ export default function ChatTranscript({
     togglePrompt,
     copyState,
   } = model;
+
+  useLayoutEffect(() => {
+    model.revealSelectedChat();
+  }, [model, detail.value, turns.value]);
 
   function copyLabel(id: string) {
     if (copyState.value === id) return "Copied";

@@ -39,7 +39,7 @@ def test_touch_swipes_open_and_close_sidebar_without_network_mutation(tmp_path: 
                 else None,
             )
             page.goto(f"http://127.0.0.1:{port}/?view=chats&run=swipe-alpha")
-            expect(page.get_by_role("button", name="Back to chats")).to_be_visible()
+            expect(page.get_by_role("button", name="Open chat sidebar")).to_be_visible()
             page.wait_for_timeout(100)
             expect(page.locator(".chats-layout.drawer-open")).to_have_count(0)
             cdp = page.context.new_cdp_session(page)

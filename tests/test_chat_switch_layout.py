@@ -70,7 +70,7 @@ def test_chat_switch_keeps_transcript_and_composer_shell_stable(
                 };
             }""", isolated_context=False)
             if width <= 680:
-                page.get_by_role("button", name="Back to chats").click()
+                page.get_by_role("button", name="Open chat sidebar").click()
             page.locator(".chats-list .chat-row").filter(has_text="CLS Beta").click()
             expect(page.locator(".workspace-header strong")).to_contain_text("CLS Beta")
             expect(page.locator(".chat-switch-cover")).to_be_visible()
@@ -129,7 +129,7 @@ def test_slow_saved_turns_does_not_block_primary_chat(
                 };
             }""", isolated_context=False)
             if width <= 680:
-                page.get_by_role("button", name="Back to chats").click()
+                page.get_by_role("button", name="Open chat sidebar").click()
             page.locator(".chats-list .chat-row").filter(has_text="Fast Beta").click()
             expect(page.locator(".chat-detail-content")).to_contain_text(
                 "Fast Beta", timeout=2000,
@@ -207,7 +207,7 @@ def test_fast_saved_replies_reveal_with_final_scroll_position(
                 observer.observe(document.body, { childList: true, subtree: true });
             }""", isolated_context=False)
             if width <= 680:
-                page.get_by_role("button", name="Back to chats").click()
+                page.get_by_role("button", name="Open chat sidebar").click()
             page.locator(".chats-list .chat-row").filter(has_text="Reveal Beta").click()
             expect(page.locator(".chat-switch-cover")).to_have_count(0, timeout=10000)
             page.wait_for_function("window.__revealGeometry !== null")
@@ -215,5 +215,52 @@ def test_fast_saved_replies_reveal_with_final_scroll_position(
             assert revealed["assistantCount"] == 2, revealed
             assert abs(revealed["distanceFromBottom"]) <= 2, revealed
             assert page.locator(".assistant-group").count() == 2
+        finally:
+            browser.close()
+
+
+@pytest.mark.parametrize("width,height", [(1440, 900), (390, 844)])
+def test_chat_links_and_share_use_the_selected_chat_url(
+    tmp_path: Path, width: int, height: int,
+) -> None:
+    chromium = Path(os.environ.get("PROMPTA_TEST_CHROMIUM", "/usr/bin/chromium"))
+    if not chromium.is_file():
+        pytest.skip("Chromium unavailable")
+    with server(tmp_path) as (app, port), sync_patchright() as patchright:
+        completed_run(app, "share-alpha", "Share Alpha", 100)
+        completed_run(app, "share-beta", "Share Beta", 200)
+        browser = patchright.chromium.launch(
+            executable_path=str(chromium), headless=True, args=["--no-sandbox"],
+        )
+        try:
+            page = browser.new_page(viewport={"width": width, "height": height})
+            page.route("**/api/events", lambda route: route.abort())
+            page.goto(f"http://127.0.0.1:{port}/?view=chats&run=share-alpha")
+            expect(page.locator(".chat-detail-content")).to_contain_text("Share Alpha")
+            page.evaluate("""() => {
+                window.__copied = [];
+                Object.defineProperty(navigator, "clipboard", { value: {
+                    writeText: async text => { window.__copied.push(text); }
+                }});
+            }""", isolated_context=False)
+            page.get_by_role("button", name="Share chat", exact=True).click()
+            expect(page.locator(".share-toast")).to_have_count(1 if width > 680 else 0)
+            assert page.evaluate("window.__copied", isolated_context=False) == [
+                f"http://127.0.0.1:{port}/?view=chats&run=share-alpha"
+            ]
+            if width <= 680:
+                page.get_by_role("button", name="Open chat sidebar").click()
+            link = page.get_by_role("link").filter(has_text="Share Beta")
+            expect(link).to_have_attribute(
+                "href", f"http://127.0.0.1:{port}/?view=chats&run=share-beta",
+            )
+            with page.context.expect_page() as popup_info:
+                link.click(button="middle")
+            popup = popup_info.value
+            popup.wait_for_url("**run=share-beta")
+            popup.close()
+            assert "run=share-alpha" in page.url
+            link.click()
+            expect(page.locator(".workspace-header strong")).to_have_text("Share Beta")
         finally:
             browser.close()

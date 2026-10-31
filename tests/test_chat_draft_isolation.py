@@ -133,7 +133,7 @@ def test_chat_drafts_are_scoped_during_spa_navigation_and_reload(
 
             def select(title: str, send_id: str) -> None:
                 if width <= 680:
-                    back = page.get_by_role("button", name="Back to chats")
+                    back = page.get_by_role("button", name="Open chat sidebar")
                     if back.count():
                         back.click()
                     else:
@@ -154,7 +154,7 @@ def test_chat_drafts_are_scoped_during_spa_navigation_and_reload(
 
             # The fresh-chat draft has a separate namespace from either reply.
             if width <= 680:
-                page.get_by_role("button", name="Back to chats").click()
+                page.get_by_role("button", name="Open chat sidebar").click()
             page.locator(".chats-sidebar .sidebar-primary").click()
             page.wait_for_url("**/?view=chats&draft=new")
             fresh = page.get_by_role("textbox", name="Message for new chat")
@@ -167,7 +167,7 @@ def test_chat_drafts_are_scoped_during_spa_navigation_and_reload(
             page.reload()
             expect(reply).to_have_value("Locally edited Alpha only")
             if width <= 680:
-                page.get_by_role("button", name="Back to chats").click()
+                page.get_by_role("button", name="Open chat sidebar").click()
             page.locator(".chats-sidebar .sidebar-primary").click()
             expect(fresh).to_have_value("Unsent fresh only")
             # Local read receipts are allowed; navigation must never send a reply.

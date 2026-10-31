@@ -1,3 +1,4 @@
+import { chatUrl } from "./chatUrl";
 import { useSignals } from "@preact/signals-react/runtime";
 import type { createChatsPageController } from "./ChatsPageController";
 import { plainPreview, statusLabel, type RunSummary } from "./resultFormatting";
@@ -24,9 +25,20 @@ export default function ChatRow({ item, model }: Props) {
         .filter(Boolean)
         .join(" ")}
     >
-      <button
-        type="button"
-        onClick={() => model.selectRun(item)}
+      <a
+        href={chatUrl(item.send_id)}
+        onClick={(event) => {
+          if (
+            event.button !== 0 ||
+            event.metaKey ||
+            event.ctrlKey ||
+            event.shiftKey ||
+            event.altKey
+          )
+            return;
+          event.preventDefault();
+          model.selectRun(item);
+        }}
         aria-current={selected ? "true" : undefined}
         className="chat-row"
       >
@@ -52,7 +64,7 @@ export default function ChatRow({ item, model }: Props) {
         ) : (
           <span className="chat-row-meta">{rowStatus}</span>
         )}
-      </button>
+      </a>
       <button
         type="button"
         disabled={!model.pinsReady.value}

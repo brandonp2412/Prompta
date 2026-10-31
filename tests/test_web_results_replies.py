@@ -208,7 +208,7 @@ def test_unread_badges_follow_completed_answers_not_metadata(tmp_path: Path) -> 
                 answered.locator(".chat-row").click()
                 expect(answered.locator(".unread-indicator")).to_have_count(0)
                 pending.locator(".chat-row").click()
-                page.reload(wait_until="networkidle")
+                page.reload(wait_until="domcontentloaded")
                 expect(answered.locator(".unread-indicator")).to_have_count(0)
                 with app.results.engine.begin() as connection:
                     connection.execute(
@@ -218,7 +218,7 @@ def test_unread_badges_follow_completed_answers_not_metadata(tmp_path: Path) -> 
                         )
                         .values(updated_at=800)
                     )
-                page.reload(wait_until="networkidle")
+                page.reload(wait_until="domcontentloaded")
                 expect(answered.locator(".unread-indicator")).to_have_count(0)
 
                 # The live test server performs orphan recovery during reloads.
@@ -226,7 +226,7 @@ def test_unread_badges_follow_completed_answers_not_metadata(tmp_path: Path) -> 
                 owner = f"{os.getpid()}:manual"
                 intent = ReplyIntent("reply-12345678901234", "c1", "m1", "Follow up")
                 assert app.replies.prepare("answered", intent, now=600)
-                page.reload(wait_until="networkidle")
+                page.reload(wait_until="domcontentloaded")
                 expect(answered.locator(".unread-indicator")).to_have_count(0)
                 assert app.replies.claim(
                     intent.reply_id, owner, deadline=time.time() + 3600, now=601
@@ -252,7 +252,7 @@ def test_unread_badges_follow_completed_answers_not_metadata(tmp_path: Path) -> 
                     ),
                     now=603,
                 )
-                page.reload(wait_until="networkidle")
+                page.reload(wait_until="domcontentloaded")
                 expect(answered.locator(".unread-indicator")).to_have_count(0)
                 assert app.replies.observe(
                     intent.reply_id,
@@ -267,7 +267,7 @@ def test_unread_badges_follow_completed_answers_not_metadata(tmp_path: Path) -> 
                     ),
                     now=604,
                 )
-                page.reload(wait_until="networkidle")
+                page.reload(wait_until="domcontentloaded")
                 expect(answered.locator(".unread-indicator")).to_have_count(1)
                 answered.locator(".chat-row").click()
                 expect(page.locator(".assistant-group")).to_have_count(2)
@@ -560,7 +560,7 @@ def test_tool_cards_desktop_mobile_local_only(tmp_path: Path) -> None:
                     expect(page.locator(".tool-failure-count")).to_have_text("1 failed")
                     expect(page.get_by_role("heading", name="Final answer")).to_be_visible()
                     expect(page.locator(".tool-call-summary").first).to_be_visible()
-                    page.locator(".tool-call-summary").first.click()
+                    expect(page.locator(".tool-timeline details")).to_have_count(0)
                     expect(page.locator(".tool-call-body pre").first).to_contain_text(
                         "demo/project"
                     )

@@ -21,7 +21,7 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 	enumerable: true
 }) : target, mod));
 //#endregion
-//#region ../prompta/node_modules/scheduler/cjs/scheduler.production.js
+//#region node_modules/scheduler/cjs/scheduler.production.js
 /**
 * @license React
 * scheduler.production.js
@@ -276,12 +276,12 @@ var require_scheduler_production = /* @__PURE__ */ __commonJSMin(((exports) => {
 	};
 }));
 //#endregion
-//#region ../prompta/node_modules/scheduler/index.js
+//#region node_modules/scheduler/index.js
 var require_scheduler = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_scheduler_production();
 }));
 //#endregion
-//#region ../prompta/node_modules/react/cjs/react.production.js
+//#region node_modules/react/cjs/react.production.js
 /**
 * @license React
 * react.production.js
@@ -668,12 +668,12 @@ var require_react_production = /* @__PURE__ */ __commonJSMin(((exports) => {
 	exports.version = "19.3.1";
 }));
 //#endregion
-//#region ../prompta/node_modules/react/index.js
+//#region node_modules/react/index.js
 var require_react = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_react_production();
 }));
 //#endregion
-//#region ../prompta/node_modules/react-dom/cjs/react-dom.production.js
+//#region node_modules/react-dom/cjs/react-dom.production.js
 /**
 * @license React
 * react-dom.production.js
@@ -826,7 +826,7 @@ var require_react_dom_production = /* @__PURE__ */ __commonJSMin(((exports) => {
 	exports.version = "19.3.1";
 }));
 //#endregion
-//#region ../prompta/node_modules/react-dom/index.js
+//#region node_modules/react-dom/index.js
 var require_react_dom = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	function checkDCE() {
 		if (typeof __REACT_DEVTOOLS_GLOBAL_HOOK__ === "undefined" || typeof __REACT_DEVTOOLS_GLOBAL_HOOK__.checkDCE !== "function") return;
@@ -840,7 +840,7 @@ var require_react_dom = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_react_dom_production();
 }));
 //#endregion
-//#region ../prompta/node_modules/react-dom/cjs/react-dom-client.production.js
+//#region node_modules/react-dom/cjs/react-dom-client.production.js
 /**
 * @license React
 * react-dom-client.production.js
@@ -11415,7 +11415,7 @@ var require_react_dom_client_production = /* @__PURE__ */ __commonJSMin(((export
 	};
 }));
 //#endregion
-//#region ../prompta/node_modules/react-dom/client.js
+//#region node_modules/react-dom/client.js
 var require_client = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	function checkDCE() {
 		if (typeof __REACT_DEVTOOLS_GLOBAL_HOOK__ === "undefined" || typeof __REACT_DEVTOOLS_GLOBAL_HOOK__.checkDCE !== "function") return;
@@ -11429,7 +11429,7 @@ var require_client = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_react_dom_client_production();
 }));
 //#endregion
-//#region ../prompta/node_modules/@preact/signals-core/dist/signals-core.module.js
+//#region node_modules/@preact/signals-core/dist/signals-core.module.js
 var import_react = /* @__PURE__ */ __toESM(require_react());
 var import_client = require_client();
 var i$1 = Symbol.for("preact-signals");
@@ -11841,7 +11841,7 @@ function x$2(i, t) {
 	return n;
 }
 //#endregion
-//#region ../prompta/node_modules/use-sync-external-store/cjs/use-sync-external-store-shim.production.js
+//#region node_modules/use-sync-external-store/cjs/use-sync-external-store-shim.production.js
 /**
 * @license React
 * use-sync-external-store-shim.production.js
@@ -11901,7 +11901,7 @@ var require_use_sync_external_store_shim_production = /* @__PURE__ */ __commonJS
 	exports.useSyncExternalStore = void 0 !== React.useSyncExternalStore ? React.useSyncExternalStore : shim;
 }));
 //#endregion
-//#region ../prompta/node_modules/@preact/signals-react/runtime/dist/runtime.module.js
+//#region node_modules/@preact/signals-react/runtime/dist/runtime.module.js
 var import_shim = (/* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_use_sync_external_store_shim_production();
 })))();
@@ -13296,7 +13296,6 @@ function createChatsPageController(initialProps) {
 			if (view.value === "chats" && selectedRunId.value === id) markRead(body);
 			await tick();
 			if (followTail && scrollPane.value && selectedRunId.value === id) scrollPane.value.scrollTop = scrollPane.value.scrollHeight;
-			if (pendingRevealFor.value === id) pendingRevealFor.value = null;
 			const savedTurns = earlyTurns === void 0 ? await replyRequest : earlyTurns;
 			if (generation !== detailGeneration || selectedRunId.value !== id) return;
 			if (earlyTurns === void 0) {
@@ -13324,6 +13323,14 @@ function createChatsPageController(initialProps) {
 				}
 			}
 		}
+	}
+	function revealSelectedChat() {
+		const id = selectedRunId.peek();
+		if (!id || pendingRevealFor.peek() !== id || detail.peek()?.send_id !== id) return;
+		const pane = scrollPane.peek();
+		if (!pane) return;
+		pane.scrollTop = pane.scrollHeight;
+		pendingRevealFor.value = null;
 	}
 	function receiptFailureMessage(error, fallback) {
 		const message = error instanceof Error ? error.message : "";
@@ -13868,6 +13875,7 @@ function createChatsPageController(initialProps) {
 		retryPins,
 		view,
 		selectedRunId,
+		revealSelectedChat,
 		newChatOpen,
 		onSelect,
 		statuses,
@@ -13946,6 +13954,21 @@ function createChatsPageController(initialProps) {
 		mount,
 		syncProps
 	};
+}
+//#endregion
+//#region src/ui/chatUrl.ts
+function chatUrl(id) {
+	const url = new URL(window.location.href);
+	for (const name of [
+		"new",
+		"edit",
+		"run",
+		"draft"
+	]) url.searchParams.delete(name);
+	url.searchParams.set("view", "chats");
+	url.searchParams.set("run", id);
+	url.hash = "";
+	return url.href;
 }
 //#endregion
 //#region src/ui/jobSorting.ts
@@ -14709,7 +14732,7 @@ function createJobsPageController(initialProps) {
 	};
 }
 //#endregion
-//#region ../prompta/node_modules/react/cjs/react-jsx-runtime.production.js
+//#region node_modules/react/cjs/react-jsx-runtime.production.js
 /**
 * @license React
 * react-jsx-runtime.production.js
@@ -15025,11 +15048,10 @@ function DeliveryDiagnostics({ model }) {
 	const nextRetry = health?.queue.next_retry_at_epoch;
 	const attentionCount = health?.recovery.attention_chats ?? 0;
 	const recoveryWaiting = Boolean(health && pause > 0 && (health.recovery.recoverable > 0 || health.recovery.recoverable_reply_captures > 0));
-	let label = "status unavailable";
+	let label = !health && !error ? "loading…" : "status unavailable";
 	if (!error && health?.ready === false) label = "needs attention";
 	else if (!error && health?.admission?.blocked) label = "waiting for capacity";
 	else if (!error && health) label = attentionCount > 0 ? "online · review needed" : "online";
-	if (!health && !error) return null;
 	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("details", {
 		className: "delivery-diagnostics",
 		children: [
@@ -16320,9 +16342,13 @@ function ChatRow({ item, model }) {
 			selected ? "chosen" : "",
 			unread ? "unread" : ""
 		].filter(Boolean).join(" "),
-		children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
-			type: "button",
-			onClick: () => model.selectRun(item),
+		children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("a", {
+			href: chatUrl(item.send_id),
+			onClick: (event) => {
+				if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+				event.preventDefault();
+				model.selectRun(item);
+			},
 			"aria-current": selected ? "true" : void 0,
 			className: "chat-row",
 			children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
@@ -16394,9 +16420,66 @@ function ChatsSidebar({ model, refs }) {
 			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 				className: "sidebar-topbar",
 				children: [
-					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 						className: "sidebar-brand",
-						children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("strong", { children: "Prompta" })
+						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("strong", { children: "Prompta" }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("details", {
+							className: "sidebar-options",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("summary", {
+								"aria-label": "Chat options",
+								title: "Chat options",
+								children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("svg", {
+									viewBox: "0 0 24 24",
+									fill: "currentColor",
+									"aria-hidden": "true",
+									children: [
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("circle", {
+											cx: "5",
+											cy: "12",
+											r: "1.8"
+										}),
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("circle", {
+											cx: "12",
+											cy: "12",
+											r: "1.8"
+										}),
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("circle", {
+											cx: "19",
+											cy: "12",
+											r: "1.8"
+										})
+									]
+								})
+							}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								className: "sidebar-options-menu",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+									type: "button",
+									onClick: markAllRead,
+									disabled: markingAllRead.value,
+									"aria-label": "Mark all local chats as read",
+									className: "mark-all-read",
+									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("svg", {
+										viewBox: "0 0 24 24",
+										fill: "none",
+										stroke: "currentColor",
+										strokeWidth: "1.8",
+										strokeLinecap: "round",
+										strokeLinejoin: "round",
+										"aria-hidden": "true",
+										children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: "m2 12 4 4L16 6M9 12l4 4L23 6" })
+									}), markingAllRead.value ? "Marking as read…" : "Mark all as read"]
+								}), attentionCount > 0 && ((recoveryBacklog.value ?? 0) > 0 || (recoveryReplyBacklog.value ?? 0) > 0 || (recoveryUnverified.value ?? 0) > 0) && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", {
+									className: "chat-recovery-summary",
+									children: [
+										"Recovery: ",
+										recoveryBacklog.value ?? 0,
+										" original captures eligible",
+										(recoveryReplyBacklog.value ?? 0) > 0 && ` · ${recoveryReplyBacklog.value} follow-ups unresolved`,
+										(recoveryUnverified.value ?? 0) > 0 && ` · ${recoveryUnverified.value} need manual review (no verified chat ID)`,
+										recoveryPauseSeconds.value > 0 && ` · waiting ~${Math.ceil(recoveryPauseSeconds.value / 60)} min`
+									]
+								})]
+							})]
+						})]
 					}),
 					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("nav", {
 						"aria-label": "Main navigation",
@@ -16491,79 +16574,6 @@ function ChatsSidebar({ model, refs }) {
 						children: "×"
 					})
 				]
-			}),
-			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-				className: "sidebar-utility-row",
-				children: [attentionCount > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
-					type: "button",
-					className: "chat-attention-shortcut",
-					"aria-label": `Needs attention ${attentionCount} ${attentionCount === 1 ? "chat" : "chats"}`,
-					title: "Review failed or interrupted local captures",
-					onClick: () => {
-						search.value = "";
-						statusFilter.value = "needs_attention";
-						filtersOpen.value = true;
-						applyFilter();
-					},
-					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Needs attention" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("strong", { children: attentionCount })]
-				}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("details", {
-					className: "sidebar-options",
-					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("summary", {
-						"aria-label": "Chat options",
-						title: "Chat options",
-						children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("svg", {
-							viewBox: "0 0 24 24",
-							fill: "currentColor",
-							"aria-hidden": "true",
-							children: [
-								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("circle", {
-									cx: "5",
-									cy: "12",
-									r: "1.8"
-								}),
-								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("circle", {
-									cx: "12",
-									cy: "12",
-									r: "1.8"
-								}),
-								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("circle", {
-									cx: "19",
-									cy: "12",
-									r: "1.8"
-								})
-							]
-						})
-					}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-						className: "sidebar-options-menu",
-						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
-							type: "button",
-							onClick: markAllRead,
-							disabled: markingAllRead.value,
-							"aria-label": "Mark all local chats as read",
-							className: "mark-all-read",
-							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("svg", {
-								viewBox: "0 0 24 24",
-								fill: "none",
-								stroke: "currentColor",
-								strokeWidth: "1.8",
-								strokeLinecap: "round",
-								strokeLinejoin: "round",
-								"aria-hidden": "true",
-								children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: "m2 12 4 4L16 6M9 12l4 4L23 6" })
-							}), markingAllRead.value ? "Marking as read…" : "Mark all as read"]
-						}), attentionCount > 0 && ((recoveryBacklog.value ?? 0) > 0 || (recoveryReplyBacklog.value ?? 0) > 0 || (recoveryUnverified.value ?? 0) > 0) && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", {
-							className: "chat-recovery-summary",
-							children: [
-								"Recovery: ",
-								recoveryBacklog.value ?? 0,
-								" original captures eligible",
-								(recoveryReplyBacklog.value ?? 0) > 0 && ` · ${recoveryReplyBacklog.value} follow-ups unresolved`,
-								(recoveryUnverified.value ?? 0) > 0 && ` · ${recoveryUnverified.value} need manual review (no verified chat ID)`,
-								recoveryPauseSeconds.value > 0 && ` · waiting ~${Math.ceil(recoveryPauseSeconds.value / 60)} min`
-							]
-						})]
-					})]
-				})]
 			}),
 			filtersOpen.value ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 				id: "chat-filters",
@@ -16708,7 +16718,7 @@ function ChatsSidebar({ model, refs }) {
 	});
 }
 //#endregion
-//#region ../prompta/node_modules/marked/lib/marked.esm.js
+//#region node_modules/marked/lib/marked.esm.js
 /**
 * marked v16.4.2 - a markdown parser
 * Copyright (c) 2018-2025, MarkedJS. (MIT License)
@@ -18402,10 +18412,10 @@ function status(call) {
 function ToolCalls({ calls }) {
 	if (!calls.length) return null;
 	const failures = calls.filter((call) => call.status === "error" || call.error).length;
-	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("details", {
+	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", {
 		className: "tool-timeline",
-		open: true,
-		children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("summary", {
+		"aria-label": "Tool activity",
+		children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 			className: "tool-timeline-summary",
 			children: [
 				/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
@@ -18460,18 +18470,13 @@ function ToolCalls({ calls }) {
 				failures > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
 					className: "tool-failure-count",
 					children: [failures, " failed"]
-				}),
-				/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-					className: "tool-timeline-toggle",
-					"aria-hidden": "true",
-					children: "⌄"
 				})
 			]
 		}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 			className: "tool-call-list",
-			children: calls.map((call, index) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("details", {
+			children: calls.map((call, index) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 				className: "tool-call" + (status(call) === "Failed" ? " failed" : "") + (status(call) === "Running" ? " running" : ""),
-				children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("summary", {
+				children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 					className: "tool-call-summary",
 					children: [
 						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
@@ -18486,20 +18491,14 @@ function ToolCalls({ calls }) {
 						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
 							className: "tool-call-status",
 							children: status(call)
-						}),
-						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-							className: "tool-call-chevron",
-							"aria-hidden": "true",
-							children: "⌄"
 						})
 					]
-				}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+				}), (call.arguments || call.result || call.error) && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 					className: "tool-call-body",
 					children: [
 						call.arguments && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h4", { children: "Input" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("pre", { children: call.arguments })] }),
 						call.result && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h4", { children: "Output" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("pre", { children: call.result })] }),
-						call.error && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h4", { children: "Error" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("pre", { children: call.error })] }),
-						!call.arguments && !call.result && !call.error && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { children: "Only the tool name and status are stored for privacy." })
+						call.error && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h4", { children: "Error" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("pre", { children: call.error })] })
 					]
 				})]
 			}, call.id || index))
@@ -18511,6 +18510,13 @@ function ToolCalls({ calls }) {
 function ChatTranscript({ model, refs }) {
 	N$1();
 	const { selectedRunId, recoveryPauseSeconds: pauseSeconds, recoveryBacklog: recoveryQueue, recoveryUnverified: unverifiedCaptures, recoveryReplyBacklog: replyQueue, expandedPrompts, detail, turns, turnsError, startingNewChatFromFailure: startingNewChat, detailError, switchingChat, loadDetail, startFailedReplyInNewChat, continueUnverifiedInNewChat, retryFailedTurn, copyText, togglePrompt, copyState } = model;
+	(0, import_react.useLayoutEffect)(() => {
+		model.revealSelectedChat();
+	}, [
+		model,
+		detail.value,
+		turns.value
+	]);
 	function copyLabel(id) {
 		if (copyState.value === id) return "Copied";
 		if (copyState.value === "error:" + id) return "Copy failed";
@@ -18730,7 +18736,23 @@ function ChatTranscript({ model, refs }) {
 function ChatsPage(props) {
 	const model = (0, import_react.useMemo)(() => createChatsPageController(props), []);
 	N$1();
-	const { view, selectedRunId, newChatOpen, onSelect, readError, drawerOpen, drawerProgress, visibleDrawerProgress, filtersOpen, detail, turns, recoveringReply, jobsWorkspace, replyBlockedReason, selectedChatTitle, retryReadSync, sendFresh, freshContinuationPrompt, originalImageRefs, sendReply, cancelSwipe, startSwipe, finishSwipe, createChat, escapeDrawer } = model;
+	const [shareNotice, setShareNotice] = (0, import_react.useState)("");
+	const shareTimer = (0, import_react.useRef)(void 0);
+	(0, import_react.useEffect)(() => () => clearTimeout(shareTimer.current), []);
+	async function shareChat() {
+		const id = model.selectedRunId.peek();
+		if (!id) return;
+		clearTimeout(shareTimer.current);
+		setShareNotice("");
+		try {
+			await navigator.clipboard.writeText(chatUrl(id));
+			if (window.matchMedia("(min-width: 681px)").matches) setShareNotice("Chat link copied");
+		} catch {
+			setShareNotice("Could not copy chat link");
+		}
+		shareTimer.current = setTimeout(() => setShareNotice(""), 2500);
+	}
+	const { view, selectedRunId, newChatOpen, readError, drawerOpen, drawerProgress, visibleDrawerProgress, filtersOpen, detail, turns, recoveringReply, jobsWorkspace, replyBlockedReason, selectedChatTitle, retryReadSync, sendFresh, freshContinuationPrompt, originalImageRefs, sendReply, cancelSwipe, startSwipe, finishSwipe, createChat, escapeDrawer } = model;
 	const refs = (0, import_react.useMemo)(() => ({
 		sidebarPane: (element) => {
 			if (model.sidebarPane.peek() !== (element ?? void 0)) model.sidebarPane.value = element ?? void 0;
@@ -18769,7 +18791,11 @@ function ChatsPage(props) {
 			window.removeEventListener("touchcancel", cancelSwipe);
 		};
 	}, [model]);
-	return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", {
+	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [shareNotice && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+		className: "share-toast",
+		role: "status",
+		children: shareNotice
+	}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", {
 		"aria-label": "Prompta local chats and jobs",
 		className: [
 			"chats-layout",
@@ -18798,30 +18824,34 @@ function ChatsPage(props) {
 				children: [
 					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 						className: "workspace-header",
-						children: [view.value === "chats" && selectedRunId.value ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-							type: "button",
-							"aria-label": "Back to chats",
-							title: "Back to chats",
-							onClick: () => onSelect.value(null),
-							className: "chat-header-back",
-							children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("svg", {
-								viewBox: "0 0 24 24",
-								fill: "none",
-								stroke: "currentColor",
-								strokeWidth: "2",
-								strokeLinecap: "round",
-								strokeLinejoin: "round",
-								"aria-hidden": "true",
-								children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: "m15 18-6-6 6-6" })
+						children: [
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+								type: "button",
+								"aria-label": "Open chat sidebar",
+								"aria-expanded": drawerOpen.value,
+								onClick: () => drawerOpen.value = true,
+								className: "sidebar-menu",
+								children: "☰"
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("strong", { children: view.value === "jobs" ? "Jobs" : selectedChatTitle.value }),
+							view.value === "chats" && selectedRunId.value && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+								type: "button",
+								className: "chat-share",
+								"aria-label": "Share chat",
+								title: "Copy chat link",
+								onClick: () => void shareChat(),
+								children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("svg", {
+									viewBox: "0 0 24 24",
+									fill: "none",
+									stroke: "currentColor",
+									strokeWidth: "1.8",
+									strokeLinecap: "round",
+									strokeLinejoin: "round",
+									"aria-hidden": "true",
+									children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: "M12 16V3m-5 5 5-5 5 5M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6" })
+								})
 							})
-						}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-							type: "button",
-							"aria-label": "Open chat sidebar",
-							"aria-expanded": drawerOpen.value,
-							onClick: () => drawerOpen.value = true,
-							className: "sidebar-menu",
-							children: "☰"
-						}) }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("strong", { children: view.value === "jobs" ? "Jobs" : selectedChatTitle.value })]
+						]
 					}),
 					view.value === "jobs" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 						ref: refs.jobsWorkspace,
@@ -18868,7 +18898,7 @@ function ChatsPage(props) {
 				]
 			})
 		]
-	}) });
+	})] });
 }
 //#endregion
 //#region src/ui/App.tsx

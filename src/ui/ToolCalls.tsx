@@ -28,8 +28,8 @@ export default function ToolCalls({ calls }: { calls: CapturedToolCall[] }) {
   if (!calls.length) return null;
   const failures = calls.filter((call) => call.status === "error" || call.error).length;
   return (
-    <details className="tool-timeline" open>
-      <summary className="tool-timeline-summary">
+    <section className="tool-timeline" aria-label="Tool activity">
+      <div className="tool-timeline-summary">
         <span className="tool-timeline-icon" aria-hidden="true">
           <svg
             width="16"
@@ -51,13 +51,10 @@ export default function ToolCalls({ calls }: { calls: CapturedToolCall[] }) {
           {calls.length} tool {calls.length === 1 ? "call" : "calls"}
         </span>
         {failures > 0 && <span className="tool-failure-count">{failures} failed</span>}
-        <span className="tool-timeline-toggle" aria-hidden="true">
-          ⌄
-        </span>
-      </summary>
+      </div>
       <div className="tool-call-list">
         {calls.map((call, index) => (
-          <details
+          <div
             key={call.id || index}
             className={
               "tool-call" +
@@ -65,42 +62,38 @@ export default function ToolCalls({ calls }: { calls: CapturedToolCall[] }) {
               (status(call) === "Running" ? " running" : "")
             }
           >
-            <summary className="tool-call-summary">
+            <div className="tool-call-summary">
               <span className="tool-call-mark" aria-hidden="true">
                 {statusMark[status(call)]}
               </span>
               <span className="tool-call-name">{title(call)}</span>
               <span className="tool-call-status">{status(call)}</span>
-              <span className="tool-call-chevron" aria-hidden="true">
-                ⌄
-              </span>
-            </summary>
-            <div className="tool-call-body">
-              {call.arguments && (
-                <section>
-                  <h4>Input</h4>
-                  <pre>{call.arguments}</pre>
-                </section>
-              )}
-              {call.result && (
-                <section>
-                  <h4>Output</h4>
-                  <pre>{call.result}</pre>
-                </section>
-              )}
-              {call.error && (
-                <section>
-                  <h4>Error</h4>
-                  <pre>{call.error}</pre>
-                </section>
-              )}
-              {!call.arguments && !call.result && !call.error && (
-                <p>Only the tool name and status are stored for privacy.</p>
-              )}
             </div>
-          </details>
+            {(call.arguments || call.result || call.error) && (
+              <div className="tool-call-body">
+                {call.arguments && (
+                  <section>
+                    <h4>Input</h4>
+                    <pre>{call.arguments}</pre>
+                  </section>
+                )}
+                {call.result && (
+                  <section>
+                    <h4>Output</h4>
+                    <pre>{call.result}</pre>
+                  </section>
+                )}
+                {call.error && (
+                  <section>
+                    <h4>Error</h4>
+                    <pre>{call.error}</pre>
+                  </section>
+                )}
+              </div>
+            )}
+          </div>
         ))}
       </div>
-    </details>
+    </section>
   );
 }
