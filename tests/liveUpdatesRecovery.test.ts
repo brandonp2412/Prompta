@@ -247,3 +247,50 @@ test("a silent stalled SSE connection is replaced and degraded status heals", ()
     }
   });
 });
+
+test("missing EventSource recovers once browser support becomes available", () => {
+  withFakeStream(({ instances, timers, fire }) => {
+    const constructor = globalThis.EventSource;
+    Reflect.deleteProperty(globalThis, "EventSource");
+    const off = subscribeLiveUpdates("chats", () => {});
+    try {
+      expect(instances).toHaveLength(0);
+      expect([...timers.values()].some((timer) => timer.ms === 2000)).toBe(true);
+      Object.defineProperty(globalThis, "EventSource", { configurable: true, value: constructor });
+      fire(2000);
+      expect(instances).toHaveLength(1);
+      instances[0]?.emit("sync");
+      expect(instances[0]?.closed).toBe(false);
+    } finally {
+      off();
+    }
+  });
+});
+
+test("an offline browser closes its old SSE and ignores delayed frames", () => {
+  withFakeStream(({ instances, fireWindow }) => {
+    let updates = 0;
+    const statuses: boolean[] = [];
+    const off = subscribeLiveUpdates("chats", () => {
+      updates += 1;
+    });
+    const offStatus = subscribeLiveStatus((delayed) => {
+      statuses.push(delayed);
+    });
+    try {
+      instances[0]?.emit("sync");
+      fireWindow("offline");
+      expect(instances[0]?.closed).toBe(true);
+      instances[0]?.emit("sync");
+      expect(updates).toBe(1);
+      fireWindow("online");
+      expect(instances).toHaveLength(2);
+      instances[1]?.emit("sync");
+      expect(updates).toBe(3);
+      expect(statuses.at(-1)).toBe(false);
+    } finally {
+      off();
+      offStatus();
+    }
+  });
+});

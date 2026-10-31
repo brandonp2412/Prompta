@@ -80,7 +80,11 @@ function armWatchdog(current: EventSource) {
 }
 
 function connect() {
-  if (typeof EventSource === "undefined") return;
+  if (typeof EventSource === "undefined") {
+    connectionLost();
+    scheduleReconnect();
+    return;
+  }
   try {
     const nextSource = new EventSource("./api/events");
     source = nextSource;
@@ -102,7 +106,7 @@ function connect() {
     });
     for (const topic of ["sync", "jobs", "chats", "ping"] as const) {
       nextSource.addEventListener(topic, () => {
-        if (source !== nextSource) return;
+        if (source !== nextSource || observedOffline) return;
         lastStreamFrameAt = Date.now();
         armWatchdog(nextSource);
         reconnectAttempts = 0;
@@ -154,12 +158,17 @@ function visibleAgain() {
   // A watchdog timeout that fired while hidden does not schedule another check.
   // Re-arm it on return even when the most recent frame is still fresh.
   if (current) armWatchdog(current);
+  else retryLiveConnection();
 }
 
 function offline() {
   observedOffline = true;
   window.clearTimeout(reconnectTimer);
+  window.clearTimeout(watchdogTimer);
   reconnectTimer = undefined;
+  watchdogTimer = undefined;
+  source?.close();
+  source = null;
   connectionLost();
 }
 
@@ -214,7 +223,7 @@ function hasSubscribers() {
 }
 
 export function retryLiveConnection() {
-  if (!hasSubscribers()) return;
+  if (!hasSubscribers() || observedOffline) return;
   window.clearTimeout(reconnectTimer);
   window.clearTimeout(watchdogTimer);
   reconnectTimer = undefined;

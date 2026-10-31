@@ -505,8 +505,10 @@ export function createChatsPageController(initialProps: Props) {
       }
     } catch {
       if (generation === queueGeneration) {
-        queueSnapshot.value = emptyQueueSnapshot;
-        queueError.value = "Waiting-job status is temporarily unavailable.";
+        queueError.value =
+          queueSnapshot.value === emptyQueueSnapshot
+            ? "Waiting-job status is temporarily unavailable."
+            : "Queue status is temporarily unavailable. Showing the last confirmed positions and ETAs.";
       }
     } finally {
       queueInFlight = false;
