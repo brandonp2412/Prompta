@@ -41,7 +41,7 @@ async def test_connector_grace_approves_multiple_dialogs_before_timeout(
                 self.checks += 1
                 if self.approvals < 2:
                     self.approvals += 1
-                    return {"status": "dismissed", "detected": 1, "allow_clicked": 1, "dismissed": 1}
+                    return {"status": "dismissed", "detected": 1, "persistent_selected": 1, "allow_clicked": 1, "dismissed": 1}
                 return {"status": "idle"}
             return "/"
 

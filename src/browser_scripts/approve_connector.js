@@ -31,7 +31,7 @@
     }
     return false;
   };
-  const approve = async (button, checkbox) => {
+  const approve = async (button, checkbox, persistent = false) => {
     if (!enabled(button) || (checkbox && !enabled(checkbox))) return report('idle');
     const previous = state.get(button) || { attempts: 0, at: -Infinity };
     if (!previous.seen) events.detected++;
@@ -44,7 +44,8 @@
       (checkbox.checked || checkbox.getAttribute('aria-checked') === 'true');
     if (!(previous.checkboxPending && checkboxChecked) &&
         performance.now() - previous.at < retryAfter) return report('idle');
-    const next = { attempts: previous.attempts + 1, at: performance.now(), checkboxPending: false, seen: true };
+    const next = { attempts: previous.attempts + 1, at: performance.now(), checkboxPending: false,
+      seen: true, persistentSelected: previous.persistentSelected || persistent };
     state.set(button, next);
     document.querySelectorAll(`[${candidateAttribute}]`).forEach(el =>
       el.removeAttribute(candidateAttribute));
@@ -56,6 +57,7 @@
       events.persistent_selected++;
     }
     next.checkboxPending = false;
+    if (persistent && !previous.persistentSelected) events.persistent_selected++;
     button.setAttribute(candidateAttribute, 'button');
     events.allow_clicked++;
     button.click();
@@ -76,7 +78,7 @@
     for (let group = button.parentElement; group && group !== document.body; group = group.parentElement) {
       if (group.matches('[role="dialog"], [role="alertdialog"]') ||
           controls(group).some(el => visible(el) && ['allow once', 'deny', 'decline'].includes(label(el)))) {
-        return await approve(button);
+        return await approve(button, null, true);
       }
       if (group.matches('main, article, [data-message-author-role]')) break;
     }

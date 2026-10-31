@@ -22,8 +22,8 @@ from prompta.playwright_driver import PlaywrightDriver
 async def test_shared_supervisor_approves_successive_dialogs_immediately() -> None:
     observed: list[str] = []
     outcomes: list[object] = [
-        {"status": "dismissed", "detected": 1, "allow_clicked": 1, "dismissed": 1},
-        {"status": "dismissed", "detected": 1, "allow_clicked": 1, "dismissed": 1},
+        {"status": "dismissed", "detected": 1, "persistent_selected": 1, "allow_clicked": 1, "dismissed": 1},
+        {"status": "dismissed", "detected": 1, "persistent_selected": 1, "allow_clicked": 1, "dismissed": 1},
         {"status": "idle"},
     ]
 
@@ -40,7 +40,7 @@ async def test_shared_supervisor_approves_successive_dialogs_immediately() -> No
         poll_interval_seconds=0.01,
         active=lambda: True,
     )
-    assert count == ApprovalCounters(detected=2, allow_clicked=2, dismissed=2)
+    assert count == ApprovalCounters(detected=2, persistent_selected=2, allow_clicked=2, dismissed=2)
     assert len(observed) >= 3
     assert all(script == load_browser_script("approve_connector.js") for script in observed)
 
@@ -161,6 +161,7 @@ async def test_trusted_retry_handles_unhydrated_permission_controls() -> None:
             assert grants.dismissed == 1
             assert grants.detected == 1
             assert grants.allow_clicked == 2
+            assert grants.persistent_selected == 1
             assert await page.evaluate("document.body.dataset.events") == "FT"
         finally:
             await browser.close()
@@ -243,7 +244,7 @@ async def test_owned_tab_approval_e2e_and_non_owned_tab_remains_untouched(tmp_pa
                 active=lambda: driver.approval_tab_active,
                 trusted_retry=driver.click_stuck_connector_approval,
             )
-            assert counts == ApprovalCounters(detected=1, allow_clicked=1, dismissed=1)
+            assert counts == ApprovalCounters(detected=1, persistent_selected=1, allow_clicked=1, dismissed=1)
             assert await owned.evaluate("document.body.dataset.clicked") == "yes"
             assert await other.evaluate("document.body.dataset.clicked || null") is None
             driver._owned_contexts.clear()
