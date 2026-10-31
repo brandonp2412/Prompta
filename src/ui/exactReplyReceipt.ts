@@ -102,7 +102,14 @@ export function exactReplyReceiptState(
   if (turn.status === "prepared") {
     return "queued_by_user" in turn && turn.queued_by_user === true ? "accepted" : "not_sent";
   }
-  return ["dispatching", "accepted", "generating", "completed", "interrupted"].includes(turn.status)
+  return [
+    "dispatching",
+    "accepted",
+    "generating",
+    "completed",
+    "interrupted",
+    "unavailable",
+  ].includes(turn.status)
     ? "accepted"
     : "invalid";
 }

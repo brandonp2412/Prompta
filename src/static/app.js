@@ -21,7 +21,7 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 	enumerable: true
 }) : target, mod));
 //#endregion
-//#region ../../prompta/node_modules/scheduler/cjs/scheduler.production.js
+//#region ../prompta/node_modules/scheduler/cjs/scheduler.production.js
 /**
 * @license React
 * scheduler.production.js
@@ -276,12 +276,12 @@ var require_scheduler_production = /* @__PURE__ */ __commonJSMin(((exports) => {
 	};
 }));
 //#endregion
-//#region ../../prompta/node_modules/scheduler/index.js
+//#region ../prompta/node_modules/scheduler/index.js
 var require_scheduler = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_scheduler_production();
 }));
 //#endregion
-//#region ../../prompta/node_modules/react/cjs/react.production.js
+//#region ../prompta/node_modules/react/cjs/react.production.js
 /**
 * @license React
 * react.production.js
@@ -668,12 +668,12 @@ var require_react_production = /* @__PURE__ */ __commonJSMin(((exports) => {
 	exports.version = "19.3.1";
 }));
 //#endregion
-//#region ../../prompta/node_modules/react/index.js
+//#region ../prompta/node_modules/react/index.js
 var require_react = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_react_production();
 }));
 //#endregion
-//#region ../../prompta/node_modules/react-dom/cjs/react-dom.production.js
+//#region ../prompta/node_modules/react-dom/cjs/react-dom.production.js
 /**
 * @license React
 * react-dom.production.js
@@ -826,7 +826,7 @@ var require_react_dom_production = /* @__PURE__ */ __commonJSMin(((exports) => {
 	exports.version = "19.3.1";
 }));
 //#endregion
-//#region ../../prompta/node_modules/react-dom/index.js
+//#region ../prompta/node_modules/react-dom/index.js
 var require_react_dom = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	function checkDCE() {
 		if (typeof __REACT_DEVTOOLS_GLOBAL_HOOK__ === "undefined" || typeof __REACT_DEVTOOLS_GLOBAL_HOOK__.checkDCE !== "function") return;
@@ -840,7 +840,7 @@ var require_react_dom = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_react_dom_production();
 }));
 //#endregion
-//#region ../../prompta/node_modules/react-dom/cjs/react-dom-client.production.js
+//#region ../prompta/node_modules/react-dom/cjs/react-dom-client.production.js
 /**
 * @license React
 * react-dom-client.production.js
@@ -11415,7 +11415,7 @@ var require_react_dom_client_production = /* @__PURE__ */ __commonJSMin(((export
 	};
 }));
 //#endregion
-//#region ../../prompta/node_modules/react-dom/client.js
+//#region ../prompta/node_modules/react-dom/client.js
 var require_client = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	function checkDCE() {
 		if (typeof __REACT_DEVTOOLS_GLOBAL_HOOK__ === "undefined" || typeof __REACT_DEVTOOLS_GLOBAL_HOOK__.checkDCE !== "function") return;
@@ -11429,7 +11429,7 @@ var require_client = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_react_dom_client_production();
 }));
 //#endregion
-//#region ../../prompta/node_modules/@preact/signals-core/dist/signals-core.module.js
+//#region ../prompta/node_modules/@preact/signals-core/dist/signals-core.module.js
 var import_react = /* @__PURE__ */ __toESM(require_react());
 var import_client = require_client();
 var i$1 = Symbol.for("preact-signals");
@@ -11841,7 +11841,7 @@ function x$2(i, t) {
 	return n;
 }
 //#endregion
-//#region ../../prompta/node_modules/use-sync-external-store/cjs/use-sync-external-store-shim.production.js
+//#region ../prompta/node_modules/use-sync-external-store/cjs/use-sync-external-store-shim.production.js
 /**
 * @license React
 * use-sync-external-store-shim.production.js
@@ -11901,7 +11901,7 @@ var require_use_sync_external_store_shim_production = /* @__PURE__ */ __commonJS
 	exports.useSyncExternalStore = void 0 !== React.useSyncExternalStore ? React.useSyncExternalStore : shim;
 }));
 //#endregion
-//#region ../../prompta/node_modules/@preact/signals-react/runtime/dist/runtime.module.js
+//#region ../prompta/node_modules/@preact/signals-react/runtime/dist/runtime.module.js
 var import_shim = (/* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_use_sync_external_store_shim_production();
 })))();
@@ -12643,7 +12643,8 @@ function exactReplyReceiptState(turn, expected, sendId) {
 		"accepted",
 		"generating",
 		"completed",
-		"interrupted"
+		"interrupted",
+		"unavailable"
 	].includes(turn.status) ? "accepted" : "invalid";
 }
 async function findExactReplyReceiptState(sendId, expected) {
@@ -13400,7 +13401,7 @@ function createChatsPageController(initialProps) {
 		}
 		const accepted = async () => {
 			acknowledgeQueuedFollowupRequest(sendId, request.fingerprint, request.replyId);
-			if (selectedRunId.value === sendId) await loadDetail(sendId);
+			if (selectedRunId.value === sendId) loadDetail(sendId);
 			return {
 				ok: true,
 				message: ""
@@ -13531,7 +13532,7 @@ function createChatsPageController(initialProps) {
 	async function sendExactReply(sendId, payload, request) {
 		const accepted = async () => {
 			if (request) acknowledgeExactReplyRequest(request.fingerprint, request.replyId);
-			if (selectedRunId.value === sendId) await loadDetail(sendId);
+			if (selectedRunId.value === sendId) loadDetail(sendId);
 			return {
 				ok: true,
 				message: ""
@@ -14622,7 +14623,7 @@ function createJobsPageController(initialProps) {
 	};
 }
 //#endregion
-//#region ../../prompta/node_modules/react/cjs/react-jsx-runtime.production.js
+//#region ../prompta/node_modules/react/cjs/react-jsx-runtime.production.js
 /**
 * @license React
 * react-jsx-runtime.production.js
@@ -15423,6 +15424,12 @@ function composerEditRevision(key) {
 	return editRevisions.get(key) ?? 0;
 }
 var images = /* @__PURE__ */ new Map();
+var imageStoragePrefix = "prompta.composer-images.v1.";
+function validImage(value) {
+	if (!value || typeof value !== "object") return false;
+	if (!("ref" in value) || typeof value.ref !== "string" || !/^[0-9a-f]{64}\/[A-Za-z0-9._-]{1,100}$/.test(value.ref)) return false;
+	return "name" in value && value.name === value.ref.split("/")[1] && "url" in value && value.url === "./api/images/" + value.ref;
+}
 function readComposerDraft(key) {
 	return key ? drafts.get(key) : void 0;
 }
@@ -15441,7 +15448,17 @@ function clearComposerDraft(key) {
 	drafts.delete(key);
 }
 function readComposerImages(key) {
-	return [...images.get(key) || []];
+	if (!key) return [];
+	const cached = images.get(key);
+	if (cached) return [...cached];
+	try {
+		const value = JSON.parse(sessionStorage.getItem(imageStoragePrefix + key) || "null");
+		if (!Array.isArray(value) || value.length > 4 || !value.every(validImage)) return [];
+		images.set(key, value);
+		return [...value];
+	} catch {
+		return [];
+	}
 }
 function rememberComposerImages(key, value) {
 	if (!key) return;
@@ -15452,10 +15469,17 @@ function rememberComposerImages(key, value) {
 		const oldest = images.keys().next().value;
 		if (oldest) images.delete(oldest);
 	}
+	try {
+		if (value.length) sessionStorage.setItem(imageStoragePrefix + key, JSON.stringify(value.slice(0, 4)));
+		else sessionStorage.removeItem(imageStoragePrefix + key);
+	} catch {}
 }
 function clearComposerImages(key) {
 	edited(key);
 	images.delete(key);
+	try {
+		sessionStorage.removeItem(imageStoragePrefix + key);
+	} catch {}
 }
 //#endregion
 //#region src/ui/ChatComposerController.ts
@@ -15942,7 +15966,7 @@ function ChatComposer(props) {
 	}) });
 }
 //#endregion
-//#region ../../prompta/node_modules/marked/lib/marked.esm.js
+//#region ../prompta/node_modules/marked/lib/marked.esm.js
 /**
 * marked v16.4.2 - a markdown parser
 * Copyright (c) 2018-2025, MarkedJS. (MIT License)
@@ -17961,13 +17985,9 @@ function ChatRow({ item, model }) {
 				className: "chat-preview",
 				title: preview,
 				children: preview
-			}) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+			}) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
 				className: "chat-row-meta",
-				children: [
-					statusLabel(item.status),
-					" · ",
-					chatMessageTime(item.updated_at || item.created_at)
-				]
+				children: statusLabel(item.status)
 			})]
 		}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 			type: "button",

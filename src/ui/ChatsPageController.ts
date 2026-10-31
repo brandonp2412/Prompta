@@ -1051,7 +1051,7 @@ export function createChatsPageController(initialProps: Props) {
     }
     const accepted = async () => {
       acknowledgeQueuedFollowupRequest(sendId, request.fingerprint, request.replyId);
-      if (selectedRunId.value === sendId) await loadDetail(sendId);
+      if (selectedRunId.value === sendId) void loadDetail(sendId);
       return { ok: true, message: "" };
     };
     const uncertain = () => ({
@@ -1215,7 +1215,7 @@ export function createChatsPageController(initialProps: Props) {
   ) {
     const accepted = async () => {
       if (request) acknowledgeExactReplyRequest(request.fingerprint, request.replyId);
-      if (selectedRunId.value === sendId) await loadDetail(sendId);
+      if (selectedRunId.value === sendId) void loadDetail(sendId);
       return { ok: true, message: "" };
     };
     const uncertain = () => ({

@@ -39,13 +39,14 @@ def _branch_probe(conversation_id: str, parent_id: str) -> str:
 
 
 def _recovery_probe(
-    conversation_id: str, original_answer: str, *, allow_partial: bool = False,
+    conversation_id: str, original_answer: str, *, original_prompt: str = "", allow_partial: bool = False,
 ) -> str:
     """Verify the one original turn on an explicitly reopened exact branch."""
     return (
         load_browser_script("recover_manual_reply_parent.js")
         .replace("__CONVERSATION__", json.dumps(conversation_id))
         .replace("__ORIGINAL_ANSWER__", json.dumps(original_answer))
+        .replace("__ORIGINAL_PROMPT__", json.dumps(original_prompt))
         .replace("__ALLOW_PARTIAL__", json.dumps(allow_partial))
     )
 
@@ -167,8 +168,6 @@ class ManualReplyDispatcher:
             raise ReplyConflict("The conversation ID is unavailable")
         if latest["message_id"]:
             return {"message_id": str(latest["message_id"])}
-        if len(turns) == 1 and not answer:
-            raise ReplyConflict("The original assistant message has not appeared")
         previous_parent = str(turns[-2]["message_id"] or "") if len(turns) > 1 else ""
         if len(turns) > 1 and not previous_parent:
             raise ReplyConflict("The preceding assistant identity is unavailable")
@@ -197,7 +196,8 @@ class ManualReplyDispatcher:
             await driver.wait_for_composer()
             if len(turns) == 1:
                 probe = _recovery_probe(
-                    conversation_id, answer, allow_partial=latest["status"] != "completed"
+                    conversation_id, answer, original_prompt=str(latest["user_text"]),
+                    allow_partial=latest["status"] != "completed"
                 )
             else:
                 probe = _tip_recovery_probe(

@@ -1,6 +1,6 @@
 import { useSignals } from "@preact/signals-react/runtime";
 import type { createChatsPageController } from "./ChatsPageController";
-import { chatMessageTime, plainPreview, statusLabel, type RunSummary } from "./resultFormatting";
+import { plainPreview, statusLabel, type RunSummary } from "./resultFormatting";
 
 type Controller = ReturnType<typeof createChatsPageController>;
 
@@ -45,9 +45,7 @@ export default function ChatRow({ item, model }: Props) {
             {preview}
           </span>
         ) : (
-          <span className="chat-row-meta">
-            {statusLabel(item.status)} · {chatMessageTime(item.updated_at || item.created_at)}
-          </span>
+          <span className="chat-row-meta">{statusLabel(item.status)}</span>
         )}
       </button>
       <button

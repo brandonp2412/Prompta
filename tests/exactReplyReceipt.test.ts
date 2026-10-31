@@ -43,7 +43,7 @@ test("ambiguous and preflight failures never erase an uncertain idempotency key"
   expect(
     exactReplyReceiptState({ ...turn, status: "preflight_failed" }, expected, "saved-run"),
   ).toBe("not_sent");
-  for (const status of ["dispatching", "accepted", "generating", "completed", "interrupted"]) {
+  for (const status of ["dispatching", "accepted", "generating", "completed", "interrupted", "unavailable"]) {
     expect(exactReplyReceiptState({ ...turn, status }, expected, "saved-run")).toBe("accepted");
   }
 });
