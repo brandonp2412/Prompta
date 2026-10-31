@@ -118,6 +118,8 @@ class ToolEventCollector:
         content = _record(message.get("content"))
         parts = content.get("parts")
         first = parts[0] if isinstance(parts, list) and parts else content.get("text")
+        if isinstance(first, dict) and first.get("type") == "text":
+            first = first.get("text")
         parsed = _record(_decode(first))
         if set(parsed) == {"text"}:
             nested = _record(_decode(parsed["text"]))
@@ -202,13 +204,22 @@ class ToolEventCollector:
         )]
         if not matching and known is None:
             return
-        key = known or (target if target in matching else matching[0])
+        if known is not None:
+            key = known
+        elif target in self._pending:
+            key = target
+        elif len(matching) == 1:
+            key = matching[0]
+        else:
+            return
         if result_id and len(self._results) < _MAX_TOOLS:
             self._results[result_id] = key
         entry = self._calls[key]
         content = _record(message.get("content"))
         parts = content.get("parts")
         value = parts[0] if isinstance(parts, list) and parts else content.get("text")
+        if isinstance(value, dict) and value.get("type") == "text":
+            value = value.get("text")
         entry["result"] = _display(value)
         entry["status"] = "error" if _record(message.get("metadata")).get("is_error") is True else "completed"
         if key in self._pending:

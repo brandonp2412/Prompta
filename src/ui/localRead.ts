@@ -35,5 +35,11 @@ export async function localGet(url: string): Promise<Response> {
     if (response) return response;
     throw failure;
   }
-  return request(remaining);
+  try {
+    return await request(remaining);
+  } catch (error) {
+    // A valid gateway response is more useful than losing its status after a failed retry.
+    if (response) return response;
+    throw error;
+  }
 }

@@ -24,6 +24,7 @@ export const emptyQueueSnapshot: QueueSnapshot = {
 };
 
 export function queueEtaText(waiting: WaitingJob): string {
+  if (!Number.isFinite(waiting.eta_seconds) || waiting.eta_seconds < 0) return "ETA unavailable";
   const minutes = Math.max(1, Math.ceil(waiting.eta_seconds / 60));
   if (minutes < 60) return "ETA ~" + minutes + " min";
   const hours = Math.floor(minutes / 60);
