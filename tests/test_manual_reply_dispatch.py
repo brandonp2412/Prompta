@@ -126,7 +126,7 @@ def test_explicit_reply_requires_exact_last_assistant_and_single_claim(
 ) -> None:
     store, state = completed_store(tmp_path)
     fake = FakeDriver(correct_branch=correct)
-    monkeypatch.setattr(dispatch, "PlaywrightDriver", lambda **_kwargs: fake)
+    monkeypatch.setattr(dispatch, "PatchrightDriver", lambda **_kwargs: fake)
     monkeypatch.setattr(dispatch, "BrowserDeliverySender", FakeSender)
     service = dispatch.ManualReplyDispatcher(store, state)
     intent = ReplyIntent(REPLY_ID, CONVERSATION, PARENT, "Synthetic explicit reply")
@@ -167,7 +167,7 @@ def test_explicit_reply_respects_shared_resource_admission(
     store, state = completed_store(tmp_path)
     SchedulerRuntime(state, state).set_resource_admission(False, "synthetic pressure")
     fake = FakeDriver()
-    monkeypatch.setattr(dispatch, "PlaywrightDriver", lambda **_kwargs: fake)
+    monkeypatch.setattr(dispatch, "PatchrightDriver", lambda **_kwargs: fake)
     monkeypatch.setattr(dispatch, "BrowserDeliverySender", FakeSender)
     service = dispatch.ManualReplyDispatcher(store, state)
     intent = ReplyIntent(REPLY_ID, CONVERSATION, PARENT, "Synthetic explicit reply")
@@ -213,7 +213,7 @@ def test_blank_rich_text_composer_newline_is_not_an_existing_draft(
     store, state = completed_store(tmp_path)
     fake = FakeDriver(correct_branch=True)
     fake.text = "\n"
-    monkeypatch.setattr(dispatch, "PlaywrightDriver", lambda **_kwargs: fake)
+    monkeypatch.setattr(dispatch, "PatchrightDriver", lambda **_kwargs: fake)
     monkeypatch.setattr(dispatch, "BrowserDeliverySender", FakeSender)
     service = dispatch.ManualReplyDispatcher(store, state)
     intent = ReplyIntent(REPLY_ID, CONVERSATION, PARENT, "Synthetic explicit reply")
@@ -239,7 +239,7 @@ def test_prepared_reply_reuses_only_an_identical_existing_draft(
     store, state = completed_store(tmp_path)
     fake = FakeDriver(correct_branch=True)
     fake.text = existing_draft
-    monkeypatch.setattr(dispatch, "PlaywrightDriver", lambda **_kwargs: fake)
+    monkeypatch.setattr(dispatch, "PatchrightDriver", lambda **_kwargs: fake)
     monkeypatch.setattr(dispatch, "BrowserDeliverySender", FakeSender)
     service = dispatch.ManualReplyDispatcher(store, state)
     intent = ReplyIntent(REPLY_ID, CONVERSATION, PARENT, "Synthetic explicit reply")
@@ -276,7 +276,7 @@ def test_manual_reply_retries_only_preclaim_browser_connection(
 ) -> None:
     store, state = completed_store(tmp_path)
     fake = FlakyConnectDriver(failures)
-    monkeypatch.setattr(dispatch, "PlaywrightDriver", lambda **_kwargs: fake)
+    monkeypatch.setattr(dispatch, "PatchrightDriver", lambda **_kwargs: fake)
     monkeypatch.setattr(dispatch, "BrowserDeliverySender", FakeSender)
     service = dispatch.ManualReplyDispatcher(store, state)
     intent = ReplyIntent(REPLY_ID, CONVERSATION, PARENT, "Synthetic explicit reply")
@@ -341,7 +341,7 @@ def test_accepted_post_with_exact_dom_final_completes_without_sse_body(
 ) -> None:
     store, state = completed_store(tmp_path)
     fake = DomOnlyDriver()
-    monkeypatch.setattr(dispatch, "PlaywrightDriver", lambda **_kwargs: fake)
+    monkeypatch.setattr(dispatch, "PatchrightDriver", lambda **_kwargs: fake)
     monkeypatch.setattr(dispatch, "BrowserDeliverySender", FakeSender)
     service = dispatch.ManualReplyDispatcher(store, state)
     intent = ReplyIntent(REPLY_ID, CONVERSATION, PARENT, "Synthetic explicit reply")
@@ -377,7 +377,7 @@ def test_transient_ambiguous_dom_does_not_interrupt_accepted_reply(
 ) -> None:
     store, state = completed_store(tmp_path)
     fake = AmbiguousThenCompleteDriver()
-    monkeypatch.setattr(dispatch, "PlaywrightDriver", lambda **_kwargs: fake)
+    monkeypatch.setattr(dispatch, "PatchrightDriver", lambda **_kwargs: fake)
     monkeypatch.setattr(dispatch, "BrowserDeliverySender", FakeSender)
     service = dispatch.ManualReplyDispatcher(store, state)
     intent = ReplyIntent(REPLY_ID, CONVERSATION, PARENT, "Synthetic explicit reply")
@@ -405,7 +405,7 @@ def test_ambiguous_dom_after_leaving_owned_branch_interrupts_safely(
 ) -> None:
     store, state = completed_store(tmp_path)
     fake = AmbiguousWrongRouteDriver()
-    monkeypatch.setattr(dispatch, "PlaywrightDriver", lambda **_kwargs: fake)
+    monkeypatch.setattr(dispatch, "PatchrightDriver", lambda **_kwargs: fake)
     monkeypatch.setattr(dispatch, "BrowserDeliverySender", FakeSender)
     service = dispatch.ManualReplyDispatcher(store, state)
     intent = ReplyIntent(REPLY_ID, CONVERSATION, PARENT, "Synthetic explicit reply")
@@ -449,7 +449,7 @@ def test_exact_dom_reply_confirmation_survives_missed_post(
 ) -> None:
     store, state = completed_store(tmp_path)
     fake = MissedPostDriver(verified=verified)
-    monkeypatch.setattr(dispatch, "PlaywrightDriver", lambda **_kwargs: fake)
+    monkeypatch.setattr(dispatch, "PatchrightDriver", lambda **_kwargs: fake)
     monkeypatch.setattr(dispatch, "BrowserDeliverySender", FakeSender)
     monkeypatch.setattr(dispatch, "_CONFIRM_SECONDS", 0.02)
     service = dispatch.ManualReplyDispatcher(store, state)
@@ -485,7 +485,7 @@ def test_exact_owned_route_binds_sse_result_missing_conversation_field(
 ) -> None:
     store, state = completed_store(tmp_path)
     fake = MissingRouteSseDriver()
-    monkeypatch.setattr(dispatch, "PlaywrightDriver", lambda **_kwargs: fake)
+    monkeypatch.setattr(dispatch, "PatchrightDriver", lambda **_kwargs: fake)
     monkeypatch.setattr(dispatch, "BrowserDeliverySender", FakeSender)
     service = dispatch.ManualReplyDispatcher(store, state)
     intent = ReplyIntent(REPLY_ID, CONVERSATION, PARENT, "Synthetic explicit reply")

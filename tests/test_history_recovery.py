@@ -4,7 +4,7 @@ import asyncio
 from pathlib import Path
 
 import pytest
-from patchright.async_api import Error as PlaywrightError
+from patchright.async_api import Error as PatchrightError
 
 import prompta.history_recovery as history_recovery
 from prompta.delivery_worker import DeliveryAdmission
@@ -13,7 +13,7 @@ from prompta.history_recovery import (
     _read_backoff_remaining,
     _record_read_rate_limit,
 )
-from prompta.playwright_driver import BrowserSecurityChallengeError, PlaywrightDriver
+from prompta.patchright_driver import BrowserSecurityChallengeError, PatchrightDriver
 from prompta.rate_limit import RateLimitError
 from prompta.reply_contracts import ManualReplyStore, ReplyIntent
 from prompta.response_capture import CaptureResult
@@ -205,7 +205,7 @@ def test_transient_ambiguous_dom_does_not_discard_same_tab_recovery(
     assert row is not None and row["status"] == "completed"
 
 
-@pytest.mark.parametrize("transient", [TimeoutError, PlaywrightError])
+@pytest.mark.parametrize("transient", [TimeoutError, PatchrightError])
 def test_transient_dom_and_probe_timeouts_retry_same_owned_tab(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, transient: type[Exception],
 ) -> None:
@@ -402,16 +402,16 @@ def test_read_specific_backoff_api_is_preferred_when_available() -> None:
 
 def test_conversation_http_429_detection_is_exact(tmp_path: Path) -> None:
     url = "https://chatgpt.com/backend-api/conversations/" + CONVERSATION + "?num_turns=10"
-    assert PlaywrightDriver._is_history_read_rate_limit(429, "GET", url)
-    assert not PlaywrightDriver._is_history_read_rate_limit(200, "GET", url)
-    assert not PlaywrightDriver._is_history_read_rate_limit(429, "POST", url)
-    assert not PlaywrightDriver._is_history_read_rate_limit(
+    assert PatchrightDriver._is_history_read_rate_limit(429, "GET", url)
+    assert not PatchrightDriver._is_history_read_rate_limit(200, "GET", url)
+    assert not PatchrightDriver._is_history_read_rate_limit(429, "POST", url)
+    assert not PatchrightDriver._is_history_read_rate_limit(
         429, "GET", "https://chatgpt.com/backend-api/pins?item_type=conversation"
     )
-    assert not PlaywrightDriver._is_history_read_rate_limit(
+    assert not PatchrightDriver._is_history_read_rate_limit(
         429, "GET", "https://example.com/backend-api/conversations/" + CONVERSATION
     )
-    driver = PlaywrightDriver(profile=tmp_path / "chrome-profile")
+    driver = PatchrightDriver(profile=tmp_path / "chrome-profile")
     assert not driver.history_rate_limited()
     driver._observe_history_read_response(429, "GET", url)
     assert driver.history_rate_limited()
@@ -437,7 +437,7 @@ def test_browser_context_error_after_429_still_persists_read_backoff(tmp_path: P
 
     class InterruptedRead(FakeHistoryDriver):
         async def dom_state(self) -> dict[str, object]:
-            raise PlaywrightError("Execution context was destroyed")
+            raise PatchrightError("Execution context was destroyed")
 
     driver = InterruptedRead(http_limited=True)
     runtime = SchedulerRuntime(tmp_path / "runtime.sqlite3", tmp_path / "jobs.json")

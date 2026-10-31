@@ -7,7 +7,8 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-from patchright.sync_api import Route, expect, sync_playwright
+from patchright.sync_api import Route, expect
+from patchright.sync_api import sync_playwright as sync_patchright
 from web_results_support import get, post_json, server
 
 
@@ -46,8 +47,8 @@ def test_lost_receipt_is_reconciled_after_reload_without_second_post(
         pytest.skip("Headless Chromium unavailable")
 
     with server(tmp_path) as (app, port):
-        with sync_playwright() as playwright:
-            browser = playwright.chromium.launch(executable_path=executable, headless=True)
+        with sync_patchright() as patchright:
+            browser = patchright.chromium.launch(executable_path=executable, headless=True)
             page = browser.new_page(viewport={"width": width, "height": height})
             posts: list[str] = []
             remote: list[str] = []

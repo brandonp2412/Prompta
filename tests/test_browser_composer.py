@@ -6,8 +6,8 @@ from pathlib import Path
 import pytest
 from _browser_fakes import offline_approval_default as offline_approval_default
 
-import prompta.playwright_driver as playwright_driver
-from prompta.playwright_driver import PlaywrightDriver
+import prompta.patchright_driver as patchright_driver
+from prompta.patchright_driver import PatchrightDriver
 
 
 @pytest.mark.asyncio
@@ -35,7 +35,7 @@ async def test_first_usable_accepts_unique_visible_candidate_when_composed_guard
             return self.candidates[index]
 
     candidate = Candidate()
-    driver = PlaywrightDriver(profile=tmp_path / "profile")
+    driver = PatchrightDriver(profile=tmp_path / "profile")
 
     found = await driver._first_usable([Collection([candidate])])
 
@@ -66,7 +66,7 @@ async def test_first_usable_refuses_ambiguous_visible_candidates_when_guard_fals
         def nth(self, index: int) -> Candidate:
             return self.candidates[index]
 
-    driver = PlaywrightDriver(profile=tmp_path / "profile")
+    driver = PatchrightDriver(profile=tmp_path / "profile")
 
     found = await driver._first_usable([Collection([Candidate(), Candidate()])])
 
@@ -95,7 +95,7 @@ async def test_first_usable_refuses_two_composed_active_controls(tmp_path: Path)
         def nth(self, index: int) -> Candidate:
             return self.candidates[index]
 
-    driver = PlaywrightDriver(profile=tmp_path / "profile")
+    driver = PatchrightDriver(profile=tmp_path / "profile")
     assert await driver._first_usable([Collection()]) is None
 
 
@@ -155,7 +155,7 @@ async def test_chat_surface_recognises_pressed_chat_without_click(
 
     control = Control()
     page = Page(control)
-    driver = PlaywrightDriver(profile=tmp_path / "profile")
+    driver = PatchrightDriver(profile=tmp_path / "profile")
     monkeypatch.setattr(driver, "_page", lambda _context=None: page)
 
     async def no_ready_composer(_page: object) -> object:
@@ -222,7 +222,7 @@ async def test_chat_surface_skips_truncated_semantic_controls(
         def locator(self, _selector: str) -> Collection:
             return Collection(candidates)
 
-    driver = PlaywrightDriver(profile=tmp_path / "profile")
+    driver = PatchrightDriver(profile=tmp_path / "profile")
     monkeypatch.setattr(driver, "_page", lambda _context=None: Page())
 
     async def no_composer(_page: object) -> None:
@@ -243,7 +243,7 @@ async def test_wait_for_composer_fails_closed_on_security_challenge(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    driver = PlaywrightDriver(profile=tmp_path / "profile")
+    driver = PatchrightDriver(profile=tmp_path / "profile")
 
     async def challenge_present(*, context: str | None = None) -> bool:
         del context
@@ -260,7 +260,7 @@ async def test_wait_for_composer_rejects_logged_out_page_with_visible_composer(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    driver = PlaywrightDriver(profile=tmp_path / "profile")
+    driver = PatchrightDriver(profile=tmp_path / "profile")
     page = object()
     login_checks = 0
 
@@ -292,7 +292,7 @@ async def test_wait_for_composer_reports_challenge_after_readiness_timeout(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    driver = PlaywrightDriver(profile=tmp_path / "profile")
+    driver = PatchrightDriver(profile=tmp_path / "profile")
     page = object()
     probes = 0
 
@@ -320,7 +320,7 @@ async def test_wait_for_composer_detects_challenge_during_hydration(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    driver = PlaywrightDriver(profile=tmp_path / "profile")
+    driver = PatchrightDriver(profile=tmp_path / "profile")
     page = object()
     probes = 0
     composer_checks = 0
@@ -385,7 +385,7 @@ async def test_hydrated_composer_prefers_named_editor_when_multiple_are_active(
 
     unrelated = Candidate(["Scratch editor"])
     composer = Candidate(["Ask ChatGPT"])
-    driver = PlaywrightDriver(profile=tmp_path / "profile")
+    driver = PatchrightDriver(profile=tmp_path / "profile")
 
     found = await driver._hydrated_composer(Page([unrelated, composer]))
 
@@ -400,7 +400,7 @@ async def test_hydrated_composer_fails_closed_on_partial_inspection(tmp_path: Pa
 
         async def evaluate(self, script: str, *, isolated_context: bool = True) -> object:
             if self.broken:
-                raise playwright_driver.PlaywrightError("detached editor")
+                raise patchright_driver.PatchrightError("detached editor")
             return ["Ask ChatGPT"] if "new Set(labels)" in script else True
 
         async def is_visible(self) -> bool:
@@ -423,7 +423,7 @@ async def test_hydrated_composer_fails_closed_on_partial_inspection(tmp_path: Pa
         def locator(self, _selector: str) -> Collection:
             return Collection()
 
-    driver = PlaywrightDriver(profile=tmp_path / "profile")
+    driver = PatchrightDriver(profile=tmp_path / "profile")
     assert await driver._hydrated_composer(Page()) is None
 
 
@@ -450,7 +450,7 @@ async def test_hydrated_composer_refuses_truncated_editable_scan(tmp_path: Path)
         def locator(self, _selector: str) -> Collection:
             return Collection()
 
-    driver = PlaywrightDriver(profile=tmp_path / "profile")
+    driver = PatchrightDriver(profile=tmp_path / "profile")
     assert await driver._hydrated_composer(Page()) is None
 
 
@@ -480,7 +480,7 @@ async def test_hydrated_composer_rejects_ambiguous_unnamed_editors(tmp_path: Pat
         def locator(self, _selector: str) -> Collection:
             return Collection([Candidate(), Candidate()])
 
-    driver = PlaywrightDriver(profile=tmp_path / "profile")
+    driver = PatchrightDriver(profile=tmp_path / "profile")
 
     assert await driver._hydrated_composer(Page()) is None
 
@@ -500,7 +500,7 @@ async def test_navigation_fails_closed_on_cloudflare_mitigation_header(
             return NavigationResponse()
 
     page = Page()
-    driver = PlaywrightDriver(profile=tmp_path / "profile")
+    driver = PatchrightDriver(profile=tmp_path / "profile")
     monkeypatch.setattr(driver, "_page", lambda _context=None: page)
 
     with pytest.raises(RuntimeError, match="security challenge"):
@@ -529,7 +529,7 @@ async def test_new_tab_sets_actionable_viewport_before_navigation(
             return page
 
     page = Page()
-    driver = PlaywrightDriver(profile=tmp_path / "profile")
+    driver = PatchrightDriver(profile=tmp_path / "profile")
     monkeypatch.setattr(driver, "_browser_context", Context())
 
     async def navigate(_url: str, *, context: str | None = None) -> None:
@@ -570,7 +570,7 @@ async def test_new_tab_closes_half_created_page_when_viewport_setup_fails(
             return page
 
     page = Page()
-    driver = PlaywrightDriver(profile=tmp_path / "profile")
+    driver = PatchrightDriver(profile=tmp_path / "profile")
     monkeypatch.setattr(driver, "_browser_context", Context())
 
     with pytest.raises(RuntimeError, match="viewport unavailable"):
@@ -589,7 +589,7 @@ async def test_effort_trigger_accepts_explicit_label_without_popup_metadata(
 ) -> None:
     marker = object()
     page = object()
-    driver = PlaywrightDriver(profile=tmp_path / "profile")
+    driver = PatchrightDriver(profile=tmp_path / "profile")
     monkeypatch.setattr(driver, "_page", lambda _context=None: page)
 
     async def semantic_button(candidate_page: object, _name: object) -> object:
@@ -615,7 +615,7 @@ async def test_effort_trigger_accepts_explicit_label_without_popup_metadata(
     ],
 )
 def test_gateway_mfa_authentication_route_classification(url: str, required: bool) -> None:
-    assert PlaywrightDriver._mfa_authentication_route(url) is required
+    assert PatchrightDriver._mfa_authentication_route(url) is required
 
 
 @pytest.mark.asyncio
@@ -625,7 +625,7 @@ async def test_composer_timeout_classifies_mfa_without_inspecting_login_form(
     class PageStub:
         url = "https://auth.openai.com/mfa-challenge?error=totp"
 
-    driver = PlaywrightDriver(profile=Path("/unused-test-profile"))
+    driver = PatchrightDriver(profile=Path("/unused-test-profile"))
 
     async def no_security_challenge(*, context: str | None = None) -> bool:
         del context
@@ -652,7 +652,7 @@ async def test_composer_timeout_classifies_expired_login_without_submitting(
     class PageStub:
         url = "https://auth.openai.com/authorize"
 
-    driver = PlaywrightDriver(profile=Path("/unused-test-profile"))
+    driver = PatchrightDriver(profile=Path("/unused-test-profile"))
 
     async def no_security_challenge(*, context: str | None = None) -> bool:
         del context
@@ -673,7 +673,7 @@ async def async_no_composer(_page: object) -> None:
 async def test_composer_text_fallback_targets_the_composer(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from patchright.async_api import Error as PlaywrightError
+    from patchright.async_api import Error as PatchrightError
 
     class Composer:
         def __init__(self) -> None:
@@ -683,7 +683,7 @@ async def test_composer_text_fallback_targets_the_composer(
             return True
 
         async def fill(self, _text: str) -> None:
-            raise PlaywrightError("contenteditable fill unsupported")
+            raise PatchrightError("contenteditable fill unsupported")
 
         async def press(self, key: str) -> None:
             self.presses.append(key)
@@ -711,7 +711,7 @@ async def test_composer_text_fallback_targets_the_composer(
 
     composer = Composer()
     page = Page()
-    driver = PlaywrightDriver(profile=tmp_path / "profile")
+    driver = PatchrightDriver(profile=tmp_path / "profile")
     monkeypatch.setattr(driver, "_page", lambda _context=None: page)
     await getattr(driver, "_replace_composer_text")(composer, "one-shot prompt")
     assert composer.presses == ["ControlOrMeta+A", "Backspace", "focus"]
@@ -722,14 +722,14 @@ async def test_composer_text_fallback_targets_the_composer(
 async def test_composer_fallback_rejects_stolen_focus(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from patchright.async_api import Error as PlaywrightError
+    from patchright.async_api import Error as PatchrightError
 
     class Composer:
         async def is_visible(self) -> bool:
             return True
 
         async def fill(self, _text: str) -> None:
-            raise PlaywrightError("fill unavailable")
+            raise PatchrightError("fill unavailable")
 
         async def press(self, _key: str) -> None:
             pass
@@ -748,7 +748,7 @@ async def test_composer_fallback_rejects_stolen_focus(
     class Page:
         keyboard = Keyboard()
 
-    driver = PlaywrightDriver(profile=tmp_path / "profile")
+    driver = PatchrightDriver(profile=tmp_path / "profile")
     monkeypatch.setattr(driver, "_page", lambda _context=None: Page())
     with pytest.raises(RuntimeError, match="lost focus before text insertion"):
         await getattr(driver, "_replace_composer_text")(Composer(), "one-shot prompt")
@@ -772,7 +772,7 @@ async def test_firstwari_picker_timeout_classifies_pre_dispatch_blockers(
     login: bool,
     expected: str,
 ) -> None:
-    driver = PlaywrightDriver(profile=tmp_path / "profile")
+    driver = PatchrightDriver(profile=tmp_path / "profile")
     checks: list[str] = []
 
     class PageStub:
@@ -799,7 +799,7 @@ async def test_firstwari_picker_timeout_classifies_pre_dispatch_blockers(
 async def test_chat_surface_fails_closed_before_interacting_with_challenge(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    driver = PlaywrightDriver(profile=tmp_path / "profile")
+    driver = PatchrightDriver(profile=tmp_path / "profile")
 
     class ChallengePage:
         def get_by_role(self, _role: str, *, name: object = None) -> object:
@@ -834,7 +834,7 @@ async def test_firstwari_send_readiness_timeout_classifies_predispatch_blockers(
     expected: str,
     login_calls: int,
 ) -> None:
-    driver = PlaywrightDriver(profile=tmp_path / "profile")
+    driver = PatchrightDriver(profile=tmp_path / "profile")
     calls = 0
 
     class PageStub:
@@ -870,7 +870,7 @@ async def test_firstwari_send_readiness_timeout_classifies_predispatch_blockers(
     ],
 )
 def test_send_capture_requires_chatgpt_origin(url: str, expected: bool) -> None:
-    assert PlaywrightDriver._is_send_endpoint(url) is expected
+    assert PatchrightDriver._is_send_endpoint(url) is expected
 
 
 @pytest.mark.asyncio
@@ -895,5 +895,5 @@ async def test_first_usable_refuses_truncated_candidate_scan(tmp_path: Path) -> 
         def nth(self, index: int) -> Candidate:
             return self.candidates[index]
 
-    driver = PlaywrightDriver(profile=tmp_path / "profile")
+    driver = PatchrightDriver(profile=tmp_path / "profile")
     assert await driver._first_usable([Collection()]) is None

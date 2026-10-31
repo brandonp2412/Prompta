@@ -6,7 +6,8 @@ import time
 from pathlib import Path
 
 import pytest
-from patchright.sync_api import expect, sync_playwright
+from patchright.sync_api import expect
+from patchright.sync_api import sync_playwright as sync_patchright
 from web_results_support import completed_run, server
 
 from prompta.response_capture import CaptureResult
@@ -19,10 +20,10 @@ def test_status_filtered_chat_disappears_after_completion(
     executable = os.environ.get("PROMPTA_TEST_CHROMIUM", "")
     if not executable or not Path(executable).exists():
         pytest.skip("Headless Chromium unavailable")
-    with server(tmp_path) as (app, port), sync_playwright() as playwright:
+    with server(tmp_path) as (app, port), sync_patchright() as patchright:
         now = time.time()
         app.results.ensure_queued("filtered-local-run", "Filtering probe", now=now)
-        browser = playwright.chromium.launch(executable_path=executable, headless=True)
+        browser = patchright.chromium.launch(executable_path=executable, headless=True)
         page = browser.new_page(viewport={"width": width, "height": height})
         remote: list[str] = []
         page.on("request", lambda request: remote.append(request.url) if not request.url.startswith(
@@ -54,9 +55,9 @@ def test_burst_of_reconnect_events_coalesces_slow_chat_reads(
     executable = os.environ.get("PROMPTA_TEST_CHROMIUM", "")
     if not executable or not Path(executable).exists():
         pytest.skip("Headless Chromium unavailable")
-    with server(tmp_path) as (app, port), sync_playwright() as playwright:
+    with server(tmp_path) as (app, port), sync_patchright() as patchright:
         completed_run(app, "burst-local-run", "Reconnect probe", time.time())
-        browser = playwright.chromium.launch(executable_path=executable, headless=True)
+        browser = patchright.chromium.launch(executable_path=executable, headless=True)
         page = browser.new_page(viewport={"width": width, "height": height})
         posts: list[str] = []
         page.on("request", lambda request: posts.append(request.url) if request.method == "POST" else None)

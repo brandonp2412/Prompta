@@ -7,7 +7,8 @@ import os
 from pathlib import Path
 
 import pytest
-from patchright.sync_api import Route, expect, sync_playwright
+from patchright.sync_api import Route, expect
+from patchright.sync_api import sync_playwright as sync_patchright
 from test_stage5_composer import serve_test_ui
 from web_results_support import server
 
@@ -29,8 +30,8 @@ def test_unwritable_receipt_store_blocks_fresh_send_without_duplicate(
     height: int,
 ) -> None:
     """No HTTP send may start unless its stable request ID can be saved."""
-    with server(tmp_path) as (app, port), sync_playwright() as playwright:
-        browser = playwright.chromium.launch(executable_path=_chromium(), headless=True)
+    with server(tmp_path) as (app, port), sync_patchright() as patchright:
+        browser = patchright.chromium.launch(executable_path=_chromium(), headless=True)
         page = browser.new_page(viewport={"width": width, "height": height})
         page.add_init_script("""(() => {
           const original = Storage.prototype.setItem;
@@ -75,8 +76,8 @@ def test_early_followup_uses_hashed_receipt_across_lost_ack_and_reload(
 ) -> None:
     results = ResponseStore(tmp_path / "chat-results.sqlite3")
     results.ensure_queued("early", "Original synthetic prompt")
-    with serve_test_ui(tmp_path) as port, sync_playwright() as playwright:
-        browser = playwright.chromium.launch(executable_path=_chromium(), headless=True)
+    with serve_test_ui(tmp_path) as port, sync_patchright() as patchright:
+        browser = patchright.chromium.launch(executable_path=_chromium(), headless=True)
         page = browser.new_page(viewport={"width": width, "height": height})
         ids: list[str] = []
 
@@ -132,8 +133,8 @@ def test_mismatched_followup_receipt_retains_id_and_does_not_duplicate(
 ) -> None:
     results = ResponseStore(tmp_path / "chat-results.sqlite3")
     results.ensure_queued("mismatch", "Original synthetic prompt")
-    with serve_test_ui(tmp_path) as port, sync_playwright() as playwright:
-        browser = playwright.chromium.launch(executable_path=_chromium(), headless=True)
+    with serve_test_ui(tmp_path) as port, sync_patchright() as patchright:
+        browser = patchright.chromium.launch(executable_path=_chromium(), headless=True)
         page = browser.new_page(viewport={"width": width, "height": height})
         ids: list[str] = []
 
@@ -182,8 +183,8 @@ def test_jobs_refresh_outage_has_visible_recovery_and_no_false_online_status(
     width: int,
     height: int,
 ) -> None:
-    with server(tmp_path) as (_, port), sync_playwright() as playwright:
-        browser = playwright.chromium.launch(executable_path=_chromium(), headless=True)
+    with server(tmp_path) as (_, port), sync_patchright() as patchright:
+        browser = patchright.chromium.launch(executable_path=_chromium(), headless=True)
         page = browser.new_page(viewport={"width": width, "height": height})
         page.clock.install()
         page.route("**/api/events", lambda route: route.abort())

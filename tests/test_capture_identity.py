@@ -74,11 +74,11 @@ async def test_real_browser_observer_binds_owned_route_without_network() -> None
     import os
     import shutil
 
-    from patchright.async_api import async_playwright
+    from patchright.async_api import async_playwright as async_patchright
 
     script = load_browser_script("passive_response_observer.js")
-    async with async_playwright() as playwright:
-        browser = await playwright.chromium.launch(
+    async with async_patchright() as patchright:
+        browser = await patchright.chromium.launch(
             headless=True, executable_path=os.environ.get("PROMPTA_TEST_CHROMIUM") or shutil.which("chromium")
         )
         try:

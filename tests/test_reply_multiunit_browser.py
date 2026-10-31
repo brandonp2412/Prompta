@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 
 import pytest
-from patchright.async_api import async_playwright
+from patchright.async_api import async_playwright as async_patchright
 
 from prompta.browser_script_loader import load_browser_script
 
@@ -59,8 +59,8 @@ def _delivery_script() -> str:
 @pytest.mark.skipif(not Path("/usr/bin/chromium").exists(), reason="Chromium unavailable")
 def test_multiunit_reply_historical_and_delivery_probes() -> None:
     async def check() -> None:
-        async with async_playwright() as playwright:
-            browser = await playwright.chromium.launch(executable_path="/usr/bin/chromium", headless=True)
+        async with async_patchright() as patchright:
+            browser = await patchright.chromium.launch(executable_path="/usr/bin/chromium", headless=True)
             try:
                 page = await browser.new_page()
                 await page.route(
@@ -149,8 +149,8 @@ def test_multiunit_reply_historical_and_delivery_probes() -> None:
 @pytest.mark.skipif(not Path("/usr/bin/chromium").exists(), reason="Chromium unavailable")
 def test_passive_observer_aggregates_new_reply_segments() -> None:
     async def check() -> None:
-        async with async_playwright() as playwright:
-            browser = await playwright.chromium.launch(executable_path="/usr/bin/chromium", headless=True)
+        async with async_patchright() as patchright:
+            browser = await patchright.chromium.launch(executable_path="/usr/bin/chromium", headless=True)
             try:
                 page = await browser.new_page()
                 await page.route(

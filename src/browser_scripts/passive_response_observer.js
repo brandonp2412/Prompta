@@ -98,7 +98,7 @@
       ambiguous: false,
       tool_calls,
     };
-    // Emit only mutation-coalesced changes over Playwright's in-page binding.
+    // Emit only mutation-coalesced changes over Patchright's in-page binding.
     // No network request, periodic polling, or alternate conversation access.
     publish();
   };

@@ -14,10 +14,10 @@ from collections.abc import Callable
 from typing import Protocol, runtime_checkable
 from uuid import UUID
 
-from patchright.async_api import Error as PlaywrightError
+from patchright.async_api import Error as PatchrightError
 
 from .browser_script_loader import load_browser_script
-from .playwright_driver import BrowserSecurityChallengeError
+from .patchright_driver import BrowserSecurityChallengeError
 from .rate_limit import RateLimitError, is_rate_limited_text
 from .reply_contracts import ManualReplyStore
 from .response_capture import CaptureResult, normalize_dom_snapshot
@@ -123,7 +123,7 @@ class HistoryRecovery:
             while asyncio.get_running_loop().time() < deadline:
                 try:
                     state = await driver.dom_state()
-                except (TimeoutError, PlaywrightError):
+                except (TimeoutError, PatchrightError):
                     if (
                         isinstance(driver, _HistoryRateLimitSignal)
                         and driver.history_rate_limited()
@@ -144,7 +144,7 @@ class HistoryRecovery:
                     raise RateLimitError.from_text(limit_text)
                 try:
                     payload = await driver.eval(script)
-                except (TimeoutError, PlaywrightError):
+                except (TimeoutError, PatchrightError):
                     if (
                         isinstance(driver, _HistoryRateLimitSignal)
                         and driver.history_rate_limited()

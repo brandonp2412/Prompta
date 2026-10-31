@@ -15,7 +15,9 @@ from pathlib import Path
 from unittest.mock import patch
 
 import uvicorn
-from patchright.sync_api import Browser, Playwright, sync_playwright
+from patchright.sync_api import Browser
+from patchright.sync_api import Playwright as Patchright
+from patchright.sync_api import sync_playwright as sync_patchright
 
 from prompta import core
 from prompta.scheduler_runtime import SchedulerRuntime
@@ -148,10 +150,10 @@ def _capture_cli(runtime_path: Path) -> str:
     return "$ prompta list\n" + output.getvalue()
 
 
-def _browser(playwright: Playwright) -> Browser:
+def _browser(patchright: Patchright) -> Browser:
     configured = os.environ.get("PROMPTA_README_BROWSER")
     if configured:
-        return playwright.chromium.launch(headless=True, executable_path=configured)
+        return patchright.chromium.launch(headless=True, executable_path=configured)
 
     for candidate in (
         Path("/usr/bin/chromium"),
@@ -160,9 +162,9 @@ def _browser(playwright: Playwright) -> Browser:
         Path("/usr/bin/google-chrome-stable"),
     ):
         if candidate.is_file():
-            return playwright.chromium.launch(headless=True, executable_path=str(candidate))
+            return patchright.chromium.launch(headless=True, executable_path=str(candidate))
 
-    return playwright.chromium.launch(headless=True)
+    return patchright.chromium.launch(headless=True)
 
 
 def _ansi_html(text: str) -> str:
@@ -327,8 +329,8 @@ def main() -> None:
         with tempfile.TemporaryDirectory(prefix="prompta-readme-") as temporary:
             runtime_path = _create_demo_runtime(Path(temporary))
             cli_output = _capture_cli(runtime_path)
-            with sync_playwright() as playwright:
-                browser = _browser(playwright)
+            with sync_patchright() as patchright:
+                browser = _browser(patchright)
                 try:
                     _render_cli(browser, cli_output)
                     _render_ui(browser, runtime_path)

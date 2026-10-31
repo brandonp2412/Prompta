@@ -14,7 +14,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from patchright.async_api import CDPSession, Page
-from patchright.async_api import Error as PlaywrightError
+from patchright.async_api import Error as PatchrightError
 
 from .response_capture import CaptureResult, SseResponseAccumulator
 from .tool_call_store import deserialize_tool_calls, merge_tool_calls
@@ -116,7 +116,7 @@ class OwnedToolStream:
             result = await self.session.send(
                 "Network.streamResourceContent", {"requestId": identity}
             )
-        except (PlaywrightError, RuntimeError):
+        except (PatchrightError, RuntimeError):
             self.streams.pop(identity, None)
             return
         stream = self.streams.get(identity)

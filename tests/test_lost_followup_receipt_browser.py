@@ -7,7 +7,8 @@ import time
 from pathlib import Path
 
 import pytest
-from patchright.sync_api import Route, expect, sync_playwright
+from patchright.sync_api import Route, expect
+from patchright.sync_api import sync_playwright as sync_patchright
 from test_stage5_composer import serve_test_ui
 
 from prompta.reply_contracts import ManualReplyStore
@@ -26,8 +27,8 @@ def test_lost_followup_receipt_recovers_from_local_sqlite_without_second_post(
     results = ResponseStore(tmp_path / "chat-results.sqlite3")
     results.ensure_queued("lost-receipt", "Original", now=time.time())
     assert results.accept("lost-receipt", "owner", deadline=time.time() + 4000)
-    with serve_test_ui(tmp_path) as port, sync_playwright() as playwright:
-        browser = playwright.chromium.launch(executable_path=executable, headless=True)
+    with serve_test_ui(tmp_path) as port, sync_patchright() as patchright:
+        browser = patchright.chromium.launch(executable_path=executable, headless=True)
         page = browser.new_page(viewport={"width": width, "height": height})
         page.route("**/api/events", lambda route: route.abort())
         page.goto(f"http://127.0.0.1:{port}/?view=chats&run=lost-receipt")

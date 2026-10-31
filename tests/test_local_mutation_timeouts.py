@@ -7,7 +7,8 @@ import os
 from pathlib import Path
 
 import pytest
-from patchright.sync_api import Route, expect, sync_playwright
+from patchright.sync_api import Route, expect
+from patchright.sync_api import sync_playwright as sync_patchright
 from test_stage5_composer import serve_test_ui
 from web_results_support import server
 
@@ -53,8 +54,8 @@ def _browser_executable() -> str:
 def test_stalled_fresh_send_unlocks_composer_and_reuses_exact_request(
     tmp_path: Path, width: int, height: int,
 ) -> None:
-    with server(tmp_path) as (app, port), sync_playwright() as playwright:
-        browser = playwright.chromium.launch(executable_path=_browser_executable(), headless=True)
+    with server(tmp_path) as (app, port), sync_patchright() as patchright:
+        browser = patchright.chromium.launch(executable_path=_browser_executable(), headless=True)
         page = browser.new_page(viewport={"width": width, "height": height})
         page.add_init_script("window.__stallRoute = '/api/chats';")
         page.add_init_script(_STALLED_POST)
@@ -86,8 +87,8 @@ def test_stalled_queued_followup_reuses_exact_id_and_clears_busy_state(
 ) -> None:
     results = ResponseStore(tmp_path / "chat-results.sqlite3")
     results.ensure_queued("early", "Original synthetic prompt")
-    with serve_test_ui(tmp_path) as port, sync_playwright() as playwright:
-        browser = playwright.chromium.launch(executable_path=_browser_executable(), headless=True)
+    with serve_test_ui(tmp_path) as port, sync_patchright() as patchright:
+        browser = patchright.chromium.launch(executable_path=_browser_executable(), headless=True)
         page = browser.new_page(viewport={"width": width, "height": height})
         page.add_init_script("window.__stallRoute = '/reply-queue';")
         page.add_init_script(_STALLED_POST)
@@ -114,8 +115,8 @@ def test_stalled_queued_followup_reuses_exact_id_and_clears_busy_state(
 def test_stalled_image_upload_restores_editor_without_sending(
     tmp_path: Path, width: int, height: int,
 ) -> None:
-    with server(tmp_path) as (app, port), sync_playwright() as playwright:
-        browser = playwright.chromium.launch(executable_path=_browser_executable(), headless=True)
+    with server(tmp_path) as (app, port), sync_patchright() as patchright:
+        browser = patchright.chromium.launch(executable_path=_browser_executable(), headless=True)
         page = browser.new_page(viewport={"width": width, "height": height})
         page.add_init_script("window.__stallRoute = '/api/images';")
         page.add_init_script(_STALLED_POST)
@@ -139,8 +140,8 @@ def test_stalled_image_upload_restores_editor_without_sending(
 def test_failed_second_job_image_rolls_back_first_upload(
     tmp_path: Path, width: int, height: int,
 ) -> None:
-    with server(tmp_path) as (app, port), sync_playwright() as playwright:
-        browser = playwright.chromium.launch(executable_path=_browser_executable(), headless=True)
+    with server(tmp_path) as (app, port), sync_patchright() as patchright:
+        browser = patchright.chromium.launch(executable_path=_browser_executable(), headless=True)
         page = browser.new_page(viewport={"width": width, "height": height})
         page.route("**/api/events", lambda route: route.abort())
         page.goto(f"http://127.0.0.1:{port}/?view=jobs")

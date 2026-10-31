@@ -8,7 +8,8 @@ import time
 from pathlib import Path
 
 import pytest
-from patchright.sync_api import FilePayload, expect, sync_playwright
+from patchright.sync_api import FilePayload, expect
+from patchright.sync_api import sync_playwright as sync_patchright
 from web_results_support import completed_run, server
 
 PNG = base64.b64decode(
@@ -27,9 +28,9 @@ def _chromium() -> str:
 def test_late_image_upload_cannot_attach_to_a_different_chat(
     tmp_path: Path, width: int, height: int,
 ) -> None:
-    with server(tmp_path) as (app, port), sync_playwright() as playwright:
+    with server(tmp_path) as (app, port), sync_patchright() as patchright:
         completed_run(app, "image-isolation", "Image isolation probe", time.time())
-        browser = playwright.chromium.launch(executable_path=_chromium(), headless=True)
+        browser = patchright.chromium.launch(executable_path=_chromium(), headless=True)
         page = browser.new_page(viewport={"width": width, "height": height})
         remote: list[str] = []
         page.on("request", lambda request: remote.append(request.url) if not request.url.startswith(
@@ -73,8 +74,8 @@ def test_late_image_upload_cannot_attach_to_a_different_chat(
 def test_invalid_batch_rejected_without_partially_uploading(
     tmp_path: Path, width: int, height: int,
 ) -> None:
-    with server(tmp_path) as (_, port), sync_playwright() as playwright:
-        browser = playwright.chromium.launch(executable_path=_chromium(), headless=True)
+    with server(tmp_path) as (_, port), sync_patchright() as patchright:
+        browser = patchright.chromium.launch(executable_path=_chromium(), headless=True)
         page = browser.new_page(viewport={"width": width, "height": height})
         uploads: list[str] = []
         page.on("request", lambda request: uploads.append(request.url) if request.url.endswith(
@@ -94,8 +95,8 @@ def test_invalid_batch_rejected_without_partially_uploading(
 def test_browser_reconnect_and_periodic_repair_only_refresh_local_views(
     tmp_path: Path, width: int, height: int,
 ) -> None:
-    with server(tmp_path) as (_, port), sync_playwright() as playwright:
-        browser = playwright.chromium.launch(executable_path=_chromium(), headless=True)
+    with server(tmp_path) as (_, port), sync_patchright() as patchright:
+        browser = patchright.chromium.launch(executable_path=_chromium(), headless=True)
         page = browser.new_page(viewport={"width": width, "height": height})
         page.clock.install()
         requests: list[tuple[str, str]] = []
@@ -121,10 +122,10 @@ def test_browser_reconnect_and_periodic_repair_only_refresh_local_views(
 def test_drafts_survive_spa_navigation_with_unavailable_browser_storage(
     tmp_path: Path, width: int, height: int,
 ) -> None:
-    with server(tmp_path) as (app, port), sync_playwright() as playwright:
+    with server(tmp_path) as (app, port), sync_patchright() as patchright:
         completed_run(app, "draft-alpha", "Draft alpha", time.time())
         completed_run(app, "draft-beta", "Draft beta", time.time())
-        browser = playwright.chromium.launch(executable_path=_chromium(), headless=True)
+        browser = patchright.chromium.launch(executable_path=_chromium(), headless=True)
         page = browser.new_page(viewport={"width": width, "height": height})
         page.add_init_script("""(() => {
           const read = Storage.prototype.getItem;
@@ -179,8 +180,8 @@ def test_drafts_survive_spa_navigation_with_unavailable_browser_storage(
 def test_attached_image_cannot_be_discarded_by_empty_draft_new_chat_action(
     tmp_path: Path, width: int, height: int,
 ) -> None:
-    with server(tmp_path) as (_, port), sync_playwright() as playwright:
-        browser = playwright.chromium.launch(executable_path=_chromium(), headless=True)
+    with server(tmp_path) as (_, port), sync_patchright() as patchright:
+        browser = patchright.chromium.launch(executable_path=_chromium(), headless=True)
         page = browser.new_page(viewport={"width": width, "height": height})
         sends: list[str] = []
         page.on("request", lambda request: sends.append(request.url) if request.method == "POST" and
@@ -203,9 +204,9 @@ def test_attached_image_cannot_be_discarded_by_empty_draft_new_chat_action(
 def test_uploaded_image_and_draft_survive_navigation_until_removed(
     tmp_path: Path, width: int, height: int,
 ) -> None:
-    with server(tmp_path) as (app, port), sync_playwright() as playwright:
+    with server(tmp_path) as (app, port), sync_patchright() as patchright:
         completed_run(app, "navigate-image", "Navigation image", time.time())
-        browser = playwright.chromium.launch(executable_path=_chromium(), headless=True)
+        browser = patchright.chromium.launch(executable_path=_chromium(), headless=True)
         page = browser.new_page(viewport={"width": width, "height": height})
         posts: list[str] = []
         page.on("request", lambda request: posts.append(request.url) if request.method == "POST" else None)
@@ -247,8 +248,8 @@ def test_uploaded_image_and_draft_survive_navigation_until_removed(
 def test_failed_upload_batch_rolls_back_and_duplicate_image_is_deduped(
     tmp_path: Path, width: int, height: int,
 ) -> None:
-    with server(tmp_path) as (_, port), sync_playwright() as playwright:
-        browser = playwright.chromium.launch(executable_path=_chromium(), headless=True)
+    with server(tmp_path) as (_, port), sync_patchright() as patchright:
+        browser = patchright.chromium.launch(executable_path=_chromium(), headless=True)
         page = browser.new_page(viewport={"width": width, "height": height})
         page.goto(f"http://127.0.0.1:{port}/?view=chats&draft=new")
         same: FilePayload = {"name": "same.png", "mimeType": "image/png", "buffer": PNG}

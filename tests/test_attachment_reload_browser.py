@@ -7,7 +7,8 @@ import os
 from pathlib import Path
 
 import pytest
-from patchright.sync_api import expect, sync_playwright
+from patchright.sync_api import expect
+from patchright.sync_api import sync_playwright as sync_patchright
 from web_results_support import server
 
 PNG = base64.b64decode(
@@ -22,8 +23,8 @@ def test_upload_refs_survive_reload_but_removed_refs_do_not(
     executable = os.environ.get("PROMPTA_TEST_CHROMIUM", "")
     if not executable or not Path(executable).exists():
         pytest.skip("Headless Chromium unavailable")
-    with server(tmp_path) as (_, port), sync_playwright() as playwright:
-        browser = playwright.chromium.launch(executable_path=executable, headless=True)
+    with server(tmp_path) as (_, port), sync_patchright() as patchright:
+        browser = patchright.chromium.launch(executable_path=executable, headless=True)
         page = browser.new_page(viewport={"width": width, "height": height})
         uploads: list[str] = []
         page.on("request", lambda request: uploads.append(request.url) if request.method == "POST"

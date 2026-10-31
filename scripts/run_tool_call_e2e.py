@@ -13,7 +13,7 @@ import uuid
 from pathlib import Path
 from urllib.request import urlopen
 
-from patchright.async_api import async_playwright
+from patchright.async_api import async_playwright as async_patchright
 
 from prompta.browser_script_loader import load_browser_script
 from prompta.delivery_queue import DeliveryQueueStore
@@ -52,10 +52,10 @@ async def run_tool_canary(
     deadline = time.monotonic() + timeout_seconds
     visible = False
     helper = load_browser_script("markdown_from_dom.js")
-    async with async_playwright() as playwright:
+    async with async_patchright() as patchright:
         # Observe only an already-launched Prompta-owned exact canary tab.
         # No tab creation, user messages, history reads, navigation, or clicks.
-        browser = await playwright.chromium.connect_over_cdp(cdp_url)
+        browser = await patchright.chromium.connect_over_cdp(cdp_url)
         try:
             while time.monotonic() < deadline:
                 queued = queue.get(send_id)
@@ -86,7 +86,7 @@ async def run_tool_canary(
                         break
                 await asyncio.sleep(0.4)
         finally:
-            await playwright.stop()
+            await patchright.stop()
 
     record = results.get(send_id)
     if record is None or record["status"] != "completed" or not visible:
@@ -103,8 +103,8 @@ async def run_tool_canary(
     turns = payload.get("turns", [])
     if not isinstance(turns, list) or not turns or turns[0].get("tool_calls") != stored:
         raise RuntimeError(f"Canary transcript API omitted tool events: {send_id}")
-    async with async_playwright() as playwright:
-        browser = await playwright.chromium.launch(headless=True)
+    async with async_patchright() as patchright:
+        browser = await patchright.chromium.launch(headless=True)
         try:
             page = await browser.new_page()
             await page.goto(ui_url.rstrip("/") + "/?view=chats&run=" + send_id)

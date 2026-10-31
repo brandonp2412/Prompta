@@ -20,16 +20,20 @@ from patchright.async_api import (
     BrowserContext,
     Locator,
     Page,
-    Playwright,
     Request,
     Response,
-    async_playwright,
 )
 from patchright.async_api import (
-    Error as PlaywrightError,
+    Error as PatchrightError,
 )
 from patchright.async_api import (
-    TimeoutError as PlaywrightTimeoutError,
+    Playwright as Patchright,
+)
+from patchright.async_api import (
+    TimeoutError as PatchrightTimeoutError,
+)
+from patchright.async_api import (
+    async_playwright as async_patchright,
 )
 
 from .browser_ownership import (
@@ -59,7 +63,7 @@ from .tool_events import summarize_stream_tool_calls
 
 
 class BrowsingContextUnavailableError(RuntimeError):
-    """Raised when a Prompta-owned Playwright page is no longer available."""
+    """Raised when a Prompta-owned Patchright page is no longer available."""
 
 
 logger = logging.getLogger(__name__)
@@ -126,11 +130,11 @@ class _RateLimitPage(Protocol[_RateT_co]):
 
 
 class ChromeDebuggerUnavailableError(RuntimeError):
-    """Raised when Prompta cannot attach Playwright to the configured Chromium CDP endpoint."""
+    """Raised when Prompta cannot attach Patchright to the configured Chromium CDP endpoint."""
 
 
-class PlaywrightDriver(ModelPickerMixin):
-    """Playwright-backed ChatGPT browser driver.
+class PatchrightDriver(ModelPickerMixin):
+    """Patchright-backed ChatGPT browser driver.
 
     Interactions intentionally prefer accessibility semantics (role/name/label/
     placeholder) and stable browser/HTML capabilities. Private classes and test IDs
@@ -161,7 +165,7 @@ class PlaywrightDriver(ModelPickerMixin):
         self.debugger_address = debugger_address.strip() if debugger_address else None
         self.ownership_prefix = ownership_prefix
         self.page_owner_id = new_page_owner_id()
-        self._playwright: Playwright | None = None
+        self._patchright: Patchright | None = None
         self._browser: Browser | None = None
         self._browser_context: BrowserContext | None = None
         self._pages: dict[str, Page] = {}
@@ -387,7 +391,7 @@ class PlaywrightDriver(ModelPickerMixin):
     ) -> None:
         try:
             await response.finished()
-            # Playwright can read the body after the SSE stream terminates.
+            # Patchright can read the body after the SSE stream terminates.
             # Its tab may close first; that is an interrupted capture, never a retry.
             body = await response.text()
             if not capture.get("ambiguous_request"):
@@ -400,7 +404,7 @@ class PlaywrightDriver(ModelPickerMixin):
             capture["assistant_capture_stop"] = "interrupted"
             self._signal_response(None)
             raise
-        except (PlaywrightError, RuntimeError):
+        except (PatchrightError, RuntimeError):
             capture["assistant_capture_stop"] = "interrupted"
             self._signal_response(None)
 
@@ -437,7 +441,7 @@ class PlaywrightDriver(ModelPickerMixin):
                 page, lambda: self._send_capture is not None,
                 self._is_send_endpoint, self._on_tool_stream_capture,
             )
-        except (PlaywrightError, RuntimeError, TypeError, AttributeError) as exc:
+        except (PatchrightError, RuntimeError, TypeError, AttributeError) as exc:
             # The DOM observer remains active if this Chromium lacks CDP streaming.
             logger.info("Owned tool streaming unavailable error_type=%s", type(exc).__name__)
 
@@ -469,7 +473,7 @@ class PlaywrightDriver(ModelPickerMixin):
             payload = await self.eval(
                 load_browser_script("passive_response_read.js"), main_world=True
             )
-        except (PlaywrightError, RuntimeError, TimeoutError):
+        except (PatchrightError, RuntimeError, TimeoutError):
             return normalize_dom_snapshot(None)
         return normalize_dom_snapshot(payload)
 
@@ -485,7 +489,7 @@ class PlaywrightDriver(ModelPickerMixin):
 
     def arm_send_capture(self) -> dict[str, object]:
         if not self.is_connected:
-            raise RuntimeError("Playwright browser is not connected")
+            raise RuntimeError("Patchright browser is not connected")
         capture: dict[str, object] = {
             "request_id": "",
             "request_obj": None,
@@ -522,7 +526,7 @@ class PlaywrightDriver(ModelPickerMixin):
                 if count > limit:
                     # A truncated scan cannot establish a unique active control.
                     continue
-            except PlaywrightError:
+            except PatchrightError:
                 continue
 
             browser_usable: list[_UsableT] = []
@@ -537,7 +541,7 @@ class PlaywrightDriver(ModelPickerMixin):
                     browser_usable.append(candidate)
                     if await candidate.evaluate(load_browser_script("is_active_composed_node.js")):
                         composed_active.append(candidate)
-                except PlaywrightError:
+                except PatchrightError:
                     continue
 
             if len(composed_active) == 1:
@@ -557,7 +561,7 @@ class PlaywrightDriver(ModelPickerMixin):
             if count > 24:
                 # Scanning a prefix cannot rule out another active editor.
                 return None
-        except PlaywrightError:
+        except PatchrightError:
             return None
 
         named: list[_UsableT] = []
@@ -582,7 +586,7 @@ class PlaywrightDriver(ModelPickerMixin):
                     _COMPOSER_NAME_RE.search(str(label)) for label in labels
                 ):
                     named.append(candidate)
-            except PlaywrightError:
+            except PatchrightError:
                 # A failed inspection may conceal a second matching editor.
                 # Never infer uniqueness from a partially inspected set.
                 inspection_failed = True
@@ -656,7 +660,7 @@ class PlaywrightDriver(ModelPickerMixin):
                 button = await self._first_usable([submits], enabled=enabled)
                 if button is not None:
                     return button
-            except PlaywrightError:
+            except PatchrightError:
                 continue
         return None
 
@@ -776,7 +780,7 @@ class PlaywrightDriver(ModelPickerMixin):
             )
             try:
                 count = await candidates.count()
-            except PlaywrightError:
+            except PatchrightError:
                 continue
 
             # A truncated scan cannot establish uniqueness. Do not match a
@@ -803,7 +807,7 @@ class PlaywrightDriver(ModelPickerMixin):
                         continue
                     if any(name.search(str(label)) for label in labels):
                         matched.append(candidate)
-                except PlaywrightError:
+                except PatchrightError:
                     continue
             if len(matched) == 1:
                 return matched[0]
@@ -817,7 +821,7 @@ class PlaywrightDriver(ModelPickerMixin):
         for attribute in ("aria-checked", "aria-selected", "aria-pressed"):
             try:
                 value = (await control.get_attribute(attribute) or "").strip().casefold()
-            except PlaywrightError:
+            except PatchrightError:
                 continue
             if value == "true":
                 return True
@@ -826,7 +830,7 @@ class PlaywrightDriver(ModelPickerMixin):
 
         try:
             current = (await control.get_attribute("aria-current") or "").strip().casefold()
-        except PlaywrightError:
+        except PatchrightError:
             current = ""
         if current and current != "false":
             return True
@@ -835,7 +839,7 @@ class PlaywrightDriver(ModelPickerMixin):
 
         try:
             state = (await control.get_attribute("data-state") or "").strip().casefold()
-        except PlaywrightError:
+        except PatchrightError:
             state = ""
         if state in {"active", "checked", "selected", "on", "open"}:
             return True
@@ -852,7 +856,7 @@ class PlaywrightDriver(ModelPickerMixin):
                 self._owned_contexts.discard(target)
                 self._pages.pop(target, None)
             raise BrowsingContextUnavailableError(
-                f"Playwright browsing context {target or '<default>'} is unavailable"
+                f"Patchright browsing context {target or '<default>'} is unavailable"
             )
         return page
 
@@ -860,13 +864,13 @@ class PlaywrightDriver(ModelPickerMixin):
         if self.is_connected:
             return
         if self.needs_browser_restart:
-            raise RuntimeError("Playwright browser session is poisoned; browser restart required")
+            raise RuntimeError("Patchright browser session is poisoned; browser restart required")
         await self.close()
-        self._playwright = await async_playwright().start()
+        self._patchright = await async_patchright().start()
         try:
             if self.debugger_address:
                 await asyncio.to_thread(self._assert_debugger_available)
-                self._browser = await self._playwright.chromium.connect_over_cdp(
+                self._browser = await self._patchright.chromium.connect_over_cdp(
                     f"http://{self.debugger_address}"
                 )
                 contexts = list(self._browser.contexts)
@@ -883,7 +887,7 @@ class PlaywrightDriver(ModelPickerMixin):
                 self._browser_context = browser_context
             else:
                 self.profile.mkdir(parents=True, exist_ok=True)
-                self._browser_context = await self._playwright.chromium.launch_persistent_context(
+                self._browser_context = await self._patchright.chromium.launch_persistent_context(
                     user_data_dir=str(self.profile.resolve()),
                     executable_path=self.chrome_path,
                     headless=self.headless,
@@ -954,7 +958,7 @@ class PlaywrightDriver(ModelPickerMixin):
         context: str | None = None,
         main_world: bool = False,
     ) -> object:
-        del await_promise  # Playwright awaits returned promises automatically.
+        del await_promise  # Patchright awaits returned promises automatically.
         page = self._page(context)
         try:
             return await asyncio.wait_for(
@@ -962,8 +966,8 @@ class PlaywrightDriver(ModelPickerMixin):
             )
         except TimeoutError as exc:
             self.needs_browser_restart = True
-            raise RuntimeError("Playwright page evaluation timed out after 30s") from exc
-        except PlaywrightError as exc:
+            raise RuntimeError("Patchright page evaluation timed out after 30s") from exc
+        except PatchrightError as exc:
             message = str(exc).casefold()
             if any(
                 text in message
@@ -975,7 +979,7 @@ class PlaywrightDriver(ModelPickerMixin):
             ):
                 self._forget_page(page)
                 raise BrowsingContextUnavailableError(
-                    "Playwright browsing context is unavailable"
+                    "Patchright browsing context is unavailable"
                 ) from exc
             raise
 
@@ -988,7 +992,7 @@ class PlaywrightDriver(ModelPickerMixin):
             return False
         try:
             verdict = response.headers.get("cf-mitigated", "")
-        except PlaywrightError:
+        except PatchrightError:
             return False
         return verdict.casefold() == "challenge"
 
@@ -1044,8 +1048,8 @@ class PlaywrightDriver(ModelPickerMixin):
             context_id = self._page_contexts.get(page)
             if context_id in self._owned_contexts:
                 await self._mark_owned(page)
-        except PlaywrightTimeoutError as exc:
-            raise RuntimeError(f"Playwright navigation timed out for {url}") from exc
+        except PatchrightTimeoutError as exc:
+            raise RuntimeError(f"Patchright navigation timed out for {url}") from exc
 
     async def _prepare_owned_page(self, page: Page) -> str:
         """Register a new Prompta tab before any setup that can fail."""
@@ -1064,14 +1068,14 @@ class PlaywrightDriver(ModelPickerMixin):
             else:
                 try:
                     await page.close()
-                except PlaywrightError:
+                except PatchrightError:
                     pass
             raise
 
     async def new_tab(self, url: str = "https://chatgpt.com/") -> str:
         browser_context = self._browser_context
         if browser_context is None:
-            raise RuntimeError("Playwright browser context is not connected")
+            raise RuntimeError("Patchright browser context is not connected")
         page = await browser_context.new_page()
         context_id = await self._prepare_owned_page(page)
         self.context = context_id
@@ -1091,7 +1095,7 @@ class PlaywrightDriver(ModelPickerMixin):
         if owned and not page.is_closed():
             try:
                 await page.close()
-            except PlaywrightError:
+            except PatchrightError:
                 pass
         self._forget_page(page)
 
@@ -1141,7 +1145,7 @@ class PlaywrightDriver(ModelPickerMixin):
         page = self._page(context)
         try:
             title = (await page.title()).casefold()
-        except PlaywrightError:
+        except PatchrightError:
             title = ""
         if "just a moment" in title or "attention required" in title:
             return True
@@ -1225,7 +1229,7 @@ class PlaywrightDriver(ModelPickerMixin):
         dialogs = page.get_by_role("dialog")
         try:
             count = await dialogs.count()
-        except PlaywrightError:
+        except PatchrightError:
             return False
         # Never scan an unbounded number of dialogs or click generic OK/CTA buttons.
         if count > 4:
@@ -1251,7 +1255,7 @@ class PlaywrightDriver(ModelPickerMixin):
                     continue
                 await close.click(timeout=1500)
                 return True
-            except PlaywrightError:
+            except PatchrightError:
                 continue
         return False
 
@@ -1262,7 +1266,7 @@ class PlaywrightDriver(ModelPickerMixin):
 
         # The first server-rendered textarea is short-lived. Give ChatGPT a
         # bounded grace period to replace it with the real ProseMirror editor
-        # before starting a fill, otherwise Playwright can spend its full
+        # before starting a fill, otherwise Patchright can spend its full
         # action timeout writing to a node that is being detached.
         composer = await self._composer(page)
         fallback = composer
@@ -1289,7 +1293,7 @@ class PlaywrightDriver(ModelPickerMixin):
             if await composer.is_visible():
                 await composer.fill(text)
                 return
-        except PlaywrightError:
+        except PatchrightError:
             pass
 
         try:
@@ -1306,7 +1310,7 @@ class PlaywrightDriver(ModelPickerMixin):
                 if focused is not True:
                     raise RuntimeError("ChatGPT composer lost focus before text insertion")
                 await keyboard.insert_text(text)
-        except PlaywrightError as exc:
+        except PatchrightError as exc:
             raise RuntimeError("ChatGPT composer could not accept text") from exc
 
     async def type_message(self, text: str) -> None:
@@ -1360,7 +1364,7 @@ class PlaywrightDriver(ModelPickerMixin):
             if tag in {"textarea", "input"}:
                 return await composer.input_value()
             return await composer.inner_text()
-        except PlaywrightError:
+        except PatchrightError:
             return ""
 
     async def _send_control(
@@ -1404,7 +1408,7 @@ class PlaywrightDriver(ModelPickerMixin):
             try:
                 if await control.is_enabled():
                     return control
-            except PlaywrightError:
+            except PatchrightError:
                 pass
 
             await asyncio.sleep(0.05)
@@ -1524,7 +1528,7 @@ class PlaywrightDriver(ModelPickerMixin):
         for source in sources:
             try:
                 count = min(await source.count(), 24)
-            except PlaywrightError:
+            except PatchrightError:
                 continue
             for index in range(count):
                 candidate = source.nth(index)
@@ -1536,7 +1540,7 @@ class PlaywrightDriver(ModelPickerMixin):
                     ):
                         continue
                     text = (await candidate.inner_text()).strip()
-                except PlaywrightError:
+                except PatchrightError:
                     continue
                 if text and _RATE_LIMIT_RE.search(text) and text not in texts:
                     texts.append(text)
@@ -1560,7 +1564,7 @@ class PlaywrightDriver(ModelPickerMixin):
     async def send_confirmation_state(self) -> dict[str, object]:
         """Read only the active user composer and Stop generating control after dispatch."""
         page = self._page()
-        # A single, bounded page evaluation avoids an expensive Playwright
+        # A single, bounded page evaluation avoids an expensive Patchright
         # accessibility/role scan while the fresh-chat UI is rehydrating. Read
         # only the user's textbox and explicit control labels, never messages.
         try:
@@ -1574,7 +1578,7 @@ class PlaywrightDriver(ModelPickerMixin):
                     "composer_text": str(quick["composer_text"]),
                     "send_in_progress": bool(quick["send_in_progress"]),
                 }
-        except (PlaywrightError, AttributeError):
+        except (PatchrightError, AttributeError):
             pass
         # Preserve semantic fallback for ChatGPT UI variants with no unique
         # visible composer, including shadow DOM/accessibility changes.
@@ -1619,7 +1623,7 @@ class PlaywrightDriver(ModelPickerMixin):
                 )
                 try:
                     count = await interactive.count()
-                except PlaywrightError:
+                except PatchrightError:
                     continue
                 # A prefix cannot establish uniqueness: a second Chat control
                 # after index 39 would make the first match ambiguous.
@@ -1642,7 +1646,7 @@ class PlaywrightDriver(ModelPickerMixin):
                             chat_name.search(str(label)) for label in labels
                         ):
                             matched.append(candidate)
-                    except PlaywrightError:
+                    except PatchrightError:
                         continue
                 if len(matched) == 1:
                     return matched[0]
@@ -1679,7 +1683,7 @@ class PlaywrightDriver(ModelPickerMixin):
                     if await self._composer(page) is not None:
                         return
                     await asyncio.sleep(0.05)
-            except PlaywrightError:
+            except PatchrightError:
                 await asyncio.sleep(0.1)
         if await self._cloudflare_challenge_present():
             raise BrowserSecurityChallengeError(
@@ -1691,7 +1695,7 @@ class PlaywrightDriver(ModelPickerMixin):
         page = self._page()
         try:
             await page.keyboard.press("Escape")
-        except PlaywrightError:
+        except PatchrightError:
             pass
 
     async def close(self) -> None:
@@ -1703,12 +1707,12 @@ class PlaywrightDriver(ModelPickerMixin):
                 if not page.is_closed():
                     try:
                         await page.close()
-                    except PlaywrightError:
+                    except PatchrightError:
                         pass
         elif self._browser_context is not None:
             try:
                 await self._browser_context.close()
-            except PlaywrightError:
+            except PatchrightError:
                 pass
 
         self._pages.clear()
@@ -1725,18 +1729,18 @@ class PlaywrightDriver(ModelPickerMixin):
         if self._tool_stream is not None:
             try:
                 await self._tool_stream.stop()
-            except PlaywrightError:
+            except PatchrightError:
                 pass
             self._tool_stream = None
         self._connected = False
 
-        # For an attached browser, stopping Playwright disconnects the automation
+        # For an attached browser, stopping Patchright disconnects the automation
         # client without quitting the user's Chromium process.
-        if self._playwright is not None:
+        if self._patchright is not None:
             try:
-                await self._playwright.stop()
-            except PlaywrightError:
+                await self._patchright.stop()
+            except PatchrightError:
                 pass
-        self._playwright = None
+        self._patchright = None
         self._browser = None
         self._browser_context = None

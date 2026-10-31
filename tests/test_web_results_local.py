@@ -6,7 +6,8 @@ import re
 from pathlib import Path
 
 import pytest
-from patchright.sync_api import expect, sync_playwright
+from patchright.sync_api import expect
+from patchright.sync_api import sync_playwright as sync_patchright
 from web_results_support import (
     completed_run,
     get,
@@ -23,8 +24,8 @@ from prompta.strict_types import string_object_dict
 
 def test_default_route_opens_chats_and_jobs_remains_linkable(tmp_path: Path) -> None:
     with server(tmp_path) as (_app, port):
-        with sync_playwright() as playwright:
-            browser = playwright.chromium.launch(
+        with sync_patchright() as patchright:
+            browser = patchright.chromium.launch(
                 headless=True,
                 executable_path=os.environ.get("PROMPTA_TEST_CHROMIUM", "/usr/bin/chromium"),
             )
@@ -65,8 +66,8 @@ def test_attention_filter_marks_interrupted_chats_in_react_sidebar(
             )
         assert get(port, "/api/results?status=needs_attention")[1]["total"] == 1
 
-        with sync_playwright() as playwright:
-            browser = playwright.chromium.launch(
+        with sync_patchright() as patchright:
+            browser = patchright.chromium.launch(
                 headless=True,
                 executable_path=os.environ.get("PROMPTA_TEST_CHROMIUM", "/usr/bin/chromium"),
             )
@@ -394,8 +395,8 @@ def test_mark_all_as_read_button_persists_across_tabs_and_reload(tmp_path: Path)
     with server(tmp_path) as (app, port):
         for index in range(65):
             completed_run(app, f"button-{index:02}", f"Button {index}", 100 + index)
-        with sync_playwright() as playwright:
-            browser = playwright.chromium.launch(
+        with sync_patchright() as patchright:
+            browser = patchright.chromium.launch(
                 executable_path=chromium,
                 headless=True,
                 args=["--no-sandbox"],
@@ -450,8 +451,8 @@ def test_server_local_pins_across_browser_contexts_and_rapid_clicks(tmp_path: Pa
     with server(tmp_path) as (app, port):
         for i in range(26):
             completed_run(app, f"run-{i:02}", f"Chat {i:02}", 1000 + i)
-        with sync_playwright() as playwright:
-            browser = playwright.chromium.launch(
+        with sync_patchright() as patchright:
+            browser = patchright.chromium.launch(
                 executable_path=chromium_path,
                 headless=True,
                 args=["--no-sandbox"],

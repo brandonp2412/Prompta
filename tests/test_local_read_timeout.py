@@ -7,7 +7,8 @@ import time
 from pathlib import Path
 
 import pytest
-from patchright.sync_api import expect, sync_playwright
+from patchright.sync_api import expect
+from patchright.sync_api import sync_playwright as sync_patchright
 from web_results_support import completed_run, server
 
 
@@ -22,9 +23,9 @@ def _chromium() -> str:
 def test_hung_local_results_get_times_out_then_retries(
     tmp_path: Path, width: int, height: int,
 ) -> None:
-    with server(tmp_path) as (app, port), sync_playwright() as playwright:
+    with server(tmp_path) as (app, port), sync_patchright() as patchright:
         completed_run(app, "stalled-read-run", "Stalled local read", time.time())
-        browser = playwright.chromium.launch(executable_path=_chromium(), headless=True)
+        browser = patchright.chromium.launch(executable_path=_chromium(), headless=True)
         page = browser.new_page(viewport={"width": width, "height": height})
         remote: list[str] = []
         writes: list[str] = []
@@ -54,7 +55,7 @@ def test_hung_local_results_get_times_out_then_retries(
         expect(page.get_by_role("button", name="Retry chats")).to_be_visible(timeout=5000)
         page.evaluate("window.blockLocalResults = false", isolated_context=False)
         # A disconnected-stream repair can finish between the Retry control
-        # appearing and Playwright waiting for its animation to stabilize.
+        # appearing and Patchright waiting for its animation to stabilize.
         # Click if still present; either path must restore the local chat.
         page.evaluate("""() => {
           const retry = Array.from(document.querySelectorAll('button')).find(
@@ -74,8 +75,8 @@ def test_failed_queue_status_is_labeled_stale_and_can_recover(
     import prompta.web as web_module
 
     monkeypatch.setattr(web_module, "_STATIC_ROOT", Path(__file__).resolve().parents[1] / "src/static")
-    with server(tmp_path) as (_, port), sync_playwright() as playwright:
-        browser = playwright.chromium.launch(executable_path=_chromium(), headless=True)
+    with server(tmp_path) as (_, port), sync_patchright() as patchright:
+        browser = patchright.chromium.launch(executable_path=_chromium(), headless=True)
         page = browser.new_page(viewport={"width": width, "height": height})
         page.route("**/api/queue-status", lambda route: route.fulfill(status=503))
         page.goto(f"http://127.0.0.1:{port}/?view=chats")

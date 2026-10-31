@@ -8,7 +8,7 @@ import pytest
 
 import prompta.delivery_browser as delivery_browser
 from prompta.delivery_browser import BrowserDeliverySender
-from prompta.playwright_driver import PlaywrightDriver
+from prompta.patchright_driver import PatchrightDriver
 from prompta.response_capture import parse_sse_body
 
 
@@ -91,7 +91,7 @@ async def test_late_accepted_transport_is_not_classified_as_unsent(
 async def test_camera_capture_input_is_never_used_for_image_attachment(
     tmp_path: Path,
 ) -> None:
-    driver = PlaywrightDriver(profile=tmp_path / "profile")
+    driver = PatchrightDriver(profile=tmp_path / "profile")
     page = MagicMock()
 
     def locate(selector: str) -> MagicMock:
@@ -111,7 +111,7 @@ async def test_camera_capture_input_is_never_used_for_image_attachment(
 async def test_recognised_composer_promotion_uses_only_safe_dismissal(
     tmp_path: Path,
 ) -> None:
-    driver = PlaywrightDriver(profile=tmp_path / "profile")
+    driver = PatchrightDriver(profile=tmp_path / "profile")
     page = MagicMock()
     dialogs = page.get_by_role.return_value
     dialogs.count = AsyncMock(return_value=1)

@@ -8,7 +8,7 @@ import time
 from pathlib import Path
 
 import pytest
-from patchright.async_api import async_playwright
+from patchright.async_api import async_playwright as async_patchright
 
 from prompta.browser_script_loader import load_browser_script
 
@@ -20,8 +20,8 @@ async def test_browser_composer_focus_rejects_embedded_button_and_focus_steal() 
     chromium = os.environ.get("PROMPTA_TEST_CHROMIUM") or shutil.which("chromium")
     if chromium is None:
         pytest.skip("System Chromium is unavailable")
-    async with async_playwright() as playwright:
-        browser = await playwright.chromium.launch(
+    async with async_patchright() as patchright:
+        browser = await patchright.chromium.launch(
             executable_path=chromium, headless=True, args=["--no-sandbox"]
         )
         try:
@@ -51,8 +51,8 @@ async def test_connector_permission_controls() -> None:
     chromium = os.environ.get("PROMPTA_TEST_CHROMIUM") or shutil.which("chromium")
     if chromium is None:
         pytest.skip("System Chromium is unavailable")
-    async with async_playwright() as playwright:
-        browser = await playwright.chromium.launch(executable_path=chromium, headless=True,
+    async with async_patchright() as patchright:
+        browser = await patchright.chromium.launch(executable_path=chromium, headless=True,
                                                    args=["--no-sandbox"])
         try:
             page = await browser.new_page()
@@ -176,6 +176,7 @@ async def test_watchdog_reaps_expired_tabs_without_reloading_live_tabs(
     import prompta.browser_watchdog as watchdog
     from prompta.browser_ownership import (
         MAX_OWNED_TAB_AGE_SECONDS,
+        claim_expired_tab,
         forget_owned_tabs,
         new_owned_window_marker,
         owned_tab_records,
@@ -189,11 +190,16 @@ async def test_watchdog_reaps_expired_tabs_without_reloading_live_tabs(
     ledger = tmp_path / "leases.sqlite3"
     monkeypatch.setattr(watchdog, "owned_tab_records", lambda: owned_tab_records(ledger))
     monkeypatch.setattr(watchdog, "forget_owned_tabs", lambda ids: forget_owned_tabs(ids, ledger))
+    monkeypatch.setattr(
+        watchdog,
+        "claim_expired_tab",
+        lambda target_id, cutoff: claim_expired_tab(target_id, cutoff, ledger),
+    )
     with socket.socket() as sock:
         sock.bind(("127.0.0.1", 0))
         port = sock.getsockname()[1]
-    async with async_playwright() as playwright:
-        context = await playwright.chromium.launch_persistent_context(
+    async with async_patchright() as patchright:
+        context = await patchright.chromium.launch_persistent_context(
             str(tmp_path / "profile"),
             executable_path=chromium,
             headless=True,
@@ -206,6 +212,16 @@ async def test_watchdog_reaps_expired_tabs_without_reloading_live_tabs(
                 owner_id=f"{os.getpid()}-test",
             )
             await expired.evaluate("marker => window.name = marker", old_marker)
+            expired_session = await context.new_cdp_session(expired)
+            try:
+                expired_info = await expired_session.send("Target.getTargetInfo")
+            finally:
+                await expired_session.detach()
+            record_owned_tab(
+                expired_info["targetInfo"]["targetId"],
+                time.time() - MAX_OWNED_TAB_AGE_SECONDS - 5,
+                ledger,
+            )
             hung_lease = await context.new_page()
             session = await context.new_cdp_session(hung_lease)
             try:

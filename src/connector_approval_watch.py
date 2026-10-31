@@ -16,7 +16,8 @@ from collections import OrderedDict
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from patchright.async_api import Browser, BrowserContext, Page, Response, async_playwright
+from patchright.async_api import Browser, BrowserContext, Page, Response
+from patchright.async_api import async_playwright as async_patchright
 
 from .account_read_gate import AccountReadGate
 from .browser_ownership import MAX_OWNED_TAB_AGE_SECONDS
@@ -297,8 +298,8 @@ async def run_forever(
             await asyncio.sleep(10.0)
             continue
         try:
-            async with async_playwright() as playwright:
-                browser = await playwright.chromium.connect_over_cdp(
+            async with async_patchright() as patchright:
+                browser = await patchright.chromium.connect_over_cdp(
                     "http://" + address, timeout=10000
                 )
                 try:

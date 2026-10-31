@@ -6,7 +6,8 @@ import time
 from pathlib import Path
 
 import pytest
-from patchright.sync_api import expect, sync_playwright
+from patchright.sync_api import expect
+from patchright.sync_api import sync_playwright as sync_patchright
 from web_results_support import (
     completed_run,
     get,
@@ -29,10 +30,10 @@ def test_sidebar_infinite_scroll_search_focus_and_wide_mobile_swipe(
     chromium_path = os.environ.get("PROMPTA_TEST_CHROMIUM")
     if not chromium_path or not Path(chromium_path).is_file():
         pytest.skip("Visual Chromium binary unavailable")
-    with server(tmp_path) as (app, port), sync_playwright() as playwright:
+    with server(tmp_path) as (app, port), sync_patchright() as patchright:
         for index in range(65):
             completed_run(app, f"scroll-{index:03}", f"Scroll entry {index:03}", 1000 + index)
-        browser = playwright.chromium.launch(
+        browser = patchright.chromium.launch(
             executable_path=chromium_path,
             headless=True,
             args=["--no-sandbox"],
@@ -195,12 +196,12 @@ def test_partial_and_unavailable_states_are_truthful_and_logs_private(
 def test_results_reads_do_not_call_chatgpt_or_open_browser(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import prompta.playwright_driver as browser
+    import prompta.patchright_driver as browser
 
     def fail(*_args: object, **_kwargs: object) -> None:
         raise AssertionError("UI attempted to open a ChatGPT browser")
 
-    monkeypatch.setattr(browser, "PlaywrightDriver", fail)
+    monkeypatch.setattr(browser, "PatchrightDriver", fail)
     with server(tmp_path) as (_, port):
         for _ in range(10):
             assert get(port, "/api/results")[0] == 200
@@ -231,8 +232,8 @@ def test_legacy_dom_table_is_rendered_as_table_on_desktop_and_mobile(tmp_path: P
         # The API must keep the original evidence for reply-parent verification.
         assert get(port, "/api/results/legacy")[1]["assistant_text"] == legacy
 
-        with sync_playwright() as playwright:
-            browser = playwright.chromium.launch(
+        with sync_patchright() as patchright:
+            browser = patchright.chromium.launch(
                 executable_path=chromium_path,
                 headless=True,
                 args=["--no-sandbox", "--no-zygote"],
@@ -363,8 +364,8 @@ def test_chats_ui_desktop_mobile_and_no_chatgpt_requests(tmp_path: Path) -> None
             now=now - 179_998,
         )
 
-        with sync_playwright() as playwright:
-            browser = playwright.chromium.launch(
+        with sync_patchright() as patchright:
+            browser = patchright.chromium.launch(
                 executable_path=chromium_path,
                 headless=True,
                 args=["--no-sandbox", "--no-zygote"],
@@ -566,8 +567,8 @@ def test_mobile_jobs_editor_navigation_and_touch_targets(tmp_path: Path) -> None
     with server(tmp_path) as (app, port):
         for index in range(16):
             add_job(app.jobs_path, f"mobile-{index:02}", "Work safely on mobile", 2400)
-        with sync_playwright() as playwright:
-            browser = playwright.chromium.launch(
+        with sync_patchright() as patchright:
+            browser = patchright.chromium.launch(
                 executable_path=chromium_path,
                 headless=True,
                 args=["--no-sandbox", "--no-zygote"],

@@ -8,7 +8,8 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-from patchright.sync_api import expect, sync_playwright
+from patchright.sync_api import expect
+from patchright.sync_api import sync_playwright as sync_patchright
 from web_results_support import get, server
 
 
@@ -120,9 +121,9 @@ def test_healthy_services_still_surface_unresolved_chat_attention(
             assert app.health.beat(service)
         with (
             patch("prompta.web.browser_page_count", return_value=(True, 1)),
-            sync_playwright() as playwright,
+            sync_patchright() as patchright,
         ):
-            browser = playwright.chromium.launch(executable_path=executable, headless=True)
+            browser = patchright.chromium.launch(executable_path=executable, headless=True)
             page = browser.new_page(viewport={"width": width, "height": height})
             page.goto(f"http://127.0.0.1:{port}/?view=jobs")
             summary = page.locator(".delivery-diagnostics summary")
@@ -153,9 +154,9 @@ def test_jobs_shows_real_readiness_and_uncertain_queue_metrics(
         with (
             patch("prompta.web.browser_page_count", return_value=(False, 0)),
             patch.object(app.queue_view.runtime, "read_backoff_status", return_value=(120.0, 1)),
-            sync_playwright() as playwright,
+            sync_patchright() as patchright,
         ):
-            browser = playwright.chromium.launch(executable_path=executable, headless=True)
+            browser = patchright.chromium.launch(executable_path=executable, headless=True)
             page = browser.new_page(viewport={"width": width, "height": height})
             page.goto(f"http://127.0.0.1:{port}/?view=jobs")
             summary = page.locator(".delivery-diagnostics summary")
@@ -189,9 +190,9 @@ def test_global_probe_pacing_is_not_mislabeled_as_account_cooldown(tmp_path: Pat
         app.results.schedule_history_recovery("__global_pacing__", next_attempt_at=now + 80, now=now)
         with (
             patch("prompta.web.browser_page_count", return_value=(True, 1)),
-            sync_playwright() as playwright,
+            sync_patchright() as patchright,
         ):
-            browser = playwright.chromium.launch(executable_path=executable, headless=True)
+            browser = patchright.chromium.launch(executable_path=executable, headless=True)
             page = browser.new_page(viewport={"width": 390, "height": 844})
             page.goto(f"http://127.0.0.1:{port}/?view=jobs")
             summary = page.locator(".delivery-diagnostics summary")

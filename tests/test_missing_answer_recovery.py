@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 
 import pytest
-from patchright.sync_api import sync_playwright
+from patchright.sync_api import sync_playwright as sync_patchright
 
 from prompta.manual_reply_dispatch import _recovery_probe
 from prompta.reply_contracts import ManualReplyStore
@@ -39,8 +39,8 @@ def test_missing_answer_recovers_only_a_completed_exact_original_turn(
         f'{streaming_attribute}><div class="markdown">Recovered final answer</div>'
         f'{controls}</div></main>'
     )
-    with sync_playwright() as playwright:
-        browser = playwright.chromium.launch(executable_path=executable, headless=True)
+    with sync_patchright() as patchright:
+        browser = patchright.chromium.launch(executable_path=executable, headless=True)
         page = browser.new_page()
         visits: list[str] = []
 
@@ -132,7 +132,7 @@ def test_missing_answer_recovery_dispatcher_uses_only_the_saved_branch(
         runtime=SimpleNamespace(read_backoff_remaining=lambda: 0),
         profile=None, chrome_path="", debugger_address="", auth_timeout_seconds=0,
     ))
-    monkeypatch.setattr(dispatch, "PlaywrightDriver", Driver)
+    monkeypatch.setattr(dispatch, "PatchrightDriver", Driver)
     dispatcher = dispatch.ManualReplyDispatcher(store, tmp_path / "isolated-test-state")
     result = asyncio.run(dispatcher._recover_exact_parent("saved-run"))
     assert result == {"message_id": PARENT}

@@ -8,7 +8,7 @@ import os
 from pathlib import Path
 
 import pytest
-from patchright.async_api import async_playwright
+from patchright.async_api import async_playwright as async_patchright
 
 from prompta.browser_script_loader import load_browser_script
 
@@ -36,8 +36,8 @@ def test_historical_probe_real_chromium_dom() -> None:
     )
 
     async def fixture() -> None:
-        async with async_playwright() as playwright:
-            browser = await playwright.chromium.launch(
+        async with async_patchright() as patchright:
+            browser = await patchright.chromium.launch(
                 executable_path=str(chromium),
                 headless=True,
             )
@@ -107,8 +107,8 @@ def test_historical_tools_follow_all_chunks_of_only_the_original_turn() -> None:
     </main>"""
 
     async def fixture() -> None:
-        async with async_playwright() as playwright:
-            browser = await playwright.chromium.launch(executable_path=str(chromium), headless=True)
+        async with async_patchright() as patchright:
+            browser = await patchright.chromium.launch(executable_path=str(chromium), headless=True)
             try:
                 page = await browser.new_page()
                 await page.route("https://chatgpt.com/c/**", lambda route: route.fulfill(
@@ -147,8 +147,8 @@ def test_live_capture_deduplicates_nested_messages_and_keeps_tool_headings() -> 
     </article>"""
 
     async def fixture() -> None:
-        async with async_playwright() as playwright:
-            browser = await playwright.chromium.launch(executable_path=str(chromium), headless=True)
+        async with async_patchright() as patchright:
+            browser = await patchright.chromium.launch(executable_path=str(chromium), headless=True)
             try:
                 page = await browser.new_page()
                 await page.route("https://chatgpt.com/c/**", lambda route: route.fulfill(
@@ -187,8 +187,8 @@ async def test_patchright_passive_observer_uses_main_world_for_exposed_callbacks
     def receive(payload: object) -> None:
         updates.append(payload)
 
-    async with async_playwright() as playwright:
-        browser = await playwright.chromium.launch(
+    async with async_patchright() as patchright:
+        browser = await patchright.chromium.launch(
             executable_path=str(chromium), headless=True, args=["--no-sandbox"]
         )
         try:

@@ -10,7 +10,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import pytest
-from patchright.async_api import async_playwright
+from patchright.async_api import async_playwright as async_patchright
 
 from prompta.owned_tool_stream import OwnedToolStream
 from prompta.response_capture import CaptureResult
@@ -70,8 +70,8 @@ async def test_cdp_observes_tool_before_owned_post_finishes() -> None:
     thread.start()
     stream: OwnedToolStream | None = None
     try:
-        async with async_playwright() as playwright:
-            browser = await playwright.chromium.launch(
+        async with async_patchright() as patchright:
+            browser = await patchright.chromium.launch(
                 executable_path=str(executable), headless=True, args=["--no-sandbox"],
             )
             try:

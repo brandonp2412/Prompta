@@ -13,7 +13,7 @@ import time
 from pathlib import Path
 from uuid import UUID
 
-from patchright.async_api import async_playwright
+from patchright.async_api import async_playwright as async_patchright
 
 from prompta.browser_script_loader import load_browser_script
 from prompta.persistence import DEFAULT_RUNTIME_PATH
@@ -34,8 +34,8 @@ async def exact_visible_tools(
         .replace("__CONVERSATION__", json.dumps(conversation_id))
         .replace("__ORIGINAL_PROMPT__", json.dumps(original_prompt))
     )
-    async with async_playwright() as playwright:
-        browser = await playwright.chromium.connect_over_cdp(cdp_url)
+    async with async_patchright() as patchright:
+        browser = await patchright.chromium.connect_over_cdp(cdp_url)
         context = browser.contexts[0]
         session = await browser.new_browser_cdp_session()
         target = ""

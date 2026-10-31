@@ -7,7 +7,7 @@ import os
 from pathlib import Path
 
 import pytest
-from patchright.sync_api import sync_playwright
+from patchright.sync_api import sync_playwright as sync_patchright
 
 from prompta.browser_script_loader import load_browser_script
 
@@ -42,8 +42,8 @@ def test_second_followup_probe_requires_full_original_lineage_and_final_copy() -
       <div class="markdown"><p>Second final answer</p></div></div>
       <button class="target-copy" data-testid="copy-turn-action-button">Copy</button></article>
     </main></body></html>"""
-    with sync_playwright() as playwright:
-        browser = playwright.chromium.launch(
+    with sync_patchright() as patchright:
+        browser = patchright.chromium.launch(
             executable_path=str(chromium), headless=True, args=["--no-sandbox"],
         )
         try:

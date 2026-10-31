@@ -9,7 +9,8 @@ from pathlib import Path
 
 import pytest
 from live_server import LiveServer
-from patchright.sync_api import expect, sync_playwright
+from patchright.sync_api import expect
+from patchright.sync_api import sync_playwright as sync_patchright
 
 
 @pytest.fixture(autouse=True)
@@ -38,8 +39,8 @@ def test_sidebar_and_reply_composer_keep_identity_through_new_chat(
     thread = threading.Thread(target=app.serve_forever, daemon=True)
     thread.start()
     try:
-        with sync_playwright() as playwright:
-            browser = playwright.chromium.launch(
+        with sync_patchright() as patchright:
+            browser = patchright.chromium.launch(
                 executable_path=str(chromium),
                 headless=True,
                 args=["--no-sandbox"],
@@ -151,8 +152,8 @@ def test_multiline_reply_clears_with_smooth_resize_and_keeps_focus(
     thread = threading.Thread(target=app.serve_forever, daemon=True)
     thread.start()
     try:
-        with sync_playwright() as playwright:
-            browser = playwright.chromium.launch(
+        with sync_patchright() as patchright:
+            browser = patchright.chromium.launch(
                 executable_path=str(chromium),
                 headless=True,
                 args=["--no-sandbox"],

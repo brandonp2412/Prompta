@@ -7,7 +7,8 @@ import os
 from pathlib import Path
 
 import pytest
-from patchright.sync_api import Route, expect, sync_playwright
+from patchright.sync_api import Route, expect
+from patchright.sync_api import sync_playwright as sync_patchright
 from web_results_support import post_json, server
 
 
@@ -65,8 +66,8 @@ def test_fire_now_lost_ack_after_reload_does_not_fire_twice(
             "name": "Browser fire probe", "prompt": "One scheduled prompt",
             "interval_minutes": 60, "schedule": "interval",
         })["ok"]
-        with sync_playwright() as playwright:
-            browser = playwright.chromium.launch(executable_path=executable, headless=True)
+        with sync_patchright() as patchright:
+            browser = patchright.chromium.launch(executable_path=executable, headless=True)
             page = browser.new_page(viewport={"width": width, "height": height})
             posted: list[dict[str, object]] = []
             remote: list[str] = []

@@ -7,7 +7,7 @@ import socket
 import time
 
 import pytest
-from patchright.async_api import async_playwright
+from patchright.async_api import async_playwright as async_patchright
 
 import prompta.browser_watchdog as watchdog
 from prompta.browser_ownership import (
@@ -33,8 +33,8 @@ async def test_crash_reaper_preserves_unowned_and_recent_browser_pages(monkeypat
         lambda target, cutoff: claim_expired_tab(target, cutoff, ledger),
     )
 
-    async with async_playwright() as playwright:
-        context = await playwright.chromium.launch_persistent_context(
+    async with async_patchright() as patchright:
+        context = await patchright.chromium.launch_persistent_context(
             str(tmp_path / "chromium-profile"),
             headless=True,
             args=[f"--remote-debugging-port={port}", "--no-first-run"],

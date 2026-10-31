@@ -9,7 +9,7 @@ from urllib.request import Request
 import pytest
 
 import prompta.flaresolverr_client as solver
-from prompta.playwright_driver import BrowserSecurityChallengeError, PlaywrightDriver
+from prompta.patchright_driver import BrowserSecurityChallengeError, PatchrightDriver
 
 
 def test_solver_rejects_nonlocal_endpoint() -> None:
@@ -83,7 +83,7 @@ async def test_navigation_uses_solver_only_after_challenge(
 
     page = MagicMock()
     page.goto = AsyncMock(side_effect=[Response(True), Response(False)])
-    driver = PlaywrightDriver(profile=tmp_path / "profile")
+    driver = PatchrightDriver(profile=tmp_path / "profile")
     monkeypatch.setattr(driver, "_page", lambda _context=None: page)
     recover = AsyncMock(return_value=True)
     monkeypatch.setattr(driver, "_recover_security_challenge", recover)
@@ -99,10 +99,10 @@ async def test_solver_clearance_applies_only_cf_cookie(
 ) -> None:
     monkeypatch.setenv("PROMPTA_FLARESOLVERR_URL", "http://127.0.0.1:8191")
     monkeypatch.setattr(
-        "prompta.playwright_driver._claim_flaresolverr_attempt", lambda: True
+        "prompta.patchright_driver._claim_flaresolverr_attempt", lambda: True
     )
     monkeypatch.setattr(
-        "prompta.playwright_driver.solve_cloudflare",
+        "prompta.patchright_driver.solve_cloudflare",
         lambda endpoint: ("clearance", "Mozilla/5.0 test-user-agent"),
     )
     page = MagicMock()
@@ -111,7 +111,7 @@ async def test_solver_clearance_applies_only_cf_cookie(
     session = MagicMock()
     session.send = AsyncMock()
     page.context.new_cdp_session = AsyncMock(return_value=session)
-    driver = PlaywrightDriver(profile=tmp_path / "profile")
+    driver = PatchrightDriver(profile=tmp_path / "profile")
 
     assert await driver._recover_security_challenge(page)
     assert not await driver._recover_security_challenge(page)
@@ -127,7 +127,7 @@ async def test_solver_clearance_applies_only_cf_cookie(
 async def test_auth_endpoint_cloudflare_challenge_is_not_treated_as_logout(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    driver = PlaywrightDriver(profile=tmp_path / "profile")
+    driver = PatchrightDriver(profile=tmp_path / "profile")
     probe = AsyncMock(return_value=json.dumps({
         "ok": False, "challenge": True, "token": "",
     }))
@@ -144,7 +144,7 @@ async def test_auth_endpoint_cloudflare_challenge_is_not_treated_as_logout(
 async def test_auth_endpoint_nonchallenge_remains_login_failure(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    driver = PlaywrightDriver(profile=tmp_path / "profile")
+    driver = PatchrightDriver(profile=tmp_path / "profile")
     monkeypatch.setattr(driver, "eval", AsyncMock(return_value=json.dumps({
         "ok": False, "challenge": False, "token": "",
     })))

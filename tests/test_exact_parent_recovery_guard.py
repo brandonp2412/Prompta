@@ -64,7 +64,7 @@ async def test_parent_recovery_waits_only_on_its_owned_tab(
         seen.append("429-backoff-persisted")
         return 300.0
 
-    monkeypatch.setattr(dispatch, "PlaywrightDriver", Driver)
+    monkeypatch.setattr(dispatch, "PatchrightDriver", Driver)
     monkeypatch.setattr(dispatch, "BrowserDeliverySender", lambda *_args, **_kwargs: SimpleNamespace(
         runtime=SimpleNamespace(
             read_backoff_remaining=lambda: 0.0,

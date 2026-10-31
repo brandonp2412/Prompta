@@ -7,7 +7,8 @@ import time
 from pathlib import Path
 
 import pytest
-from patchright.sync_api import expect, sync_playwright
+from patchright.sync_api import expect
+from patchright.sync_api import sync_playwright as sync_patchright
 from web_results_support import server
 
 
@@ -43,8 +44,8 @@ def test_failed_initial_chat_explicit_continue_uses_new_id(
         original_detail = app.results.detail(original_id)
         assert original_detail is not None and original_detail["user_text"] == original_prompt
 
-        with sync_playwright() as playwright:
-            browser = playwright.chromium.launch(
+        with sync_patchright() as patchright:
+            browser = patchright.chromium.launch(
                 executable_path=str(chromium),
                 headless=True,
                 args=["--no-sandbox"],
@@ -101,8 +102,8 @@ def test_stale_continue_button_does_not_resend_after_acceptance(
     with server(tmp_path) as (app, port):
         app.results.ensure_queued(original_id, "Synthetic original request")
         app.results.uncertain(original_id)
-        with sync_playwright() as playwright:
-            browser = playwright.chromium.launch(
+        with sync_patchright() as patchright:
+            browser = patchright.chromium.launch(
                 executable_path=str(chromium), headless=True, args=["--no-sandbox"]
             )
             try:

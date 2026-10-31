@@ -10,9 +10,9 @@ import asyncio
 import logging
 from collections.abc import Awaitable, Callable
 
-from patchright.async_api import Error as PlaywrightError
+from patchright.async_api import Error as PatchrightError
 from patchright.async_api import Page
-from patchright.async_api import TimeoutError as PlaywrightTimeoutError
+from patchright.async_api import TimeoutError as PatchrightTimeoutError
 
 from .browser_script_loader import load_browser_script
 
@@ -38,10 +38,10 @@ async def trusted_approval_retry(page: Page) -> object:
             return "progress" if await candidate.is_checked() else "stuck"
         try:
             await candidate.wait_for(state="hidden", timeout=1200)
-        except PlaywrightTimeoutError:
+        except PatchrightTimeoutError:
             return "stuck"
         return True
-    except PlaywrightError:
+    except PatchrightError:
         return "stuck"
 
 

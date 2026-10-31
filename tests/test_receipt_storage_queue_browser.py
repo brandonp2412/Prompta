@@ -6,7 +6,8 @@ import os
 from pathlib import Path
 
 import pytest
-from patchright.sync_api import Route, expect, sync_playwright
+from patchright.sync_api import Route, expect
+from patchright.sync_api import sync_playwright as sync_patchright
 from test_reply_ui_browser import seed_terminal
 from web_results_support import server
 
@@ -19,8 +20,8 @@ def test_browser_refuses_fresh_send_when_receipt_cannot_persist(
 ) -> None:
     if not CHROMIUM.is_file():
         pytest.skip("Chromium unavailable")
-    with server(tmp_path) as (app, port), sync_playwright() as playwright:
-        browser = playwright.chromium.launch(
+    with server(tmp_path) as (app, port), sync_patchright() as patchright:
+        browser = patchright.chromium.launch(
             executable_path=str(CHROMIUM), headless=True, args=["--no-sandbox"],
         )
         try:
@@ -53,9 +54,9 @@ def test_browser_refuses_fresh_send_when_receipt_cannot_persist(
 def test_browser_refuses_exact_reply_when_receipt_cannot_persist(tmp_path: Path) -> None:
     if not CHROMIUM.is_file():
         pytest.skip("Chromium unavailable")
-    with server(tmp_path) as (app, port), sync_playwright() as playwright:
+    with server(tmp_path) as (app, port), sync_patchright() as patchright:
         seed_terminal(app, send_id="storage-reply-test", missing_id=False)
-        browser = playwright.chromium.launch(
+        browser = patchright.chromium.launch(
             executable_path=str(CHROMIUM), headless=True, args=["--no-sandbox"],
         )
         try:
@@ -98,8 +99,8 @@ def test_queue_outage_retains_last_confirmed_positions(
             "occupied": 2, "limit": 3, "eta_seconds": 180,
         }],
     }
-    with server(tmp_path) as (_app, port), sync_playwright() as playwright:
-        browser = playwright.chromium.launch(
+    with server(tmp_path) as (_app, port), sync_patchright() as patchright:
+        browser = patchright.chromium.launch(
             executable_path=str(CHROMIUM), headless=True, args=["--no-sandbox"],
         )
         try:

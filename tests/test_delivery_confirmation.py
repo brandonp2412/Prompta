@@ -13,7 +13,7 @@ from prompta.delivery_browser import (
     BrowserDeliverySender,
     DeliveryBackendUnavailableError,
 )
-from prompta.playwright_driver import PlaywrightDriver, _normalise_composer_text
+from prompta.patchright_driver import PatchrightDriver, _normalise_composer_text
 from prompta.send_outcome import SendOutcomeUnknownError
 
 
@@ -336,7 +336,7 @@ async def test_dom_state_uses_public_stop_generating_semantics(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    driver = PlaywrightDriver(profile=tmp_path / "profile")
+    driver = PatchrightDriver(profile=tmp_path / "profile")
     page = object()
     observed_patterns: list[re.Pattern[str]] = []
     observed_enabled: list[bool] = []
@@ -378,7 +378,7 @@ async def test_send_confirmation_state_never_scans_page_text(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    driver = PlaywrightDriver(profile=tmp_path / "profile")
+    driver = PatchrightDriver(profile=tmp_path / "profile")
     page = object()
     composer = object()
     observed: list[re.Pattern[str]] = []
@@ -419,7 +419,7 @@ async def test_send_confirmation_state_never_scans_page_text(
 async def test_confirmation_uses_fast_composer_and_control_probe(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    driver = PlaywrightDriver(profile=tmp_path / "profile")
+    driver = PatchrightDriver(profile=tmp_path / "profile")
 
     class Page:
         async def evaluate(
@@ -455,7 +455,7 @@ async def test_model_picker_bounds_and_names_slow_option_discovery(
         def get_by_role(self, _role: str, **_kwargs: object) -> Candidate:
             return Candidate()
 
-    driver = PlaywrightDriver(profile=tmp_path / "profile")
+    driver = PatchrightDriver(profile=tmp_path / "profile")
     monkeypatch.setattr(driver, "_page", lambda _context=None: Page())
 
     async def slow_scan(_candidates: object, *, enabled: bool = True) -> None:
@@ -566,14 +566,14 @@ async def test_rate_limit_detection_uses_semantic_active_surfaces(tmp_path: Path
         def locator(self, _selector: str) -> Collection:
             return Collection([Candidate("Too many requests", visible=False)])
 
-    driver = PlaywrightDriver(profile=tmp_path / "profile")
+    driver = PatchrightDriver(profile=tmp_path / "profile")
     texts = await driver._rate_limit_texts(Page())
 
     assert texts == ["You've reached your usage limit"]
 
 
 def test_active_delivery_driver_avoids_private_chatgpt_dom_hooks() -> None:
-    source = Path("src/playwright_driver.py").read_text()
+    source = Path("src/patchright_driver.py").read_text()
     assert "data-testid" not in source
     assert "data-composer-markdown" not in source
 
@@ -599,6 +599,6 @@ async def test_selection_state_accepts_accessibility_role_churn(
         async def get_attribute(self, name: str) -> str | None:
             return attributes.get(name)
 
-    driver = PlaywrightDriver(profile=tmp_path / "profile")
+    driver = PatchrightDriver(profile=tmp_path / "profile")
 
     assert await driver._selection_state(Control()) is expected

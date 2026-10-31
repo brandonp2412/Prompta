@@ -7,7 +7,8 @@ import os
 from pathlib import Path
 
 import pytest
-from patchright.sync_api import expect, sync_playwright
+from patchright.sync_api import expect
+from patchright.sync_api import sync_playwright as sync_patchright
 from web_results_support import completed_run, server
 
 
@@ -18,9 +19,9 @@ def test_sidebar_explains_recovery_backlog_and_read_cooldown(
     executable = os.environ.get("PROMPTA_TEST_CHROMIUM", "")
     if not executable or not Path(executable).exists():
         pytest.skip("Headless Chromium unavailable")
-    with server(tmp_path) as (app, port), sync_playwright() as playwright:
+    with server(tmp_path) as (app, port), sync_patchright() as patchright:
         completed_run(app, "local-recovery-chat", "Local test chat", 1000)
-        browser = playwright.chromium.launch(executable_path=executable, headless=True)
+        browser = patchright.chromium.launch(executable_path=executable, headless=True)
         page = browser.new_page(viewport={"width": width, "height": height})
         page.route("**/api/events", lambda route: route.abort())
         page.route(
