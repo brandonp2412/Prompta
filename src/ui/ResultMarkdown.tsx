@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { marked, type Token, type Tokens } from "marked";
 import Prism from "prismjs";
 import "prismjs/components/prism-typescript";
@@ -42,21 +42,21 @@ function recoveredCodeLanguage(items: Token[], index: number, captureSource: str
 function recoveredListLabel(value: string): React.ReactNode {
   const parts = /^([A-Za-z][A-Za-z ]{1,30}:)\s+(.+)$/.exec(value);
   if (!parts) return value;
-  return <><strong>{parts[1]}</strong> {parts[2]}</>;
+  return (
+    <>
+      <strong>{parts[1]}</strong> {parts[2]}
+    </>
+  );
 }
 
 function highlightedCode(value: string, language: string): React.ReactNode {
   const grammar = Prism.languages[language];
   if (!grammar) return value;
   function render(stream: Prism.TokenStream): React.ReactNode {
-    return stream.map((part, i) => {
-      if (typeof part === "string") return part;
-      let content: React.ReactNode;
-      if (typeof part.content === "string") content = part.content;
-      else if (Array.isArray(part.content)) content = render(part.content);
-      else content = render([part.content]);
-      return <span key={i} className={"token " + part.type}>{content}</span>;
-    });
+    if (typeof stream === "string") return stream;
+    if (!Array.isArray(stream))
+      return <span className={"token " + stream.type}>{render(stream.content)}</span>;
+    return stream.map((part, i) => <Fragment key={i}>{render(part)}</Fragment>);
   }
   return render(Prism.tokenize(value, grammar));
 }
@@ -228,7 +228,9 @@ export default function ResultMarkdown({
             <ol key={index} start={token.start || 1}>
               {token.items.map((item: Tokens.ListItem, i: number) => (
                 <li key={i}>
-                  {captureSource === "dom" && item.tokens.length === 1 && item.tokens[0]?.type === "text"
+                  {captureSource === "dom" &&
+                  item.tokens.length === 1 &&
+                  item.tokens[0]?.type === "text"
                     ? recoveredListLabel(item.text)
                     : blocks(item.tokens)}
                 </li>
@@ -238,7 +240,9 @@ export default function ResultMarkdown({
             <ul key={index}>
               {token.items.map((item: Tokens.ListItem, i: number) => (
                 <li key={i}>
-                  {captureSource === "dom" && item.tokens.length === 1 && item.tokens[0]?.type === "text"
+                  {captureSource === "dom" &&
+                  item.tokens.length === 1 &&
+                  item.tokens[0]?.type === "text"
                     ? recoveredListLabel(item.text)
                     : blocks(item.tokens)}
                 </li>
@@ -248,8 +252,12 @@ export default function ResultMarkdown({
         case "blockquote":
           return <blockquote key={index}>{blocks(token.tokens ?? [])}</blockquote>;
         case "table": {
-          const numericColumns = token.header.map((_, column) =>
-            token.rows.length > 0 && token.rows.every((row) => /^[+-]?[$£€]?\d[\d,.]*%?$/.test(row[column]?.text.trim() || "")),
+          const numericColumns = token.header.map(
+            (_cell: Tokens.TableCell, column: number) =>
+              token.rows.length > 0 &&
+              token.rows.every((row: Tokens.TableCell[]) =>
+                /^[+-]?[$£€]?\d[\d,.]*%?$/.test(row[column]?.text.trim() || ""),
+              ),
           );
           return (
             <div key={index} className="result-table-scroll">
@@ -257,7 +265,9 @@ export default function ResultMarkdown({
                 <thead>
                   <tr>
                     {token.header.map((cell: Tokens.TableCell, i: number) => (
-                      <th key={i} className={numericColumns[i] ? "numeric-cell" : ""}>{inline(cell.tokens)}</th>
+                      <th key={i} className={numericColumns[i] ? "numeric-cell" : ""}>
+                        {inline(cell.tokens)}
+                      </th>
                     ))}
                   </tr>
                 </thead>
@@ -265,7 +275,9 @@ export default function ResultMarkdown({
                   {token.rows.map((row: Tokens.TableCell[], i: number) => (
                     <tr key={i}>
                       {row.map((cell: Tokens.TableCell, j: number) => (
-                        <td key={j} className={numericColumns[j] ? "numeric-cell" : ""}>{inline(cell.tokens)}</td>
+                        <td key={j} className={numericColumns[j] ? "numeric-cell" : ""}>
+                          {inline(cell.tokens)}
+                        </td>
                       ))}
                     </tr>
                   ))}
