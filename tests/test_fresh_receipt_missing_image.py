@@ -6,8 +6,9 @@ import base64
 from pathlib import Path
 from unittest.mock import patch
 
-from prompta.strict_types import string_object_dict
 from web_results_support import post_json, server
+
+from prompta.strict_types import string_object_dict
 
 PNG = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZ0AAAAASUVORK5CYII="
