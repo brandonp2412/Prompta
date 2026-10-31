@@ -21,9 +21,12 @@ def load_browser_script(name: str) -> str:
     source = _read_versioned_script(path, stat.st_ino, stat.st_mtime_ns, stat.st_size)
     # Keep live and historical ChatGPT DOM response serialization identical.
     # The shared source is also cached against its own file version.
-    marker = "/* PROMPTA_MARKDOWN_FROM_DOM */"
-    if marker in source:
-        if name == "markdown_from_dom.js":
-            raise ValueError("Recursive Markdown serializer include")
-        return source.replace(marker, load_browser_script("markdown_from_dom.js"))
+    for marker, dependency in (
+        ("/* PROMPTA_MARKDOWN_FROM_DOM */", "markdown_from_dom.js"),
+        ("/* PROMPTA_REPLY_TURN_SCAN */", "reply_turn_scan.js"),
+    ):
+        if marker in source:
+            if name == dependency:
+                raise ValueError("Recursive browser script include")
+            source = source.replace(marker, load_browser_script(dependency))
     return source

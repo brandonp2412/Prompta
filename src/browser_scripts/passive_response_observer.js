@@ -38,6 +38,14 @@
     } catch { return ""; }
   };
   const baseline = new Set([...document.querySelectorAll(messageSelector)].map(identity).filter(Boolean));
+  const replyIdentity = (elements) => {
+    if (!elements.length) return "";
+    const modern = elements.map((element) =>
+      identity(element).match(/^(fallback-turn-\d+):\d+:assistant$/)?.[1] || ""
+    );
+    if (modern[0] && modern.every((group) => group === modern[0])) return modern[0];
+    return elements.length === 1 ? identity(elements[0]) : "";
+  };
   let timer = null;
   let settleTimer = null;
   let published = "";
@@ -58,19 +66,22 @@
     const main = document.querySelector("main");
     if (!main) return;
     const fresh = [...main.querySelectorAll(messageSelector)].filter((element) => !baseline.has(identity(element)) && visible(element));
-    const nextId = fresh.length === 1 ? identity(fresh[0]) : "";
-    if (ambiguous || fresh.length > 1 || (fresh.length && (!nextId || (observedId && nextId !== observedId)))) {
-      ambiguous = true; // A DOM branch rollover must not silently replace an earlier answer.
+    const nextId = replyIdentity(fresh);
+    if (ambiguous || (fresh.length && (!nextId || (observedId && nextId !== observedId)))) {
+      ambiguous = true; // Different turns must not silently replace an earlier answer.
       result = { message_id: "", branch_message_id: "", pathname: "", text: "", complete: false, ambiguous: true };
       publish();
       return;
     }
     if (!fresh.length) return;
     observedId = nextId;
-    const element = fresh[0];
-    const roots = [...element.querySelectorAll(markdownSelector)].filter((root) => !root.parentElement?.closest(markdownSelector) && visible(root));
-    // Never fall back to the whole turn, which may include tool UI/controls.
-    const text = roots.map(markdownFromRoot).filter(Boolean).join("\n\n").trim();
+    const segments = fresh.map((element) => {
+      const roots = [...element.querySelectorAll(markdownSelector)].filter((root) =>
+        !root.parentElement?.closest(markdownSelector) && visible(root));
+      return roots.map(markdownFromRoot).filter(Boolean).join("\n\n").trim();
+    });
+    // Aggregate separate user-visible final chunks of the SAME reply turn.
+    const text = segments.filter(Boolean).join("\n\n").trim();
     if (text !== lastText) {
       changedAt = Date.now();
       lastText = text;
@@ -80,25 +91,34 @@
         sample(); // single delayed finality check after this text change
       }, 850);
     }
-    const turn = element.closest('[data-testid^="conversation-turn-"], article, [data-turn-key]') || element;
-    const tool_calls = [...turn.querySelectorAll(toolSelector)].filter((node) =>
-      visible(node) && !node.closest(markdownSelector) && !node.parentElement?.closest(toolSelector)
-    ).slice(0, 128).map((node) => {
-      const heading = node.getAttribute('aria-label') || node.getAttribute('data-tool-name') ||
-        node.querySelector('[data-testid*="tool-name"]')?.textContent || 'Tool activity';
-      const state = node.getAttribute('data-state') || '';
-      return { action: heading.slice(0, 120), status: /error|fail/i.test(state) ? 'error' :
-        /running|loading|pending/i.test(state) ? 'running' : /complete|success|done/i.test(state) ? 'completed' : 'observed' };
-    });
-    const copyReady = [...turn.querySelectorAll(copySelector)].some(visible);
-    const streaming = !!turn.querySelector('[data-is-streaming="true"], .result-streaming');
+    const turns = fresh.map((element) =>
+      element.closest('[data-testid^="conversation-turn-"], article, [data-turn-key], .group.flex.flex-col') ||
+      element);
+    const tool_calls = turns.flatMap((turn) => [...turn.querySelectorAll(toolSelector)]
+      .filter((node) => visible(node) && !node.closest(markdownSelector) &&
+        !node.parentElement?.closest(toolSelector))
+      .map((node) => {
+        const heading = node.getAttribute("aria-label") || node.getAttribute("data-tool-name") ||
+          node.querySelector('[data-testid*="tool-name"]')?.textContent || "Tool activity";
+        const state = node.getAttribute("data-state") || "";
+        return { action: heading.slice(0, 120), status: /error|fail/i.test(state) ? "error" :
+          /running|loading|pending/i.test(state) ? "running" :
+          /complete|success|done/i.test(state) ? "completed" : "observed" };
+      })).slice(0, 128);
+    const copyReady = turns.some((turn) => [...turn.querySelectorAll(copySelector)].some(visible));
+    const streaming = turns.some((turn) =>
+      !!turn.querySelector('[data-is-streaming="true"], .result-streaming'));
     const generating = [...document.querySelectorAll(stopSelector)].some(visible);
+    const complete = !!text && copyReady && !streaming && !generating &&
+      Date.now() - changedAt >= 750;
+    const lastTextIndex = segments.findLastIndex(Boolean);
+    const lastAnswer = lastTextIndex < 0 ? null : fresh[lastTextIndex];
     result = {
-      message_id: identity(element),
-      branch_message_id: branchMessageId(element),
+      message_id: nextId,
+      branch_message_id: lastAnswer ? branchMessageId(lastAnswer) : "",
       pathname: location.pathname,
       text: text.slice(0, 2 * 1024 * 1024),
-      complete: !!text && copyReady && !streaming && !generating && Date.now() - changedAt >= 750,
+      complete,
       ambiguous: false,
       tool_calls,
     };
