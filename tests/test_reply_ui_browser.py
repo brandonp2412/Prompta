@@ -94,6 +94,21 @@ def test_terminal_chat_send_is_enabled_and_routes_safely(
 
             page.route(f"**/api/results/{send_id}/reply-send", reply_route)
             page.route("**/api/chats", fresh_route)
+            saved_image_ref = "a" * 64 + "/saved.png"
+            if missing_id:
+                def saved_image_detail(route: Route) -> None:
+                    response = route.fetch()
+                    record = response.json()
+                    record["images"] = [
+                        {"name": "saved.png", "url": "./api/images/" + saved_image_ref}
+                    ]
+                    route.fulfill(
+                        status=response.status,
+                        content_type="application/json",
+                        body=json.dumps(record),
+                    )
+
+                page.route(f"**/api/results/{send_id}", saved_image_detail)
             page.goto(f"http://127.0.0.1:{port}/?view=chats&run={send_id}")
             field = page.get_by_role("textbox", name="Message for current chat")
             expect(field).to_be_visible()
@@ -119,6 +134,7 @@ def test_terminal_chat_send_is_enabled_and_routes_safely(
                 assert len(sent) == 0
                 assert "Original private question" in str(fresh[0]["prompt"])
                 assert "Please continue" in str(fresh[0]["prompt"])
+                assert fresh[0]["images"] == [saved_image_ref]
             else:
                 assert len(sent) == 1
                 assert len(fresh) == 0
