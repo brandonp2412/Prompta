@@ -527,7 +527,7 @@ def test_server_local_pins_across_browser_contexts_and_rapid_clicks(tmp_path: Pa
                 )
                 target.click()
                 expect(
-                    b.get_by_role("alert").filter(has_text="Could not save pinned chat")
+                    b.get_by_role("alert").filter(has_text="Pin change could not be confirmed")
                 ).to_be_visible()
                 expect(target).to_have_attribute("aria-pressed", "false")
                 b.unroute(f"http://{host}/api/local-chat-pins")

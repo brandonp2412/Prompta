@@ -23,7 +23,10 @@ The API factory is `prompta.web:create_app`; `prompta-ui` runs it with Uvicorn.
 Use strict Pydantic request models and keep browser/dispatch policy in services.
 The real HTTP/browser tests use Uvicorn; framework boundary tests use FastAPI's
 TestClient. Set `PROMPTA_TEST_CHROMIUM` to your Chromium/Brave executable when it
-is not installed at `/usr/bin/chromium`.
+is not installed at `/usr/bin/chromium`. On Glass, use
+`PROMPTA_TEST_CHROMIUM=/opt/brave-bin/brave`: the `~/.local/bin/chromium` wrapper
+may exist even when its `/usr/bin/chromium` target does not. Browser-launch
+failures must not be mistaken for application regressions or passing skips.
 
 Create a revision in the affected family rather than adding schema inspection
 or `ALTER TABLE` to a store constructor:

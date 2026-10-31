@@ -52,12 +52,14 @@ def test_interrupted_chat_shows_read_backoff_without_reopening_chatgpt(
             lambda route: route.fulfill(
                 status=200,
                 content_type="application/json",
-                body='{"ready":true,"recovery":{"account_read_backoff_seconds":600,"security_pause_seconds":0,"global_pace_seconds":0}}',
+                body='{"ready":true,"recovery":{"account_read_backoff_seconds":600,"security_pause_seconds":0,"global_pace_seconds":0,"recoverable":42,"unresolved_reply_captures":6}}',
             ),
         )
         page.goto(f"http://127.0.0.1:{port}/?view=chats&run=cooldown")
         expect(page.get_by_text("Recovery is waiting about 10 min", exact=False)).to_be_visible()
         expect(page.get_by_text("account read cooldown", exact=False)).to_be_visible()
+        expect(page.get_by_text("Recovery backlog: 42 original captures", exact=False)).to_be_visible()
+        expect(page.get_by_text("6 unresolved follow-up captures", exact=False)).to_be_visible()
         expect(page.get_by_role("link", name="Open exact chat in ChatGPT")).to_be_visible()
         assert remote == []
         assert posts == []
