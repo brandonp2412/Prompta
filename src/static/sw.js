@@ -4,6 +4,7 @@ const assetUrl = (path) => new URL(path, self.location.href).toString();
 const SHELL = [
   "./",
   "./app.css",
+  "./jobs.css",
   "./app.js",
   "./manifest.webmanifest",
   "./icon.svg",

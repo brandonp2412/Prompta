@@ -15171,15 +15171,15 @@ function JobsTable({ model }) {
 					})
 				]
 			}),
-			filteredJobs.value.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+			filteredJobs.value.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 				className: "empty-row",
-				children: jobs.value.length ? "No jobs match these filters." : "No scheduled jobs."
+				children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("strong", { children: jobs.value.length ? "No jobs match these filters." : "No scheduled jobs yet." }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { children: jobs.value.length ? "Try enabling another status or including repeating jobs." : "Create a job to run a prompt on your schedule, or choose Run once." })]
 			}),
 			visibleJobs.value.map((job) => {
 				const waiting = queueSnapshot.value?.waiting.find((item) => item.name === job.name);
 				return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 					role: "row",
-					className: "job-row",
+					className: `job-row job-state-${jobFilter(job)}`,
 					children: [
 						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 							role: "cell",
@@ -15338,7 +15338,7 @@ function JobsTable({ model }) {
 function JobsPage(props) {
 	const model = (0, import_react.useMemo)(() => createJobsPageController(props), []);
 	N$1();
-	const { jobsLoadError, queueError, loadQueue, filterOptions, jobs, activeFilters, showRepeatingJobs, repeatingJobsCount, cadenceJobs, filterCounts, page, visibleJobs, allVisiblePaused, status, saving, editorOpen, beginNew, beginOnce, onEditorKeydown, toggleFilter, load, toggleVisible, clearAll } = model;
+	const { jobsLoadError, queueError, loadQueue, filterOptions, jobs, activeFilters, showRepeatingJobs, repeatingJobsCount, filteredJobs, filterCounts, page, visibleJobs, allVisiblePaused, status, saving, editorOpen, beginNew, beginOnce, onEditorKeydown, toggleFilter, load, toggleVisible, clearAll } = model;
 	const refs = (0, import_react.useMemo)(() => ({
 		jobsTitle: (element) => {
 			if (model.jobsTitle.peek() !== (element ?? void 0)) model.jobsTitle.value = element ?? void 0;
@@ -15382,12 +15382,25 @@ function JobsPage(props) {
 			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 				className: "jobs-toolbar",
 				children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-					className: "toolbar-title",
-					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h1", {
-						id: "jobs-title",
-						ref: refs.jobsTitle,
-						children: "Jobs"
-					}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: cadenceJobs.value.length })]
+					className: "jobs-heading",
+					children: [
+						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+							className: "jobs-eyebrow",
+							children: "AUTOMATIONS"
+						}),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+							className: "toolbar-title",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h1", {
+								id: "jobs-title",
+								ref: refs.jobsTitle,
+								children: "Jobs"
+							}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: jobs.value.length })]
+						}),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+							className: "jobs-description",
+							children: "Your prompts, on schedule."
+						})
+					]
 				}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 					className: "toolbar-actions",
 					children: [
@@ -15503,7 +15516,7 @@ function JobsPage(props) {
 					"aria-pressed": activeFilters.value[option.key],
 					title: option.title,
 					onClick: () => toggleFilter(option.key),
-					className: activeFilters.value[option.key] ? "filter-chip chosen" : "filter-chip",
+					className: `filter-chip filter-${option.key}${activeFilters.value[option.key] ? " chosen" : ""}`,
 					children: [
 						option.label,
 						" ",
@@ -15520,6 +15533,10 @@ function JobsPage(props) {
 					className: showRepeatingJobs.value ? "filter-chip chosen" : "filter-chip",
 					children: ["Repeating jobs ", /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: repeatingJobsCount.value })]
 				})]
+			}),
+			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+				className: "jobs-list-heading",
+				children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { children: "Scheduled jobs" }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [filteredJobs.value.length, " matching · ordered by next run"] })]
 			}),
 			/* @__PURE__ */ (0, import_jsx_runtime.jsx)(JobsTable, { model }),
 			jobs.value.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("footer", {
