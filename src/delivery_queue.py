@@ -44,9 +44,6 @@ class DeliveryQueueStore:
     def results(self) -> ResponseStore:
         return ResponseStore(self.path.parent / "chat-results.sqlite3")
 
-    def connect(self) -> Connection:
-        return self.engine.connect()
-
     def _mark_result_unavailable(self, send_id: str) -> None:
         # The queue and transcript are separate SQLite databases. A failed
         # best-effort projection must not undo a terminal queue decision.
