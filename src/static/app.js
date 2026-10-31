@@ -20031,7 +20031,7 @@ function ChatTranscript({ model, refs }) {
 			ref: refs.scrollPane,
 			inert: switchingChat.value,
 			"aria-busy": switchingChat.value,
-			className: ["chat-transcript-scroll", switchingChat.value ? "chat-switch-hidden" : ""].filter(Boolean).join(" "),
+			className: ["chat-transcript-scroll", switchingChat.value && detail.value?.send_id === selectedRunId.value ? "chat-switch-hidden" : ""].filter(Boolean).join(" "),
 			children: [detailError.value ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 				role: "alert",
 				className: "result-error recovery-error",
@@ -20198,7 +20198,7 @@ function ChatTranscript({ model, refs }) {
 		}), switchingChat.value ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 			role: "status",
 			"aria-label": detailError.value ? "Chat unavailable" : "Loading selected chat",
-			className: "chat-switch-cover",
+			className: detail.value && !detailError.value ? "chat-switch-cover delayed" : "chat-switch-cover",
 			children: detailError.value ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 				className: "result-error recovery-error",
 				children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: detailError.value }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {

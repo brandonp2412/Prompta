@@ -58,7 +58,12 @@ export default function ChatTranscript({
         ref={refs.scrollPane}
         inert={switchingChat.value}
         aria-busy={switchingChat.value}
-        className={["chat-transcript-scroll", switchingChat.value ? "chat-switch-hidden" : ""]
+        className={[
+          "chat-transcript-scroll",
+          switchingChat.value && detail.value?.send_id === selectedRunId.value
+            ? "chat-switch-hidden"
+            : "",
+        ]
           .filter(Boolean)
           .join(" ")}
       >
@@ -352,7 +357,9 @@ export default function ChatTranscript({
           <div
             role="status"
             aria-label={detailError.value ? "Chat unavailable" : "Loading selected chat"}
-            className="chat-switch-cover"
+            className={
+              detail.value && !detailError.value ? "chat-switch-cover delayed" : "chat-switch-cover"
+            }
           >
             {detailError.value ? (
               <>

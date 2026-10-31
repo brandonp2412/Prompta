@@ -45,6 +45,9 @@ def test_chat_switch_keeps_transcript_and_composer_shell_stable(
                 "node => getComputedStyle(node).backgroundColor"
             )
             assert surface == "rgb(33, 33, 33)"
+            assert page.locator(".workspace-header").evaluate(
+                "node => getComputedStyle(node).backgroundColor"
+            ) == "rgb(27, 27, 27)"
             page.evaluate("""() => {
                 window.__geometry = () => {
                     const rect = (selector) => {
@@ -58,6 +61,17 @@ def test_chat_switch_keeps_transcript_and_composer_shell_stable(
                     };
                 };
                 window.__before = window.__geometry();
+                window.__coverFirstOpacity = null;
+                const coverObserver = new MutationObserver(() => {
+                    const cover = document.querySelector(".chat-switch-cover");
+                    if (cover) {
+                        window.__coverFirstOpacity = getComputedStyle(cover).opacity;
+                        coverObserver.disconnect();
+                    }
+                });
+                coverObserver.observe(document.querySelector(".chat-transcript-shell"), {
+                    childList: true, subtree: true,
+                });
                 window.__shifts = [];
                 new PerformanceObserver((list) => {
                     for (const entry of list.getEntries()) {
@@ -83,7 +97,14 @@ def test_chat_switch_keeps_transcript_and_composer_shell_stable(
             ) == surface
             assert page.locator(".chat-transcript-scroll").evaluate(
                 "(node) => getComputedStyle(node).visibility"
-            ) == "hidden"
+            ) == "visible"
+            expect(page.locator(".chat-detail-content")).to_contain_text("CLS Alpha")
+            assert page.locator(".chat-transcript-scroll").evaluate("node => node.inert")
+            assert page.evaluate("window.__coverFirstOpacity", isolated_context=False) == "0"
+            page.wait_for_function("""() => {
+                const cover = document.querySelector('.chat-switch-cover');
+                return cover && getComputedStyle(cover).opacity === '1';
+            }""")
             during = page.evaluate("window.__geometry()", isolated_context=False)
             expect(page.locator(".chat-switch-cover")).to_have_count(0, timeout=10000)
             expect(page.locator(".chat-detail-content")).to_contain_text("CLS Beta")
