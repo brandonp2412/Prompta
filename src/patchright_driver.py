@@ -345,7 +345,7 @@ class PatchrightDriver(ModelPickerMixin):
             prefix=self.ownership_prefix,
             owner_id=self.page_owner_id,
         )
-        await page.evaluate(load_browser_script("set_window_name.js"), marker)
+        await page.evaluate("(value) => { window.name = value; }", marker)
 
     def _on_request(self, request: Request) -> None:
         capture = self._send_capture
@@ -471,7 +471,9 @@ class PatchrightDriver(ModelPickerMixin):
     async def observed_assistant_response(self) -> CaptureResult:
         try:
             payload = await self.eval(
-                load_browser_script("passive_response_read.js"), main_world=True
+                '(() => { const observer = window.__promptaPassiveResponseObserver; '
+                'return observer?.read?.() || '
+                '{ message_id: "", text: "", complete: false, ambiguous: false }; })()', main_world=True
             )
         except (PatchrightError, RuntimeError, TimeoutError):
             return normalize_dom_snapshot(None)
@@ -640,7 +642,7 @@ class PatchrightDriver(ModelPickerMixin):
                 if await owner.count() != 1:
                     continue
                 tag_name = str(
-                    await owner.evaluate(load_browser_script("element_tag_name.js")) or ""
+                    await owner.evaluate("el => el.tagName") or ""
                 ).casefold()
                 if tag_name in {"html", "body", "main"}:
                     continue
@@ -723,7 +725,7 @@ class PatchrightDriver(ModelPickerMixin):
             if ready:
                 for index in range(baseline, baseline + len(paths)):
                     if not await previews.nth(index).evaluate(
-                        load_browser_script("image_preview_ready.js")
+                        '(el) => el.complete && el.naturalWidth > 0 && Boolean(el.closest(".composer-attachment-surface"))'
                     ):
                         ready = False
                         break
@@ -1011,7 +1013,7 @@ class PatchrightDriver(ModelPickerMixin):
                 logger.warning("FlareSolverr clearance unavailable")
                 return False
             cookie_value, user_agent = clearance
-            current_agent = await page.evaluate(load_browser_script("navigator_user_agent.js"))
+            current_agent = await page.evaluate("navigator.userAgent")
             if current_agent != user_agent:
                 session = await page.context.new_cdp_session(page)
                 await session.send("Network.setUserAgentOverride", {"userAgent": user_agent})
@@ -1360,7 +1362,7 @@ class PatchrightDriver(ModelPickerMixin):
 
     async def _composer_text(self, composer: Locator) -> str:
         try:
-            tag = (await composer.evaluate(load_browser_script("element_tag_name.js"))).casefold()
+            tag = (await composer.evaluate("el => el.tagName")).casefold()
             if tag in {"textarea", "input"}:
                 return await composer.input_value()
             return await composer.inner_text()

@@ -4,13 +4,11 @@ Work in the current checkout. Follow [AGENTS.md](AGENTS.md) for browser access, 
 
 ## Checks
 
-Run heavy project commands through the shared Pueue queue:
-
 ```bash
-buildq --wait -- uv run --no-sync ruff check .
-buildq --wait -- uv run --no-sync ty check
-buildq --wait -- uv run --no-sync pytest -q
-buildq --wait -- bun run check
+uv run --no-sync ruff check .
+uv run --no-sync ty check
+uv run --no-sync pytest -q
+bun run check
 ```
 
 Python uses strict Ruff and Ty checks. The UI uses React 19, strict TypeScript, signal-backed controllers, and Vite. Fix types and behavior at the source.
@@ -32,10 +30,10 @@ Create a revision in the affected family rather than adding schema inspection
 or `ALTER TABLE` to a store constructor:
 
 ```bash
-buildq --wait -- uv run alembic --name runtime revision -m "Describe the schema change"
+uv run alembic --name runtime revision -m "Describe the schema change"
 # Use --name results or --name ownership for those databases.
-buildq --wait -- uv run prompta-migrate --state-dir /path/to/private/test-state
-buildq --wait -- uv run prompta-migrate --database /path/to/custom.sqlite3 --family runtime
+uv run prompta-migrate --state-dir /path/to/private/test-state
+uv run prompta-migrate --database /path/to/custom.sqlite3 --family runtime
 ```
 
 Keep revisions independent of application table definitions. Test a fresh

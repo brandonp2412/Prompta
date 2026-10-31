@@ -44,6 +44,7 @@ _ALLOWED_STATIC = {
     "app.js",
     "app.css",
     "chat-workspace.css",
+    "jobs.css",
     "icon.svg",
     "icon-maskable.svg",
     "icon-192.png",

@@ -1,7 +1,7 @@
 import { useSignals } from "@preact/signals-react/runtime";
 import type { createJobsPageController } from "./JobsPageController";
 import { queueEtaExplanation, queueEtaText } from "./queueStatus";
-import { formatDate, jobStateText, scheduleText } from "./jobView";
+import { formatDate, jobFilter, jobStateText, scheduleText } from "./jobView";
 
 type Controller = ReturnType<typeof createJobsPageController>;
 
@@ -37,14 +37,21 @@ export default function JobsTable({ model }: { model: Controller }) {
 
         {filteredJobs.value.length === 0 && (
           <div className="empty-row">
-            {jobs.value.length ? "No jobs match these filters." : "No scheduled jobs."}
+            <strong>
+              {jobs.value.length ? "No jobs match these filters." : "No scheduled jobs yet."}
+            </strong>
+            <p>
+              {jobs.value.length
+                ? "Try enabling another status or including repeating jobs."
+                : "Create a job to run a prompt on your schedule, or choose Run once."}
+            </p>
           </div>
         )}
 
         {visibleJobs.value.map((job) => {
           const waiting = queueSnapshot.value?.waiting.find((item) => item.name === job.name);
           return (
-            <div key={job.name} role="row" className="job-row">
+            <div key={job.name} role="row" className={`job-row job-state-${jobFilter(job)}`}>
               <div role="cell" className="job-main">
                 <div className="job-name">{job.name}</div>
                 <div title={job.prompt} className="job-prompt">

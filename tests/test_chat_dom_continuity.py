@@ -61,7 +61,7 @@ def test_sidebar_and_reply_composer_keep_identity_through_new_chat(
                 }""", isolated_context=False)
 
                 if width <= 680:
-                    page.get_by_role("button", name="Back to chats").click()
+                    page.get_by_role("button", name="Open chat sidebar").click()
                 page.locator(".chats-list .chat-row").filter(has_text="Synthetic old-beta").click()
                 page.wait_for_url("**/?view=chats&run=old-beta")
                 # Desktop preserves the composer through a direct rail switch.
@@ -77,7 +77,7 @@ def test_sidebar_and_reply_composer_keep_identity_through_new_chat(
                     ).to_be_visible()
 
                 if width <= 680:
-                    page.get_by_role("button", name="Back to chats").click()
+                    page.get_by_role("button", name="Open chat sidebar").click()
                 page.locator(".chats-sidebar .sidebar-primary").click()
                 page.wait_for_url("**/?view=chats&draft=new")
                 assert page.evaluate("""() =>

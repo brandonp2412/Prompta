@@ -46,6 +46,12 @@ def test_sidebar_explains_recovery_backlog_and_read_cooldown(
         expect(summary).not_to_be_visible()
         options.click()
         expect(summary).to_be_visible()
+        assert page.get_by_role("button", name="Mark all local chats as read").evaluate(
+            """node => {
+                const r = node.getBoundingClientRect();
+                return node.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2));
+            }"""
+        )
         expect(summary).to_contain_text("7 original captures eligible")
         expect(summary).to_contain_text("3 follow-ups unresolved")
         expect(summary).to_contain_text("1 need manual review (no verified chat ID)")
@@ -53,7 +59,8 @@ def test_sidebar_explains_recovery_backlog_and_read_cooldown(
         expect(page.get_by_role("button", name="Mark all local chats as read")).to_be_visible()
         options.click()
         expect(summary).not_to_be_visible()
-        expect(page.get_by_role("button", name="Needs attention 8 chats")).to_be_visible()
+        expect(page.get_by_role("button", name="Needs attention 8 chats")).to_have_count(0)
+        expect(page.locator(".sidebar-utility-row")).to_have_count(0)
         if width < 681:
             expect(page.locator(".sidebar-actions .action-label").first).not_to_be_visible()
             list_top = page.locator(".chats-list").bounding_box()

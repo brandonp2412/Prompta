@@ -1,6 +1,7 @@
-import React, { useEffect, useLayoutEffect, useMemo } from "react";
+import React, { useEffect, useLayoutEffect, useMemo, useState, useRef } from "react";
 import { useSignals } from "@preact/signals-react/runtime";
 import { createChatsPageController, type Props } from "./ChatsPageController";
+import { chatUrl } from "./chatUrl";
 import JobsPage from "./JobsPage";
 import ChatComposer from "./ChatComposer";
 import ChatsSidebar from "./ChatsSidebar";
@@ -8,11 +9,26 @@ import ChatTranscript from "./ChatTranscript";
 export default function ChatsPage(props: Props) {
   const model = useMemo(() => createChatsPageController(props), []);
   useSignals();
+  const [shareNotice, setShareNotice] = useState("");
+  const shareTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => () => clearTimeout(shareTimer.current), []);
+  async function shareChat() {
+    const id = model.selectedRunId.peek();
+    if (!id) return;
+    clearTimeout(shareTimer.current);
+    setShareNotice("");
+    try {
+      await navigator.clipboard.writeText(chatUrl(id));
+      if (window.matchMedia("(min-width: 681px)").matches) setShareNotice("Chat link copied");
+    } catch {
+      setShareNotice("Could not copy chat link");
+    }
+    shareTimer.current = setTimeout(() => setShareNotice(""), 2500);
+  }
   const {
     view,
     selectedRunId,
     newChatOpen,
-    onSelect,
     readError,
     drawerOpen,
     drawerProgress,
@@ -83,6 +99,11 @@ export default function ChatsPage(props: Props) {
   }, [model]);
   return (
     <>
+      {shareNotice && (
+        <div className="share-toast" role="status">
+          {shareNotice}
+        </div>
+      )}
       <section
         aria-label="Prompta local chats and jobs"
         className={[
@@ -111,42 +132,37 @@ export default function ChatsPage(props: Props) {
 
         <div className="chats-detail">
           <div className="workspace-header">
-            {view.value === "chats" && selectedRunId.value ? (
-              <>
-                <button
-                  type="button"
-                  aria-label="Back to chats"
-                  title="Back to chats"
-                  onClick={() => onSelect.value(null)}
-                  className="chat-header-back"
-                >
-                  <svg
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    aria-hidden="true"
-                  >
-                    <path d="m15 18-6-6 6-6"></path>
-                  </svg>
-                </button>
-              </>
-            ) : (
-              <>
-                <button
-                  type="button"
-                  aria-label="Open chat sidebar"
-                  aria-expanded={drawerOpen.value}
-                  onClick={() => (drawerOpen.value = true)}
-                  className="sidebar-menu"
-                >
-                  ☰
-                </button>
-              </>
-            )}
+            <button
+              type="button"
+              aria-label="Open chat sidebar"
+              aria-expanded={drawerOpen.value}
+              onClick={() => (drawerOpen.value = true)}
+              className="sidebar-menu"
+            >
+              ☰
+            </button>
             <strong>{view.value === "jobs" ? "Jobs" : selectedChatTitle.value}</strong>
+            {view.value === "chats" && selectedRunId.value && (
+              <button
+                type="button"
+                className="chat-share"
+                aria-label="Share chat"
+                title="Copy chat link"
+                onClick={() => void shareChat()}
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M12 16V3m-5 5 5-5 5 5M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6" />
+                </svg>
+              </button>
+            )}
           </div>
           {view.value === "jobs" ? (
             <>

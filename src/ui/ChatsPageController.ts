@@ -748,8 +748,6 @@ export function createChatsPageController(initialProps: Props) {
       await tick();
       if (followTail && scrollPane.value && selectedRunId.value === id)
         scrollPane.value.scrollTop = scrollPane.value.scrollHeight;
-      // The cover is removed only after the scroll position is committed.
-      if (pendingRevealFor.value === id) pendingRevealFor.value = null;
       const savedTurns = earlyTurns === undefined ? await replyRequest : earlyTurns;
       if (generation !== detailGeneration || selectedRunId.value !== id) return;
       if (earlyTurns === undefined) {
@@ -781,6 +779,16 @@ export function createChatsPageController(initialProps: Props) {
         }
       }
     }
+  }
+
+  function revealSelectedChat() {
+    const id = selectedRunId.peek();
+    if (!id || pendingRevealFor.peek() !== id || detail.peek()?.send_id !== id) return;
+    const pane = scrollPane.peek();
+    if (!pane) return;
+    // Called by the transcript layout effect after React commits its DOM.
+    pane.scrollTop = pane.scrollHeight;
+    pendingRevealFor.value = null;
   }
 
   function receiptFailureMessage(error: unknown, fallback: string): string {
@@ -1477,6 +1485,7 @@ export function createChatsPageController(initialProps: Props) {
     retryPins,
     view,
     selectedRunId,
+    revealSelectedChat,
     newChatOpen,
     onSelect,
     statuses,

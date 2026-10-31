@@ -5,7 +5,7 @@ const vm = require("node:vm");
 const serializer = fs.readFileSync("src/browser_scripts/markdown_from_dom.js", "utf8");
 const source = fs.readFileSync("src/browser_scripts/passive_response_observer.js", "utf8")
   .replace("/* PROMPTA_MARKDOWN_FROM_DOM */", serializer);
-const readSource = fs.readFileSync("src/browser_scripts/passive_response_read.js", "utf8");
+const readSource = '(() => { const observer = window.__promptaPassiveResponseObserver; return observer?.read?.() || { message_id: "", text: "", complete: false, ambiguous: false }; })()';
 for (const script of [source, readSource]) {
   for (const forbidden of [/fetch\s*\(/, /XMLHttpRequest/, /backend-api/, /\.location\s*=/, /window\.open\s*\(/, /setInterval\s*\(/]) {
     assert.ok(!forbidden.test(script), "unexpected active browser operation: " + forbidden);

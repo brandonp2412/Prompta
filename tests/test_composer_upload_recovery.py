@@ -61,7 +61,7 @@ def test_late_image_upload_cannot_attach_to_a_different_chat(
         page.evaluate("window.finishUpload()", isolated_context=False)
         expect(page.get_by_role("textbox", name="Message for current chat")).to_be_visible()
         if width <= 680:
-            page.get_by_role("button", name="Back to chats").click()
+            page.get_by_role("button", name="Open chat sidebar").click()
         page.locator(".chats-sidebar .sidebar-primary").click()
         page.wait_for_url("**/?view=chats&draft=new")
         expect(page.locator(".composer-preview")).to_have_count(0)
@@ -151,7 +151,7 @@ def test_drafts_survive_spa_navigation_with_unavailable_browser_storage(
 
         def select(title: str, send_id: str) -> None:
             if width <= 680:
-                back = page.get_by_role("button", name="Back to chats")
+                back = page.get_by_role("button", name="Open chat sidebar")
                 if back.count():
                     back.click()
                 else:
@@ -169,7 +169,7 @@ def test_drafts_survive_spa_navigation_with_unavailable_browser_storage(
         select("Draft beta", "draft-beta")
         expect(reply).to_have_value("Unsent Beta draft")
         if width <= 680:
-            page.get_by_role("button", name="Back to chats").click()
+            page.get_by_role("button", name="Open chat sidebar").click()
         page.locator(".chats-sidebar .sidebar-primary").click()
         expect(fresh).to_have_value("Unsent fresh draft")
         assert all(url.endswith("/api/local-chat-reads") for url in posts)
@@ -226,7 +226,7 @@ def test_uploaded_image_and_draft_survive_navigation_until_removed(
 
         def back_to_fresh() -> None:
             if width <= 680:
-                page.get_by_role("button", name="Back to chats").click()
+                page.get_by_role("button", name="Open chat sidebar").click()
             page.locator(".chats-sidebar .sidebar-primary").click()
             page.wait_for_url("**/?view=chats&draft=new")
 

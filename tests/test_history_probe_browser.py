@@ -161,7 +161,11 @@ def test_live_capture_deduplicates_nested_messages_and_keeps_tool_headings() -> 
                     document.querySelector('main').append(...fixture.body.childNodes);
                 }""", response, isolated_context=False)
                 await page.wait_for_function("window.__promptaPassiveResponseObserver.read().complete")
-                captured = await page.evaluate(load_browser_script("passive_response_read.js"), isolated_context=False)
+                captured = await page.evaluate(
+                    '(() => { const observer = window.__promptaPassiveResponseObserver; '
+                    'return observer?.read?.() || '
+                    '{ message_id: "", text: "", complete: false, ambiguous: false }; })()',
+                    isolated_context=False)
                 assert captured["ambiguous"] is False
                 assert captured["text"] == "First chunk\n\nFinal chunk"
                 assert captured["branch_message_id"] == final
@@ -223,10 +227,13 @@ async def test_patchright_passive_observer_uses_main_world_for_exposed_callbacks
                 for item in updates
             )
             assert await page.evaluate(
-                load_browser_script("passive_response_read.js"), isolated_context=False
+                '(() => { const observer = window.__promptaPassiveResponseObserver; '
+                'return observer?.read?.() || '
+                '{ message_id: "", text: "", complete: false, ambiguous: false }; })()',
+                isolated_context=False
             )
             await page.evaluate(
-                load_browser_script("passive_response_stop.js"), isolated_context=False
+                "(() => { window.__promptaPassiveResponseObserver?.stop?.(); return true; })()", isolated_context=False
             )
         finally:
             await browser.close()

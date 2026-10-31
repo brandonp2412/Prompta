@@ -1,11 +1,17 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Prompta">
   <defs>
-    <linearGradient id="bg" x1="50" y1="40" x2="462" y2="472" gradientUnits="userSpaceOnUse"><stop stop-color="#0B1020"/><stop offset=".55" stop-color="#15112A"/><stop offset="1" stop-color="#090A12"/></linearGradient>
-    <linearGradient id="mark" x1="170" y1="150" x2="350" y2="360" gradientUnits="userSpaceOnUse"><stop stop-color="#7DE7FF"/><stop offset=".45" stop-color="#6A63FF"/><stop offset="1" stop-color="#FF6BCB"/></linearGradient>
-    <linearGradient id="mark2" x1="286" y1="330" x2="360" y2="360" gradientUnits="userSpaceOnUse"><stop stop-color="#6B58FF"/><stop offset="1" stop-color="#FF82D8"/></linearGradient>
+    <linearGradient id="tile" x1="64" y1="0" x2="440" y2="512" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFAB67"/><stop offset=".5" stop-color="#F47948"/><stop offset="1" stop-color="#D95536"/>
+    </linearGradient>
+    <linearGradient id="paper" x1="170" y1="110" x2="350" y2="390" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFF9EE"/><stop offset="1" stop-color="#FFE6CF"/>
+    </linearGradient>
   </defs>
-  <rect width="512" height="512" fill="url(#bg)"/>
-  <rect x="104" y="104" width="304" height="304" rx="78" fill="#111225" stroke="#6A63FF" stroke-opacity=".5" stroke-width="4"/>
-  <path d="M183 176 263 256 183 336" fill="none" stroke="url(#mark)" stroke-width="36" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M286 336h60" fill="none" stroke="url(#mark2)" stroke-width="34" stroke-linecap="round"/>
+  <rect width="512" height="512" rx="0" fill="url(#tile)"/>
+  <g transform="translate(46.08 46.08) scale(.82)">
+    <path d="M170 112h172c47 0 78 31 78 78v116c0 47-31 78-78 78h-62l-86 52v-52h-24c-47 0-78-31-78-78V190c0-47 31-78 78-78Z" fill="#923D29" opacity=".22" transform="translate(0 12)"/>
+    <path d="M170 100h172c47 0 78 31 78 78v116c0 47-31 78-78 78h-62l-86 52v-52h-24c-47 0-78-31-78-78V178c0-47 31-78 78-78Z" fill="url(#paper)"/>
+    <path d="m171 185 57 51-57 51" fill="none" stroke="#292522" stroke-width="27" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M274 287h62" fill="none" stroke="#292522" stroke-width="25" stroke-linecap="round"/>
+  </g>
 </svg>

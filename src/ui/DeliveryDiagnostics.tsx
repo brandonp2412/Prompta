@@ -21,12 +21,10 @@ export default function DeliveryDiagnostics({ model }: { model: Controller }) {
     (health.recovery.recoverable > 0 || health.recovery.recoverable_reply_captures > 0),
   );
 
-  let label = "status unavailable";
+  let label = !health && !error ? "loading…" : "status unavailable";
   if (!error && health?.ready === false) label = "needs attention";
   else if (!error && health?.admission?.blocked) label = "waiting for capacity";
   else if (!error && health) label = attentionCount > 0 ? "online · review needed" : "online";
-
-  if (!health && !error) return null;
 
   return (
     <details className="delivery-diagnostics">

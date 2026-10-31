@@ -17,7 +17,7 @@ export default function JobsPage(props: Props) {
     activeFilters,
     showRepeatingJobs,
     repeatingJobsCount,
-    cadenceJobs,
+    filteredJobs,
     filterCounts,
     page,
     visibleJobs,
@@ -87,11 +87,15 @@ export default function JobsPage(props: Props) {
         <>
           <section aria-labelledby="jobs-title" className="jobs-panel">
             <div className="jobs-toolbar">
-              <div className="toolbar-title">
-                <h1 id="jobs-title" ref={refs.jobsTitle}>
-                  Jobs
-                </h1>
-                <span>{cadenceJobs.value.length}</span>
+              <div className="jobs-heading">
+                <p className="jobs-eyebrow">AUTOMATIONS</p>
+                <div className="toolbar-title">
+                  <h1 id="jobs-title" ref={refs.jobsTitle}>
+                    Jobs
+                  </h1>
+                  <span>{jobs.value.length}</span>
+                </div>
+                <p className="jobs-description">Your prompts, on schedule.</p>
               </div>
 
               <div className="toolbar-actions">
@@ -216,7 +220,7 @@ export default function JobsPage(props: Props) {
                   aria-pressed={activeFilters.value[option.key]}
                   title={option.title}
                   onClick={() => toggleFilter(option.key)}
-                  className={activeFilters.value[option.key] ? "filter-chip chosen" : "filter-chip"}
+                  className={`filter-chip filter-${option.key}${activeFilters.value[option.key] ? " chosen" : ""}`}
                 >
                   {option.label} <span>{filterCounts.value[option.key]}</span>
                 </button>
@@ -235,6 +239,10 @@ export default function JobsPage(props: Props) {
               </button>
             </div>
 
+            <div className="jobs-list-heading">
+              <h2>Scheduled jobs</h2>
+              <span>{filteredJobs.value.length} matching · ordered by next run</span>
+            </div>
             <JobsTable model={model} />
 
             {jobs.value.length > 0 && (

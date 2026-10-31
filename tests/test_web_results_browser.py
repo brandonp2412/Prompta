@@ -544,13 +544,13 @@ def test_chats_ui_desktop_mobile_and_no_chatgpt_requests(tmp_path: Path) -> None
                 phone.screenshot(
                     path=str(screenshots / "prompta-chats-mobile.png"), animations="disabled"
                 )
-                phone.get_by_role("button", name="Back to chats").click()
+                phone.get_by_role("button", name="Open chat sidebar").click()
                 phone.locator(".chat-row").filter(has_text="Security").click()
                 expect(phone.locator(".prompt-message.collapsed")).to_have_count(1)
-                phone.get_by_role("button", name="Back to chats").click()
+                phone.get_by_role("button", name="Open chat sidebar").click()
                 phone.locator(".chat-row").filter(has_text="Release notes").click()
                 expect(phone.get_by_text("Partial response", exact=False)).to_be_visible()
-                phone.get_by_role("button", name="Back to chats").click()
+                phone.get_by_role("button", name="Open chat sidebar").click()
                 assert phone.locator(".chats-sidebar").is_visible()
                 assert phone.locator(".chats-detail").is_hidden()
                 context.close()
