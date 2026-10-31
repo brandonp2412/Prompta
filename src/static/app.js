@@ -21,7 +21,7 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 	enumerable: true
 }) : target, mod));
 //#endregion
-//#region node_modules/scheduler/cjs/scheduler.production.js
+//#region ../../prompta/node_modules/scheduler/cjs/scheduler.production.js
 /**
 * @license React
 * scheduler.production.js
@@ -276,12 +276,12 @@ var require_scheduler_production = /* @__PURE__ */ __commonJSMin(((exports) => {
 	};
 }));
 //#endregion
-//#region node_modules/scheduler/index.js
+//#region ../../prompta/node_modules/scheduler/index.js
 var require_scheduler = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_scheduler_production();
 }));
 //#endregion
-//#region node_modules/react/cjs/react.production.js
+//#region ../../prompta/node_modules/react/cjs/react.production.js
 /**
 * @license React
 * react.production.js
@@ -668,12 +668,12 @@ var require_react_production = /* @__PURE__ */ __commonJSMin(((exports) => {
 	exports.version = "19.3.1";
 }));
 //#endregion
-//#region node_modules/react/index.js
+//#region ../../prompta/node_modules/react/index.js
 var require_react = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_react_production();
 }));
 //#endregion
-//#region node_modules/react-dom/cjs/react-dom.production.js
+//#region ../../prompta/node_modules/react-dom/cjs/react-dom.production.js
 /**
 * @license React
 * react-dom.production.js
@@ -826,7 +826,7 @@ var require_react_dom_production = /* @__PURE__ */ __commonJSMin(((exports) => {
 	exports.version = "19.3.1";
 }));
 //#endregion
-//#region node_modules/react-dom/index.js
+//#region ../../prompta/node_modules/react-dom/index.js
 var require_react_dom = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	function checkDCE() {
 		if (typeof __REACT_DEVTOOLS_GLOBAL_HOOK__ === "undefined" || typeof __REACT_DEVTOOLS_GLOBAL_HOOK__.checkDCE !== "function") return;
@@ -840,7 +840,7 @@ var require_react_dom = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_react_dom_production();
 }));
 //#endregion
-//#region node_modules/react-dom/cjs/react-dom-client.production.js
+//#region ../../prompta/node_modules/react-dom/cjs/react-dom-client.production.js
 /**
 * @license React
 * react-dom-client.production.js
@@ -11415,7 +11415,7 @@ var require_react_dom_client_production = /* @__PURE__ */ __commonJSMin(((export
 	};
 }));
 //#endregion
-//#region node_modules/react-dom/client.js
+//#region ../../prompta/node_modules/react-dom/client.js
 var require_client = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	function checkDCE() {
 		if (typeof __REACT_DEVTOOLS_GLOBAL_HOOK__ === "undefined" || typeof __REACT_DEVTOOLS_GLOBAL_HOOK__.checkDCE !== "function") return;
@@ -11429,7 +11429,7 @@ var require_client = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_react_dom_client_production();
 }));
 //#endregion
-//#region node_modules/@preact/signals-core/dist/signals-core.module.js
+//#region ../../prompta/node_modules/@preact/signals-core/dist/signals-core.module.js
 var import_react = /* @__PURE__ */ __toESM(require_react());
 var import_client = require_client();
 var i$1 = Symbol.for("preact-signals");
@@ -11841,7 +11841,7 @@ function x$2(i, t) {
 	return n;
 }
 //#endregion
-//#region node_modules/use-sync-external-store/cjs/use-sync-external-store-shim.production.js
+//#region ../../prompta/node_modules/use-sync-external-store/cjs/use-sync-external-store-shim.production.js
 /**
 * @license React
 * use-sync-external-store-shim.production.js
@@ -11901,7 +11901,7 @@ var require_use_sync_external_store_shim_production = /* @__PURE__ */ __commonJS
 	exports.useSyncExternalStore = void 0 !== React.useSyncExternalStore ? React.useSyncExternalStore : shim;
 }));
 //#endregion
-//#region node_modules/@preact/signals-react/runtime/dist/runtime.module.js
+//#region ../../prompta/node_modules/@preact/signals-react/runtime/dist/runtime.module.js
 var import_shim = (/* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_use_sync_external_store_shim_production();
 })))();
@@ -12110,7 +12110,11 @@ function armWatchdog(current) {
 	}, staleStreamMs);
 }
 function connect() {
-	if (typeof EventSource === "undefined") return;
+	if (typeof EventSource === "undefined") {
+		connectionLost();
+		scheduleReconnect();
+		return;
+	}
 	try {
 		const nextSource = new EventSource("./api/events");
 		source = nextSource;
@@ -12132,7 +12136,7 @@ function connect() {
 			"chats",
 			"ping"
 		]) nextSource.addEventListener(topic, () => {
-			if (source !== nextSource) return;
+			if (source !== nextSource || observedOffline) return;
 			lastStreamFrameAt = Date.now();
 			armWatchdog(nextSource);
 			reconnectAttempts = 0;
@@ -12172,11 +12176,16 @@ function visibleAgain() {
 		return;
 	}
 	if (current) armWatchdog(current);
+	else retryLiveConnection();
 }
 function offline() {
 	observedOffline = true;
 	window.clearTimeout(reconnectTimer);
+	window.clearTimeout(watchdogTimer);
 	reconnectTimer = void 0;
+	watchdogTimer = void 0;
+	source?.close();
+	source = null;
 	connectionLost();
 }
 function onlineAgain() {
@@ -12222,7 +12231,7 @@ function hasSubscribers() {
 	return listeners.jobs.size > 0 || listeners.chats.size > 0 || statusListeners.size > 0;
 }
 function retryLiveConnection() {
-	if (!hasSubscribers()) return;
+	if (!hasSubscribers() || observedOffline) return;
 	window.clearTimeout(reconnectTimer);
 	window.clearTimeout(watchdogTimer);
 	reconnectTimer = void 0;
@@ -12438,19 +12447,16 @@ async function pinReceiptConfirmed(sendId, pinned) {
 //#region src/ui/pendingExactReply.ts
 var storageKey$1 = "prompta.pending-exact-replies.v1";
 var maxRecords$1 = 1024;
-var memoryRecords$1 = [];
-var memoryOnly$1 = false;
 function valid$1(record) {
 	if (!record || typeof record !== "object") return false;
-	return "fingerprint" in record && typeof record.fingerprint === "string" && /^[a-f0-9]{64}$/.test(record.fingerprint) && "replyId" in record && typeof record.replyId === "string" && /^[a-f0-9]{32}$/.test(record.replyId) && "createdAt" in record && typeof record.createdAt === "number" && Number.isFinite(record.createdAt) && record.createdAt >= 0;
+	return "fingerprint" in record && typeof record.fingerprint === "string" && /^[a-f0-9]{64}$/.test(record.fingerprint) && "replyId" in record && typeof record.replyId === "string" && /^[A-Za-z0-9_-]{16,200}$/.test(record.replyId) && "createdAt" in record && typeof record.createdAt === "number" && Number.isFinite(record.createdAt) && record.createdAt >= 0;
 }
 function records$1() {
-	if (memoryOnly$1) return memoryRecords$1;
 	let raw;
 	try {
 		raw = localStorage.getItem(storageKey$1);
 	} catch {
-		return memoryRecords$1;
+		throw new Error("Unresolved reply receipts cannot be read from browser storage; nothing was sent.");
 	}
 	if (raw === null) return [];
 	let stored;
@@ -12459,17 +12465,17 @@ function records$1() {
 	} catch {
 		throw new Error("Unresolved reply receipts are unreadable; no new send was attempted.");
 	}
-	if (!Array.isArray(stored) || stored.length > maxRecords$1 || !stored.every(valid$1)) throw new Error("Unresolved reply receipts are unreadable; no new send was attempted.");
+	if (!Array.isArray(stored) || stored.length > maxRecords$1 || !stored.every(valid$1) || new Set(stored.map((record) => record.fingerprint)).size !== stored.length) throw new Error("Unresolved reply receipts are unreadable; no new send was attempted.");
 	return stored;
 }
 function persist$1(items) {
 	if (items.length > maxRecords$1) throw new Error("Unresolved reply receipts are at capacity; no new send was attempted.");
-	memoryRecords$1 = items;
 	try {
-		localStorage.setItem(storageKey$1, JSON.stringify(memoryRecords$1));
-		memoryOnly$1 = false;
+		const serialized = JSON.stringify(items);
+		localStorage.setItem(storageKey$1, serialized);
+		if (localStorage.getItem(storageKey$1) !== serialized) throw new Error("Storage write not retained");
 	} catch {
-		memoryOnly$1 = true;
+		throw new Error("Unresolved reply receipts cannot be saved in browser storage; nothing was sent.");
 	}
 }
 async function pendingExactReplyRequest(sendId, conversationId, parentId, text) {
@@ -12501,7 +12507,9 @@ async function pendingExactReplyRequest(sendId, conversationId, parentId, text) 
 	};
 }
 function acknowledgeExactReplyRequest(fingerprint, replyId) {
-	persist$1(records$1().filter((entry) => entry.fingerprint !== fingerprint || entry.replyId !== replyId));
+	try {
+		persist$1(records$1().filter((entry) => entry.fingerprint !== fingerprint || entry.replyId !== replyId));
+	} catch {}
 }
 async function pendingQueuedFollowupRequest(sendId, text) {
 	const bytes = new TextEncoder().encode(JSON.stringify([sendId, text]));
@@ -12515,10 +12523,14 @@ async function pendingQueuedFollowupRequest(sendId, text) {
 		reused: true
 	};
 	let legacyId = "";
+	let legacy;
 	try {
-		const legacy = JSON.parse(localStorage.getItem("prompta.pending-followup.v1." + sendId) || "null");
-		if (legacy && typeof legacy === "object" && "replyId" in legacy && typeof legacy.replyId === "string" && /^[A-Za-z0-9_-]{16,200}$/.test(legacy.replyId) && ("fingerprint" in legacy && legacy.fingerprint === fingerprint || "text" in legacy && legacy.text === text)) legacyId = legacy.replyId;
-	} catch {}
+		legacy = JSON.parse(localStorage.getItem("prompta.pending-followup.v1." + sendId) || "null");
+	} catch {
+		throw new Error("Unresolved reply receipts cannot be read from legacy browser storage; nothing was sent.");
+	}
+	if (legacy !== null && (typeof legacy !== "object" || !("replyId" in legacy) || typeof legacy.replyId !== "string" || !/^[A-Za-z0-9_-]{16,200}$/.test(legacy.replyId) || !("fingerprint" in legacy && typeof legacy.fingerprint === "string") && !("text" in legacy && typeof legacy.text === "string"))) throw new Error("Unresolved reply receipts contain a damaged legacy entry; nothing was sent.");
+	if (legacy && typeof legacy === "object" && "replyId" in legacy && typeof legacy.replyId === "string" && /^[A-Za-z0-9_-]{16,200}$/.test(legacy.replyId) && ("fingerprint" in legacy && legacy.fingerprint === fingerprint || "text" in legacy && legacy.text === text)) legacyId = legacy.replyId;
 	const replyId = legacyId || crypto.randomUUID().replaceAll("-", "");
 	persist$1([...saved, {
 		fingerprint,
@@ -12543,19 +12555,16 @@ function acknowledgeQueuedFollowupRequest(sendId, fingerprint, replyId) {
 //#region src/ui/freshQueueReceipt.ts
 var storageKey = "prompta.pending-fresh-requests.v1";
 var maxRecords = 1024;
-var memoryRecords = [];
-var memoryOnly = false;
 function valid(record) {
 	if (!record || typeof record !== "object") return false;
 	return "fingerprint" in record && typeof record.fingerprint === "string" && /^[a-f0-9]{64}$/.test(record.fingerprint) && "requestId" in record && typeof record.requestId === "string" && /^[a-f0-9]{32}$/.test(record.requestId) && "createdAt" in record && typeof record.createdAt === "number" && Number.isFinite(record.createdAt) && record.createdAt >= 0;
 }
 function records() {
-	if (memoryOnly) return memoryRecords;
 	let raw;
 	try {
 		raw = localStorage.getItem(storageKey);
 	} catch {
-		return memoryRecords;
+		throw new Error("Unresolved chat receipts cannot be read from browser storage; nothing was sent.");
 	}
 	if (raw === null) return [];
 	let stored;
@@ -12564,17 +12573,17 @@ function records() {
 	} catch {
 		throw new Error("Unresolved chat receipts are unreadable; no new send was attempted.");
 	}
-	if (!Array.isArray(stored) || stored.length > maxRecords || !stored.every(valid)) throw new Error("Unresolved chat receipts are unreadable; no new send was attempted.");
+	if (!Array.isArray(stored) || stored.length > maxRecords || !stored.every(valid) || new Set(stored.map((record) => record.fingerprint)).size !== stored.length) throw new Error("Unresolved chat receipts are unreadable; no new send was attempted.");
 	return stored;
 }
 function persist(items) {
 	if (items.length > maxRecords) throw new Error("Unresolved chat requests are at capacity; no new send was attempted.");
-	memoryRecords = items;
 	try {
-		localStorage.setItem(storageKey, JSON.stringify(memoryRecords));
-		memoryOnly = false;
+		const serialized = JSON.stringify(items);
+		localStorage.setItem(storageKey, serialized);
+		if (localStorage.getItem(storageKey) !== serialized) throw new Error("Storage write not retained");
 	} catch {
-		memoryOnly = true;
+		throw new Error("Unresolved chat receipts cannot be saved in browser storage; nothing was sent.");
 	}
 }
 async function freshQueueRequest(prompt, images, scope = "chat") {
@@ -12618,7 +12627,9 @@ async function findFreshQueueReceiptStatus(requestId) {
 	}
 }
 function acknowledgeFreshQueueRequest(fingerprint, requestId) {
-	persist(records().filter((entry) => entry.fingerprint !== fingerprint || entry.requestId !== requestId));
+	try {
+		persist(records().filter((entry) => entry.fingerprint !== fingerprint || entry.requestId !== requestId));
+	} catch {}
 }
 //#endregion
 //#region src/ui/exactReplyReceipt.ts
@@ -13024,10 +13035,7 @@ function createChatsPageController(initialProps) {
 				queueError.value = "";
 			}
 		} catch {
-			if (generation === queueGeneration) {
-				queueSnapshot.value = emptyQueueSnapshot;
-				queueError.value = "Waiting-job status is temporarily unavailable.";
-			}
+			if (generation === queueGeneration) queueError.value = queueSnapshot.value === emptyQueueSnapshot ? "Waiting-job status is temporarily unavailable." : "Queue status is temporarily unavailable. Showing the last confirmed positions and ETAs.";
 		} finally {
 			queueInFlight = false;
 			if (queueRefreshPending) {
@@ -14649,7 +14657,7 @@ function createJobsPageController(initialProps) {
 	};
 }
 //#endregion
-//#region node_modules/react/cjs/react-jsx-runtime.production.js
+//#region ../../prompta/node_modules/react/cjs/react-jsx-runtime.production.js
 /**
 * @license React
 * react-jsx-runtime.production.js
@@ -16588,7 +16596,7 @@ function ChatsSidebar({ model, refs }) {
 	});
 }
 //#endregion
-//#region node_modules/marked/lib/marked.esm.js
+//#region ../../prompta/node_modules/marked/lib/marked.esm.js
 /**
 * marked v16.4.2 - a markdown parser
 * Copyright (c) 2018-2025, MarkedJS. (MIT License)

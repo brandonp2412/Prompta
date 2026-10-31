@@ -62,7 +62,7 @@ test("malformed successful queue responses do not crash job rendering", async ()
   }
 });
 
-test("Chats never shows a stale waiting position after a queue outage", async () => {
+test("Chats labels the last confirmed queue position as stale during an outage", async () => {
   const original = globalThis.fetch;
   let response = Response.json(snapshot(2));
   globalThis.fetch = (async () => response) as typeof fetch;
@@ -80,8 +80,8 @@ test("Chats never shows a stale waiting position after a queue outage", async ()
     expect(model.visibleWaiting.value[0]?.position).toBe(2);
     response = new Response("Temporary gateway error", { status: 500 });
     await model.loadQueue();
-    expect(model.visibleWaiting.value).toEqual([]);
-    expect(model.queueError.value).toContain("temporarily unavailable");
+    expect(model.visibleWaiting.value[0]?.position).toBe(2);
+    expect(model.queueError.value).toContain("Showing the last confirmed positions and ETAs");
     response = Response.json(snapshot(1));
     await model.loadQueue();
     expect(model.visibleWaiting.value[0]?.position).toBe(1);
