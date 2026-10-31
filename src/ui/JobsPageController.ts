@@ -1,6 +1,7 @@
 import { signal, computed, batch } from "@preact/signals-react";
 import { isRepeatingJob, sortJobs } from "./jobSorting";
 import { subscribeLiveUpdates } from "./liveUpdates";
+import { type QueueSnapshot, type WaitingJob } from "./queueStatus";
 import { localGet } from "./localRead";
 import { localPost, localUploadTimeoutMs } from "./localMutation";
 import {
@@ -66,6 +67,20 @@ export function createJobsPageController(initialProps: Props) {
   let deliveryHealth = signal<DeliveryHealth | null>(null);
   let deliveryHealthError = signal("");
   let jobsLoadError = signal("");
+  let queueSnapshot = signal<QueueSnapshot | null>(null);
+  function waitingJob(jobName: string): WaitingJob | undefined {
+    return queueSnapshot.value?.waiting.find((job) => job.name === jobName);
+  }
+  async function loadQueue() {
+    try {
+      const response = await localGet("./api/queue-status");
+      if (!response.ok) throw new Error("Queue status unavailable");
+      queueSnapshot.value = (await response.json()) as QueueSnapshot;
+    } catch {
+      // Do not present a stale queue position as current.
+      queueSnapshot.value = null;
+    }
+  }
   const pendingDeliveries = computed(() =>
     deliveryHealth.value
       ? deliveryHealth.value.queue.queued +
@@ -803,13 +818,18 @@ export function createJobsPageController(initialProps: Props) {
     window.visualViewport?.addEventListener("resize", onViewportResize);
     void load().then(syncEditorFromUrl);
     void loadDeliveryHealth();
+    void loadQueue();
     const healthTimer = setInterval(() => {
-      if (document.visibilityState === "visible") void loadDeliveryHealth();
-    }, 30000);
+      if (document.visibilityState === "visible") {
+        void loadDeliveryHealth();
+        void loadQueue();
+      }
+    }, 15000);
     window.addEventListener("popstate", syncEditorFromUrl);
     const unsubscribe = subscribeLiveUpdates("jobs", () => {
       void load({ quiet: true });
       void loadDeliveryHealth();
+      void loadQueue();
     });
     return () => {
       clearInterval(healthTimer);
@@ -838,6 +858,8 @@ export function createJobsPageController(initialProps: Props) {
     deliveryHealth,
     deliveryHealthError,
     jobsLoadError,
+    queueSnapshot,
+    waitingJob,
     pendingDeliveries,
     recoveryPauseSeconds,
     filterOptions,

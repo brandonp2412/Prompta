@@ -11,6 +11,7 @@ from .config import DEFAULT_CONFIG_PATH, ParallelismSettings, StageConcurrencySe
 from .delivery_queue import DeliveryQueueStore
 from .jobs import PromptJob, remove_job
 from .persistence import DEFAULT_RUNTIME_PATH
+from .queue_eta import QueueEtaEstimator
 from .scheduler_policy import (
     occurrence_key,
     pending_delivery_updates,
@@ -138,7 +139,24 @@ class DurableSchedulerProducer:
                 self.queue.results.active_capture_send_ids(stage.job_prefixes, now=at)
             )
         stage_full = stage_limit is not None and len(stage_active) >= stage_limit
+        if not global_full and not stage_full:
+            return {
+                "max_workers": limit,
+                "occupied_slots": len(active),
+                "estimated_run_seconds": 600,
+                "estimate_samples": 0,
+                "waiting": [],
+            }
 
+        estimator = QueueEtaEstimator(self.queue, now=at, active_ids=active)
+        global_projection = (
+            estimator.projection(limit, active) if global_full and limit is not None else None
+        )
+        stage_projection = (
+            estimator.projection(stage_limit, stage_active)
+            if stage_full and stage_limit is not None
+            else None
+        )
         waiting: list[dict[str, object]] = []
         if global_full or stage_full:
             raw_states = self.runtime.load_state().get("jobs")
@@ -164,11 +182,25 @@ class DurableSchedulerProducer:
                 else:
                     assert stage_limit is not None
                     reason, occupied, capacity = "stage", len(stage_active), stage_limit
-                waiting.append({
-                    "name": job.name, "position": len(waiting) + 1,
-                    "reason": reason, "occupied": occupied, "limit": capacity,
-                })
-        return {"max_workers": limit, "occupied_slots": len(active), "waiting": waiting}
+                global_eta = global_projection.enqueue() if global_projection else 0
+                stage_eta = stage_projection.enqueue() if is_stage and stage_projection else 0
+                waiting.append(
+                    {
+                        "name": job.name,
+                        "position": len(waiting) + 1,
+                        "reason": reason,
+                        "occupied": occupied,
+                        "limit": capacity,
+                        "eta_seconds": max(global_eta, stage_eta),
+                    }
+                )
+        return {
+            "max_workers": limit,
+            "occupied_slots": len(active),
+            "estimated_run_seconds": estimator.duration_seconds,
+            "estimate_samples": estimator.samples,
+            "waiting": waiting,
+        }
 
     def _external_mutex_group_busy(self, job: PromptJob) -> bool:
         if not job.mutex_group:
