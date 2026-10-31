@@ -346,7 +346,7 @@ def test_firstwari_authentication_redirect_classification(url: str, required: bo
 
 
 @pytest.mark.asyncio
-async def test_unique_usable_refuses_truncated_candidate_scan(tmp_path: Path) -> None:
+async def test_first_usable_refuses_truncated_single_candidate_scan(tmp_path: Path) -> None:
     class Candidate:
         async def is_visible(self) -> bool:
             return True
@@ -365,7 +365,7 @@ async def test_unique_usable_refuses_truncated_candidate_scan(tmp_path: Path) ->
             raise AssertionError("Oversized ambiguous collection must not be scanned")
 
     driver = PlaywrightDriver(profile=tmp_path / "profile")
-    assert await driver._unique_usable(Collection()) is None
+    assert await driver._first_usable([Collection()], limit=24) is None
 
 
 @pytest.mark.asyncio

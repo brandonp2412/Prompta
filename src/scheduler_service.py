@@ -18,7 +18,6 @@ from .scheduler_policy import (
     receipt_is_pending,
     receipt_is_terminal,
     recurring_jitter_cap,
-    scheduled_job_prompt,
     should_enqueue_job,
     terminal_reconciliation_updates,
 )
@@ -74,13 +73,6 @@ class DurableSchedulerProducer:
             self._parallelism_settings = settings
             self._parallelism_signature = signature
         return self._parallelism_settings
-
-    def _occurrence_key(self, job: PromptJob) -> str:
-        return occurrence_key(job, self.runtime.job_state(job.name))
-
-    @staticmethod
-    def _send_id(idempotency_key: str) -> str:
-        return f"scheduled-{idempotency_key}"
 
     def _pending_receipt(self, job_name: str) -> dict[str, object] | None:
         state = self.runtime.job_state(job_name)
@@ -255,11 +247,11 @@ class DurableSchedulerProducer:
             return False
 
         idempotency_key = occurrence_key(job, state)
-        send_id = self._send_id(idempotency_key)
+        send_id = f"scheduled-{idempotency_key}"
         receipt, created = self.queue.enqueue_idempotent(
             {
                 "send_id": send_id,
-                "message": scheduled_job_prompt(job),
+                "message": job.prompt,
                 "images": job.images,
                 "client_id": f"scheduled:{idempotency_key}:{job.name}",
                 "pin_chat": job.pin_chat,

@@ -660,44 +660,6 @@ class PlaywrightDriver:
                 return browser_usable[0]
         return None
 
-    async def _unique_usable(
-        self,
-        locator: _UsableCollection[_UsableT],
-        *,
-        enabled: bool = True,
-        limit: int = 24,
-    ) -> _UsableT | None:
-        """Return one usable match, refusing to guess when several are active."""
-
-        try:
-            count = await locator.count()
-            if count > limit:
-                # Refuse a guessed control when matching nodes exceed the scan cap.
-                return None
-        except PlaywrightError:
-            return None
-
-        browser_usable: list[_UsableT] = []
-        composed_active: list[_UsableT] = []
-        for index in range(count):
-            candidate = locator.nth(index)
-            try:
-                if not await candidate.is_visible():
-                    continue
-                if enabled and not await candidate.is_enabled():
-                    continue
-                browser_usable.append(candidate)
-                if await candidate.evaluate(load_browser_script("is_active_composed_node.js")):
-                    composed_active.append(candidate)
-            except PlaywrightError:
-                continue
-
-        if len(composed_active) == 1:
-            return composed_active[0]
-        if not composed_active and len(browser_usable) == 1:
-            return browser_usable[0]
-        return None
-
     async def _hydrated_composer(self, page: _LocatorPage[_UsableT]) -> _UsableT | None:
         # ChatGPT hydrates its initial textarea into a contenteditable editor. The
         # editor can briefly have no rendered box, so accessibility/visibility APIs
@@ -769,7 +731,7 @@ class PlaywrightDriver:
             if found is not None:
                 return found
 
-        return await self._unique_usable(page.get_by_role("textbox"))
+        return await self._first_usable([page.get_by_role("textbox")], limit=24)
 
     async def _composer_submit_button(
         self,
