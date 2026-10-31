@@ -341,6 +341,6 @@
     <p class="composer-feedback" role="status">{feedback}</p>
   {/if}
   {#if fallbackAvailable && onFallbackSend && hasDraft}
-    <button type="button" class="composer-fallback" disabled={sending} onclick={() => void submit(true)}>Continue in new chat</button>
+    <button type="button" class="composer-fallback" disabled={sending} onclick={() => void submit(true)}>Start new chat with last result</button>
   {/if}
 </form>

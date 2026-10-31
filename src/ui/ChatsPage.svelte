@@ -104,6 +104,7 @@
   let turns = $state<LocalTurn[]>([]);
   let turnsError = $state("");
   let recoveringReply = $state(false);
+  let startingNewChatFromFailure = $state(false);
   let copyState = $state("");
   let scrollPane = $state<HTMLDivElement>();
   let listPane = $state<HTMLDivElement>();
@@ -666,13 +667,40 @@
   }
 
   function freshContinuationPrompt(text: string): string {
-    const introduction = "Continue the following saved conversation in a new chat. The previous ChatGPT branch could not be verified. Treat the quoted transcript as context, then answer the final new message.\n\n";
-    const finalMessage = "\n\nNew user message:\n" + text;
-    if (introduction.length + finalMessage.length >= 32000) return text;
-    const transcript = turns.map((turn) =>
-      "User:\n" + turn.user_text + (turn.assistant_text ? "\n\nAssistant:\n" + turn.assistant_text : "")
+    const lastResultIndex = turns.findLastIndex((turn) => Boolean(turn.assistant_text.trim()));
+    const lastResult = lastResultIndex >= 0 ? turns[lastResultIndex].assistant_text : "";
+    const prefix = lastResult ? "Last saved assistant result:\n" : "Previous chat request:\n";
+    const suffix = "\n\nNew user message:\n" + text;
+    const available = 32000 - prefix.length - suffix.length;
+    if (available <= 0) return text;
+    const previousContext = lastResult || detail?.user_text || "";
+    const result = previousContext.length > available
+      ? (available > 3 ? previousContext.slice(0, available - 3) + "..." : previousContext.slice(0, available))
+      : previousContext;
+    const transcript = turns.slice(0, lastResultIndex + 1).map((turn, index) =>
+      "User:\n" + turn.user_text + (index === lastResultIndex ? "" :
+        turn.assistant_text ? "\n\nAssistant:\n" + turn.assistant_text : "")
     ).join("\n\n");
-    return introduction + transcript.slice(-Math.max(0, 32000 - introduction.length - finalMessage.length)) + finalMessage;
+    const contextHeader = "\n\nEarlier conversation context:\n";
+    const contextBudget = available - result.length - contextHeader.length;
+    const context = transcript && contextBudget > 0
+      ? contextHeader + transcript.slice(-contextBudget) : "";
+    return prefix + result + context + suffix;
+  }
+
+  async function startFailedReplyInNewChat(turn: LocalTurn): Promise<void> {
+    const sendId = selectedRunId;
+    if (startingNewChatFromFailure || !sendId || detail?.send_id !== sendId ||
+        !["preflight_failed", "interrupted", "unavailable", "outcome_unknown"].includes(turn.status)) return;
+    startingNewChatFromFailure = true;
+    try {
+      const message = ["preflight_failed", "outcome_unknown"].includes(turn.status)
+        ? turn.user_text : "Please continue from the last saved result.";
+      const result = await sendFresh(freshContinuationPrompt(message), originalImageRefs());
+      if (!result.ok && selectedRunId === sendId) turnsError = result.message;
+    } finally {
+      startingNewChatFromFailure = false;
+    }
   }
 
   function originalImageRefs(): string[] {
@@ -1249,6 +1277,16 @@
                 {#if turn.status === "preflight_failed" && turn.reply_id && turn.conversation_id && turn.parent_id}
                   <button class="row-action" type="button" onclick={() => void retryFailedTurn(turn)}>Retry this follow-up</button>
                 {/if}
+              {/if}
+              {#if index === turns.length - 1 && turns.some((saved) => saved.assistant_text.trim()) &&
+                  ["preflight_failed", "interrupted", "unavailable", "outcome_unknown"].includes(turn.status)}
+                <div class="chat-recovery-guidance">
+                  <button class="row-action" type="button" disabled={startingNewChatFromFailure} aria-busy={startingNewChatFromFailure}
+                    onclick={() => void startFailedReplyInNewChat(turn)}>
+                    Start new chat with last result
+                  </button>
+                  {#if turn.status === "outcome_unknown"}<span>The original reply may still have been delivered.</span>{/if}
+                </div>
               {/if}
               {#if ["interrupted", "unavailable", "outcome_unknown"].includes(turn.status) && exactConversationUrl(turn.conversation_id || detail.conversation_id)}
                 <div class="chat-recovery-guidance">

@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from pathlib import Path
 
 import pytest
 from playwright.sync_api import Route, expect, sync_playwright
 from test_web_results import server
 
+from prompta.reply_contracts import ReplyIntent
 from prompta.response_capture import CaptureResult
 from prompta.strict_types import json_object
 
@@ -180,10 +182,79 @@ def test_failed_exact_recovery_keeps_draft_and_allows_retry(
             assert len(recoveries) == 2
             assert not fresh
             with page.expect_request("**/api/chats"):
-                page.get_by_role("button", name="Continue in new chat").click()
+                page.get_by_role("form", name="Reply composer").get_by_role(
+                    "button", name="Start new chat with last result"
+                ).click()
             page.wait_for_timeout(200)
             assert len(fresh) == 1
+            assert "Last saved assistant result:\\nSaved partial answer" in fresh[0]
             assert "Still here" in fresh[0]
+        finally:
+            browser.close()
+
+
+@pytest.mark.parametrize("width,height", [(390, 844), (1440, 900)])
+@pytest.mark.parametrize("failed_reply", [False, True])
+def test_stuck_reply_starts_new_chat_with_latest_saved_result_first(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    width: int,
+    height: int,
+    failed_reply: bool,
+) -> None:
+    chromium = Path(os.environ.get("PROMPTA_TEST_CHROMIUM", "/usr/bin/chromium"))
+    if not chromium.is_file():
+        pytest.skip("Chromium unavailable")
+    import prompta.web as web_module
+
+    monkeypatch.setattr(
+        web_module, "_STATIC_ROOT", Path(__file__).resolve().parents[1] / "src/static"
+    )
+    with server(tmp_path) as (app, port), sync_playwright() as playwright:
+        seed_terminal(app, send_id="broken-reply", missing_id=False)
+        if failed_reply:
+            assert app.replies.prepare(
+                "broken-reply",
+                ReplyIntent("f" * 32, CONVERSATION, ASSISTANT, "My follow-up was not sent"),
+                now=103,
+            )
+            assert app.replies.mark_preflight_failed("f" * 32)
+        browser = playwright.chromium.launch(
+            executable_path=str(chromium), headless=True, args=["--no-sandbox"]
+        )
+        try:
+            page = browser.new_page(viewport={"width": width, "height": height})
+            posted: list[dict[str, object]] = []
+
+            def fresh_route(route: Route) -> None:
+                payload = json_object(route.request.post_data or "{}", label="new chat payload")
+                posted.append(payload)
+                route.fulfill(
+                    status=202, content_type="application/json",
+                    body=json.dumps({
+                        "send_id": "manual-" + str(payload["request_id"]), "status": "queued"
+                    }),
+                )
+
+            page.route("**/api/chats", fresh_route)
+            page.goto(f"http://127.0.0.1:{port}/?view=chats&run=broken-reply")
+            action = page.get_by_role("button", name="Start new chat with last result")
+            expect(action).to_be_visible()
+            with page.expect_request("**/api/chats"):
+                action.click()
+            expect(page).to_have_url(re.compile(r"\?view=chats&run=manual-[a-f0-9]{32}$"))
+            assert len(posted) == 1
+            prompt = posted[0]["prompt"]
+            assert isinstance(prompt, str)
+            assert prompt.startswith("Last saved assistant result:\nSaved partial answer")
+            assert prompt.endswith(
+                "New user message:\n" + (
+                    "My follow-up was not sent" if failed_reply
+                    else "Please continue from the last saved result."
+                )
+            )
+            assert "Original private question" in prompt
+            assert prompt.index("Saved partial answer") < prompt.index("Original private question")
         finally:
             browser.close()
 
