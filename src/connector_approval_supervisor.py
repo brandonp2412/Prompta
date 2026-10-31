@@ -1,7 +1,7 @@
-"""Shared permission-dialog supervision for Prompta-owned and account-wide ChatGPT tabs.
+"""Scoped connector permission supervision for actively captured Prompta-owned tabs.
 
-All callers evaluate the same scoped browser script. Live capture tabs poll faster;
-the independent unread-chat watcher provides coverage when no capture owns a tab.
+Callers must provide a live owned-tab connection check; this supervisor never
+inspects unrelated chats or runs outside a Prompta-managed capture.
 """
 
 from __future__ import annotations
@@ -51,7 +51,7 @@ async def supervise_connector_approvals(
     deadline: float,
     source: str,
     poll_interval_seconds: float,
-    active: Callable[[], bool] | None = None,
+    active: Callable[[], bool],
     trusted_retry: Callable[[], Awaitable[object]] | None = None,
 ) -> int:
     """Click scoped permissions until expiry or loss of ownership.
@@ -62,7 +62,7 @@ async def supervise_connector_approvals(
     loop = asyncio.get_running_loop()
     grants = 0
     while (remaining := deadline - loop.time()) > 0:
-        if active is not None and not active():
+        if not active():
             break
         try:
             result = await asyncio.wait_for(evaluate(_APPROVAL_SCRIPT), timeout=min(5.0, remaining))

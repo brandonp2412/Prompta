@@ -30,6 +30,7 @@ async def test_shared_supervisor_approves_successive_dialogs_immediately() -> No
         deadline=asyncio.get_running_loop().time() + 0.03,
         source="live",
         poll_interval_seconds=0.01,
+        active=lambda: True,
     )
     assert count == 2
     assert len(observed) >= 3
@@ -70,6 +71,7 @@ async def test_shared_supervisor_does_not_retry_stuck_dialog_tightly() -> None:
         deadline=asyncio.get_running_loop().time() + 0.025,
         source="live",
         poll_interval_seconds=0.02,
+        active=lambda: True,
     )
     assert result == 0
     assert calls <= 2
@@ -96,6 +98,7 @@ async def test_trusted_retry_handles_unhydrated_permission_controls() -> None:
                 deadline=asyncio.get_running_loop().time() + 2.0,
                 source="test",
                 poll_interval_seconds=0.01,
+                active=lambda: True,
                 trusted_retry=lambda: trusted_approval_retry(page),
             )
             assert grants == 1
@@ -130,6 +133,7 @@ async def test_trusted_retry_checks_checkbox_before_grant() -> None:
                 deadline=asyncio.get_running_loop().time() + 3.0,
                 source="test",
                 poll_interval_seconds=0.01,
+                active=lambda: True,
                 trusted_retry=lambda: trusted_approval_retry(page),
             )
             assert grants == 1

@@ -45,6 +45,6 @@ This optional policy counts pending deliveries and active captures for matching 
 enabled = true
 ```
 
-This authorizes automatic connector permission grants. The handler prefers **Always allow**, but can use **Allow once** if persistent approval is unavailable or repeatedly ignored. It retries delayed controls with bounded backoff and uses a real browser click when a synthetic click has no effect. It acts only on recognizable permission groups, not unrelated buttons.
+This authorizes connector permission grants **only during an active Prompta-owned fresh-chat capture or explicit user-started exact-branch reply capture**. The owned-tab supervisor checks the live connection throughout its lifetime; it never scans the ChatGPT sidebar or other chats. The handler prefers **Always allow**, but can use **Allow once** if persistent approval is unavailable or repeatedly ignored. It retries delayed controls with bounded backoff and uses a real browser click when a synthetic click has no effect. It acts only on recognizable permission groups, not unrelated buttons.
 
-Restart `prompta-delivery-worker` and `prompta-connector-approval-watch` after changing the setting, allowing active captures to finish first. Live owned tabs check every 200 ms. The independent watcher checks unread sidebar links in temporary background tabs and permission controls in existing non-Prompta tabs, once per second per tab. Temporary approval tabs have a 45-minute lifetime. Watcher navigation and refresh obey the persisted account read backoff.
+After changing the setting, restart the affected delivery/manual-reply workers once active captures have finished. Live Prompta-owned capture tabs check every 200 ms; no independent approval watcher or account-wide approval scanning exists.

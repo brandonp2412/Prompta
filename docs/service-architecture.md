@@ -7,7 +7,6 @@
 | `prompta-delivery-worker` | Fresh-chat dispatch, passive capture, historical recovery |
 | `prompta-manual-reply-worker` | Explicit replies to verified branches and their captures |
 | `prompta-browser` | Authenticated Chromium/CDP session |
-| `prompta-connector-approval-watch` | Opt-in connector permission supervision |
 | `prompta-browser-watchdog.timer` | Independent cleanup of idle owned tabs |
 
 `prompta.target` groups the application services.
