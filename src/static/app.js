@@ -17125,7 +17125,7 @@ function partialResponseLabel(status) {
 function turnStatus(status) {
 	switch (status) {
 		case "prepared": return "Pending";
-		case "preflight_failed": return "Not sent · browser verification failed. Tap Send to retry.";
+		case "preflight_failed": return "Not sent · preflight check failed. Tap Send to retry.";
 		case "dispatching": return "Sending…";
 		case "outcome_unknown": return "Send outcome unknown · no automatic retry";
 		case "accepted": return "Awaiting captured response";
