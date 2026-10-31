@@ -93,7 +93,7 @@ asyncio_mode = "auto"
 pythonpath = ["."]
 
 [tool.uv]
-config-settings = { editable_mode = "strict" }
+
 
 [dependency-groups]
 dev = [

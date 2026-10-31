@@ -6,6 +6,7 @@ from collections.abc import Callable, Coroutine
 from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse, Response
 from fastapi.routing import APIRoute
+from starlette.requests import ClientDisconnect
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 logger = logging.getLogger(__name__)
@@ -52,6 +53,7 @@ class RequestBoundary:
         received = 0
         response_started = False
         response_complete = False
+        send_failed = False
 
         async def bounded_receive() -> Message:
             nonlocal received
@@ -63,24 +65,35 @@ class RequestBoundary:
             return message
 
         async def private_send(message: Message) -> None:
-            nonlocal response_started, response_complete
-            if message["type"] == "http.response.body" and not message.get("more_body", False):
-                response_complete = True
+            nonlocal response_started, response_complete, send_failed
             if message["type"] == "http.response.start":
-                response_started = True
                 headers = list(message.get("headers", []))
                 if not any(key == b"cache-control" for key, _ in headers):
                     headers.append((b"cache-control", b"no-store"))
                 headers.append((b"x-content-type-options", b"nosniff"))
                 message["headers"] = headers
-            await send(message)
+            try:
+                await send(message)
+            except (OSError, RuntimeError):
+                send_failed = True
+                raise
+            if message["type"] == "http.response.start":
+                response_started = True
+            if message["type"] == "http.response.body" and not message.get("more_body", False):
+                response_complete = True
 
         try:
             await self.app(scope, bounded_receive, private_send)
         except Exception as exc:
+            if send_failed or isinstance(exc, ClientDisconnect):
+                logger.debug("HTTP client disconnected error_type=%s", type(exc).__name__)
+                return
             logger.error("HTTP contract failed error_type=%s", type(exc).__name__)
             if response_started and not response_complete:
-                await private_send({"type": "http.response.body", "body": b"", "more_body": False})
+                try:
+                    await private_send({"type": "http.response.body", "body": b"", "more_body": False})
+                except (OSError, RuntimeError):
+                    logger.debug("HTTP error terminator lost after disconnect")
             elif not response_started:
                 await JSONResponse(
                     {"ok": False, "error": "Chat send contract unavailable"}, status_code=500

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import logging
 import os
 from pathlib import Path
 from threading import RLock
@@ -20,6 +21,7 @@ _MIGRATIONS = Path(__file__).with_name("migrations")
 # Alembic's context/op proxies are process-global. SQLite's write lock provides
 # cross-process serialization; this lock also protects those proxies in threads.
 _MIGRATION_LOCK = RLock()
+logging.getLogger("alembic.runtime.migration").setLevel(logging.WARNING)
 
 
 def migration_config(family: SchemaFamily) -> Config:
