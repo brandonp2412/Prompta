@@ -1554,7 +1554,13 @@ def test_waiting_chats_render_and_advance_on_desktop_and_mobile(tmp_path: Path) 
                 executable_path=chromium_path, headless=True, args=["--no-sandbox"]
             )
             try:
-                for width, height in ((1440, 900), (390, 844), (320, 700)):
+                for width, height in (
+                    (1440, 900),
+                    (360, 800),
+                    (390, 844),
+                    (412, 915),
+                    (320, 700),
+                ):
                     context = browser.new_context(viewport={"width": width, "height": height})
                     page = context.new_page()
                     requests: list[tuple[str, str]] = []

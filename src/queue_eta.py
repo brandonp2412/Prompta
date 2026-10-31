@@ -72,9 +72,10 @@ class QueueEtaEstimator:
                 if active_ids
                 else []
             )
-        self.samples = len(durations)
+        self._durations = [float(value) for value in durations]
+        self.samples = len(self._durations)
         self.duration_seconds = (
-            round(median(durations)) if self.samples >= 3 else _FALLBACK_RUN_SECONDS
+            round(median(self._durations)) if self.samples >= 3 else _FALLBACK_RUN_SECONDS
         )
         self._accepted = {str(send_id): float(started) for send_id, started in accepted}
 
@@ -89,12 +90,18 @@ class QueueEtaEstimator:
                     if receipt.get("status") == "running":
                         started = float_value(receipt.get("lease_acquired_at"))
                     retry_at = float_value(receipt.get("retry_at"))
-            remaining = max(
-                _MIN_RUN_SECONDS,
-                self.duration_seconds - max(0.0, self.now - started)
-                if started
-                else self.duration_seconds,
-            )
+            remaining = float(self.duration_seconds)
+            if started:
+                elapsed = max(0.0, self.now - started)
+                # A job that outlives the overall median must not display
+                # "about one minute" indefinitely. Use the median remaining
+                # time of historical runs that survived this long.
+                survivors = [duration for duration in self._durations if duration > elapsed]
+                if len(survivors) >= 3:
+                    remaining = median(survivors) - elapsed
+                elif elapsed < self.duration_seconds and self.samples < 3:
+                    remaining = self.duration_seconds - elapsed
+                remaining = max(_MIN_RUN_SECONDS, remaining)
             if retry_at > self.now:
                 remaining = max(remaining, retry_at - self.now + self.duration_seconds)
             durations.append(remaining)

@@ -53,6 +53,11 @@ def test_queue_eta_learns_recent_completed_scheduled_capture_durations(tmp_path:
     projection = estimator.projection(1, {"active"})
     assert [projection.enqueue(), projection.enqueue()] == [70, 190]
 
+    # This capture has outlived every historical sample. The estimate must
+    # not remain stuck at one minute until it eventually finishes.
+    overdue = QueueEtaEstimator(queue, now=1200, active_ids={"active"})
+    assert overdue.remaining({"active"}) == [120]
+
 
 def test_queue_eta_uses_clearly_labelled_initial_estimate_without_history(tmp_path: Path) -> None:
     queue = DeliveryQueueStore(tmp_path / "ui-send-jobs.sqlite3")
