@@ -96,6 +96,11 @@ class PassiveCaptureDriver(Protocol):
 
 
 @runtime_checkable
+class TrustedApprovalDriver(Protocol):
+    async def click_stuck_connector_approval(self) -> object: ...
+
+
+@runtime_checkable
 class VerifiedActivityDriver(Protocol):
     def record_verified_activity(self) -> bool: ...
 
@@ -391,6 +396,10 @@ class BrowserDeliverySender:
             source="live",
             poll_interval_seconds=0.2,
             active=lambda: driver.is_connected,
+            trusted_retry=(
+                driver.click_stuck_connector_approval
+                if isinstance(driver, TrustedApprovalDriver) else None
+            ),
         )
 
     async def _capture_until_complete(

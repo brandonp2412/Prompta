@@ -42,6 +42,7 @@ from .browser_ownership import (
     touch_owned_tab,
 )
 from .browser_script_loader import load_browser_script
+from .connector_approval_supervisor import trusted_approval_retry
 from .flaresolverr_client import solve_cloudflare
 from .response_capture import CaptureResult, normalize_dom_snapshot, parse_sse_body
 from .send_outcome import SendOutcomeUnknownError
@@ -1128,6 +1129,9 @@ class PlaywrightDriver:
                     "Playwright browsing context is unavailable"
                 ) from exc
             raise
+
+    async def click_stuck_connector_approval(self) -> object:
+        return await trusted_approval_retry(self._page())
 
     @staticmethod
     def _navigation_response_is_security_challenge(response: Response | None) -> bool:

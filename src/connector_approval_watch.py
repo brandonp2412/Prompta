@@ -22,7 +22,7 @@ from .account_read_gate import AccountReadGate
 from .browser_ownership import MAX_OWNED_TAB_AGE_SECONDS
 from .browser_script_loader import load_browser_script
 from .config import ConnectorApproval
-from .connector_approval_supervisor import supervise_connector_approvals
+from .connector_approval_supervisor import supervise_connector_approvals, trusted_approval_retry
 
 logger = logging.getLogger(__name__)
 
@@ -156,6 +156,7 @@ async def watch_open_chat(page: Page, path: str) -> None:
         source="backup-open",
         poll_interval_seconds=1.0,
         active=active,
+        trusted_retry=lambda: trusted_approval_retry(page),
     )
 
 
@@ -195,6 +196,7 @@ async def watch_chat(
             source="backup",
             poll_interval_seconds=1.0,
             active=active,
+            trusted_retry=lambda: trusted_approval_retry(watched_page),
         )
         return True
     except asyncio.CancelledError:

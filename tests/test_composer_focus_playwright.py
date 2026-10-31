@@ -126,6 +126,42 @@ async def test_connector_permission_controls() -> None:
             assert await page.evaluate('window.hiddenClicked === true') is False
             await page.set_content('<div role="dialog"><button disabled>Always allow</button></div>')
             assert await page.evaluate(script) is False
+            # A temporarily unhydrated button must be eligible to retry later.
+            await page.set_content(
+                '<div role="dialog"><button id="retry" onclick="window.retry=(window.retry||0)+1;'
+                'this.remove()">Always allow</button></div>'
+            )
+            await page.evaluate("document.getElementById('retry').onclick = null")
+            assert await page.evaluate(script) == "stuck"
+            await page.evaluate(
+                "window.__promptaConnectorApproval.set(document.getElementById('retry'), "
+                "{attempts: 2, at: performance.now() - 7000})"
+            )
+            await page.evaluate(
+                "() => {document.getElementById('retry').onclick = function() {window.retry=1; this.remove()}}"
+            )
+            assert await page.evaluate(script) is True
+            assert await page.evaluate("window.retry") == 1
+            # After three persistent misses, fall back to the scoped Allow once.
+            await page.set_content(
+                '<div role="dialog"><button id="persistent">Always allow</button>'
+                '<button id="once" onclick="window.onceFallback=true;this.remove()">'
+                'Allow once</button><button>Deny</button></div>'
+            )
+            await page.evaluate(
+                "window.__promptaConnectorApproval.set(document.getElementById('persistent'), "
+                "{attempts: 3, at: performance.now() - 70000})"
+            )
+            assert await page.evaluate(script) is True
+            assert await page.evaluate("window.onceFallback") is True
+            # A disabled persistent grant must not block a working one-time grant.
+            await page.set_content(
+                '<div role="dialog"><button disabled>Always allow</button>'
+                '<button onclick="window.disabledFallback=true;this.remove()">Allow once</button>'
+                '<button>Deny</button></div>'
+            )
+            assert await page.evaluate(script) is True
+            assert await page.evaluate("window.disabledFallback") is True
         finally:
             await browser.close()
 
