@@ -166,7 +166,7 @@ def test_chat_result_survives_optional_reply_read_failure(
                 ),
             )
         page.goto(f"http://127.0.0.1:{port}/?view=chats&run=partial-local-read")
-        expect(page.get_by_text("Answer for Partial read probe")).to_be_visible()
+        expect(page.locator(".chat-transcript-scroll").get_by_text("Answer for Partial read probe")).to_be_visible()
         expect(page.get_by_role("button", name="Retry replies")).to_be_visible()
         expect(page.get_by_role("button", name="Retry chat")).to_have_count(0)
         page.unroute(turns_url)
