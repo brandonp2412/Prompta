@@ -27,18 +27,30 @@ def test_queue_estimate_failure_and_manual_recovery(
         )
         try:
             page = browser.new_page(viewport={"width": width, "height": height})
-            page.route(
-                "**/api/queue-status",
-                lambda route: route.fulfill(status=500, body="Temporary gateway failure"),
-            )
+            page.route("**/api/events", lambda route: route.abort())
+            attempts = 0
+            allow_success = False
+
+            def flaky_queue(route) -> None:
+                nonlocal attempts
+                attempts += 1
+                if allow_success:
+                    route.continue_()
+                else:
+                    route.fulfill(status=500, body="Temporary gateway failure")
+
+            page.route("**/api/queue-status", flaky_queue)
             page.goto(f"http://127.0.0.1:{port}/?view=jobs")
             warning = page.get_by_text("Queue position and ETA are temporarily unavailable.")
             expect(warning).to_be_visible()
             assert page.evaluate("document.documentElement.scrollWidth <= innerWidth + 1")
 
-            page.unroute("**/api/queue-status")
+            page.wait_for_timeout(300)
+            failed_attempts = attempts
+            allow_success = True
             page.get_by_role("button", name="Retry queue estimates").click()
             expect(warning).to_have_count(0)
+            assert attempts > failed_attempts
             assert page.evaluate("document.documentElement.scrollWidth <= innerWidth + 1")
         finally:
             browser.close()

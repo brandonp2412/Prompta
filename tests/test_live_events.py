@@ -118,7 +118,14 @@ def test_sse_survives_temporary_jobs_read_failure_and_recovers(tmp_path: Path, m
             assert stream.status == 200
             assert next_event(stream)[0] == "sync"
             add_job(jobs_path, "Recovered read", "Private content", 300)
-            assert next_event(stream)[0] == "jobs"
+            for _ in range(8):
+                topic, data, _ = next_event(stream)
+                if topic == "jobs":
+                    assert data == "refresh"
+                    break
+                assert topic in {"chats", "ping"}
+            else:
+                raise AssertionError("Jobs change was not delivered after the database recovered")
             assert remaining_failures == 0
         finally:
             client.close()
@@ -258,11 +265,11 @@ def test_browser_updates_jobs_and_chats_without_timer_polling(tmp_path: Path) ->
                 page.goto(
                     f"http://127.0.0.1:{port}/?view=chats", wait_until="domcontentloaded"
                 )
-                expect(page.locator(".chat-entry")).to_have_count(0)
+                expect(page.locator(".chat-entry")).to_have_count(1)
                 app.results.ensure_queued(
                     "sse-browser-run", "Private text", "SSE live chat"
                 )
-                expect(page.locator(".chat-entry")).to_have_count(1, timeout=5000)
+                expect(page.locator(".chat-entry")).to_have_count(2, timeout=5000)
                 expect(page.locator(".chat-row strong", has_text="SSE live chat")).to_be_visible()
                 assert all(f"127.0.0.1:{port}" in request for request in requests)
             finally:
