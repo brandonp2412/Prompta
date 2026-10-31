@@ -445,7 +445,7 @@ class ManualReplyDispatcher:
                         and update.source == "dom"
                         and update.status == "unknown"
                         and not update.message_id
-                        and await driver.eval(load_browser_script("location_pathname.js"))
+                        and await driver.eval("location.pathname")
                         != "/c/" + conversation_id
                     ):
                         break
@@ -456,7 +456,7 @@ class ManualReplyDispatcher:
                         and update.message_id != parent_id
                         and update.text
                         and update.text != last_verified_text
-                        and await driver.eval(load_browser_script("location_pathname.js"))
+                        and await driver.eval("location.pathname")
                         == "/c/" + conversation_id
                         and driver.record_verified_activity()
                     ):
@@ -469,14 +469,14 @@ class ManualReplyDispatcher:
                         and result.conversation_id in (None, conversation_id)
                         and not capture.get("ambiguous_request")):
                         observed_tool_calls = result.tool_calls
-                        if await driver.eval(load_browser_script("location_pathname.js")) == "/c/" + conversation_id:
+                        if await driver.eval("location.pathname") == "/c/" + conversation_id:
                             self.store.observe_tools(reply_id, owner, replace(
                                 result, conversation_id=conversation_id,
                             ))
                     if (update is not None and update.tool_calls
                         and update.conversation_id == conversation_id
                         and (update.message_id or update.observer_id)
-                        and await driver.eval(load_browser_script("location_pathname.js")) == "/c/" + conversation_id):
+                        and await driver.eval("location.pathname") == "/c/" + conversation_id):
                         self.store.observe_tools(reply_id, owner, update)
                     if (
                         result is not None
@@ -496,7 +496,7 @@ class ManualReplyDispatcher:
                         if result.conversation_id is None:
                             # A POST stream may omit the conversation field.
                             # Bind only after the owned page proves its exact route.
-                            if await driver.eval(load_browser_script("location_pathname.js")) != (
+                            if await driver.eval("location.pathname") != (
                                 "/c/" + conversation_id
                             ):
                                 break
@@ -530,7 +530,7 @@ class ManualReplyDispatcher:
                         and update.message_id
                         and update.message_id != parent_id
                         and update.text
-                        and await driver.eval(load_browser_script("location_pathname.js"))
+                        and await driver.eval("location.pathname")
                         == "/c/" + conversation_id
                     ):
                         if not self.store.accepted(
@@ -566,7 +566,7 @@ class ManualReplyDispatcher:
             if context:
                 try:
                     await driver.eval(
-                        load_browser_script("passive_response_stop.js"), main_world=True
+                        "(() => { window.__promptaPassiveResponseObserver?.stop?.(); return true; })()", main_world=True
                     )
                 except Exception:
                     pass

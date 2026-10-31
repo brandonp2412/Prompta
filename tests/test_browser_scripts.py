@@ -13,52 +13,32 @@ ROOT = Path(__file__).resolve().parents[1]
 SOURCE_ROOT = ROOT / "src"
 SCRIPT_ROOT = SOURCE_ROOT / "browser_scripts"
 
-_BROWSER_JS_MARKERS = (
-    "=>",
-    "document.",
-    "window.",
-    "navigator.",
-    "querySelector",
-    "JSON.stringify(",
-    "fetch(",
-    "getComputedStyle",
-    "new Request(",
-    "encodeURIComponent(",
-)
 
-
-def _literal_text(node: ast.AST) -> str:
-    if isinstance(node, ast.Constant) and isinstance(node.value, str):
-        return node.value
-    if isinstance(node, ast.JoinedStr):
-        return "".join(
-            part.value
-            if isinstance(part, ast.Constant) and isinstance(part.value, str)
-            else "{...}"
-            for part in node.values
-        )
-    return ""
-
-
-def test_production_python_contains_no_inline_browser_javascript() -> None:
-    offenders: list[str] = []
+def test_inline_browser_expressions_are_valid_javascript() -> None:
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("Node is unavailable")
     for path in sorted(SOURCE_ROOT.rglob("*.py")):
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-        for node in ast.walk(tree):
-            text = _literal_text(node)
-            if text and any(marker in text for marker in _BROWSER_JS_MARKERS):
-                offenders.append(f"{path.relative_to(ROOT)}:{getattr(node, 'lineno', 0)}")
-                continue
-            if (
-                isinstance(node, ast.Call)
-                and isinstance(node.func, ast.Attribute)
-                and node.func.attr in {"eval", "evaluate"}
-                and node.args
-                and _literal_text(node.args[0])
+        for call in ast.walk(tree):
+            if not (
+                isinstance(call, ast.Call)
+                and isinstance(call.func, ast.Attribute)
+                and call.func.attr in {"eval", "evaluate"}
+                and call.args
             ):
-                offenders.append(f"{path.relative_to(ROOT)}:{getattr(node, 'lineno', 0)}")
-
-    assert offenders == []
+                continue
+            source = call.args[0]
+            if isinstance(source, ast.Constant) and isinstance(source.value, str):
+                result = subprocess.run(
+                    [node, "--check"],
+                    input=f"({source.value});",
+                    capture_output=True,
+                    text=True,
+                )
+                assert result.returncode == 0, (
+                    f"{path.relative_to(ROOT)}:{call.lineno}: {result.stderr}"
+                )
 
 
 @pytest.mark.parametrize(

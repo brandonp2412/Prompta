@@ -443,7 +443,9 @@ async def test_real_browser_late_answer_recovers_without_external_reads(
                 async def observed_assistant_response(self) -> CaptureResult:
                     self.reads += 1
                     payload = await page.evaluate(
-                        load_browser_script("passive_response_read.js")
+                        '(() => { const observer = window.__promptaPassiveResponseObserver; '
+                        'return observer?.read?.() || '
+                        '{ message_id: "", text: "", complete: false, ambiguous: false }; })()'
                     )
                     return normalize_dom_snapshot(payload)
 
