@@ -214,7 +214,7 @@ function hasSubscribers() {
 }
 
 export function retryLiveConnection() {
-  if (!hasSubscribers()) return;
+  if (!hasSubscribers() || observedOffline) return;
   window.clearTimeout(reconnectTimer);
   window.clearTimeout(watchdogTimer);
   reconnectTimer = undefined;

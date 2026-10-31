@@ -760,9 +760,16 @@ export function createJobsPageController(initialProps: Props) {
       void loadDeliveryHealth();
       void loadQueue();
     });
+    // Queue and capture transitions invalidate the chat stream, not the
+    // scheduled-jobs digest. Update their diagnostics without reloading jobs.
+    const unsubscribeQueue = subscribeLiveUpdates("chats", () => {
+      void loadDeliveryHealth();
+      void loadQueue();
+    });
     return () => {
       clearInterval(healthTimer);
       unsubscribe();
+      unsubscribeQueue();
       window.removeEventListener("beforeunload", onBeforeUnload);
       window.removeEventListener("resize", onViewportResize);
       window.visualViewport?.removeEventListener("resize", onViewportResize);

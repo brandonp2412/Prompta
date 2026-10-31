@@ -7,7 +7,7 @@ import os
 from pathlib import Path
 
 import pytest
-from patchright.sync_api import expect, sync_playwright
+from patchright.sync_api import FilePayload, expect, sync_playwright
 from web_results_support import server
 
 PNG = base64.b64decode(
@@ -57,7 +57,7 @@ def test_malformed_upload_receipt_rejects_then_recovers(
         draft = page.get_by_role("textbox", name="Message for new chat")
         draft.fill("Keep this draft")
         chooser = page.get_by_label("Choose images")
-        file = {"name": "photo.png", "mimeType": "image/png", "buffer": PNG}
+        file: FilePayload = {"name": "photo.png", "mimeType": "image/png", "buffer": PNG}
         chooser.set_input_files(file)
         expect(page.get_by_text("Image upload receipt was invalid.")).to_be_visible()
         expect(page.locator(".composer-preview")).to_have_count(0)
