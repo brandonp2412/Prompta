@@ -268,7 +268,10 @@ export function chatMessageTime(epoch: number, nowEpoch = Date.now() / 1000): st
     return Date.UTC(read("year"), read("month") - 1, read("day")) / 86_400_000;
   };
   const difference = dayParts(nowEpoch) - dayParts(epoch);
-  const day = difference === 0 ? "Today" : difference === 1 ? "Yesterday" : dateGroup(epoch);
+  let day: string;
+  if (difference === 0) day = "Today";
+  else if (difference === 1) day = "Yesterday";
+  else day = dateGroup(epoch);
   const time = new Intl.DateTimeFormat("en-NZ", {
     timeZone: "Pacific/Auckland",
     hour: "numeric",
@@ -299,11 +302,9 @@ export function legacyMetricSummary(text: string): ResponseMetric[] | null {
     if (!/^[+-]?[$£€]?\d[\d,.]*%?$/.test(value) || !/^[\p{L}][\p{L}\p{N} /&-]{0,30}$/u.test(label))
       return null;
     const lower = label.toLowerCase();
-    const tone = /^(completed|passed|success(?:ful)?|healthy)$/.test(lower)
-      ? "success"
-      : /^(failed|interrupted|errors?)$/.test(lower)
-        ? "error"
-        : "neutral";
+    let tone: ResponseMetric["tone"] = "neutral";
+    if (/^(completed|passed|success(?:ful)?|healthy)$/.test(lower)) tone = "success";
+    else if (/^(failed|interrupted|errors?)$/.test(lower)) tone = "error";
     metrics.push({ value, label, tone });
   }
   return metrics;

@@ -179,7 +179,6 @@ export function createChatsPageController(initialProps: Props) {
   const newestFirst = (a: RunSummary, b: RunSummary) =>
     activity(b) - activity(a) || b.created_at - a.created_at || a.send_id.localeCompare(b.send_id);
   let pinned = computed(() => {
-    // Pinned runs remain available when they fall outside the current local page.
     const byId = new Map(
       [...pinnedItems.value, ...items.value].map((item) => [item.send_id, item]),
     );
@@ -393,7 +392,6 @@ export function createChatsPageController(initialProps: Props) {
         { timeoutMs: localReadTimeoutMs },
       );
       if (!response.ok) throw new Error("Bulk read receipt rejected");
-      // Keep already-loaded off-page entries in place while refreshing the first page.
       const asRead = (item: RunSummary): RunSummary =>
         item.last_reply_revision ? { ...item, last_read_revision: item.last_reply_revision } : item;
       items.value = items.value.map(asRead);
@@ -937,23 +935,21 @@ export function createChatsPageController(initialProps: Props) {
     const available = 32000 - prefix.length - suffix.length;
     if (available <= 0) return text;
     const previousContext = lastResult || detail.value?.user_text || "";
-    const result =
-      previousContext.length > available
-        ? available > 3
+    let result = previousContext;
+    if (previousContext.length > available)
+      result =
+        available > 3
           ? previousContext.slice(0, available - 3) + "..."
-          : previousContext.slice(0, available)
-        : previousContext;
+          : previousContext.slice(0, available);
     const transcript = turns.value
       .slice(0, lastResultIndex + 1)
       .map(
         (turn, index) =>
           "User:\n" +
           turn.user_text +
-          (index === lastResultIndex
-            ? ""
-            : turn.assistant_text
-              ? "\n\nAssistant:\n" + turn.assistant_text
-              : ""),
+          (index !== lastResultIndex && turn.assistant_text
+            ? "\n\nAssistant:\n" + turn.assistant_text
+            : ""),
       )
       .join("\n\n");
     const contextHeader = "\n\nEarlier conversation context:\n";
@@ -1388,11 +1384,9 @@ export function createChatsPageController(initialProps: Props) {
         Math.abs(dx) >= 30 &&
         Math.abs(gesture.velocityX) >= 0.45 &&
         performance.now() - gesture.lastTime < 120;
-      drawerOpen.value = fling
-        ? gesture.velocityX > 0
-        : gesture.opening
-          ? progress >= 0.35
-          : progress > 0.65;
+      if (fling) drawerOpen.value = gesture.velocityX > 0;
+      else if (gesture.opening) drawerOpen.value = progress >= 0.35;
+      else drawerOpen.value = progress > 0.65;
     }
     cancelSwipe();
   }
@@ -1406,11 +1400,6 @@ export function createChatsPageController(initialProps: Props) {
   function showJobs() {
     drawerOpen.value = false;
     onNavigate.value("jobs");
-  }
-
-  function showChats() {
-    drawerOpen.value = false;
-    onSelect.value(null);
   }
 
   function createChat() {
@@ -1432,21 +1421,6 @@ export function createChatsPageController(initialProps: Props) {
       scrollPane.value.scrollTop += bubble.getBoundingClientRect().top - originalTop;
     }
   }
-
-  const reactiveEffect0 = () =>
-    effect(() => {
-      const id = view.value === "chats" ? selectedRunId.value : null;
-      untrack(() => {
-        if (id) void loadDetail(id);
-        else {
-          detailGeneration += 1;
-          detail.value = null;
-          turns.value = [];
-          turnsError.value = "";
-          detailError.value = "";
-        }
-      });
-    });
 
   const onMountImpl = () => {
     loadPreferences();
@@ -1507,7 +1481,21 @@ export function createChatsPageController(initialProps: Props) {
   };
   function mount() {
     const cleanup = onMountImpl();
-    const disposers = [reactiveEffect0()];
+    const disposers = [
+      effect(() => {
+        const id = view.value === "chats" ? selectedRunId.value : null;
+        untrack(() => {
+          if (id) void loadDetail(id);
+          else {
+            detailGeneration += 1;
+            detail.value = null;
+            turns.value = [];
+            turnsError.value = "";
+            detailError.value = "";
+          }
+        });
+      }),
+    ];
     return () => {
       for (const dispose of disposers) dispose();
       if (typeof cleanup === "function") cleanup();
@@ -1530,12 +1518,6 @@ export function createChatsPageController(initialProps: Props) {
     selectedRunId,
     newChatOpen,
     onSelect,
-    onNavigate,
-    onNewChat,
-    onQueued,
-    pageSize,
-    preferencesKey,
-    readSyncKey,
     statuses,
     responseBadge,
     exactConversationUrl,
@@ -1545,35 +1527,17 @@ export function createChatsPageController(initialProps: Props) {
     recoveryPauseReason,
     recoveryBacklog,
     recoveryReplyBacklog,
-    queueGeneration,
-    queueInFlight,
-    queueRefreshPending,
-    queuePollTimer,
-    detailPollTimer,
     items,
-    pinnedItems,
     pinnedIds,
-    legacyPinIds,
-    confirmedPins,
     pinsReady,
-    pendingPinWrites,
-    pinWriteQueue,
     pinError,
-    pinWriteError,
-    readAt,
-    readRevisions,
-    optimisticReads,
     readError,
     markingAllRead,
-    baselineAt,
     drawerOpen,
     drawerProgress,
     visibleDrawerProgress,
     filtersOpen,
     expandedPrompts,
-    total,
-    nextOffset,
-    loadingMore,
     search,
     statusFilter,
     detail,
@@ -1588,70 +1552,40 @@ export function createChatsPageController(initialProps: Props) {
     jobsWorkspace,
     searchInput,
     loadingList,
-    loadingDetail,
-    pendingRevealFor,
     listError,
     morePageFailed,
     detailError,
-    listGeneration,
-    listInFlight,
-    listRefreshPending,
-    pinsGeneration,
-    detailGeneration,
-    detailInFlightFor,
-    detailRefreshFor,
-    searchTimer,
-    liveRefreshTimer,
-    swipeStart,
-    activity,
-    newestFirst,
     pinned,
     replyBlockedReason,
     visibleWaiting,
     unpinned,
     switchingChat,
     selectedChatTitle,
-    loadPreferences,
-    savePreferences,
     isUnread,
-    importLegacyReads,
     retryReadSync,
-    markRead,
     markAllRead,
-    onReadStorage,
-    loadPins,
     togglePin,
     loadQueue,
-    resultsParams,
-    mergeRuns,
     maybeLoadMore,
     loadList,
     loadMore,
     loadDetail,
-    receiptFailureMessage,
     sendFresh,
-    recoverReply,
     freshContinuationPrompt,
     startFailedReplyInNewChat,
     retryFailedInitialInNewChat,
     originalImageRefs,
-    queueEarlyReply,
     sendReply,
-    sendExactReply,
     retryFailedTurn,
     copyText,
-    refresh,
     applyFilter,
     searchChanged,
     toggleSearch,
-    clampDrawer,
     cancelSwipe,
     startSwipe,
-    moveSwipe,
     finishSwipe,
     selectRun,
     showJobs,
-    showChats,
     createChat,
     escapeDrawer,
     togglePrompt,
