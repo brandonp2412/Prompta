@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Literal, TypedDict
 from uuid import UUID
 
-from sqlalchemy import create_engine, delete, func, or_, select, update
+from sqlalchemy import case, create_engine, delete, func, or_, select, update
 from sqlalchemy.dialects.sqlite import insert
 from sqlalchemy.engine import Engine, RowMapping
 from sqlalchemy.pool import NullPool
@@ -462,6 +462,7 @@ class ResponseStore:
                     results.c.capture_owner,
                     results.c.capture_deadline,
                     history_recovery_attempts.c.next_attempt_at,
+                    func.length(results.c.assistant_text),
                 ).select_from(joined).where(
                     results.c.status.in_(("accepted", "generating", "interrupted", "unavailable"))
                 )
@@ -469,14 +470,21 @@ class ResponseStore:
             attention_chats = connection.execute(
                 select(func.count()).select_from(results).where(_attention_filter)
             ).scalar_one()
-        active = stale = recoverable = due = missing_identity = 0
-        for status, conversation_id, owner, capture_deadline, next_attempt_at in rows:
+            history_completed = connection.execute(
+                select(func.count()).select_from(results).where(
+                    results.c.status == "completed", results.c.source == "history_dom",
+                )
+            ).scalar_one()
+        active = stale = recoverable = due = missing_identity = partial_saved = waiting = 0
+        for status, conversation_id, owner, capture_deadline, next_attempt_at, text_length in rows:
             if status in ("accepted", "generating"):
                 if owner and float(capture_deadline or 0.0) > at:
                     active += 1
                 else:
                     stale += 1
             elif not owner:
+                if text_length:
+                    partial_saved += 1
                 try:
                     verified = str(UUID(str(conversation_id))) == str(conversation_id).lower()
                 except (TypeError, ValueError, AttributeError):
@@ -485,6 +493,8 @@ class ResponseStore:
                     recoverable += 1
                     if float(next_attempt_at or 0.0) <= at:
                         due += 1
+                    else:
+                        waiting += 1
                 else:
                     missing_identity += 1
         return {
@@ -493,6 +503,9 @@ class ResponseStore:
             "recoverable": recoverable,
             "ready_for_read_only_probe": due,
             "missing_verified_identity": missing_identity,
+            "partial_text_saved": partial_saved,
+            "waiting_per_chat_backoff": waiting,
+            "recovered_completed": history_completed,
             "attention_chats": attention_chats,
             "security_pause_seconds": int(
                 self.history_recovery_security_pause_remaining(now=at) + 0.999
@@ -558,6 +571,20 @@ class ResponseStore:
             ).scalar_one_or_none()
         return max(0.0, float(blocked_until or 0.0) - at)
 
+    def history_recovery_security_failures(self, *, now: float | None = None) -> int:
+        """Count recent challenges to bound read-only retry frequency."""
+        at = time.time() if now is None else now
+        with self.engine.connect() as connection:
+            row = connection.execute(select(
+                history_recovery_attempts.c.attempt_count,
+                history_recovery_attempts.c.last_attempt_at,
+            ).where(
+                history_recovery_attempts.c.send_id == "__security_pause__",
+            )).one_or_none()
+        if row is None or at - float(row.last_attempt_at) >= 24 * 3600:
+            return 0
+        return int(row.attempt_count)
+
     def history_recovery_global_pace_remaining(self, *, now: float | None = None) -> float:
         """Across worker restarts, limit browser history reads to one per 90 seconds."""
         at = time.time() if now is None else now
@@ -604,7 +631,10 @@ class ResponseStore:
                         history_recovery_attempts.c.next_attempt_at, stmt.excluded.next_attempt_at,
                     ),
                     "last_attempt_at": at,
-                    "attempt_count": history_recovery_attempts.c.attempt_count + 1,
+                    "attempt_count": case(
+                        (history_recovery_attempts.c.last_attempt_at <= at - 24 * 3600, 1),
+                        else_=history_recovery_attempts.c.attempt_count + 1,
+                    ),
                 },
             ))
 
@@ -731,5 +761,6 @@ class ResponseStore:
                 "last_attempt_at": float(attempt["last_attempt_at"]) if attempt else 0,
                 "next_attempt_at": float(attempt["next_attempt_at"]) if attempt else 0,
                 "eligible": bool(row["conversation_id"]),
+                "state": "pending" if row["conversation_id"] else "identity_required",
             }
         return detail

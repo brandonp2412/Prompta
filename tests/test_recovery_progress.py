@@ -25,6 +25,7 @@ def test_response_detail_shows_only_bounded_read_only_recovery_metadata(tmp_path
         "last_attempt_at": 0,
         "next_attempt_at": 0,
         "eligible": True,
+        "state": "pending",
     }
     store.schedule_history_recovery("run", now=110, next_attempt_at=200)
     store.schedule_history_recovery("run", now=201, next_attempt_at=381)
@@ -35,6 +36,7 @@ def test_response_detail_shows_only_bounded_read_only_recovery_metadata(tmp_path
         "last_attempt_at": 201,
         "next_attempt_at": 381,
         "eligible": True,
+        "state": "pending",
     }
     assert later["assistant_text"] == "Saved answer"
     assert "capture_owner" not in later

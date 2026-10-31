@@ -30,6 +30,8 @@ _GLOBAL_INTERVAL_SECONDS = 90.0
 _MAX_PER_CHAT_INTERVAL_SECONDS = 4 * 3600.0
 _LOOKUP_TIMEOUT_SECONDS = 55.0
 _HISTORY_CLOSE_TIMEOUT_SECONDS = 5.0
+_SECURITY_PAUSE_BASE_SECONDS = 30 * 60.0
+_SECURITY_PAUSE_CAP_SECONDS = 4 * 3600.0
 
 
 class HistoryDriver(Protocol):
@@ -226,10 +228,16 @@ class HistoryRecovery:
                         logger.info("Historical response recovered send_id=%s", send_id)
                         return True
         except RateLimitError as exc:
-            delay = max(delay, _record_read_rate_limit(self.runtime, exc))
+            # The rejected chat gets a durable read-only retry gate as well
+            # as the persisted account-wide backoff; honor Retry-After.
+            delay = max(delay, 5 * 60.0, float(exc.retry_after),
+                        _record_read_rate_limit(self.runtime, exc))
             logger.warning("Historical recovery paused for account rate limit")
         except BrowserSecurityChallengeError:
-            delay = max(delay, 30 * 60.0)
+            # A challenge is not proof that the answer is unavailable.
+            failures = self.results.history_recovery_security_failures(now=at)
+            delay = max(delay, min(_SECURITY_PAUSE_CAP_SECONDS,
+                                   _SECURITY_PAUSE_BASE_SECONDS * 2 ** min(failures, 3)))
             self.results.pause_history_recovery_security(until=at + delay, now=at)
             logger.warning("Historical recovery paused for browser security challenge")
         except Exception as exc:
