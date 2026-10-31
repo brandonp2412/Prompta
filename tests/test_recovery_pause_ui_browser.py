@@ -57,10 +57,12 @@ def test_interrupted_chat_shows_read_backoff_without_reopening_chatgpt(
             ),
         )
         page.goto(f"http://127.0.0.1:{port}/?view=chats&run=cooldown")
-        expect(page.get_by_text("Recovery is waiting about 10 min", exact=False)).to_be_visible()
-        expect(page.get_by_text("account read cooldown", exact=False)).to_be_visible()
-        expect(page.get_by_text("Recovery backlog: 42 original captures", exact=False)).to_be_visible()
-        expect(page.get_by_text("6 unresolved follow-up captures", exact=False)).to_be_visible()
+        summary = page.locator(".chat-recovery-guidance p")
+        expect(summary).to_have_count(1)
+        expect(summary).to_contain_text("42 originals pending, 6 replies")
+        expect(summary).to_contain_text("paused ~10 min")
+        expect(summary).to_contain_text("No automatic resend")
+        expect(page.get_by_text("Recovery backlog:")).to_have_count(0)
         expect(page.get_by_role("link", name="Open exact chat in ChatGPT")).to_be_visible()
         assert remote == []
         assert posts == []
