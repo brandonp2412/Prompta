@@ -45,6 +45,14 @@ test("refreshing a filtered long list drops transitioned runs but retains older 
   expect(next[0]?.updated_at).toBe(10);
 });
 
+test("attention refresh retains only older chats that still need recovery", () => {
+  const unresolved = { ...item("uncertain-reply", "completed", 1), needs_attention: true };
+  const repaired = { ...item("repaired", "completed", 2), needs_attention: false };
+  const current = { ...item("recent", "interrupted", 3, 8), needs_attention: true };
+  const next = reconcileResultPage([unresolved, repaired, current], [current], 3, 1, "needs_attention");
+  expect(next.map((row) => row.send_id)).toEqual(["recent", "uncertain-reply"]);
+});
+
 test("a new first page updates rows without duplicates and respects the server total", () => {
   const prior = [item("older", "completed", 1), item("same", "generating", 2)];
   const next = reconcileResultPage(

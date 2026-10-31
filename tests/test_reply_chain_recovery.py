@@ -11,6 +11,7 @@ from prompta.reply_contracts import ManualReplyStore, ReplyIntent
 from prompta.reply_contracts import replies as reply_table
 from prompta.response_capture import CaptureResult
 from prompta.response_store import ResponseStore
+from prompta.response_store import results as result_table
 from prompta.scheduler_runtime import SchedulerRuntime
 
 CONVERSATION = "12345678-1234-4123-8123-123456789abc"
@@ -196,3 +197,53 @@ def test_short_complete_looking_probe_remains_retryable_after_storage_guard(tmp_
     assert still_partial is not None and still_partial["status"] == "interrupted"
     assert still_partial["assistant_text"] == "A long saved partial answer must survive."
     assert replies.reply_recovery_metrics(now=22)["due_reply_recovery_probes"] == 0
+
+
+def test_interrupted_original_keeps_verified_reply_recovery_eligible(tmp_path: Path) -> None:
+    responses, replies, reply_id = _chain(tmp_path)
+    with responses.engine.begin() as connection:
+        connection.execute(update(result_table).where(
+            result_table.c.send_id == "chain-run"
+        ).values(status="interrupted"))
+
+    candidate = replies.next_history_reply_recovery(now=20)
+    assert candidate is not None and candidate["reply_id"] == reply_id
+    assert replies.reply_recovery_metrics(now=20)["recoverable_reply_captures"] == 1
+
+    with responses.engine.begin() as connection:
+        connection.execute(update(result_table).where(
+            result_table.c.send_id == "chain-run"
+        ).values(conversation_id="different-conversation"))
+    assert replies.next_history_reply_recovery(now=20) is None
+    assert replies.reply_recovery_metrics(now=20)["recoverable_reply_captures"] == 0
+
+
+def test_attention_filter_surfaces_uncertain_followups_and_clears_after_recovery(
+    tmp_path: Path,
+) -> None:
+    responses, replies, reply_id = _chain(tmp_path)
+    page = responses.page(status="needs_attention")
+    assert page["total"] == 1
+    assert responses.recovery_metrics(now=20)["attention_chats"] == 1
+    replies.annotate_response_markers(page["items"])
+    assert page["items"][0]["needs_attention"] is True
+    assert page["items"][0]["status"] == "completed"
+
+    assert replies.recover_historical_reply(
+        reply_id,
+        CaptureResult("dom", "complete", "Recovered answer", CONVERSATION,
+                      SECOND_REPLY_ID, FIRST_REPLY_ID, "turn"),
+        now=25,
+    )
+    assert responses.page(status="needs_attention")["total"] == 0
+    assert responses.recovery_metrics(now=26)["attention_chats"] == 0
+    normal = responses.page(status="completed")
+    replies.annotate_response_markers(normal["items"])
+    assert normal["items"][0]["needs_attention"] is False
+
+    with responses.engine.begin() as connection:
+        connection.execute(update(result_table).where(
+            result_table.c.send_id == "chain-run"
+        ).values(status="unavailable"))
+    assert responses.page(status="needs_attention")["total"] == 1
+    assert responses.recovery_metrics(now=30)["attention_chats"] == 1

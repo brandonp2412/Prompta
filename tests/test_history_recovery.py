@@ -66,6 +66,7 @@ def test_recovery_metrics_are_private_aggregate_and_respect_backoff(tmp_path: Pa
         "recoverable": 1,
         "ready_for_read_only_probe": 0,
         "missing_verified_identity": 1,
+        "attention_chats": 2,
         "security_pause_seconds": 60,
         "global_pace_seconds": 10,
     }

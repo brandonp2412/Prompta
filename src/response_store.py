@@ -7,6 +7,7 @@ import os
 import time
 from pathlib import Path
 from typing import Literal, TypedDict
+from uuid import UUID
 
 from sqlalchemy import (
     Column,
@@ -17,11 +18,13 @@ from sqlalchemy import (
     String,
     Table,
     Text,
+    column,
     create_engine,
     delete,
     func,
     or_,
     select,
+    table,
     update,
 )
 from sqlalchemy.dialects.sqlite import insert
@@ -62,6 +65,16 @@ results = Table(
     Column("capture_deadline", Float, nullable=False, default=0),
 )
 Index("job_responses_active", results.c.status, results.c.capture_deadline)
+_reply_attention = table("manual_reply_turns", column("send_id"), column("status"))
+_attention_filter = or_(
+    results.c.status.in_(("interrupted", "unavailable")),
+    select(_reply_attention.c.send_id).where(
+        _reply_attention.c.send_id == results.c.send_id,
+        _reply_attention.c.status.in_((
+            "preflight_failed", "outcome_unknown", "interrupted", "unavailable",
+        )),
+    ).exists(),
+)
 local_chat_pins = Table(
     "local_chat_pins", _SCHEMA,
     Column("send_id", String, primary_key=True),
@@ -576,6 +589,9 @@ class ResponseStore:
                     results.c.status.in_(("accepted", "generating", "interrupted", "unavailable"))
                 )
             ).all()
+            attention_chats = connection.execute(
+                select(func.count()).select_from(results).where(_attention_filter)
+            ).scalar_one()
         active = stale = recoverable = due = missing_identity = 0
         for status, conversation_id, owner, capture_deadline, next_attempt_at in rows:
             if status in ("accepted", "generating"):
@@ -583,18 +599,24 @@ class ResponseStore:
                     active += 1
                 else:
                     stale += 1
-            elif conversation_id and not owner:
-                recoverable += 1
-                if float(next_attempt_at or 0.0) <= at:
-                    due += 1
-            elif not conversation_id:
-                missing_identity += 1
+            elif not owner:
+                try:
+                    verified = str(UUID(str(conversation_id))) == str(conversation_id).lower()
+                except (TypeError, ValueError, AttributeError):
+                    verified = False
+                if verified:
+                    recoverable += 1
+                    if float(next_attempt_at or 0.0) <= at:
+                        due += 1
+                else:
+                    missing_identity += 1
         return {
             "active_captures": active,
             "stale_capture_leases": stale,
             "recoverable": recoverable,
             "ready_for_read_only_probe": due,
             "missing_verified_identity": missing_identity,
+            "attention_chats": attention_chats,
             "security_pause_seconds": int(
                 self.history_recovery_security_pause_remaining(now=at) + 0.999
             ),
@@ -764,13 +786,16 @@ class ResponseStore:
     ) -> ResultsPage:
         """List only locally persisted Prompta runs; never touch browser state."""
         if status and status not in (
-            "queued", "accepted", "generating", "completed", "interrupted", "unavailable"
+            "queued", "accepted", "generating", "completed", "interrupted", "unavailable",
+            "needs_attention",
         ):
             raise ValueError("Invalid result status")
         if len(query) > 200 or not 1 <= limit <= 50 or not 0 <= offset <= 100_000:
             raise ValueError("Invalid results pagination or search")
         criteria = []
-        if status:
+        if status == "needs_attention":
+            criteria.append(_attention_filter)
+        elif status:
             criteria.append(results.c.status == status)
         if query:
             escaped = query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")

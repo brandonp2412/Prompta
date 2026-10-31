@@ -114,6 +114,44 @@ def test_default_route_opens_chats_and_jobs_remains_linkable(tmp_path: Path) -> 
                 browser.close()
 
 
+@pytest.mark.parametrize("width,height", [(360, 800), (390, 844), (412, 915), (1440, 900)])
+def test_attention_filter_marks_interrupted_chats_in_react_sidebar(
+    tmp_path: Path, width: int, height: int,
+) -> None:
+    from sqlalchemy import update
+
+    from prompta.response_store import results as result_table
+
+    with server(tmp_path) as (app, port):
+        completed_run(app, "healthy", "Healthy", 100)
+        completed_run(app, "needs-help", "Recoverable", 200)
+        with app.results.engine.begin() as connection:
+            connection.execute(update(result_table).where(
+                result_table.c.send_id == "needs-help"
+            ).values(status="interrupted"))
+        assert get(port, "/api/results?status=needs_attention")[1]["total"] == 1
+
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(
+                headless=True,
+                executable_path=os.environ.get("PROMPTA_TEST_CHROMIUM", "/usr/bin/chromium"),
+            )
+            try:
+                page = browser.new_page(viewport={"width": width, "height": height})
+                page.goto(f"http://127.0.0.1:{port}/?view=chats")
+                shortcut = page.locator(".chat-attention-shortcut")
+                expect(shortcut).to_contain_text("1 chat")
+                shortcut.click()
+                expect(page.locator(".chats-controls select")).to_have_value("needs_attention")
+                expect(page.locator(".chat-entry")).to_have_count(1)
+                expect(page.locator(".chat-entry")).to_contain_text("Needs attention")
+                expect(page.locator(".chat-entry")).to_contain_text("Recoverable")
+                expect(page.locator(".chat-entry")).not_to_contain_text("Healthy")
+                assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+            finally:
+                browser.close()
+
+
 def test_results_api_lists_only_local_runs_with_filter_search_and_pagination(
     tmp_path: Path,
 ) -> None:

@@ -106,7 +106,8 @@ class ResultsQuery(BaseModel):
     offset: Annotated[int, Field(ge=0, le=100_000)] = 0
     q: Annotated[str, StringConstraints(strip_whitespace=True, max_length=200)] = ""
     status: Literal[
-        "", "queued", "accepted", "generating", "completed", "interrupted", "unavailable"
+        "", "queued", "accepted", "generating", "completed", "interrupted", "unavailable",
+        "needs_attention",
     ] = ""
 
 

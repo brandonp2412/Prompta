@@ -28,7 +28,7 @@ import {
 } from "./exactReplyReceipt";
 import {
   type LocalTurn,
-  type ResultStatus,
+  type ChatListStatus,
   type RunDetail,
   type RunSummary,
 } from "./resultFormatting";
@@ -55,8 +55,9 @@ export function createChatsPageController(initialProps: Props) {
   const pageSize = 20;
   const preferencesKey = "prompta.local-sidebar.v1";
   const readSyncKey = "prompta.local-read-sync.v1";
-  const statuses: { value: ResultStatus | ""; label: string }[] = [
+  const statuses: { value: ChatListStatus; label: string }[] = [
     { value: "", label: "All states" },
+    { value: "needs_attention", label: "Needs attention" },
     { value: "accepted", label: "Accepted" },
     { value: "generating", label: "Generating" },
     { value: "completed", label: "Completed" },
@@ -108,7 +109,9 @@ export function createChatsPageController(initialProps: Props) {
   let lastRecoveryHealthAt = 0;
   const recoveryPauseSeconds = signal(0);
   const recoveryPauseReason = signal("");
+  const attentionChats = signal<number | null>(null);
   const recoveryBacklog = signal<number | null>(null);
+  const recoveryUnverified = signal<number | null>(null);
   const recoveryReplyBacklog = signal<number | null>(null);
   let items = signal<RunSummary[]>([]);
   let pinnedItems = signal<RunSummary[]>([]);
@@ -135,7 +138,7 @@ export function createChatsPageController(initialProps: Props) {
   let nextOffset = signal(0);
   let loadingMore = signal(false);
   let search = signal("");
-  let statusFilter = signal<ResultStatus | "">("");
+  let statusFilter = signal<ChatListStatus>("");
   let detail = signal<RunDetail | null>(null);
   let turns = signal<LocalTurn[]>([]);
   let turnsError = signal("");
@@ -556,7 +559,9 @@ export function createChatsPageController(initialProps: Props) {
           account_read_backoff_seconds?: number;
           security_pause_seconds?: number;
           global_pace_seconds?: number;
+          attention_chats?: number;
           recoverable?: number;
+          missing_verified_identity?: number;
           unresolved_reply_captures?: number;
         };
       };
@@ -575,10 +580,16 @@ export function createChatsPageController(initialProps: Props) {
         recoveryPauseSeconds.value = Math.ceil(longest.seconds);
         recoveryPauseReason.value = longest.reason;
       }
+      const attention = body.recovery?.attention_chats;
       const backlog = body.recovery?.recoverable;
+      const unverified = body.recovery?.missing_verified_identity;
       const replies = body.recovery?.unresolved_reply_captures;
+      if (typeof attention === "number" && Number.isSafeInteger(attention) && attention >= 0)
+        attentionChats.value = attention;
       if (typeof backlog === "number" && Number.isSafeInteger(backlog) && backlog >= 0)
         recoveryBacklog.value = backlog;
+      if (typeof unverified === "number" && Number.isSafeInteger(unverified) && unverified >= 0)
+        recoveryUnverified.value = unverified;
       if (typeof replies === "number" && Number.isSafeInteger(replies) && replies >= 0)
         recoveryReplyBacklog.value = replies;
     } catch {
@@ -1461,6 +1472,7 @@ export function createChatsPageController(initialProps: Props) {
       if (imported) void loadList();
     });
     void loadQueue();
+    void loadRecoveryPause();
     window.addEventListener("storage", onReadStorage);
     window.addEventListener("touchmove", moveSwipe, { passive: false });
     queuePollTimer = setInterval(() => {
@@ -1469,13 +1481,7 @@ export function createChatsPageController(initialProps: Props) {
     // Poll only Prompta's local turn record while an explicit reply is active.
     // This never opens ChatGPT or submits another message.
     recoveryHealthTimer = setInterval(() => {
-      if (
-        document.visibilityState === "visible" &&
-        turns.value.some((turn) =>
-          ["interrupted", "unavailable", "outcome_unknown"].includes(turn.status),
-        )
-      )
-        void loadRecoveryPause();
+      if (document.visibilityState === "visible") void loadRecoveryPause();
     }, 30_000);
     detailPollTimer = setInterval(() => {
       if (document.visibilityState !== "visible" || view.value !== "chats" || !selectedRunId.value)
@@ -1554,7 +1560,9 @@ export function createChatsPageController(initialProps: Props) {
     queueError,
     recoveryPauseSeconds,
     recoveryPauseReason,
+    attentionChats,
     recoveryBacklog,
+    recoveryUnverified,
     recoveryReplyBacklog,
     items,
     pinnedIds,

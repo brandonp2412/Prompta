@@ -30,6 +30,7 @@ export default function ChatTranscript({
     recoveryPauseSeconds: pauseSeconds,
     recoveryPauseReason: pauseReason,
     recoveryBacklog: recoveryQueue,
+    recoveryUnverified: unverifiedCaptures,
     recoveryReplyBacklog: replyQueue,
     expandedPrompts,
     detail,
@@ -337,6 +338,12 @@ export default function ChatTranscript({
                                 ? `; ${replyQueue.value} unresolved follow-up captures`
                                 : ""}
                               . Checks are account-paced, so completion may take time.
+                            </span>
+                          )}
+                          {unverifiedCaptures.value !== null && unverifiedCaptures.value > 0 && (
+                            <span role="status">
+                              {unverifiedCaptures.value} original captures lack a verified ChatGPT
+                              conversation, so automatic recovery cannot check them.
                             </span>
                           )}
                           {index === 0 && detail.value?.recovery && (

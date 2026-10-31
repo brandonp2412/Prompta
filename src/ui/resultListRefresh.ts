@@ -1,4 +1,4 @@
-import type { ResultStatus, RunSummary } from "./resultFormatting";
+import type { ChatListStatus, RunSummary } from "./resultFormatting";
 
 // A first-page refresh is authoritative when it covers every matching run.
 // While older pages are loaded, retain only entries that still satisfy the
@@ -8,10 +8,16 @@ export function reconcileResultPage(
   firstPage: RunSummary[],
   total: number,
   pageSize: number,
-  status: ResultStatus | "",
+  status: ChatListStatus,
 ): RunSummary[] {
   const retained =
-    total <= pageSize ? [] : existing.filter((item) => !status || item.status === status);
+    total <= pageSize
+      ? []
+      : existing.filter(
+          (item) =>
+            !status ||
+            (status === "needs_attention" ? item.needs_attention : item.status === status),
+        );
   const byId = new Map([...retained, ...firstPage].map((item) => [item.send_id, item]));
   return [...byId.values()]
     .sort(

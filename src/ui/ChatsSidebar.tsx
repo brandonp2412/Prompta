@@ -3,7 +3,7 @@ import { useSignals } from "@preact/signals-react/runtime";
 import type { createChatsPageController } from "./ChatsPageController";
 import ChatRow from "./ChatRow";
 import { queueEtaExplanation, queueEtaText } from "./queueStatus";
-import type { ResultStatus } from "./resultFormatting";
+import type { ChatListStatus } from "./resultFormatting";
 
 type SidebarRefs = {
   sidebarPane: (element: HTMLElement | null) => void;
@@ -30,6 +30,7 @@ export default function ChatsSidebar({
     pinError,
     readError,
     markingAllRead,
+    attentionChats,
     drawerOpen,
     filtersOpen,
     search,
@@ -58,6 +59,8 @@ export default function ChatsSidebar({
     if (search.value || statusFilter.value) return "No matching chats";
     return "No chats";
   }
+
+  const attentionCount = attentionChats.value ?? 0;
 
   return (
     <aside aria-label="Local chat sidebar" ref={refs.sidebarPane} className="chats-sidebar">
@@ -174,6 +177,24 @@ export default function ChatsSidebar({
           {markingAllRead.value ? "Marking as read…" : "Mark all as read"}
         </button>
       </div>
+      {attentionCount > 0 && (
+        <button
+          type="button"
+          className="chat-attention-shortcut"
+          title="Review failed or interrupted local captures"
+          onClick={() => {
+            search.value = "";
+            statusFilter.value = "needs_attention";
+            filtersOpen.value = true;
+            applyFilter();
+          }}
+        >
+          <span>Needs attention</span>
+          <strong>
+            {attentionCount} {attentionCount === 1 ? "chat" : "chats"}
+          </strong>
+        </button>
+      )}
       {filtersOpen.value ? (
         <>
           <div id="chat-filters" className="chats-controls">
@@ -195,7 +216,7 @@ export default function ChatsSidebar({
               <select
                 value={statusFilter.value}
                 onChange={(event) => {
-                  statusFilter.value = event.currentTarget.value as ResultStatus | "";
+                  statusFilter.value = event.currentTarget.value as ChatListStatus;
                   applyFilter();
                 }}
               >

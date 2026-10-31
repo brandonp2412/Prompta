@@ -45,6 +45,7 @@ def test_health_exposes_local_recovery_counts_without_branch_identity(tmp_path: 
         recovery = health["recovery"]
         assert isinstance(recovery, dict)
         assert recovery.get("missing_verified_identity") == 1
+        assert recovery.get("attention_chats") == 1
         assert recovery.get("recoverable") == 0
         assert recovery.get("unresolved_reply_captures") == 0
         assert recovery.get("recoverable_reply_captures") == 0
@@ -65,6 +66,38 @@ def test_health_exposes_local_recovery_counts_without_branch_identity(tmp_path: 
             "retry_after_seconds": 0, "retry_at_epoch": 0.0,
         }
         assert "Private prompt" not in body
+
+
+def test_recovery_health_never_counts_invalid_conversation_ids_as_recoverable(
+    tmp_path: Path,
+) -> None:
+    from sqlalchemy import update
+
+    from prompta.response_store import results as result_table
+
+    with server(tmp_path) as (app, port):
+        app.results.ensure_queued("invalid-id", "Synthetic prompt", now=10)
+        assert app.results.accept("invalid-id", "123:owner", deadline=40, now=11)
+        assert app.results.bind_conversation_route(
+            "invalid-id", "123:owner", "/c/12345678-1234-4123-8123-123456789abc", now=12,
+        )
+        assert app.results.finish("invalid-id", "123:owner", "interrupted", now=41)
+
+        with app.results.engine.begin() as connection:
+            connection.execute(update(result_table).where(
+                result_table.c.send_id == "invalid-id"
+            ).values(conversation_id="not-a-verified-uuid"))
+        recovery = get(port, "/api/health")[1]["recovery"]
+        assert recovery["recoverable"] == 0
+        assert recovery["missing_verified_identity"] == 1
+
+        with app.results.engine.begin() as connection:
+            connection.execute(update(result_table).where(
+                result_table.c.send_id == "invalid-id"
+            ).values(conversation_id="12345678-1234-4123-8123-123456789abc"))
+        recovery = get(port, "/api/health")[1]["recovery"]
+        assert recovery["recoverable"] == 1
+        assert recovery["missing_verified_identity"] == 0
 
 
 @pytest.mark.parametrize("width,height", [(1440, 900), (390, 844)])

@@ -16,6 +16,7 @@ export default function ChatRow({ item, model }: Props) {
   const pinned = model.pinnedIds.value.includes(item.send_id);
   const hasPreview = item.has_response && !!item.preview.trim();
   const preview = hasPreview ? plainPreview(item.preview) : "";
+  const rowStatus = item.needs_attention ? "Needs attention" : statusLabel(item.status);
 
   return (
     <div
@@ -36,16 +37,20 @@ export default function ChatRow({ item, model }: Props) {
             </span>
           )}
           <strong>{item.title || "Untitled run"}</strong>
-          <span title={statusLabel(item.status)} className={"result-dot status-" + item.status}>
-            <span className="sr-only">{statusLabel(item.status)}</span>
+          <span
+            title={rowStatus}
+            className={"result-dot status-" + (item.needs_attention ? "interrupted" : item.status)}
+          >
+            <span className="sr-only">{rowStatus}</span>
           </span>
         </span>
         {hasPreview ? (
           <span className="chat-preview" title={preview}>
+            {item.needs_attention ? "Needs attention · " : ""}
             {preview}
           </span>
         ) : (
-          <span className="chat-row-meta">{statusLabel(item.status)}</span>
+          <span className="chat-row-meta">{rowStatus}</span>
         )}
       </button>
       <button

@@ -21,7 +21,7 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 	enumerable: true
 }) : target, mod));
 //#endregion
-//#region ../../prompta/node_modules/scheduler/cjs/scheduler.production.js
+//#region node_modules/scheduler/cjs/scheduler.production.js
 /**
 * @license React
 * scheduler.production.js
@@ -276,12 +276,12 @@ var require_scheduler_production = /* @__PURE__ */ __commonJSMin(((exports) => {
 	};
 }));
 //#endregion
-//#region ../../prompta/node_modules/scheduler/index.js
+//#region node_modules/scheduler/index.js
 var require_scheduler = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_scheduler_production();
 }));
 //#endregion
-//#region ../../prompta/node_modules/react/cjs/react.production.js
+//#region node_modules/react/cjs/react.production.js
 /**
 * @license React
 * react.production.js
@@ -668,12 +668,12 @@ var require_react_production = /* @__PURE__ */ __commonJSMin(((exports) => {
 	exports.version = "19.3.1";
 }));
 //#endregion
-//#region ../../prompta/node_modules/react/index.js
+//#region node_modules/react/index.js
 var require_react = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_react_production();
 }));
 //#endregion
-//#region ../../prompta/node_modules/react-dom/cjs/react-dom.production.js
+//#region node_modules/react-dom/cjs/react-dom.production.js
 /**
 * @license React
 * react-dom.production.js
@@ -826,7 +826,7 @@ var require_react_dom_production = /* @__PURE__ */ __commonJSMin(((exports) => {
 	exports.version = "19.3.1";
 }));
 //#endregion
-//#region ../../prompta/node_modules/react-dom/index.js
+//#region node_modules/react-dom/index.js
 var require_react_dom = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	function checkDCE() {
 		if (typeof __REACT_DEVTOOLS_GLOBAL_HOOK__ === "undefined" || typeof __REACT_DEVTOOLS_GLOBAL_HOOK__.checkDCE !== "function") return;
@@ -840,7 +840,7 @@ var require_react_dom = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_react_dom_production();
 }));
 //#endregion
-//#region ../../prompta/node_modules/react-dom/cjs/react-dom-client.production.js
+//#region node_modules/react-dom/cjs/react-dom-client.production.js
 /**
 * @license React
 * react-dom-client.production.js
@@ -11415,7 +11415,7 @@ var require_react_dom_client_production = /* @__PURE__ */ __commonJSMin(((export
 	};
 }));
 //#endregion
-//#region ../../prompta/node_modules/react-dom/client.js
+//#region node_modules/react-dom/client.js
 var require_client = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	function checkDCE() {
 		if (typeof __REACT_DEVTOOLS_GLOBAL_HOOK__ === "undefined" || typeof __REACT_DEVTOOLS_GLOBAL_HOOK__.checkDCE !== "function") return;
@@ -11429,7 +11429,7 @@ var require_client = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_react_dom_client_production();
 }));
 //#endregion
-//#region ../../prompta/node_modules/@preact/signals-core/dist/signals-core.module.js
+//#region node_modules/@preact/signals-core/dist/signals-core.module.js
 var import_react = /* @__PURE__ */ __toESM(require_react());
 var import_client = require_client();
 var i$1 = Symbol.for("preact-signals");
@@ -11841,7 +11841,7 @@ function x$2(i, t) {
 	return n;
 }
 //#endregion
-//#region ../../prompta/node_modules/use-sync-external-store/cjs/use-sync-external-store-shim.production.js
+//#region node_modules/use-sync-external-store/cjs/use-sync-external-store-shim.production.js
 /**
 * @license React
 * use-sync-external-store-shim.production.js
@@ -11901,7 +11901,7 @@ var require_use_sync_external_store_shim_production = /* @__PURE__ */ __commonJS
 	exports.useSyncExternalStore = void 0 !== React.useSyncExternalStore ? React.useSyncExternalStore : shim;
 }));
 //#endregion
-//#region ../../prompta/node_modules/@preact/signals-react/runtime/dist/runtime.module.js
+//#region node_modules/@preact/signals-react/runtime/dist/runtime.module.js
 var import_shim = (/* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_use_sync_external_store_shim_production();
 })))();
@@ -12308,7 +12308,7 @@ function recoverVisibleTurns(stored, previous, original, sameRun) {
 //#endregion
 //#region src/ui/resultListRefresh.ts
 function reconcileResultPage(existing, firstPage, total, pageSize, status) {
-	const retained = total <= pageSize ? [] : existing.filter((item) => !status || item.status === status);
+	const retained = total <= pageSize ? [] : existing.filter((item) => !status || (status === "needs_attention" ? item.needs_attention : item.status === status));
 	return [...new Map([...retained, ...firstPage].map((item) => [item.send_id, item])).values()].sort((a, b) => (b.updated_at || b.created_at) - (a.updated_at || a.created_at) || b.created_at - a.created_at || a.send_id.localeCompare(b.send_id)).slice(0, Math.max(0, total));
 }
 function nextResultPageOffset(offset, receivedCount, total) {
@@ -12679,6 +12679,10 @@ function createChatsPageController(initialProps) {
 			label: "All states"
 		},
 		{
+			value: "needs_attention",
+			label: "Needs attention"
+		},
+		{
 			value: "accepted",
 			label: "Accepted"
 		},
@@ -12732,7 +12736,9 @@ function createChatsPageController(initialProps) {
 	let lastRecoveryHealthAt = 0;
 	const recoveryPauseSeconds = y$2(0);
 	const recoveryPauseReason = y$2("");
+	const attentionChats = y$2(null);
 	const recoveryBacklog = y$2(null);
+	const recoveryUnverified = y$2(null);
 	const recoveryReplyBacklog = y$2(null);
 	let items = y$2([]);
 	let pinnedItems = y$2([]);
@@ -13053,9 +13059,13 @@ function createChatsPageController(initialProps) {
 				recoveryPauseSeconds.value = Math.ceil(longest.seconds);
 				recoveryPauseReason.value = longest.reason;
 			}
+			const attention = body.recovery?.attention_chats;
 			const backlog = body.recovery?.recoverable;
+			const unverified = body.recovery?.missing_verified_identity;
 			const replies = body.recovery?.unresolved_reply_captures;
+			if (typeof attention === "number" && Number.isSafeInteger(attention) && attention >= 0) attentionChats.value = attention;
 			if (typeof backlog === "number" && Number.isSafeInteger(backlog) && backlog >= 0) recoveryBacklog.value = backlog;
+			if (typeof unverified === "number" && Number.isSafeInteger(unverified) && unverified >= 0) recoveryUnverified.value = unverified;
 			if (typeof replies === "number" && Number.isSafeInteger(replies) && replies >= 0) recoveryReplyBacklog.value = replies;
 		} catch {} finally {
 			recoveryHealthInFlight = false;
@@ -13724,17 +13734,14 @@ function createChatsPageController(initialProps) {
 			if (imported) loadList();
 		});
 		loadQueue();
+		loadRecoveryPause();
 		window.addEventListener("storage", onReadStorage);
 		window.addEventListener("touchmove", moveSwipe, { passive: false });
 		queuePollTimer = setInterval(() => {
 			if (document.visibilityState === "visible") loadQueue();
 		}, 15e3);
 		recoveryHealthTimer = setInterval(() => {
-			if (document.visibilityState === "visible" && turns.value.some((turn) => [
-				"interrupted",
-				"unavailable",
-				"outcome_unknown"
-			].includes(turn.status))) loadRecoveryPause();
+			if (document.visibilityState === "visible") loadRecoveryPause();
 		}, 3e4);
 		detailPollTimer = setInterval(() => {
 			if (document.visibilityState !== "visible" || view.value !== "chats" || !selectedRunId.value) return;
@@ -13808,7 +13815,9 @@ function createChatsPageController(initialProps) {
 		queueError,
 		recoveryPauseSeconds,
 		recoveryPauseReason,
+		attentionChats,
 		recoveryBacklog,
+		recoveryUnverified,
 		recoveryReplyBacklog,
 		items,
 		pinnedIds,
@@ -14623,7 +14632,7 @@ function createJobsPageController(initialProps) {
 	};
 }
 //#endregion
-//#region ../../prompta/node_modules/react/cjs/react-jsx-runtime.production.js
+//#region node_modules/react/cjs/react-jsx-runtime.production.js
 /**
 * @license React
 * react-jsx-runtime.production.js
@@ -16150,6 +16159,7 @@ function ChatRow({ item, model }) {
 	const pinned = model.pinnedIds.value.includes(item.send_id);
 	const hasPreview = item.has_response && !!item.preview.trim();
 	const preview = hasPreview ? plainPreview(item.preview) : "";
+	const rowStatus = item.needs_attention ? "Needs attention" : statusLabel(item.status);
 	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 		className: [
 			"chat-entry",
@@ -16174,21 +16184,21 @@ function ChatRow({ item, model }) {
 					}),
 					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("strong", { children: item.title || "Untitled run" }),
 					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-						title: statusLabel(item.status),
-						className: "result-dot status-" + item.status,
+						title: rowStatus,
+						className: "result-dot status-" + (item.needs_attention ? "interrupted" : item.status),
 						children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
 							className: "sr-only",
-							children: statusLabel(item.status)
+							children: rowStatus
 						})
 					})
 				]
-			}), hasPreview ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+			}), hasPreview ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
 				className: "chat-preview",
 				title: preview,
-				children: preview
+				children: [item.needs_attention ? "Needs attention · " : "", preview]
 			}) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
 				className: "chat-row-meta",
-				children: statusLabel(item.status)
+				children: rowStatus
 			})]
 		}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 			type: "button",
@@ -16215,12 +16225,13 @@ function ChatRow({ item, model }) {
 //#region src/ui/ChatsSidebar.tsx
 function ChatsSidebar({ model, refs }) {
 	N$1();
-	const { retryPins, view, selectedRunId, statuses, queueSnapshot, queueError, items, pinError, readError, markingAllRead, drawerOpen, filtersOpen, search, statusFilter, loadingList, listError, morePageFailed, pinned, visibleWaiting, unpinned, retryReadSync, markAllRead, loadQueue, maybeLoadMore, loadList, loadMore, applyFilter, searchChanged, toggleSearch, showJobs, createChat } = model;
+	const { retryPins, view, selectedRunId, statuses, queueSnapshot, queueError, items, pinError, readError, markingAllRead, attentionChats, drawerOpen, filtersOpen, search, statusFilter, loadingList, listError, morePageFailed, pinned, visibleWaiting, unpinned, retryReadSync, markAllRead, loadQueue, maybeLoadMore, loadList, loadMore, applyFilter, searchChanged, toggleSearch, showJobs, createChat } = model;
 	function emptyChatsLabel() {
 		if (listError.value) return "Chat list temporarily unavailable";
 		if (search.value || statusFilter.value) return "No matching chats";
 		return "No chats";
 	}
+	const attentionCount = attentionChats.value ?? 0;
 	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("aside", {
 		"aria-label": "Local chat sidebar",
 		ref: refs.sidebarPane,
@@ -16341,6 +16352,22 @@ function ChatsSidebar({ model, refs }) {
 						children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: "m2 12 4 4L16 6M9 12l4 4L23 6" })
 					}), markingAllRead.value ? "Marking as read…" : "Mark all as read"]
 				})
+			}),
+			attentionCount > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+				type: "button",
+				className: "chat-attention-shortcut",
+				title: "Review failed or interrupted local captures",
+				onClick: () => {
+					search.value = "";
+					statusFilter.value = "needs_attention";
+					filtersOpen.value = true;
+					applyFilter();
+				},
+				children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Needs attention" }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("strong", { children: [
+					attentionCount,
+					" ",
+					attentionCount === 1 ? "chat" : "chats"
+				] })]
 			}),
 			filtersOpen.value ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 				id: "chat-filters",
@@ -16475,7 +16502,7 @@ function ChatsSidebar({ model, refs }) {
 	});
 }
 //#endregion
-//#region ../../prompta/node_modules/marked/lib/marked.esm.js
+//#region node_modules/marked/lib/marked.esm.js
 /**
 * marked v16.4.2 - a markdown parser
 * Copyright (c) 2018-2025, MarkedJS. (MIT License)
@@ -18277,7 +18304,7 @@ function ToolCalls({ calls }) {
 //#region src/ui/ChatTranscript.tsx
 function ChatTranscript({ model, refs }) {
 	N$1();
-	const { selectedRunId, responseBadge, exactConversationUrl, recoveryPauseSeconds: pauseSeconds, recoveryPauseReason: pauseReason, recoveryBacklog: recoveryQueue, recoveryReplyBacklog: replyQueue, expandedPrompts, detail, turns, turnsError, startingNewChatFromFailure: startingNewChat, detailError, switchingChat, loadDetail, startFailedReplyInNewChat, retryFailedInitialInNewChat, retryFailedTurn, copyText, togglePrompt, copyState } = model;
+	const { selectedRunId, responseBadge, exactConversationUrl, recoveryPauseSeconds: pauseSeconds, recoveryPauseReason: pauseReason, recoveryBacklog: recoveryQueue, recoveryUnverified: unverifiedCaptures, recoveryReplyBacklog: replyQueue, expandedPrompts, detail, turns, turnsError, startingNewChatFromFailure: startingNewChat, detailError, switchingChat, loadDetail, startFailedReplyInNewChat, retryFailedInitialInNewChat, retryFailedTurn, copyText, togglePrompt, copyState } = model;
 	function copyLabel(id) {
 		if (copyState.value === id) return "Copied";
 		if (copyState.value === "error:" + id) return "Copy failed";
@@ -18454,6 +18481,10 @@ function ChatTranscript({ model, refs }) {
 										replyQueue.value !== null && replyQueue.value > 0 ? `; ${replyQueue.value} unresolved follow-up captures` : "",
 										". Checks are account-paced, so completion may take time."
 									]
+								}),
+								unverifiedCaptures.value !== null && unverifiedCaptures.value > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+									role: "status",
+									children: [unverifiedCaptures.value, " original captures lack a verified ChatGPT conversation, so automatic recovery cannot check them."]
 								}),
 								index === 0 && detail.value?.recovery && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
 									role: "status",

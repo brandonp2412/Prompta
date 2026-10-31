@@ -6,6 +6,8 @@ export type ResultStatus =
   | "interrupted"
   | "unavailable";
 
+export type ChatListStatus = ResultStatus | "needs_attention" | "";
+
 export type RunSummary = {
   send_id: string;
   job_name: string;
@@ -13,6 +15,7 @@ export type RunSummary = {
   preview: string;
   status: ResultStatus;
   has_response: boolean;
+  needs_attention?: boolean;
   last_reply_revision: string;
   last_read_revision: string;
   last_reply_at: number;

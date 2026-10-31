@@ -595,7 +595,7 @@ class ManualReplyStore:
             *unresolved,
             replies.c.conversation_id != "",
             replies.c.conversation_id == results.c.conversation_id,
-            results.c.status == "completed",
+            results.c.status.in_(("completed", "interrupted", "unavailable")),
             or_(replies.c.parent_id == results.c.message_id, prior_verified),
         )
         with self.engine.connect() as connection:
@@ -615,7 +615,7 @@ class ManualReplyStore:
         }
 
     def next_history_reply_recovery(self, *, now: float | None = None) -> dict[str, object] | None:
-        """Only first explicit replies with a verified original parent are eligible."""
+        """Only verified Prompta-owned parent chains are eligible."""
         at = time.time() if now is None else now
         attempts = history_recovery_attempts.alias("reply_recovery")
         predecessor = replies.alias("verified_predecessor")
@@ -641,7 +641,7 @@ class ManualReplyStore:
                 replies.c.conversation_id != "",
                 or_(replies.c.parent_id == results.c.message_id, prior_reply_verified),
                 replies.c.conversation_id == results.c.conversation_id,
-                results.c.status == "completed",
+                results.c.status.in_(("completed", "interrupted", "unavailable")),
                 func.coalesce(attempts.c.next_attempt_at, 0) <= at,
             ).order_by(
                 func.coalesce(attempts.c.next_attempt_at, 0), replies.c.created_at.desc(),
@@ -740,10 +740,20 @@ class ManualReplyStore:
                     f"manual\0{reply_id}\0{answer}".encode()
                 ).hexdigest()
                 markers[str(send_id)] = (marker, float(updated_at))
+            attention_ids = set(connection.execute(select(replies.c.send_id).where(
+                replies.c.send_id.in_(send_ids),
+                replies.c.status.in_((
+                    "preflight_failed", "outcome_unknown", "interrupted", "unavailable",
+                )),
+            ).distinct()).scalars())
         for item in summaries:
-            revision, at = markers[str(item["send_id"])]
+            send_id = str(item["send_id"])
+            revision, at = markers[send_id]
             item["last_reply_revision"] = revision
             item["last_reply_at"] = at
+            item["needs_attention"] = (
+                item["status"] in ("interrupted", "unavailable") or send_id in attention_ids
+            )
 
     def mark_all_local_read(self) -> int:
         """Read all currently completed local answers, including off-page runs.
