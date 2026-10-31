@@ -795,10 +795,10 @@ export function createChatsPageController(initialProps: Props) {
       : fallback;
   }
 
-  async function sendFresh(text: string, images: string[]) {
+  async function sendFresh(text: string, images: string[], scope = "chat") {
     let request: Awaited<ReturnType<typeof freshQueueRequest>>;
     try {
-      request = await freshQueueRequest(text, images);
+      request = await freshQueueRequest(text, images, scope);
     } catch (error) {
       return {
         ok: false,
@@ -936,6 +936,35 @@ export function createChatsPageController(initialProps: Props) {
     const context =
       transcript && contextBudget > 0 ? contextHeader + transcript.slice(-contextBudget) : "";
     return prefix + result + context + suffix;
+  }
+
+  async function retryFailedInitialInNewChat(): Promise<void> {
+    const sendId = selectedRunId.value;
+    const original = turns.value[0];
+    if (
+      startingNewChatFromFailure.value ||
+      !sendId ||
+      detail.value?.send_id !== sendId ||
+      !original ||
+      !["interrupted", "unavailable", "outcome_unknown"].includes(original.status) ||
+      Boolean(detail.value.conversation_id || original.conversation_id) ||
+      Boolean(original.assistant_text.trim()) ||
+      !original.user_text.trim()
+    )
+      return;
+    startingNewChatFromFailure.value = true;
+    try {
+      // Only this explicit button can create a new request for the same text.
+      // A stable source-scoped fingerprint still reconciles a lost queue receipt.
+      const result = await sendFresh(
+        original.user_text,
+        originalImageRefs(),
+        "explicit-retry:" + sendId,
+      );
+      if (!result.ok && selectedRunId.value === sendId) turnsError.value = result.message;
+    } finally {
+      startingNewChatFromFailure.value = false;
+    }
   }
 
   async function startFailedReplyInNewChat(turn: LocalTurn): Promise<void> {
@@ -1577,6 +1606,7 @@ export function createChatsPageController(initialProps: Props) {
     recoverReply,
     freshContinuationPrompt,
     startFailedReplyInNewChat,
+    retryFailedInitialInNewChat,
     originalImageRefs,
     queueEarlyReply,
     sendReply,

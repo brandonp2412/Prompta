@@ -73,6 +73,7 @@ export default function ChatsPage(props: Props) {
     sendFresh,
     freshContinuationPrompt,
     startFailedReplyInNewChat,
+    retryFailedInitialInNewChat,
     originalImageRefs,
     sendReply,
     retryFailedTurn,
@@ -956,6 +957,31 @@ export default function ChatsPage(props: Props) {
                                                 The original reply may still have been delivered.
                                               </span>
                                             )}
+                                          </div>
+                                        )}
+                                      {index === 0 &&
+                                        ["interrupted", "unavailable", "outcome_unknown"].includes(
+                                          turn.status,
+                                        ) &&
+                                        !detail.value?.conversation_id &&
+                                        !turn.conversation_id &&
+                                        !turn.assistant_text.trim() &&
+                                        Boolean(turn.user_text.trim()) && (
+                                          <div className="chat-recovery-guidance">
+                                            <button
+                                              className="row-action"
+                                              type="button"
+                                              disabled={startingNewChatFromFailure.value}
+                                              aria-busy={startingNewChatFromFailure.value}
+                                              onClick={() => void retryFailedInitialInNewChat()}
+                                            >
+                                              Retry original prompt in new chat
+                                            </button>
+                                            <span>
+                                              The first send may have reached ChatGPT. Retrying
+                                              explicitly creates a separate chat and could duplicate
+                                              it.
+                                            </span>
                                           </div>
                                         )}
                                       {index === 0 &&

@@ -13147,10 +13147,10 @@ function createChatsPageController(initialProps) {
 		const message = error instanceof Error ? error.message : "";
 		return message.startsWith("Unresolved chat receipts") || message.startsWith("Unresolved chat requests") || message.startsWith("Unresolved reply receipts") ? message : fallback;
 	}
-	async function sendFresh(text, images) {
+	async function sendFresh(text, images, scope = "chat") {
 		let request;
 		try {
-			request = await freshQueueRequest(text, images);
+			request = await freshQueueRequest(text, images, scope);
 		} catch (error) {
 			return {
 				ok: false,
@@ -13247,6 +13247,22 @@ function createChatsPageController(initialProps) {
 		const contextBudget = available - result.length - 32;
 		const context = transcript && contextBudget > 0 ? contextHeader + transcript.slice(-contextBudget) : "";
 		return prefix + result + context + suffix;
+	}
+	async function retryFailedInitialInNewChat() {
+		const sendId = selectedRunId.value;
+		const original = turns.value[0];
+		if (startingNewChatFromFailure.value || !sendId || detail.value?.send_id !== sendId || !original || ![
+			"interrupted",
+			"unavailable",
+			"outcome_unknown"
+		].includes(original.status) || Boolean(detail.value.conversation_id || original.conversation_id) || Boolean(original.assistant_text.trim()) || !original.user_text.trim()) return;
+		startingNewChatFromFailure.value = true;
+		try {
+			const result = await sendFresh(original.user_text, originalImageRefs(), "explicit-retry:" + sendId);
+			if (!result.ok && selectedRunId.value === sendId) turnsError.value = result.message;
+		} finally {
+			startingNewChatFromFailure.value = false;
+		}
 	}
 	async function startFailedReplyInNewChat(turn) {
 		const sendId = selectedRunId.value;
@@ -13781,6 +13797,7 @@ function createChatsPageController(initialProps) {
 		recoverReply,
 		freshContinuationPrompt,
 		startFailedReplyInNewChat,
+		retryFailedInitialInNewChat,
 		originalImageRefs,
 		queueEarlyReply,
 		sendReply,
@@ -17806,7 +17823,7 @@ function ToolCalls({ calls }) {
 function ChatsPage(props) {
 	const model = (0, import_react.useMemo)(() => createChatsPageController(props), []);
 	N$1();
-	const { retryPins, view, selectedRunId, newChatOpen, onSelect, statuses, responseBadge, exactConversationUrl, queueSnapshot, queueError, recoveryPauseSeconds, recoveryPauseReason, items, pinnedIds, pinsReady, pinError, readError, markingAllRead, drawerOpen, drawerProgress, visibleDrawerProgress, filtersOpen, expandedPrompts, search, statusFilter, detail, turns, turnsError, recoveringReply, startingNewChatFromFailure, copyState, jobsWorkspace, loadingList, listError, morePageFailed, detailError, pinned, replyBlockedReason, visibleWaiting, unpinned, switchingChat, selectedChatTitle, isUnread, retryReadSync, markAllRead, togglePin, loadQueue, maybeLoadMore, loadList, loadMore, loadDetail, sendFresh, freshContinuationPrompt, startFailedReplyInNewChat, originalImageRefs, sendReply, retryFailedTurn, copyText, applyFilter, searchChanged, toggleSearch, cancelSwipe, startSwipe, finishSwipe, selectRun, showJobs, createChat, escapeDrawer, togglePrompt } = model;
+	const { retryPins, view, selectedRunId, newChatOpen, onSelect, statuses, responseBadge, exactConversationUrl, queueSnapshot, queueError, recoveryPauseSeconds, recoveryPauseReason, items, pinnedIds, pinsReady, pinError, readError, markingAllRead, drawerOpen, drawerProgress, visibleDrawerProgress, filtersOpen, expandedPrompts, search, statusFilter, detail, turns, turnsError, recoveringReply, startingNewChatFromFailure, copyState, jobsWorkspace, loadingList, listError, morePageFailed, detailError, pinned, replyBlockedReason, visibleWaiting, unpinned, switchingChat, selectedChatTitle, isUnread, retryReadSync, markAllRead, togglePin, loadQueue, maybeLoadMore, loadList, loadMore, loadDetail, sendFresh, freshContinuationPrompt, startFailedReplyInNewChat, retryFailedInitialInNewChat, originalImageRefs, sendReply, retryFailedTurn, copyText, applyFilter, searchChanged, toggleSearch, cancelSwipe, startSwipe, finishSwipe, selectRun, showJobs, createChat, escapeDrawer, togglePrompt } = model;
 	const refs = (0, import_react.useMemo)(() => ({
 		sidebarPane: (element) => {
 			if (model.sidebarPane.peek() !== (element ?? void 0)) model.sidebarPane.value = element ?? void 0;
@@ -18358,6 +18375,21 @@ function ChatsPage(props) {
 												onClick: () => void startFailedReplyInNewChat(turn),
 												children: "Start new chat with last result"
 											}), turn.status === "outcome_unknown" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "The original reply may still have been delivered." })]
+										}),
+										index === 0 && [
+											"interrupted",
+											"unavailable",
+											"outcome_unknown"
+										].includes(turn.status) && !detail.value?.conversation_id && !turn.conversation_id && !turn.assistant_text.trim() && Boolean(turn.user_text.trim()) && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+											className: "chat-recovery-guidance",
+											children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+												className: "row-action",
+												type: "button",
+												disabled: startingNewChatFromFailure.value,
+												"aria-busy": startingNewChatFromFailure.value,
+												onClick: () => void retryFailedInitialInNewChat(),
+												children: "Retry original prompt in new chat"
+											}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "The first send may have reached ChatGPT. Retrying explicitly creates a separate chat and could duplicate it." })]
 										}),
 										index === 0 && ["interrupted", "unavailable"].includes(turn.status) && detail.value?.recovery?.eligible === false && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 											className: "chat-recovery-guidance",
