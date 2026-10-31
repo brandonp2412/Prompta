@@ -13,6 +13,7 @@ import {
 } from "./composerDraftMemory";
 import type { ComposerImageRef } from "./composerDraftMemory";
 import { localPost, localRejectionDetail, localUploadTimeoutMs } from "./localMutation";
+import { attachmentSelectionError, isVideoAttachment } from "./mediaAttachments";
 export type SendResult = {
   ok: boolean;
   message: string;
@@ -145,26 +146,13 @@ export function createChatComposerController(initialProps: Props) {
     if (!canAttach.value) {
       feedback.value =
         mode.value === "reply"
-          ? "Images can only be sent with fresh chats."
+          ? "Attachments can only be sent with fresh chats."
           : "Wait for the current upload.";
       return;
     }
-    if (images.value.length + files.length > 4) {
-      feedback.value = "At most four images per fresh chat.";
-      return;
-    }
-    // Validate the entire selection first: an invalid later file must not
-    // leave an unexpected partial batch of attachments.
-    if (
-      files.some(
-        (file) => !["image/png", "image/jpeg", "image/gif", "image/webp"].includes(file.type),
-      )
-    ) {
-      feedback.value = "Only PNG, JPEG, GIF or WebP images are supported.";
-      return;
-    }
-    if (files.some((file) => file.size > 8 * 1024 * 1024)) {
-      feedback.value = "Images must be 8 MiB or smaller.";
+    const invalid = attachmentSelectionError(files, images.value.length, "fresh chat");
+    if (invalid) {
+      feedback.value = invalid;
       return;
     }
     const key = draftStorageKey.value;
@@ -178,18 +166,18 @@ export function createChatComposerController(initialProps: Props) {
       for (const file of files) {
         const data = await new Promise<string>((resolve, reject) => {
           const reader = new FileReader();
-          reader.onerror = () => reject(new Error("Could not read image."));
+          reader.onerror = () => reject(new Error("Could not read attachment."));
           reader.onload = () => {
             const encoded = reader.result;
             if (typeof encoded !== "string" || !encoded.includes(","))
-              reject(new Error("Could not encode image."));
+              reject(new Error("Could not encode attachment."));
             else resolve(encoded.slice(encoded.indexOf(",") + 1));
           };
           reader.readAsDataURL(file);
         });
         if (generation !== uploadGeneration || key !== draftStorageKey.value) return;
         const response = await localPost(
-          "./api/images",
+          isVideoAttachment(file.name) ? "./api/videos" : "./api/images",
           { name: file.name, data },
           {
             signal: controller.signal,
@@ -198,11 +186,11 @@ export function createChatComposerController(initialProps: Props) {
         );
         if (generation !== uploadGeneration || key !== draftStorageKey.value) return;
         if (!response.ok)
-          throw new Error(await localRejectionDetail(response, "Image upload failed."));
+          throw new Error(await localRejectionDetail(response, "Attachment upload failed."));
         const result: unknown = await response.json();
         const image =
           result && typeof result === "object" && "image" in result ? result.image : null;
-        if (!validImage(image)) throw new Error("Image upload receipt was invalid.");
+        if (!validImage(image)) throw new Error("Attachment upload receipt was invalid.");
         if (!images.value.some((item) => item.ref === image.ref)) {
           images.value = [...images.value, image];
           batchRefs.push(image.ref);
@@ -216,9 +204,9 @@ export function createChatComposerController(initialProps: Props) {
         rememberComposerImages(key, images.value);
         if (error instanceof DOMException && error.name === "TimeoutError")
           feedback.value =
-            "Image upload timed out. The unsent attachments were restored; try again.";
+            "Attachment upload timed out. The unsent attachments were restored; try again.";
         else if (error instanceof Error) feedback.value = error.message;
-        else feedback.value = "Image upload failed.";
+        else feedback.value = "Attachment upload failed.";
       }
     } finally {
       if (generation === uploadGeneration && key === draftStorageKey.value) {

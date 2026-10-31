@@ -125,11 +125,11 @@ def test_stalled_image_upload_restores_editor_without_sending(
         composer = page.get_by_role("textbox", name="Message for new chat")
         composer.fill("Keep this unsent draft")
         page.get_by_role("textbox", name="Message for new chat").focus()
-        page.get_by_label("Choose images").set_input_files(
+        page.get_by_label("Choose photos or videos").set_input_files(
             {"name": "tiny.png", "mimeType": "image/png", "buffer": _PNG},
         )
-        expect(page.get_by_text("Image upload timed out.", exact=False)).to_be_visible()
-        expect(page.get_by_text("Uploading images…")).to_have_count(0)
+        expect(page.get_by_text("Attachment upload timed out.", exact=False)).to_be_visible()
+        expect(page.get_by_text("Uploading attachments…")).to_have_count(0)
         expect(page.locator(".composer-preview")).to_have_count(0)
         expect(composer).to_have_value("Keep this unsent draft")
         assert app.queue.records() == []
@@ -162,7 +162,7 @@ def test_failed_second_job_image_rolls_back_first_upload(
             {"name": "first.png", "mimeType": "image/png", "buffer": _PNG},
             {"name": "second.png", "mimeType": "image/png", "buffer": _PNG},
         ])
-        expect(page.get_by_text("Image upload failed.", exact=False)).to_be_visible()
+        expect(page.get_by_text("Attachment upload failed.", exact=False)).to_be_visible()
         expect(page.locator(".job-image-preview")).to_have_count(0)
         expect(page.locator("textarea")).to_have_value("Synthetic job image rollback probe")
         assert requests[0] == 2

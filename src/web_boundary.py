@@ -44,6 +44,8 @@ class RequestBoundary:
         limit = 1024 * 1024
         if path == "/api/images":
             limit = 11 * 1024 * 1024
+        elif path == "/api/videos":
+            limit = 68 * 1024 * 1024
         elif path.startswith("/api/results/"):
             limit = 65536
         elif path.startswith("/api/local-chat-pins"):

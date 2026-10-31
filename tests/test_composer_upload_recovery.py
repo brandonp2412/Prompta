@@ -50,10 +50,10 @@ def test_late_image_upload_cannot_attach_to_a_different_chat(
           };
         })()""")
         page.goto(f"http://127.0.0.1:{port}/?view=chats&draft=new")
-        page.get_by_label("Choose images").set_input_files(
+        page.get_by_label("Choose photos or videos").set_input_files(
             {"name": "old.png", "mimeType": "image/png", "buffer": PNG}
         )
-        expect(page.get_by_text("Uploading images…")).to_be_visible()
+        expect(page.get_by_text("Uploading attachments…")).to_be_visible()
         if width <= 680:
             page.get_by_role("button", name="Open chat sidebar").click()
         page.locator(".chats-list .chat-row").filter(has_text="Image isolation probe").click()
@@ -65,7 +65,7 @@ def test_late_image_upload_cannot_attach_to_a_different_chat(
         page.locator(".chats-sidebar .sidebar-primary").click()
         page.wait_for_url("**/?view=chats&draft=new")
         expect(page.locator(".composer-preview")).to_have_count(0)
-        expect(page.get_by_role("button", name="Attach images")).to_be_enabled()
+        expect(page.get_by_role("button", name="Attach photos or videos")).to_be_enabled()
         assert remote == []
         browser.close()
 
@@ -81,11 +81,11 @@ def test_invalid_batch_rejected_without_partially_uploading(
         page.on("request", lambda request: uploads.append(request.url) if request.url.endswith(
             "/api/images") else None)
         page.goto(f"http://127.0.0.1:{port}/?view=chats&draft=new")
-        page.get_by_label("Choose images").set_input_files([
+        page.get_by_label("Choose photos or videos").set_input_files([
             {"name": "valid.png", "mimeType": "image/png", "buffer": PNG},
             {"name": "invalid.txt", "mimeType": "text/plain", "buffer": b"not an image"},
         ])
-        expect(page.get_by_text("Only PNG, JPEG, GIF or WebP images are supported.")).to_be_visible()
+        expect(page.get_by_text("Supported files: PNG, JPEG, GIF, WebP, MP4, MOV and WebM.")).to_be_visible()
         assert uploads == []
         expect(page.locator(".composer-preview")).to_have_count(0)
         browser.close()
@@ -187,7 +187,7 @@ def test_attached_image_cannot_be_discarded_by_empty_draft_new_chat_action(
         page.on("request", lambda request: sends.append(request.url) if request.method == "POST" and
                 request.url.endswith("/api/chats") else None)
         page.goto(f"http://127.0.0.1:{port}/?view=chats&draft=new")
-        page.get_by_label("Choose images").set_input_files(
+        page.get_by_label("Choose photos or videos").set_input_files(
             {"name": "one.png", "mimeType": "image/png", "buffer": PNG}
         )
         expect(page.locator(".composer-preview")).to_have_count(1)
@@ -213,7 +213,7 @@ def test_uploaded_image_and_draft_survive_navigation_until_removed(
         page.goto(f"http://127.0.0.1:{port}/?view=chats&draft=new")
         message = page.get_by_role("textbox", name="Message for new chat")
         message.fill("Keep draft with uploaded image")
-        page.get_by_label("Choose images").set_input_files(
+        page.get_by_label("Choose photos or videos").set_input_files(
             {"name": "one.png", "mimeType": "image/png", "buffer": PNG}
         )
         expect(page.locator(".composer-preview")).to_have_count(1)
@@ -255,7 +255,7 @@ def test_failed_upload_batch_rolls_back_and_duplicate_image_is_deduped(
         same: FilePayload = {"name": "same.png", "mimeType": "image/png", "buffer": PNG}
         # The server uses content-addressed image references. A repeated
         # attachment must not create duplicate keyed React preview nodes.
-        page.get_by_label("Choose images").set_input_files([same, same])
+        page.get_by_label("Choose photos or videos").set_input_files([same, same])
         expect(page.locator(".composer-preview")).to_have_count(1)
         page.get_by_role("button", name="Remove same.png").click()
         expect(page.locator(".composer-preview")).to_have_count(0)
@@ -269,11 +269,11 @@ def test_failed_upload_batch_rolls_back_and_duplicate_image_is_deduped(
             else:
                 route.continue_()
         page.route("**/api/images", fail_second)
-        page.get_by_label("Choose images").set_input_files([
+        page.get_by_label("Choose photos or videos").set_input_files([
             {"name": "a.png", "mimeType": "image/png", "buffer": PNG},
             {"name": "b.png", "mimeType": "image/png", "buffer": PNG},
         ])
-        expect(page.get_by_text("Image upload failed.")).to_be_visible()
+        expect(page.get_by_text("Attachment upload failed.")).to_be_visible()
         expect(page.locator(".composer-preview")).to_have_count(0)
         assert calls == [2]
         browser.close()

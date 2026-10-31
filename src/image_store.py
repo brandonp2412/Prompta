@@ -9,25 +9,39 @@ from pathlib import Path
 
 MAX_IMAGES = 4
 MAX_IMAGE_BYTES = 8 * 1024 * 1024
+MAX_VIDEO_BYTES = 50 * 1024 * 1024
 _REF_RE = re.compile(r"^[0-9a-f]{64}/[A-Za-z0-9._-]{1,100}$")
 _MIME = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
-         ".gif": "image/gif", ".webp": "image/webp"}
+         ".gif": "image/gif", ".webp": "image/webp",
+         ".mp4": "video/mp4", ".mov": "video/quicktime", ".webm": "video/webm"}
+_MP4_BRANDS = {
+    b"isom", b"iso2", b"iso4", b"iso5", b"iso6", b"avc1",
+    b"mp41", b"mp42", b"M4V ", b"MSNV", b"dash",
+}
 
 
 def image_refs(value: object) -> tuple[str, ...]:
     if not isinstance(value, (list, tuple)) or len(value) > MAX_IMAGES:
-        raise ValueError("At most four images are supported")
+        raise ValueError("At most four attachments are supported")
     refs: list[str] = []
     for item in value:
         if not isinstance(item, str) or not _REF_RE.fullmatch(item):
-            raise ValueError("Invalid image reference")
+            raise ValueError("Invalid attachment reference")
         refs.append(item)
     if len(set(refs)) != len(refs):
-        raise ValueError("Duplicate image reference")
+        raise ValueError("Duplicate attachment reference")
     return tuple(refs)
 
 
 def image_mime(data: bytes) -> str:
+    if len(data) >= 12 and data[4:8] == b"ftyp":
+        brand = data[8:12]
+        if brand == b"qt  ":
+            return "video/quicktime"
+        if brand in _MP4_BRANDS:
+            return "video/mp4"
+    if data.startswith(b"\x1a\x45\xdf\xa3") and b"webm" in data[:128]:
+        return "video/webm"
     if data.startswith(b"\x89PNG\r\n\x1a\n"):
         return "image/png"
     if data.startswith(b"\xff\xd8\xff"):
@@ -36,7 +50,7 @@ def image_mime(data: bytes) -> str:
         return "image/gif"
     if data.startswith(b"RIFF") and data[8:12] == b"WEBP":
         return "image/webp"
-    raise ValueError("Only PNG, JPEG, GIF and WebP images are supported")
+    raise ValueError("Unsupported image or video format")
 
 
 class ImageStore:
@@ -47,24 +61,27 @@ class ImageStore:
         image_refs([ref])
         target = self.root / ref
         if not target.is_file():
-            raise ValueError("Image no longer exists")
+            raise ValueError("Attachment no longer exists")
         return target
 
     def save(self, name: str, encoded: str) -> str:
         if not isinstance(name, str) or not isinstance(encoded, str):
-            raise ValueError("Invalid image")
-        if len(encoded) > ((MAX_IMAGE_BYTES + 2) // 3 * 4 + 4):
-            raise ValueError("Image exceeds 8 MiB")
+            raise ValueError("Invalid attachment")
+        if len(encoded) > ((MAX_VIDEO_BYTES + 2) // 3 * 4 + 4):
+            raise ValueError("Attachment exceeds 50 MiB")
         try:
             data = base64.b64decode(encoded, validate=True)
         except (ValueError, binascii.Error) as exc:
-            raise ValueError("Invalid image encoding") from exc
-        if not data or len(data) > MAX_IMAGE_BYTES:
-            raise ValueError("Image must be between 1 byte and 8 MiB")
+            raise ValueError("Invalid attachment encoding") from exc
+        if not data:
+            raise ValueError("Attachment must not be empty")
         mime = image_mime(data)
+        limit = MAX_VIDEO_BYTES if mime.startswith("video/") else MAX_IMAGE_BYTES
+        if len(data) > limit:
+            raise ValueError("Video exceeds 50 MiB" if mime.startswith("video/") else "Image exceeds 8 MiB")
         clean = re.sub(r"[^A-Za-z0-9._-]", "_", Path(name).name)[:100].strip("._")
         if not clean or _MIME.get(Path(clean).suffix.lower()) != mime:
-            raise ValueError("Image filename or extension does not match contents")
+            raise ValueError("Attachment extension does not match contents")
         ref = hashlib.sha256(data).hexdigest() + "/" + clean
         target = self.root / ref
         target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -82,6 +99,10 @@ class ImageStore:
     def read(self, ref: str) -> tuple[str, bytes]:
         path = self.path(ref)
         data = path.read_bytes()
-        if len(data) > MAX_IMAGE_BYTES or hashlib.sha256(data).hexdigest() != ref.split("/")[0]:
-            raise ValueError("Stored image integrity check failed")
-        return image_mime(data), data
+        mime = image_mime(data)
+        limit = MAX_VIDEO_BYTES if mime.startswith("video/") else MAX_IMAGE_BYTES
+        if len(data) > limit or hashlib.sha256(data).hexdigest() != ref.split("/")[0]:
+            raise ValueError("Stored attachment integrity check failed")
+        if _MIME.get(path.suffix.lower()) != mime:
+            raise ValueError("Stored attachment type mismatch")
+        return mime, data

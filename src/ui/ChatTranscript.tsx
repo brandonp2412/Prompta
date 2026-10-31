@@ -3,6 +3,7 @@ import { useSignals } from "@preact/signals-react/runtime";
 import type { createChatsPageController } from "./ChatsPageController";
 import ResultMarkdown from "./ResultMarkdown";
 import ToolCalls from "./ToolCalls";
+import { isVideoAttachment } from "./mediaAttachments";
 import {
   chatMessageTime,
   formatStoredResponse,
@@ -172,17 +173,27 @@ export default function ChatTranscript({
                     </div>
                     {index === 0 && detail.value!.images?.length ? (
                       <>
-                        <div aria-label="Attached images" className="chat-attachments">
+                        <div aria-label="Attached files" className="chat-attachments">
                           {detail.value!.images.map((attachment, __index) => (
                             <React.Fragment key={attachment.url}>
-                              <a
-                                href={attachment.url}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                title={attachment.name}
-                              >
-                                <img src={attachment.url} alt={attachment.name} loading="lazy" />
-                              </a>
+                              {isVideoAttachment(attachment.name) ? (
+                                <video
+                                  src={attachment.url}
+                                  controls={true}
+                                  playsInline={true}
+                                  preload="metadata"
+                                  aria-label={attachment.name}
+                                />
+                              ) : (
+                                <a
+                                  href={attachment.url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  title={attachment.name}
+                                >
+                                  <img src={attachment.url} alt={attachment.name} loading="lazy" />
+                                </a>
+                              )}
                             </React.Fragment>
                           ))}
                         </div>

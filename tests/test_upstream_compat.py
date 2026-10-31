@@ -108,6 +108,37 @@ async def test_camera_capture_input_is_never_used_for_image_attachment(
 
 
 @pytest.mark.asyncio
+async def test_video_attachment_selects_combined_picker_and_waits_for_card(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    clip = tmp_path / "clip.mp4"
+    clip.write_bytes(b"test")
+    driver = PatchrightDriver(profile=tmp_path / "profile")
+    page = MagicMock()
+    video_picker = MagicMock()
+    video_picker.count = AsyncMock(return_value=1)
+    video_picker.first.is_enabled = AsyncMock(return_value=True)
+    video_picker.first.set_input_files = AsyncMock()
+    previews = MagicMock()
+    previews.count = AsyncMock(side_effect=[0, 1, 1, 1, 1, 1])
+    previews.nth.return_value.evaluate = AsyncMock(return_value=True)
+
+    def locate(selector: str) -> MagicMock:
+        if "Attach photos or videos" in selector:
+            return video_picker
+        if selector == ".composer-attachment-surface":
+            return previews
+        raise AssertionError("Unexpected selector")
+
+    page.locator.side_effect = locate
+    monkeypatch.setattr(driver, "_page", lambda: page)
+    await driver.attach_images((clip,))
+    video_picker.first.set_input_files.assert_awaited_once_with([str(clip)])
+    assert previews.nth.return_value.evaluate.await_count == 5
+
+
+@pytest.mark.asyncio
 async def test_recognised_composer_promotion_uses_only_safe_dismissal(
     tmp_path: Path,
 ) -> None:

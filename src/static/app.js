@@ -21,7 +21,7 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 	enumerable: true
 }) : target, mod));
 //#endregion
-//#region node_modules/scheduler/cjs/scheduler.production.js
+//#region ../../prompta/node_modules/scheduler/cjs/scheduler.production.js
 /**
 * @license React
 * scheduler.production.js
@@ -276,12 +276,12 @@ var require_scheduler_production = /* @__PURE__ */ __commonJSMin(((exports) => {
 	};
 }));
 //#endregion
-//#region node_modules/scheduler/index.js
+//#region ../../prompta/node_modules/scheduler/index.js
 var require_scheduler = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_scheduler_production();
 }));
 //#endregion
-//#region node_modules/react/cjs/react.production.js
+//#region ../../prompta/node_modules/react/cjs/react.production.js
 /**
 * @license React
 * react.production.js
@@ -668,12 +668,12 @@ var require_react_production = /* @__PURE__ */ __commonJSMin(((exports) => {
 	exports.version = "19.3.1";
 }));
 //#endregion
-//#region node_modules/react/index.js
+//#region ../../prompta/node_modules/react/index.js
 var require_react = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_react_production();
 }));
 //#endregion
-//#region node_modules/react-dom/cjs/react-dom.production.js
+//#region ../../prompta/node_modules/react-dom/cjs/react-dom.production.js
 /**
 * @license React
 * react-dom.production.js
@@ -826,7 +826,7 @@ var require_react_dom_production = /* @__PURE__ */ __commonJSMin(((exports) => {
 	exports.version = "19.3.1";
 }));
 //#endregion
-//#region node_modules/react-dom/index.js
+//#region ../../prompta/node_modules/react-dom/index.js
 var require_react_dom = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	function checkDCE() {
 		if (typeof __REACT_DEVTOOLS_GLOBAL_HOOK__ === "undefined" || typeof __REACT_DEVTOOLS_GLOBAL_HOOK__.checkDCE !== "function") return;
@@ -840,7 +840,7 @@ var require_react_dom = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_react_dom_production();
 }));
 //#endregion
-//#region node_modules/react-dom/cjs/react-dom-client.production.js
+//#region ../../prompta/node_modules/react-dom/cjs/react-dom-client.production.js
 /**
 * @license React
 * react-dom-client.production.js
@@ -11415,7 +11415,7 @@ var require_react_dom_client_production = /* @__PURE__ */ __commonJSMin(((export
 	};
 }));
 //#endregion
-//#region node_modules/react-dom/client.js
+//#region ../../prompta/node_modules/react-dom/client.js
 var require_client = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	function checkDCE() {
 		if (typeof __REACT_DEVTOOLS_GLOBAL_HOOK__ === "undefined" || typeof __REACT_DEVTOOLS_GLOBAL_HOOK__.checkDCE !== "function") return;
@@ -11429,7 +11429,7 @@ var require_client = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_react_dom_client_production();
 }));
 //#endregion
-//#region node_modules/@preact/signals-core/dist/signals-core.module.js
+//#region ../../prompta/node_modules/@preact/signals-core/dist/signals-core.module.js
 var import_react = /* @__PURE__ */ __toESM(require_react());
 var import_client = require_client();
 var i$1 = Symbol.for("preact-signals");
@@ -11841,7 +11841,7 @@ function x$2(i, t) {
 	return n;
 }
 //#endregion
-//#region node_modules/use-sync-external-store/cjs/use-sync-external-store-shim.production.js
+//#region ../../prompta/node_modules/use-sync-external-store/cjs/use-sync-external-store-shim.production.js
 /**
 * @license React
 * use-sync-external-store-shim.production.js
@@ -11901,7 +11901,7 @@ var require_use_sync_external_store_shim_production = /* @__PURE__ */ __commonJS
 	exports.useSyncExternalStore = void 0 !== React.useSyncExternalStore ? React.useSyncExternalStore : shim;
 }));
 //#endregion
-//#region node_modules/@preact/signals-react/runtime/dist/runtime.module.js
+//#region ../../prompta/node_modules/@preact/signals-react/runtime/dist/runtime.module.js
 var import_shim = (/* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_use_sync_external_store_shim_production();
 })))();
@@ -13995,6 +13995,32 @@ function sortJobs(jobs) {
 	return [...jobs].sort(compareJobs);
 }
 //#endregion
+//#region src/ui/mediaAttachments.ts
+var attachmentAccept = "image/png,image/jpeg,image/gif,image/webp,video/mp4,video/quicktime,video/webm";
+var types = {
+	png: "image/png",
+	jpg: "image/jpeg",
+	jpeg: "image/jpeg",
+	gif: "image/gif",
+	webp: "image/webp",
+	mp4: "video/mp4",
+	mov: "video/quicktime",
+	webm: "video/webm"
+};
+function isVideoAttachment(name) {
+	return /\.(mp4|mov|webm)$/i.test(name);
+}
+function attachmentSelectionError(files, count, context) {
+	if (count + files.length > 4) return "At most four attachments per " + context + ".";
+	for (const file of files) {
+		const expected = types[file.name.split(".").pop()?.toLowerCase() ?? ""];
+		if (!expected || file.type && file.type !== expected) return "Supported files: PNG, JPEG, GIF, WebP, MP4, MOV and WebM.";
+		if (file.size === 0) return "Attachments must not be empty.";
+		if (file.size > (isVideoAttachment(file.name) ? 50 : 8) * 1024 * 1024) return isVideoAttachment(file.name) ? "Videos must be 50 MiB or smaller." : "Images must be 8 MiB or smaller.";
+	}
+	return "";
+}
+//#endregion
 //#region src/ui/jobView.ts
 function formatDate(epoch) {
 	if (!epoch) return "—";
@@ -14490,21 +14516,9 @@ function createJobsPageController(initialProps) {
 		const files = Array.from(input.files || []);
 		input.value = "";
 		if (!files.length || uploadingImage.value) return;
-		if (images.value.length + files.length > 4) {
-			editorError.value = "At most four images per job.";
-			return;
-		}
-		if (files.some((file) => ![
-			"image/png",
-			"image/jpeg",
-			"image/gif",
-			"image/webp"
-		].includes(file.type))) {
-			editorError.value = "Only PNG, JPEG, GIF or WebP images are supported.";
-			return;
-		}
-		if (files.some((file) => file.size > 8388608)) {
-			editorError.value = "Images must be 8 MiB or smaller.";
+		const invalid = attachmentSelectionError(files, images.value.length, "job");
+		if (invalid) {
+			editorError.value = invalid;
 			return;
 		}
 		const route = activeEditorRoute.value;
@@ -14518,16 +14532,16 @@ function createJobsPageController(initialProps) {
 			for (const file of files) {
 				const data = await new Promise((resolve, reject) => {
 					const reader = new FileReader();
-					reader.onerror = () => reject(/* @__PURE__ */ new Error("Could not read image."));
+					reader.onerror = () => reject(/* @__PURE__ */ new Error("Could not read attachment."));
 					reader.onload = () => {
 						const value = reader.result;
-						if (typeof value !== "string" || !value.includes(",")) reject(/* @__PURE__ */ new Error("Could not encode image."));
+						if (typeof value !== "string" || !value.includes(",")) reject(/* @__PURE__ */ new Error("Could not encode attachment."));
 						else resolve(value.split(",", 2)[1]);
 					};
 					reader.readAsDataURL(file);
 				});
 				if (generation !== uploadGen || activeEditorRoute.value !== route) return;
-				const response = await localPost("./api/images", {
+				const response = await localPost(isVideoAttachment(file.name) ? "./api/videos" : "./api/images", {
 					name: file.name,
 					data
 				}, {
@@ -14535,9 +14549,9 @@ function createJobsPageController(initialProps) {
 					signal: controller.signal
 				});
 				if (generation !== uploadGen || activeEditorRoute.value !== route) return;
-				if (!response.ok) throw new Error(await localRejectionDetail(response, "Image upload failed."));
+				if (!response.ok) throw new Error(await localRejectionDetail(response, "Attachment upload failed."));
 				const result = await response.json();
-				if (!result.image?.ref || !result.image.url.startsWith("./api/images/")) throw new Error("Image upload receipt was invalid.");
+				if (!result.image?.ref || !result.image.url.startsWith("./api/images/")) throw new Error("Attachment upload receipt was invalid.");
 				if (images.value.some((image) => image.ref === result.image?.ref)) continue;
 				images.value = [...images.value, result.image];
 				await tick();
@@ -14550,7 +14564,7 @@ function createJobsPageController(initialProps) {
 		} catch (error) {
 			if (generation === uploadGen && activeEditorRoute.value === route) {
 				images.value = originalImages;
-				editorError.value = error instanceof DOMException && error.name === "TimeoutError" ? "Image upload timed out. No new attachments were added; try again." : String(error).replace(/^Error:\s*/, "");
+				editorError.value = error instanceof DOMException && error.name === "TimeoutError" ? "Attachment upload timed out. No new attachments were added; try again." : String(error).replace(/^Error:\s*/, "");
 			}
 		} finally {
 			if (generation === uploadGen && activeEditorRoute.value === route) {
@@ -14738,7 +14752,7 @@ function createJobsPageController(initialProps) {
 	};
 }
 //#endregion
-//#region node_modules/react/cjs/react-jsx-runtime.production.js
+//#region ../../prompta/node_modules/react/cjs/react-jsx-runtime.production.js
 /**
 * @license React
 * react-jsx-runtime.production.js
@@ -14956,18 +14970,18 @@ function JobEditor({ model, refs }) {
 									disabled: uploadingImage.value || saving.value || images.value.length >= 4,
 									onClick: () => imageInput.value?.click(),
 									className: "toolbar-button",
-									children: "Add images"
+									children: "Add photos or videos"
 								}),
 								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
 									ref: refs.imageInput,
 									type: "file",
-									accept: "image/png,image/jpeg,image/gif,image/webp",
+									accept: attachmentAccept,
 									multiple: true,
 									disabled: uploadingImage.value || saving.value || images.value.length >= 4,
 									onChange: (event) => void addImages(event.currentTarget),
 									className: "image-input"
 								}),
-								uploadingImage.value || images.value.length ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: uploadingImage.value ? "Uploading…" : images.value.length + "/4 images" }) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {})
+								uploadingImage.value || images.value.length ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: uploadingImage.value ? "Uploading…" : images.value.length + "/4 attachments" }) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {})
 							]
 						}),
 						images.value.length ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
@@ -14976,7 +14990,13 @@ function JobEditor({ model, refs }) {
 							children: images.value.map((image, __index) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_react.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 								className: "job-image-preview",
 								children: [
-									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("img", {
+									isVideoAttachment(image.name) ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("video", {
+										src: image.url,
+										controls: true,
+										playsInline: true,
+										preload: "metadata",
+										"aria-label": image.name
+									}) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("img", {
 										src: image.url,
 										alt: image.name
 									}),
@@ -15710,24 +15730,12 @@ function createChatComposerController(initialProps) {
 	async function addFiles(files) {
 		if (!files.length) return;
 		if (!canAttach.value) {
-			feedback.value = mode.value === "reply" ? "Images can only be sent with fresh chats." : "Wait for the current upload.";
+			feedback.value = mode.value === "reply" ? "Attachments can only be sent with fresh chats." : "Wait for the current upload.";
 			return;
 		}
-		if (images.value.length + files.length > 4) {
-			feedback.value = "At most four images per fresh chat.";
-			return;
-		}
-		if (files.some((file) => ![
-			"image/png",
-			"image/jpeg",
-			"image/gif",
-			"image/webp"
-		].includes(file.type))) {
-			feedback.value = "Only PNG, JPEG, GIF or WebP images are supported.";
-			return;
-		}
-		if (files.some((file) => file.size > 8388608)) {
-			feedback.value = "Images must be 8 MiB or smaller.";
+		const invalid = attachmentSelectionError(files, images.value.length, "fresh chat");
+		if (invalid) {
+			feedback.value = invalid;
 			return;
 		}
 		const key = draftStorageKey.value;
@@ -15741,16 +15749,16 @@ function createChatComposerController(initialProps) {
 			for (const file of files) {
 				const data = await new Promise((resolve, reject) => {
 					const reader = new FileReader();
-					reader.onerror = () => reject(/* @__PURE__ */ new Error("Could not read image."));
+					reader.onerror = () => reject(/* @__PURE__ */ new Error("Could not read attachment."));
 					reader.onload = () => {
 						const encoded = reader.result;
-						if (typeof encoded !== "string" || !encoded.includes(",")) reject(/* @__PURE__ */ new Error("Could not encode image."));
+						if (typeof encoded !== "string" || !encoded.includes(",")) reject(/* @__PURE__ */ new Error("Could not encode attachment."));
 						else resolve(encoded.slice(encoded.indexOf(",") + 1));
 					};
 					reader.readAsDataURL(file);
 				});
 				if (generation !== uploadGeneration || key !== draftStorageKey.value) return;
-				const response = await localPost("./api/images", {
+				const response = await localPost(isVideoAttachment(file.name) ? "./api/videos" : "./api/images", {
 					name: file.name,
 					data
 				}, {
@@ -15758,10 +15766,10 @@ function createChatComposerController(initialProps) {
 					timeoutMs: localUploadTimeoutMs
 				});
 				if (generation !== uploadGeneration || key !== draftStorageKey.value) return;
-				if (!response.ok) throw new Error(await localRejectionDetail(response, "Image upload failed."));
+				if (!response.ok) throw new Error(await localRejectionDetail(response, "Attachment upload failed."));
 				const result = await response.json();
 				const image = result && typeof result === "object" && "image" in result ? result.image : null;
-				if (!validImage(image)) throw new Error("Image upload receipt was invalid.");
+				if (!validImage(image)) throw new Error("Attachment upload receipt was invalid.");
 				if (!images.value.some((item) => item.ref === image.ref)) {
 					images.value = [...images.value, image];
 					batchRefs.push(image.ref);
@@ -15772,9 +15780,9 @@ function createChatComposerController(initialProps) {
 			if (generation === uploadGeneration && key === draftStorageKey.value) {
 				images.value = images.value.filter((image) => !batchRefs.includes(image.ref));
 				rememberComposerImages(key, images.value);
-				if (error instanceof DOMException && error.name === "TimeoutError") feedback.value = "Image upload timed out. The unsent attachments were restored; try again.";
+				if (error instanceof DOMException && error.name === "TimeoutError") feedback.value = "Attachment upload timed out. The unsent attachments were restored; try again.";
 				else if (error instanceof Error) feedback.value = error.message;
-				else feedback.value = "Image upload failed.";
+				else feedback.value = "Attachment upload failed.";
 			}
 		} finally {
 			if (generation === uploadGeneration && key === draftStorageKey.value) {
@@ -15998,11 +16006,20 @@ function ChatComposer(props) {
 				className: "chat-composer",
 				children: [
 					images.value.length ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-						"aria-label": "Images to attach",
+						"aria-label": "Attachments to send",
 						className: "composer-previews",
 						children: images.value.map((image, __index) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_react.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 							className: "composer-preview",
-							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("img", {
+							children: [isVideoAttachment(image.name) ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								className: "composer-video",
+								title: image.name,
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("video", {
+									src: image.url,
+									muted: true,
+									playsInline: true,
+									preload: "metadata"
+								}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Video" })]
+							}) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("img", {
 								src: image.url,
 								alt: image.name
 							}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
@@ -16040,8 +16057,8 @@ function ChatComposer(props) {
 							className: "composer-attach",
 							children: [mode.value === "fresh" ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
 								type: "button",
-								"aria-label": "Attach images",
-								title: "Attach images",
+								"aria-label": "Attach photos or videos",
+								title: "Attach photos or videos",
 								disabled: !canAttach.value,
 								onClick: () => fileInput.value?.click(),
 								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("svg", {
@@ -16053,13 +16070,13 @@ function ChatComposer(props) {
 									strokeLinejoin: "round",
 									"aria-hidden": "true",
 									children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: "m20.5 11.5-8.7 8.7a5.5 5.5 0 0 1-7.8-7.8l9.4-9.4a3.7 3.7 0 0 1 5.2 5.2l-9.4 9.4a1.9 1.9 0 0 1-2.7-2.7l8.6-8.6" })
-								}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: images.value.length ? `Add images (${images.value.length}/4)` : "Attach images" })]
+								}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: images.value.length ? `Add attachments (${images.value.length}/4)` : "Attach photos or videos" })]
 							}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
 								ref: refs.fileInput,
 								type: "file",
-								accept: "image/png,image/jpeg,image/gif,image/webp",
+								accept: attachmentAccept,
 								multiple: true,
-								"aria-label": "Choose images",
+								"aria-label": "Choose photos or videos",
 								disabled: !canAttach.value,
 								onChange: (event) => {
 									addFiles(Array.from(event.currentTarget.files || []));
@@ -16067,7 +16084,7 @@ function ChatComposer(props) {
 								}
 							})] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {}), uploading.value ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("small", {
 								role: "status",
-								children: "Uploading images…"
+								children: "Uploading attachments…"
 							}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {})]
 						}), !hasDraft.value && images.value.length === 0 && !uploading.value && !sending.value ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 							type: "button",
@@ -16665,7 +16682,7 @@ function ChatsSidebar({ model, refs }) {
 	});
 }
 //#endregion
-//#region node_modules/marked/lib/marked.esm.js
+//#region ../../prompta/node_modules/marked/lib/marked.esm.js
 /**
 * marked v16.4.2 - a markdown parser
 * Copyright (c) 2018-2025, MarkedJS. (MIT License)
@@ -18206,7 +18223,7 @@ x.lex;
 * @public
 */
 //#endregion
-//#region node_modules/prismjs/components/prism-typescript.js
+//#region ../../prompta/node_modules/prismjs/components/prism-typescript.js
 var import_prism = /* @__PURE__ */ __toESM((/* @__PURE__ */ __commonJSMin(((exports, module) => {
 	var Prism = function(_self) {
 		var lang = /(?:^|\s)lang(?:uage)?-([\w-]+)(?=\s|$)/i;
@@ -20087,9 +20104,15 @@ function ChatTranscript({ model, refs }) {
 							}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {})]
 						}),
 						index === 0 && detail.value.images?.length ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-							"aria-label": "Attached images",
+							"aria-label": "Attached files",
 							className: "chat-attachments",
-							children: detail.value.images.map((attachment, __index) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_react.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("a", {
+							children: detail.value.images.map((attachment, __index) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_react.Fragment, { children: isVideoAttachment(attachment.name) ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("video", {
+								src: attachment.url,
+								controls: true,
+								playsInline: true,
+								preload: "metadata",
+								"aria-label": attachment.name
+							}) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("a", {
 								href: attachment.url,
 								target: "_blank",
 								rel: "noopener noreferrer",

@@ -2,6 +2,7 @@ import React, { useEffect, useLayoutEffect, useMemo } from "react";
 import { useSignals } from "@preact/signals-react/runtime";
 import { createChatComposerController, type Props } from "./ChatComposerController";
 import { rememberComposerImages } from "./composerDraftMemory";
+import { attachmentAccept, isVideoAttachment } from "./mediaAttachments";
 export default function ChatComposer(props: Props) {
   const model = useMemo(() => createChatComposerController(props), []);
   useSignals();
@@ -75,11 +76,23 @@ export default function ChatComposer(props: Props) {
         <div className="chat-composer">
           {images.value.length ? (
             <>
-              <div aria-label="Images to attach" className="composer-previews">
+              <div aria-label="Attachments to send" className="composer-previews">
                 {images.value.map((image, __index) => (
                   <React.Fragment key={image.ref}>
                     <div className="composer-preview">
-                      <img src={image.url} alt={image.name} />
+                      {isVideoAttachment(image.name) ? (
+                        <div className="composer-video" title={image.name}>
+                          <video
+                            src={image.url}
+                            muted={true}
+                            playsInline={true}
+                            preload="metadata"
+                          />
+                          <span>Video</span>
+                        </div>
+                      ) : (
+                        <img src={image.url} alt={image.name} />
+                      )}
                       <button
                         type="button"
                         aria-label={"Remove " + image.name}
@@ -124,8 +137,8 @@ export default function ChatComposer(props: Props) {
                 <>
                   <button
                     type="button"
-                    aria-label="Attach images"
-                    title="Attach images"
+                    aria-label="Attach photos or videos"
+                    title="Attach photos or videos"
                     disabled={!canAttach.value}
                     onClick={() => fileInput.value?.click()}
                   >
@@ -142,16 +155,16 @@ export default function ChatComposer(props: Props) {
                     </svg>
                     <span>
                       {images.value.length
-                        ? `Add images (${images.value.length}/4)`
-                        : "Attach images"}
+                        ? `Add attachments (${images.value.length}/4)`
+                        : "Attach photos or videos"}
                     </span>
                   </button>
                   <input
                     ref={refs.fileInput}
                     type="file"
-                    accept="image/png,image/jpeg,image/gif,image/webp"
+                    accept={attachmentAccept}
                     multiple={true}
-                    aria-label="Choose images"
+                    aria-label="Choose photos or videos"
                     disabled={!canAttach.value}
                     onChange={(event) => {
                       void addFiles(Array.from(event.currentTarget.files || []));
@@ -164,7 +177,7 @@ export default function ChatComposer(props: Props) {
               )}
               {uploading.value ? (
                 <>
-                  <small role="status">Uploading images…</small>
+                  <small role="status">Uploading attachments…</small>
                 </>
               ) : (
                 <></>
