@@ -87,11 +87,10 @@ function connect() {
     armWatchdog(nextSource);
     nextSource.addEventListener("open", () => {
       if (source !== nextSource) return;
-      reconnectAttempts = 0;
       lastStreamFrameAt = Date.now();
       armWatchdog(nextSource);
-      // The next sync frame owns GET invalidation; open restores status only.
-      connectionRestored();
+      // A socket can open without delivering any events. Keep bounded polling
+      // and the degraded indicator until an actual server frame arrives.
     });
     nextSource.addEventListener("error", () => {
       if (source !== nextSource) return;
@@ -105,6 +104,8 @@ function connect() {
         if (source !== nextSource) return;
         lastStreamFrameAt = Date.now();
         armWatchdog(nextSource);
+        reconnectAttempts = 0;
+        connectionRestored();
         if (topic === "sync") refreshBoth();
         else if (topic !== "ping") notify(topic);
       });

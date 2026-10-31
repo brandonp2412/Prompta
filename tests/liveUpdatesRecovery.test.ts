@@ -189,6 +189,8 @@ test("a silent stalled SSE connection is replaced and degraded status heals", ()
       fire(10000);
       expect(status).toEqual([false, true]);
       instances[1]?.emit("open");
+      expect(status).toEqual([false, true]);
+      instances[1]?.emit("sync");
       expect(status).toEqual([false, true, false]);
     } finally {
       off();

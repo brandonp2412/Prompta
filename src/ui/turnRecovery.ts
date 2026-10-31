@@ -11,6 +11,11 @@ function mergeConfirmedTurn(previous: LocalTurn, incoming: LocalTurn): LocalTurn
   const olderCalls = older.tool_calls?.length ?? 0;
   return {
     ...latest,
+    ...(older.conversation_id && !latest.conversation_id
+      ? { conversation_id: older.conversation_id }
+      : {}),
+    ...(older.parent_id && !latest.parent_id ? { parent_id: older.parent_id } : {}),
+    ...(older.message_id && !latest.message_id ? { message_id: older.message_id } : {}),
     assistant_text:
       latest.assistant_text.length >= older.assistant_text.length
         ? latest.assistant_text
@@ -43,34 +48,30 @@ export function recoverVisibleTurns(
   original: LocalTurn,
   sameRun: boolean,
 ): LocalTurn[] {
-  if (stored?.length)
-    return sameRun && previous.length ? mergeConfirmedTurns(stored, previous) : stored;
-  if (stored?.length === 0 && sameRun && previous.length > 1) return previous;
-  if (stored === null && sameRun && previous.length) {
-    const first = previous[0];
-    // The primary detail endpoint can advance while the optional turns GET
-    // is unavailable. Refresh that original turn without hiding saved replies.
-    if (first.reply_id || original.updated_at < first.updated_at) return previous;
-    if (first.status === "completed" && original.status !== "completed") return previous;
-    const toolCalls = original.tool_calls?.length ? original.tool_calls : first.tool_calls;
-    const merged: LocalTurn = {
-      ...first,
-      ...original,
-      ...(toolCalls ? { tool_calls: toolCalls } : {}),
-      assistant_text:
-        original.assistant_text.length >= first.assistant_text.length
-          ? original.assistant_text
-          : first.assistant_text,
-      status: original.status,
-    };
-    if (
-      merged.updated_at === first.updated_at &&
-      merged.status === first.status &&
-      merged.assistant_text === first.assistant_text &&
-      merged.tool_calls === first.tool_calls
-    )
-      return previous;
-    return [merged, ...previous.slice(1)];
+  let confirmed: LocalTurn[];
+  if (stored?.length) {
+    confirmed = sameRun && previous.length ? mergeConfirmedTurns(stored, previous) : stored;
+  } else if (sameRun && previous.length && (stored === null || previous.length > 1)) {
+    confirmed = previous;
+  } else {
+    confirmed = [original];
   }
-  return [original];
+
+  // The local turns and detail requests are independent. A stale turns page
+  // must not hide a newer completed original or erase its tool summaries.
+  const first = confirmed[0];
+  if (first.reply_id || (first.status === "completed" && original.status !== "completed"))
+    return confirmed;
+  const current = mergeConfirmedTurn(first, original);
+  if (
+    current.updated_at === first.updated_at &&
+    current.status === first.status &&
+    current.assistant_text === first.assistant_text &&
+    current.tool_calls === first.tool_calls &&
+    current.user_text === first.user_text &&
+    current.message_id === first.message_id &&
+    current.conversation_id === first.conversation_id
+  )
+    return confirmed;
+  return [current, ...confirmed.slice(1)];
 }

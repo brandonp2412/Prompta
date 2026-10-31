@@ -21,7 +21,7 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 	enumerable: true
 }) : target, mod));
 //#endregion
-//#region node_modules/scheduler/cjs/scheduler.production.js
+//#region ../../prompta/node_modules/scheduler/cjs/scheduler.production.js
 /**
 * @license React
 * scheduler.production.js
@@ -276,12 +276,12 @@ var require_scheduler_production = /* @__PURE__ */ __commonJSMin(((exports) => {
 	};
 }));
 //#endregion
-//#region node_modules/scheduler/index.js
+//#region ../../prompta/node_modules/scheduler/index.js
 var require_scheduler = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_scheduler_production();
 }));
 //#endregion
-//#region node_modules/react/cjs/react.production.js
+//#region ../../prompta/node_modules/react/cjs/react.production.js
 /**
 * @license React
 * react.production.js
@@ -668,12 +668,12 @@ var require_react_production = /* @__PURE__ */ __commonJSMin(((exports) => {
 	exports.version = "19.3.1";
 }));
 //#endregion
-//#region node_modules/react/index.js
+//#region ../../prompta/node_modules/react/index.js
 var require_react = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_react_production();
 }));
 //#endregion
-//#region node_modules/react-dom/cjs/react-dom.production.js
+//#region ../../prompta/node_modules/react-dom/cjs/react-dom.production.js
 /**
 * @license React
 * react-dom.production.js
@@ -826,7 +826,7 @@ var require_react_dom_production = /* @__PURE__ */ __commonJSMin(((exports) => {
 	exports.version = "19.3.1";
 }));
 //#endregion
-//#region node_modules/react-dom/index.js
+//#region ../../prompta/node_modules/react-dom/index.js
 var require_react_dom = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	function checkDCE() {
 		if (typeof __REACT_DEVTOOLS_GLOBAL_HOOK__ === "undefined" || typeof __REACT_DEVTOOLS_GLOBAL_HOOK__.checkDCE !== "function") return;
@@ -840,7 +840,7 @@ var require_react_dom = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_react_dom_production();
 }));
 //#endregion
-//#region node_modules/react-dom/cjs/react-dom-client.production.js
+//#region ../../prompta/node_modules/react-dom/cjs/react-dom-client.production.js
 /**
 * @license React
 * react-dom-client.production.js
@@ -11415,7 +11415,7 @@ var require_react_dom_client_production = /* @__PURE__ */ __commonJSMin(((export
 	};
 }));
 //#endregion
-//#region node_modules/react-dom/client.js
+//#region ../../prompta/node_modules/react-dom/client.js
 var require_client = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	function checkDCE() {
 		if (typeof __REACT_DEVTOOLS_GLOBAL_HOOK__ === "undefined" || typeof __REACT_DEVTOOLS_GLOBAL_HOOK__.checkDCE !== "function") return;
@@ -11429,7 +11429,7 @@ var require_client = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_react_dom_client_production();
 }));
 //#endregion
-//#region node_modules/@preact/signals-core/dist/signals-core.module.js
+//#region ../../prompta/node_modules/@preact/signals-core/dist/signals-core.module.js
 var import_react = /* @__PURE__ */ __toESM(require_react());
 var import_client = require_client();
 var i$1 = Symbol.for("preact-signals");
@@ -11841,7 +11841,7 @@ function x$2(i, t) {
 	return n;
 }
 //#endregion
-//#region node_modules/use-sync-external-store/cjs/use-sync-external-store-shim.production.js
+//#region ../../prompta/node_modules/use-sync-external-store/cjs/use-sync-external-store-shim.production.js
 /**
 * @license React
 * use-sync-external-store-shim.production.js
@@ -11901,7 +11901,7 @@ var require_use_sync_external_store_shim_production = /* @__PURE__ */ __commonJS
 	exports.useSyncExternalStore = void 0 !== React.useSyncExternalStore ? React.useSyncExternalStore : shim;
 }));
 //#endregion
-//#region node_modules/@preact/signals-react/runtime/dist/runtime.module.js
+//#region ../../prompta/node_modules/@preact/signals-react/runtime/dist/runtime.module.js
 var import_shim = (/* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_use_sync_external_store_shim_production();
 })))();
@@ -12117,10 +12117,8 @@ function connect() {
 		armWatchdog(nextSource);
 		nextSource.addEventListener("open", () => {
 			if (source !== nextSource) return;
-			reconnectAttempts = 0;
 			lastStreamFrameAt = Date.now();
 			armWatchdog(nextSource);
-			connectionRestored();
 		});
 		nextSource.addEventListener("error", () => {
 			if (source !== nextSource) return;
@@ -12136,6 +12134,8 @@ function connect() {
 			if (source !== nextSource) return;
 			lastStreamFrameAt = Date.now();
 			armWatchdog(nextSource);
+			reconnectAttempts = 0;
+			connectionRestored();
 			if (topic === "sync") refreshBoth();
 			else if (topic !== "ping") notify(topic);
 		});
@@ -12277,6 +12277,9 @@ function mergeConfirmedTurn(previous, incoming) {
 	const olderCalls = older.tool_calls?.length ?? 0;
 	return {
 		...latest,
+		...older.conversation_id && !latest.conversation_id ? { conversation_id: older.conversation_id } : {},
+		...older.parent_id && !latest.parent_id ? { parent_id: older.parent_id } : {},
+		...older.message_id && !latest.message_id ? { message_id: older.message_id } : {},
 		assistant_text: latest.assistant_text.length >= older.assistant_text.length ? latest.assistant_text : older.assistant_text,
 		...olderCalls > latestCalls ? { tool_calls: older.tool_calls } : {},
 		status: latest.status === "completed" || older.status !== "completed" ? latest.status : "completed"
@@ -12291,24 +12294,15 @@ function mergeConfirmedTurns(stored, previous) {
 	}), ...stored.filter((turn) => !previousIds.has(turn.reply_id))];
 }
 function recoverVisibleTurns(stored, previous, original, sameRun) {
-	if (stored?.length) return sameRun && previous.length ? mergeConfirmedTurns(stored, previous) : stored;
-	if (stored?.length === 0 && sameRun && previous.length > 1) return previous;
-	if (stored === null && sameRun && previous.length) {
-		const first = previous[0];
-		if (first.reply_id || original.updated_at < first.updated_at) return previous;
-		if (first.status === "completed" && original.status !== "completed") return previous;
-		const toolCalls = original.tool_calls?.length ? original.tool_calls : first.tool_calls;
-		const merged = {
-			...first,
-			...original,
-			...toolCalls ? { tool_calls: toolCalls } : {},
-			assistant_text: original.assistant_text.length >= first.assistant_text.length ? original.assistant_text : first.assistant_text,
-			status: original.status
-		};
-		if (merged.updated_at === first.updated_at && merged.status === first.status && merged.assistant_text === first.assistant_text && merged.tool_calls === first.tool_calls) return previous;
-		return [merged, ...previous.slice(1)];
-	}
-	return [original];
+	let confirmed;
+	if (stored?.length) confirmed = sameRun && previous.length ? mergeConfirmedTurns(stored, previous) : stored;
+	else if (sameRun && previous.length && (stored === null || previous.length > 1)) confirmed = previous;
+	else confirmed = [original];
+	const first = confirmed[0];
+	if (first.reply_id || first.status === "completed" && original.status !== "completed") return confirmed;
+	const current = mergeConfirmedTurn(first, original);
+	if (current.updated_at === first.updated_at && current.status === first.status && current.assistant_text === first.assistant_text && current.tool_calls === first.tool_calls && current.user_text === first.user_text && current.message_id === first.message_id && current.conversation_id === first.conversation_id) return confirmed;
+	return [current, ...confirmed.slice(1)];
 }
 //#endregion
 //#region src/ui/resultListRefresh.ts
@@ -13286,10 +13280,14 @@ function createChatsPageController(initialProps) {
 			if (response.ok) {
 				const body = await response.json();
 				if (body.send_id === "manual-" + request.requestId && typeof body.status === "string") return accepted(body.send_id, body.status);
-			} else if (response.status < 500) return {
-				ok: false,
-				message: await localRejectionDetail(response, "The fresh chat was rejected. Review the prompt or images.")
-			};
+			} else if (response.status < 500) {
+				const existing = await findFreshQueueReceiptStatus(request.requestId);
+				if (existing) return accepted(existing.sendId, existing.status);
+				return {
+					ok: false,
+					message: await localRejectionDetail(response, "The fresh chat was rejected. Review the prompt or images.")
+				};
+			}
 		} catch {}
 		const recovered = await findFreshQueueReceiptStatus(request.requestId);
 		if (recovered) return accepted(recovered.sendId, recovered.status);
@@ -13300,15 +13298,35 @@ function createChatsPageController(initialProps) {
 		};
 	}
 	async function recoverReply(sendId) {
-		if (recoveringReply.value) return "";
+		if (recoveringReply.value) return {
+			messageId: "",
+			issue: "Exact-branch verification is already running."
+		};
 		recoveringReply.value = true;
 		try {
 			const response = await localPost("./api/results/" + encodeURIComponent(sendId) + "/reply-recover", {}, { timeoutMs: 9e4 });
-			if (!response.ok) return "";
+			if (!response.ok) {
+				if (response.status >= 500) return {
+					messageId: "",
+					issue: "Exact-branch verification is temporarily unavailable. Nothing was sent."
+				};
+				return {
+					messageId: "",
+					issue: await localRejectionDetail(response, "The saved branch cannot be verified yet.")
+				};
+			}
 			const recovered = await response.json();
-			return selectedRunId.value === sendId ? recovered.message_id ?? "" : "";
+			if (selectedRunId.value !== sendId) return { messageId: "" };
+			if (typeof recovered.message_id === "string" && recovered.message_id) return { messageId: recovered.message_id };
+			return {
+				messageId: "",
+				issue: "Verification returned no assistant identity."
+			};
 		} catch {
-			return "";
+			return {
+				messageId: "",
+				issue: "Exact-branch verification timed out or lost its local connection. Nothing was sent."
+			};
 		} finally {
 			recoveringReply.value = false;
 		}
@@ -13466,7 +13484,8 @@ function createChatsPageController(initialProps) {
 			message: "Wait for the current response to finish."
 		};
 		if (!latest.conversation_id) return sendFresh(freshContinuationPrompt(text), originalImageRefs());
-		const parentId = latest.message_id || await recoverReply(sendId);
+		const verification = latest.message_id ? { messageId: latest.message_id } : await recoverReply(sendId);
+		const parentId = verification.messageId;
 		if (!parentId) {
 			if (selectedRunId.value !== sendId) return {
 				ok: false,
@@ -13474,7 +13493,7 @@ function createChatsPageController(initialProps) {
 			};
 			return {
 				ok: false,
-				message: "The exact ChatGPT branch could not be verified yet. Press Send to retry, or continue in a new chat.",
+				message: (verification.issue ?? "The exact ChatGPT branch could not be verified yet.") + " Press Send to retry later, or continue in a new chat.",
 				fallbackAvailable: true
 			};
 		}
@@ -13533,7 +13552,9 @@ function createChatsPageController(initialProps) {
 		try {
 			const response = await localPost("./api/results/" + encodeURIComponent(sendId) + "/reply-send", payload);
 			if (!response.ok) {
-				if (response.status >= 500) return await reconcile() ?? uncertain();
+				const existing = await reconcile();
+				if (existing) return existing;
+				if (response.status >= 500) return uncertain();
 				return {
 					ok: false,
 					message: await localRejectionDetail(response, "Reply was not queued. Check the saved branch and try again.")
@@ -14689,7 +14710,7 @@ function createJobsPageController(initialProps) {
 	};
 }
 //#endregion
-//#region node_modules/react/cjs/react-jsx-runtime.production.js
+//#region ../../prompta/node_modules/react/cjs/react-jsx-runtime.production.js
 /**
 * @license React
 * react-jsx-runtime.production.js
@@ -15982,7 +16003,7 @@ function ChatComposer(props) {
 	}) });
 }
 //#endregion
-//#region node_modules/marked/lib/marked.esm.js
+//#region ../../prompta/node_modules/marked/lib/marked.esm.js
 /**
 * marked v16.4.2 - a markdown parser
 * Copyright (c) 2018-2025, MarkedJS. (MIT License)

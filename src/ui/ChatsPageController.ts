@@ -885,6 +885,10 @@ export function createChatsPageController(initialProps: Props) {
           return accepted(body.send_id, body.status);
         }
       } else if (response.status < 500) {
+        // Even a conflicting local response may follow a committed queue write.
+        // Confirm the immutable request ID before reporting a rejection.
+        const existing = await findFreshQueueReceiptStatus(request.requestId);
+        if (existing) return accepted(existing.sendId, existing.status);
         return {
           ok: false,
           message: await localRejectionDetail(
@@ -906,22 +910,39 @@ export function createChatsPageController(initialProps: Props) {
     };
   }
 
-  async function recoverReply(sendId: string): Promise<string> {
-    if (recoveringReply.value) return "";
+  async function recoverReply(sendId: string): Promise<{ messageId: string; issue?: string }> {
+    if (recoveringReply.value)
+      return { messageId: "", issue: "Exact-branch verification is already running." };
     recoveringReply.value = true;
     try {
-      // A Send click is the explicit user action that permits exact-branch
-      // verification. Opening or refreshing a chat never contacts ChatGPT.
+      // Only an explicit Send invokes this read-only, exact-branch verification.
       const response = await localPost(
         "./api/results/" + encodeURIComponent(sendId) + "/reply-recover",
         {},
         { timeoutMs: 90_000 },
       );
-      if (!response.ok) return "";
+      if (!response.ok) {
+        if (response.status >= 500)
+          return {
+            messageId: "",
+            issue: "Exact-branch verification is temporarily unavailable. Nothing was sent.",
+          };
+        return {
+          messageId: "",
+          issue: await localRejectionDetail(response, "The saved branch cannot be verified yet."),
+        };
+      }
       const recovered = (await response.json()) as { message_id?: string };
-      return selectedRunId.value === sendId ? (recovered.message_id ?? "") : "";
+      if (selectedRunId.value !== sendId) return { messageId: "" };
+      if (typeof recovered.message_id === "string" && recovered.message_id)
+        return { messageId: recovered.message_id };
+      return { messageId: "", issue: "Verification returned no assistant identity." };
     } catch {
-      return "";
+      return {
+        messageId: "",
+        issue:
+          "Exact-branch verification timed out or lost its local connection. Nothing was sent.",
+      };
     } finally {
       recoveringReply.value = false;
     }
@@ -1143,7 +1164,10 @@ export function createChatsPageController(initialProps: Props) {
     }
     // Explicit Send is the sole trigger for recovering a persisted ChatGPT branch.
     // Failed or partial response capture must never permanently lock the composer.
-    const parentId = latest.message_id || (await recoverReply(sendId));
+    const verification = latest.message_id
+      ? { messageId: latest.message_id }
+      : await recoverReply(sendId);
+    const parentId = verification.messageId;
     if (!parentId) {
       if (selectedRunId.value !== sendId) {
         return { ok: false, message: "The selected chat changed. Nothing was sent." };
@@ -1151,7 +1175,8 @@ export function createChatsPageController(initialProps: Props) {
       return {
         ok: false,
         message:
-          "The exact ChatGPT branch could not be verified yet. Press Send to retry, or continue in a new chat.",
+          (verification.issue ?? "The exact ChatGPT branch could not be verified yet.") +
+          " Press Send to retry later, or continue in a new chat.",
         fallbackAvailable: true,
       };
     }
@@ -1226,7 +1251,11 @@ export function createChatsPageController(initialProps: Props) {
         payload,
       );
       if (!response.ok) {
-        if (response.status >= 500) return (await reconcile()) ?? uncertain();
+        // The exact local turn may have committed before a proxy reported a
+        // conflict. Read its immutable receipt before treating any 4xx as final.
+        const existing = await reconcile();
+        if (existing) return existing;
+        if (response.status >= 500) return uncertain();
         return {
           ok: false,
           message: await localRejectionDetail(

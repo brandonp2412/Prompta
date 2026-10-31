@@ -17,14 +17,22 @@ test("event-stream errors trigger fast repair while healthy streams retain a slo
     addEventListener(name: string, callback: () => void) {
       handlers.set(name, [...(handlers.get(name) ?? []), callback]);
     }
-    close() { closed = true; }
+    close() {
+      closed = true;
+    }
   }
   Object.defineProperty(globalThis, "EventSource", { configurable: true, value: FakeEventSource });
   Object.defineProperty(globalThis, "window", {
     configurable: true,
     value: {
-      setInterval: (callback: () => void, ms: number) => { repair = callback; period = ms; return 7; },
-      clearInterval: (id: number) => { if (id === 7) cleared = true; },
+      setInterval: (callback: () => void, ms: number) => {
+        repair = callback;
+        period = ms;
+        return 7;
+      },
+      clearInterval: (id: number) => {
+        if (id === 7) cleared = true;
+      },
       setTimeout: () => 8,
       clearTimeout: () => {},
       addEventListener: () => {},
@@ -34,9 +42,15 @@ test("event-stream errors trigger fast repair while healthy streams retain a slo
   Object.defineProperty(globalThis, "document", {
     configurable: true,
     value: {
-      get visibilityState() { return visibility; },
-      addEventListener: (name: string, callback: () => void) => { documentHandlers.set(name, callback); },
-      removeEventListener: (name: string) => { documentHandlers.delete(name); },
+      get visibilityState() {
+        return visibility;
+      },
+      addEventListener: (name: string, callback: () => void) => {
+        documentHandlers.set(name, callback);
+      },
+      removeEventListener: (name: string) => {
+        documentHandlers.delete(name);
+      },
     },
   });
   let offJobs: (() => void) | undefined;
@@ -44,38 +58,47 @@ test("event-stream errors trigger fast repair while healthy streams retain a slo
   try {
     let jobs = 0;
     let chats = 0;
-    offJobs = subscribeLiveUpdates("jobs", () => { jobs += 1; });
-    offChats = subscribeLiveUpdates("chats", () => { chats += 1; });
+    offJobs = subscribeLiveUpdates("jobs", () => {
+      jobs += 1;
+    });
+    offChats = subscribeLiveUpdates("chats", () => {
+      chats += 1;
+    });
     expect(period).toBe(15_000);
     expect(repair).toBeDefined();
-    const emit = (event: string) => { for (const callback of handlers.get(event) ?? []) callback(); };
+    const emit = (event: string) => {
+      for (const callback of handlers.get(event) ?? []) callback();
+    };
+    emit("open");
     emit("sync");
+    expect(period).toBe(120_000);
     expect([jobs, chats]).toEqual([1, 1]);
     repair?.();
     expect([jobs, chats]).toEqual([2, 2]);
     emit("error");
-    emit("error"); // Repeated initial disconnects do not trigger GET storms.
+    expect([jobs, chats]).toEqual([3, 3]); // Immediate repair on healthy disconnect.
+    emit("error"); // Repeated errors must not trigger GET storms.
     repair?.();
-    expect([jobs, chats]).toEqual([3, 3]);
+    expect([jobs, chats]).toEqual([4, 4]);
     visibility = "hidden";
     repair?.();
-    expect([jobs, chats]).toEqual([3, 3]);
+    expect([jobs, chats]).toEqual([4, 4]);
     visibility = "visible";
     documentHandlers.get("visibilitychange")?.();
-    expect([jobs, chats]).toEqual([4, 4]);
-    emit("open");
-    expect(period).toBe(120_000);
-    // The server's sync frame, not the transport open event, refreshes views.
-    expect([jobs, chats]).toEqual([4, 4]);
-    emit("sync");
     expect([jobs, chats]).toEqual([5, 5]);
+    emit("open");
+    expect(period).toBe(15_000);
+    expect([jobs, chats]).toEqual([5, 5]); // A socket is not yet a working stream.
+    emit("sync");
+    expect(period).toBe(120_000);
+    expect([jobs, chats]).toEqual([6, 6]);
     emit("error");
     expect(period).toBe(15_000);
-    expect([jobs, chats]).toEqual([6, 6]); // One immediate repair on healthy disconnect.
-    emit("error");
-    expect([jobs, chats]).toEqual([6, 6]);
-    repair?.();
     expect([jobs, chats]).toEqual([7, 7]);
+    emit("error");
+    expect([jobs, chats]).toEqual([7, 7]);
+    repair?.();
+    expect([jobs, chats]).toEqual([8, 8]);
     offJobs();
     offChats();
     expect(closed).toBe(true);
@@ -84,7 +107,9 @@ test("event-stream errors trigger fast repair while healthy streams retain a slo
     offJobs?.();
     offChats?.();
     for (const [name, descriptor] of [
-      ["EventSource", originalSource], ["window", originalWindow], ["document", originalDocument],
+      ["EventSource", originalSource],
+      ["window", originalWindow],
+      ["document", originalDocument],
     ] as const) {
       if (descriptor) Object.defineProperty(globalThis, name, descriptor);
       else Reflect.deleteProperty(globalThis, name);

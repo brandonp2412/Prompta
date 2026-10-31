@@ -153,7 +153,7 @@ def test_failed_exact_recovery_keeps_draft_and_allows_retry(
                 route.fulfill(
                     status=409,
                     content_type="application/json",
-                    body='{"error":"Verification unavailable"}',
+                    body='{"error":"ChatGPT account read cooldown is active; retry in 300 seconds"}',
                 )
 
             page.route("**/api/results/recover/reply-recover", recover_route)
@@ -172,7 +172,9 @@ def test_failed_exact_recovery_keeps_draft_and_allows_retry(
             with page.expect_request("**/api/results/recover/reply-recover"):
                 button.click()
             expect(
-                page.get_by_text("The exact ChatGPT branch could not be verified yet.", exact=False)
+                page.get_by_text(
+                    "ChatGPT account read cooldown is active; retry in 300 seconds", exact=False
+                )
             ).to_be_visible()
             expect(button).to_be_enabled()
             assert field.input_value() == "Still here"
@@ -230,10 +232,11 @@ def test_stuck_reply_starts_new_chat_with_latest_saved_result_first(
                 payload = json_object(route.request.post_data or "{}", label="new chat payload")
                 posted.append(payload)
                 route.fulfill(
-                    status=202, content_type="application/json",
-                    body=json.dumps({
-                        "send_id": "manual-" + str(payload["request_id"]), "status": "queued"
-                    }),
+                    status=202,
+                    content_type="application/json",
+                    body=json.dumps(
+                        {"send_id": "manual-" + str(payload["request_id"]), "status": "queued"}
+                    ),
                 )
 
             page.route("**/api/chats", fresh_route)
@@ -248,8 +251,10 @@ def test_stuck_reply_starts_new_chat_with_latest_saved_result_first(
             assert isinstance(prompt, str)
             assert prompt.startswith("Last saved assistant result:\nSaved partial answer")
             assert prompt.endswith(
-                "New user message:\n" + (
-                    "My follow-up was not sent" if failed_reply
+                "New user message:\n"
+                + (
+                    "My follow-up was not sent"
+                    if failed_reply
                     else "Please continue from the last saved result."
                 )
             )
