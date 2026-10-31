@@ -69,10 +69,87 @@ export default function ChatsSidebar({
 
   return (
     <aside aria-label="Local chat sidebar" ref={refs.sidebarPane} className="chats-sidebar">
-      <div className="sidebar-brand">
-        <div>
+      <div className="sidebar-topbar">
+        <div className="sidebar-brand">
           <strong>Prompta</strong>
         </div>
+        <nav aria-label="Main navigation" className="sidebar-actions">
+          <button
+            type="button"
+            onClick={showJobs}
+            aria-label="Jobs"
+            title="Jobs"
+            aria-current={view.value === "jobs" ? "page" : undefined}
+            className={["sidebar-jobs", view.value === "jobs" ? "active" : ""]
+              .filter(Boolean)
+              .join(" ")}
+          >
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <rect x="4" y="4" width="16" height="16" rx="3"></rect>
+              <path d="M8 9h8M8 13h8M8 17h5"></path>
+            </svg>
+            <span className="action-label">Jobs</span>
+          </button>
+          <button
+            type="button"
+            onClick={createChat}
+            aria-label="New chat"
+            title="New chat"
+            className="sidebar-primary"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M12 5H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7M16 4l4 4M9 15l3.5-.7L21 5.8a2.1 2.1 0 0 0-3-3l-8.5 8.5L9 15Z"></path>
+            </svg>
+            <span className="action-label">New</span>
+          </button>
+          <button
+            type="button"
+            aria-label="Search chats"
+            title="Search chats"
+            aria-expanded={filtersOpen.value}
+            aria-controls="chat-filters"
+            onClick={toggleSearch}
+            className={["sidebar-search", filtersOpen.value ? "active" : ""]
+              .filter(Boolean)
+              .join(" ")}
+          >
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+              aria-hidden="true"
+            >
+              <circle cx="10.5" cy="10.5" r="6.5"></circle>
+              <path d="m16 16 5 5"></path>
+            </svg>
+            <span className="action-label">Search</span>
+            {search.value || statusFilter.value ? (
+              <>
+                <span aria-label="Filters active" className="filter-active-dot"></span>
+              </>
+            ) : (
+              <></>
+            )}
+          </button>
+        </nav>
         <button
           type="button"
           aria-label="Close sidebar"
@@ -82,138 +159,70 @@ export default function ChatsSidebar({
           ×
         </button>
       </div>
-      <nav aria-label="Main navigation" className="sidebar-actions">
-        <button
-          type="button"
-          onClick={showJobs}
-          aria-label="Jobs"
-          title="Jobs"
-          aria-current={view.value === "jobs" ? "page" : undefined}
-          className={["sidebar-jobs", view.value === "jobs" ? "active" : ""]
-            .filter(Boolean)
-            .join(" ")}
-        >
-          <svg
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.8"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
+      <div className="sidebar-utility-row">
+        {attentionCount > 0 && (
+          <button
+            type="button"
+            className="chat-attention-shortcut"
+            aria-label={`Needs attention ${attentionCount} ${attentionCount === 1 ? "chat" : "chats"}`}
+            title="Review failed or interrupted local captures"
+            onClick={() => {
+              search.value = "";
+              statusFilter.value = "needs_attention";
+              filtersOpen.value = true;
+              applyFilter();
+            }}
           >
-            <rect x="4" y="4" width="16" height="16" rx="3"></rect>
-            <path d="M8 9h8M8 13h8M8 17h5"></path>
-          </svg>
-          <span className="action-label">Jobs</span>
-        </button>
-        <button
-          type="button"
-          onClick={createChat}
-          aria-label="New chat"
-          title="New chat"
-          className="sidebar-primary"
-        >
-          <svg
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.8"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
-          >
-            <path d="M12 5H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7M16 4l4 4M9 15l3.5-.7L21 5.8a2.1 2.1 0 0 0-3-3l-8.5 8.5L9 15Z"></path>
-          </svg>
-          <span className="action-label">New</span>
-        </button>
-        <button
-          type="button"
-          aria-label="Search chats"
-          title="Search chats"
-          aria-expanded={filtersOpen.value}
-          aria-controls="chat-filters"
-          onClick={toggleSearch}
-          className={["sidebar-search", filtersOpen.value ? "active" : ""]
-            .filter(Boolean)
-            .join(" ")}
-        >
-          <svg
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.8"
-            strokeLinecap="round"
-            aria-hidden="true"
-          >
-            <circle cx="10.5" cy="10.5" r="6.5"></circle>
-            <path d="m16 16 5 5"></path>
-          </svg>
-          <span className="action-label">Search</span>
-          {search.value || statusFilter.value ? (
-            <>
-              <span aria-label="Filters active" className="filter-active-dot"></span>
-            </>
-          ) : (
-            <></>
-          )}
-        </button>
-      </nav>
-      <div className="sidebar-read-actions">
-        <button
-          type="button"
-          onClick={markAllRead}
-          disabled={markingAllRead.value}
-          aria-label="Mark all local chats as read"
-          title="Mark all local chats as read"
-          className="mark-all-read"
-        >
-          <svg
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.8"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
-          >
-            <path d="m2 12 4 4L16 6M9 12l4 4L23 6"></path>
-          </svg>
-          {markingAllRead.value ? "Marking as read…" : "Mark all as read"}
-        </button>
-      </div>
-      {attentionCount > 0 && (
-        <button
-          type="button"
-          className="chat-attention-shortcut"
-          title="Review failed or interrupted local captures"
-          onClick={() => {
-            search.value = "";
-            statusFilter.value = "needs_attention";
-            filtersOpen.value = true;
-            applyFilter();
-          }}
-        >
-          <span>Needs attention</span>
-          <strong>
-            {attentionCount} {attentionCount === 1 ? "chat" : "chats"}
-          </strong>
-        </button>
-      )}
-      {attentionCount > 0 &&
-        ((recoveryBacklog.value ?? 0) > 0 ||
-          (recoveryReplyBacklog.value ?? 0) > 0 ||
-          (recoveryUnverified.value ?? 0) > 0) && (
-          <p className="chat-recovery-summary">
-            Recovery: {recoveryBacklog.value ?? 0} original captures eligible
-            {(recoveryReplyBacklog.value ?? 0) > 0 &&
-              ` · ${recoveryReplyBacklog.value} follow-ups unresolved`}
-            {(recoveryUnverified.value ?? 0) > 0 &&
-              ` · ${recoveryUnverified.value} need manual review (no verified chat ID)`}
-            {recoveryPauseSeconds.value > 0 &&
-              ` · waiting ~${Math.ceil(recoveryPauseSeconds.value / 60)} min`}
-          </p>
+            <span>Needs attention</span>
+            <strong>{attentionCount}</strong>
+          </button>
         )}
+        <details className="sidebar-options">
+          <summary aria-label="Chat options" title="Chat options">
+            <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <circle cx="5" cy="12" r="1.8" />
+              <circle cx="12" cy="12" r="1.8" />
+              <circle cx="19" cy="12" r="1.8" />
+            </svg>
+          </summary>
+          <div className="sidebar-options-menu">
+            <button
+              type="button"
+              onClick={markAllRead}
+              disabled={markingAllRead.value}
+              aria-label="Mark all local chats as read"
+              className="mark-all-read"
+            >
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <path d="m2 12 4 4L16 6M9 12l4 4L23 6"></path>
+              </svg>
+              {markingAllRead.value ? "Marking as read…" : "Mark all as read"}
+            </button>
+            {attentionCount > 0 &&
+              ((recoveryBacklog.value ?? 0) > 0 ||
+                (recoveryReplyBacklog.value ?? 0) > 0 ||
+                (recoveryUnverified.value ?? 0) > 0) && (
+                <p className="chat-recovery-summary">
+                  Recovery: {recoveryBacklog.value ?? 0} original captures eligible
+                  {(recoveryReplyBacklog.value ?? 0) > 0 &&
+                    ` · ${recoveryReplyBacklog.value} follow-ups unresolved`}
+                  {(recoveryUnverified.value ?? 0) > 0 &&
+                    ` · ${recoveryUnverified.value} need manual review (no verified chat ID)`}
+                  {recoveryPauseSeconds.value > 0 &&
+                    ` · waiting ~${Math.ceil(recoveryPauseSeconds.value / 60)} min`}
+                </p>
+              )}
+          </div>
+        </details>
+      </div>
       {filtersOpen.value ? (
         <>
           <div id="chat-filters" className="chats-controls">

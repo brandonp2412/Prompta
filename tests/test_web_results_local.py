@@ -75,7 +75,7 @@ def test_attention_filter_marks_interrupted_chats_in_react_sidebar(
                 page = browser.new_page(viewport={"width": width, "height": height})
                 page.goto(f"http://127.0.0.1:{port}/?view=chats")
                 shortcut = page.locator(".chat-attention-shortcut")
-                expect(shortcut).to_contain_text("1 chat")
+                expect(shortcut).to_have_attribute("aria-label", "Needs attention 1 chat")
                 shortcut.click()
                 expect(page.locator(".chats-controls select")).to_have_value("needs_attention")
                 expect(page.locator(".chat-entry")).to_have_count(1)
@@ -426,6 +426,7 @@ def test_mark_all_as_read_button_persists_across_tabs_and_reload(tmp_path: Path)
                         break
                 expect(mobile.locator(".chat-entry")).to_have_count(65)
 
+                mobile.get_by_label("Chat options").click()
                 button = mobile.get_by_role("button", name="Mark all local chats as read")
                 expect(button).to_be_visible()
                 button.click()

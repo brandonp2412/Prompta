@@ -12,7 +12,7 @@ from patchright.sync_api import sync_playwright as sync_patchright
 from web_results_support import completed_run, server
 
 
-@pytest.mark.parametrize("width,height", [(390, 844), (1440, 900)])
+@pytest.mark.parametrize("width,height", [(320, 700), (360, 800), (390, 844), (412, 915), (844, 390), (1440, 900)])
 def test_sidebar_explains_recovery_backlog_and_read_cooldown(
     tmp_path: Path, width: int, height: int,
 ) -> None:
@@ -42,10 +42,24 @@ def test_sidebar_explains_recovery_backlog_and_read_cooldown(
         )
         page.goto(f"http://127.0.0.1:{port}/?view=chats")
         summary = page.locator(".chat-recovery-summary")
+        options = page.get_by_label("Chat options")
+        expect(summary).not_to_be_visible()
+        options.click()
+        expect(summary).to_be_visible()
         expect(summary).to_contain_text("7 original captures eligible")
         expect(summary).to_contain_text("3 follow-ups unresolved")
         expect(summary).to_contain_text("1 need manual review (no verified chat ID)")
         expect(summary).to_contain_text("waiting ~20 min")
+        expect(page.get_by_role("button", name="Mark all local chats as read")).to_be_visible()
+        options.click()
+        expect(summary).not_to_be_visible()
         expect(page.get_by_role("button", name="Needs attention 8 chats")).to_be_visible()
+        if width < 681:
+            expect(page.locator(".sidebar-actions .action-label").first).not_to_be_visible()
+            list_top = page.locator(".chats-list").bounding_box()
+            assert list_top is not None and list_top["y"] < 150
+            page.get_by_role("button", name="Search chats").click()
+            expect(page.get_by_role("searchbox", name="Search chats")).to_be_visible()
+            expect(page.get_by_role("combobox", name="Filter results by state")).to_be_visible()
         assert page.evaluate("document.documentElement.scrollWidth <= innerWidth + 1")
         browser.close()
