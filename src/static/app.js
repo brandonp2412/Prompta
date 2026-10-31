@@ -12164,10 +12164,13 @@ function connectionRestored() {
 function visibleAgain() {
 	if (document.visibilityState !== "visible") return;
 	refreshBoth();
-	if (source?.readyState === 2 || source && Date.now() - lastStreamFrameAt >= staleStreamMs) {
+	const current = source;
+	if (current?.readyState === 2 || current && Date.now() - lastStreamFrameAt >= staleStreamMs) {
 		connectionLost();
 		scheduleReconnect();
+		return;
 	}
+	if (current) armWatchdog(current);
 }
 function offline() {
 	observedOffline = true;
@@ -12257,6 +12260,11 @@ var emptyQueueSnapshot = {
 	estimate_samples: 0,
 	waiting: []
 };
+function isQueueSnapshot(value) {
+	if (!value || typeof value !== "object") return false;
+	if (!("waiting" in value) || !Array.isArray(value.waiting) || !("occupied_slots" in value) || typeof value.occupied_slots !== "number" || !Number.isFinite(value.occupied_slots) || !("max_workers" in value) || value.max_workers !== null && typeof value.max_workers !== "number" || !("estimated_run_seconds" in value) || typeof value.estimated_run_seconds !== "number" || !("estimate_samples" in value) || typeof value.estimate_samples !== "number") return false;
+	return value.waiting.every((job) => job !== null && typeof job === "object" && "name" in job && typeof job.name === "string" && "position" in job && typeof job.position === "number" && "reason" in job && (job.reason === "global" || job.reason === "stage") && "occupied" in job && typeof job.occupied === "number" && "limit" in job && typeof job.limit === "number" && "eta_seconds" in job && typeof job.eta_seconds === "number");
+}
 function queueEtaText(waiting) {
 	if (!Number.isFinite(waiting.eta_seconds) || waiting.eta_seconds < 0) return "ETA unavailable";
 	const minutes = Math.max(1, Math.ceil(waiting.eta_seconds / 60));
@@ -13018,12 +13026,16 @@ function createChatsPageController(initialProps) {
 			const response = await localGet("./api/queue-status");
 			if (!response.ok) throw new Error("Queue status unavailable");
 			const body = await response.json();
+			if (!isQueueSnapshot(body)) throw new Error("Invalid queue snapshot");
 			if (generation === queueGeneration) {
 				queueSnapshot.value = body;
 				queueError.value = "";
 			}
 		} catch {
-			if (generation === queueGeneration) queueError.value = "Waiting-job status may be out of date.";
+			if (generation === queueGeneration) {
+				queueSnapshot.value = emptyQueueSnapshot;
+				queueError.value = "Waiting-job status is temporarily unavailable.";
+			}
 		} finally {
 			queueInFlight = false;
 			if (queueRefreshPending) {
@@ -13912,16 +13924,34 @@ function createJobsPageController(initialProps) {
 	let deliveryHealthError = y$2("");
 	let jobsLoadError = y$2("");
 	let queueSnapshot = y$2(null);
+	let queueError = y$2("");
+	let queueInFlight = false;
+	let queueRefreshPending = false;
 	function waitingJob(jobName) {
 		return queueSnapshot.value?.waiting.find((job) => job.name === jobName);
 	}
 	async function loadQueue() {
+		if (queueInFlight) {
+			queueRefreshPending = true;
+			return;
+		}
+		queueInFlight = true;
 		try {
 			const response = await localGet("./api/queue-status");
 			if (!response.ok) throw new Error("Queue status unavailable");
-			queueSnapshot.value = await response.json();
+			const data = await response.json();
+			if (!isQueueSnapshot(data)) throw new Error("Invalid queue snapshot");
+			queueSnapshot.value = data;
+			queueError.value = "";
 		} catch {
 			queueSnapshot.value = null;
+			queueError.value = "Queue position and ETA are temporarily unavailable.";
+		} finally {
+			queueInFlight = false;
+			if (queueRefreshPending) {
+				queueRefreshPending = false;
+				loadQueue();
+			}
 		}
 	}
 	const pendingDeliveries = O(() => deliveryHealth.value ? deliveryHealth.value.queue.queued + deliveryHealth.value.queue.running + deliveryHealth.value.queue.retrying + deliveryHealth.value.queue.rate_limited : 0);
@@ -14427,7 +14457,7 @@ function createJobsPageController(initialProps) {
 					signal: controller.signal
 				});
 				if (generation !== uploadGen || activeEditorRoute.value !== route) return;
-				if (!response.ok) throw new Error("Image upload failed.");
+				if (!response.ok) throw new Error(await localRejectionDetail(response, "Image upload failed."));
 				const result = await response.json();
 				if (!result.image?.ref || !result.image.url.startsWith("./api/images/")) throw new Error("Image upload receipt was invalid.");
 				if (images.value.some((image) => image.ref === result.image?.ref)) continue;
@@ -14564,6 +14594,8 @@ function createJobsPageController(initialProps) {
 		deliveryHealthError,
 		jobsLoadError,
 		queueSnapshot,
+		queueError,
+		loadQueue,
 		waitingJob,
 		pendingDeliveries,
 		recoveryPauseSeconds,
@@ -15261,7 +15293,7 @@ function JobsTable({ model }) {
 function JobsPage(props) {
 	const model = (0, import_react.useMemo)(() => createJobsPageController(props), []);
 	N$1();
-	const { jobsLoadError, filterOptions, jobs, activeFilters, showRepeatingJobs, repeatingJobsCount, cadenceJobs, filterCounts, page, visibleJobs, allVisiblePaused, status, saving, editorOpen, beginNew, beginOnce, onEditorKeydown, toggleFilter, load, toggleVisible, clearAll } = model;
+	const { jobsLoadError, queueError, loadQueue, filterOptions, jobs, activeFilters, showRepeatingJobs, repeatingJobsCount, cadenceJobs, filterCounts, page, visibleJobs, allVisiblePaused, status, saving, editorOpen, beginNew, beginOnce, onEditorKeydown, toggleFilter, load, toggleVisible, clearAll } = model;
 	const refs = (0, import_react.useMemo)(() => ({
 		jobsTitle: (element) => {
 			if (model.jobsTitle.peek() !== (element ?? void 0)) model.jobsTitle.value = element ?? void 0;
@@ -15405,6 +15437,15 @@ function JobsPage(props) {
 					type: "button",
 					onClick: () => void load(),
 					children: "Retry jobs"
+				})]
+			}),
+			queueError.value && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+				role: "status",
+				className: "result-error recovery-error jobs-recovery-error",
+				children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: queueError.value }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+					type: "button",
+					onClick: () => void loadQueue(),
+					children: "Retry queue estimates"
 				})]
 			}),
 			/* @__PURE__ */ (0, import_jsx_runtime.jsx)(DeliveryDiagnostics, { model }),

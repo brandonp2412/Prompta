@@ -69,15 +69,18 @@ def test_hung_local_results_get_times_out_then_retries(
 
 @pytest.mark.parametrize("width,height", [(1440, 900), (390, 844)])
 def test_failed_queue_status_is_labeled_stale_and_can_recover(
-    tmp_path: Path, width: int, height: int,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, width: int, height: int,
 ) -> None:
+    import prompta.web as web_module
+
+    monkeypatch.setattr(web_module, "_STATIC_ROOT", Path(__file__).resolve().parents[1] / "src/static")
     with server(tmp_path) as (_, port), sync_playwright() as playwright:
         browser = playwright.chromium.launch(executable_path=_chromium(), headless=True)
         page = browser.new_page(viewport={"width": width, "height": height})
         page.route("**/api/queue-status", lambda route: route.fulfill(status=503))
         page.goto(f"http://127.0.0.1:{port}/?view=chats")
         expect(page.get_by_role("button", name="Retry queue status")).to_be_visible()
-        expect(page.get_by_text("Waiting-job status may be out of date.")).to_be_visible()
+        expect(page.get_by_text("Waiting-job status is temporarily unavailable.")).to_be_visible()
         page.unroute("**/api/queue-status")
         page.get_by_role("button", name="Retry queue status").click()
         expect(page.get_by_role("button", name="Retry queue status")).to_have_count(0)

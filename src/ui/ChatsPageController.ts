@@ -2,7 +2,7 @@ import type React from "react";
 import { signal, computed, effect, batch } from "@preact/signals-react";
 import { untracked as untrack } from "@preact/signals-core";
 import { subscribeLiveUpdates } from "./liveUpdates";
-import { emptyQueueSnapshot, type QueueSnapshot } from "./queueStatus";
+import { emptyQueueSnapshot, isQueueSnapshot, type QueueSnapshot } from "./queueStatus";
 import { recoverVisibleTurns } from "./turnRecovery";
 import { nextResultPageOffset, reconcileResultPage } from "./resultListRefresh";
 import { localGet, localReadTimeoutMs } from "./localRead";
@@ -528,15 +528,17 @@ export function createChatsPageController(initialProps: Props) {
     try {
       const response = await localGet("./api/queue-status");
       if (!response.ok) throw new Error("Queue status unavailable");
-      const body: QueueSnapshot = await response.json();
+      const body: unknown = await response.json();
+      if (!isQueueSnapshot(body)) throw new Error("Invalid queue snapshot");
       if (generation === queueGeneration) {
         queueSnapshot.value = body;
         queueError.value = "";
       }
     } catch {
-      // Keep the last confirmed snapshot, but never present it as live status.
-      if (generation === queueGeneration)
-        queueError.value = "Waiting-job status may be out of date.";
+      if (generation === queueGeneration) {
+        queueSnapshot.value = emptyQueueSnapshot;
+        queueError.value = "Waiting-job status is temporarily unavailable.";
+      }
     } finally {
       queueInFlight = false;
       if (queueRefreshPending) {

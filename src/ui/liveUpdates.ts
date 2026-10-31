@@ -144,10 +144,15 @@ function connectionRestored() {
 function visibleAgain() {
   if (document.visibilityState !== "visible") return;
   refreshBoth();
-  if (source?.readyState === 2 || (source && Date.now() - lastStreamFrameAt >= staleStreamMs)) {
+  const current = source;
+  if (current?.readyState === 2 || (current && Date.now() - lastStreamFrameAt >= staleStreamMs)) {
     connectionLost();
     scheduleReconnect();
+    return;
   }
+  // A watchdog timeout that fired while hidden does not schedule another check.
+  // Re-arm it on return even when the most recent frame is still fresh.
+  if (current) armWatchdog(current);
 }
 
 function offline() {
