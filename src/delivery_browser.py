@@ -719,7 +719,7 @@ class BrowserDeliverySender:
                 try:
                     await _timed_stage(
                         "passive_dom_observer_arm",
-                        driver.eval(load_browser_script("passive_response_observer.js")),
+                        driver.eval(load_browser_script("passive_response_observer.js"), main_world=True),
                         timeout=5.0,
                     )
                 except Exception as exc:
@@ -1041,7 +1041,8 @@ class BrowserDeliverySender:
             if send_id and context:
                 try:
                     await asyncio.wait_for(
-                        driver.eval(load_browser_script("passive_response_stop.js")), timeout=1.0
+                        driver.eval(load_browser_script("passive_response_stop.js"), main_world=True),
+                        timeout=1.0,
                     )
                 except Exception:
                     pass

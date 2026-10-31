@@ -128,7 +128,7 @@ class FakeDriver:
     async def send_confirmation_state(self) -> dict[str, object]:
         return {"composer_text": self.composer, "send_in_progress": False}
 
-    async def eval(self, _script: str) -> str | bool:
+    async def eval(self, _script: str, *, main_world: bool = False) -> str | bool:
         return "/"
 
     async def clear_composer(self) -> None:
@@ -550,7 +550,7 @@ async def test_existing_conversation_route_is_rejected_before_dispatch(
     existing_path: str,
 ) -> None:
     class ExistingConversationDriver(FakeDriver):
-        async def eval(self, _script: str) -> str:
+        async def eval(self, _script: str, *, main_world: bool = False) -> str:
             return existing_path
 
         async def select_effort_model(self, _model: str) -> None:
@@ -590,7 +590,7 @@ async def test_conversation_redirect_after_typing_prevents_send(tmp_path: Path) 
             await super().type_message(message)
             self.redirected = True
 
-        async def eval(self, _script: str) -> str:
+        async def eval(self, _script: str, *, main_world: bool = False) -> str:
             return "/c/existing" if self.redirected else "/"
 
         async def click_send(self, expected_message: str) -> None:
@@ -631,7 +631,7 @@ async def test_unconfirmed_send_fails_closed_without_stream_probe(tmp_path: Path
 @pytest.mark.asyncio
 async def test_unconfirmed_send_diagnostic_never_logs_raw_path(tmp_path: Path) -> None:
     class UnconfirmedPathDriver(FakeDriver):
-        async def eval(self, _script: str) -> str:
+        async def eval(self, _script: str, *, main_world: bool = False) -> str:
             return "/temporary/opaque-sensitive-route-token"
 
         def captured_send_response(self, _capture: dict[str, object]) -> None:
@@ -661,7 +661,7 @@ async def test_route_navigation_alone_does_not_prove_send_acceptance(tmp_path: P
             await super().click_send(expected_message)
             self.dispatched = True
 
-        async def eval(self, _script: str) -> str:
+        async def eval(self, _script: str, *, main_world: bool = False) -> str:
             return "/c/new-fresh-chat" if self.dispatched else "/"
 
         async def send_confirmation_state(self) -> dict[str, object]:
@@ -699,7 +699,7 @@ async def test_route_navigation_waits_for_delayed_transport_proof(
             await super().click_send(expected_message)
             self.dispatched = True
 
-        async def eval(self, _script: str) -> str:
+        async def eval(self, _script: str, *, main_world: bool = False) -> str:
             return "/c/new-fresh-chat" if self.dispatched else "/"
 
         async def send_confirmation_state(self) -> dict[str, object]:
@@ -742,7 +742,7 @@ async def test_transient_route_probe_timeout_falls_through_to_generation_signal(
             self.dispatched = True
             self.generation_active = True
 
-        async def eval(self, _script: str) -> str:
+        async def eval(self, _script: str, *, main_world: bool = False) -> str:
             if self.dispatched:
                 raise TimeoutError("transient route probe timeout")
             return "/"
@@ -938,7 +938,7 @@ async def test_confirmation_uses_fast_composer_and_control_probe(tmp_path: Path,
     driver = PlaywrightDriver(profile=tmp_path / "profile")
 
     class Page:
-        async def evaluate(self, script: str) -> dict[str, object]:
+        async def evaluate(self, script: str, *, isolated_context: bool = True) -> dict[str, object]:
             assert "querySelector('main')" in script
             assert "send_in_progress" in script
             assert "querySelectorAll('button" in script
@@ -1042,7 +1042,7 @@ async def test_rate_limit_detection_uses_semantic_active_surfaces(tmp_path: Path
         async def is_visible(self) -> bool:
             return self.visible
 
-        async def evaluate(self, _script: str) -> bool:
+        async def evaluate(self, _script: str, *, isolated_context: bool = True) -> bool:
             return self.active
 
         async def inner_text(self) -> str:
@@ -1132,7 +1132,7 @@ async def test_first_usable_accepts_unique_visible_candidate_when_composed_guard
         async def is_enabled(self) -> bool:
             return True
 
-        async def evaluate(self, _script: str) -> bool:
+        async def evaluate(self, _script: str, *, isolated_context: bool = True) -> bool:
             return False
 
     class Collection:
@@ -1164,7 +1164,7 @@ async def test_first_usable_refuses_ambiguous_visible_candidates_when_guard_fals
         async def is_enabled(self) -> bool:
             return True
 
-        async def evaluate(self, _script: str) -> bool:
+        async def evaluate(self, _script: str, *, isolated_context: bool = True) -> bool:
             return False
 
     class Collection:
@@ -1193,7 +1193,7 @@ async def test_first_usable_refuses_two_composed_active_controls(tmp_path: Path)
         async def is_enabled(self) -> bool:
             return True
 
-        async def evaluate(self, _script: str) -> bool:
+        async def evaluate(self, _script: str, *, isolated_context: bool = True) -> bool:
             return True
 
     class Collection:
@@ -1228,7 +1228,7 @@ async def test_chat_surface_recognises_pressed_chat_without_click(
         async def is_enabled(self) -> bool:
             return True
 
-        async def evaluate(self, _script: str) -> bool:
+        async def evaluate(self, _script: str, *, isolated_context: bool = True) -> bool:
             return True
 
         async def click(self) -> None:
@@ -1298,7 +1298,7 @@ async def test_chat_surface_skips_truncated_semantic_controls(
         async def is_enabled(self) -> bool:
             return True
 
-        async def evaluate(self, script: str) -> bool | list[str]:
+        async def evaluate(self, script: str, *, isolated_context: bool = True) -> bool | list[str]:
             if "semantic_control_labels" in script:
                 return [self.label]
             return True
@@ -1465,7 +1465,7 @@ async def test_hydrated_composer_prefers_named_editor_when_multiple_are_active(
         def __init__(self, labels: list[str]) -> None:
             self.labels = labels
 
-        async def evaluate(self, script: str) -> object:
+        async def evaluate(self, script: str, *, isolated_context: bool = True) -> object:
             if "new Set(labels)" in script:
                 return self.labels
             return True
@@ -1508,7 +1508,7 @@ async def test_hydrated_composer_fails_closed_on_partial_inspection(tmp_path: Pa
         def __init__(self, broken: bool) -> None:
             self.broken = broken
 
-        async def evaluate(self, script: str) -> object:
+        async def evaluate(self, script: str, *, isolated_context: bool = True) -> object:
             if self.broken:
                 raise playwright_driver.PlaywrightError("detached editor")
             return ["Ask ChatGPT"] if "new Set(labels)" in script else True
@@ -1540,7 +1540,7 @@ async def test_hydrated_composer_fails_closed_on_partial_inspection(tmp_path: Pa
 @pytest.mark.asyncio
 async def test_hydrated_composer_refuses_truncated_editable_scan(tmp_path: Path) -> None:
     class Candidate:
-        async def evaluate(self, _script: str) -> object:
+        async def evaluate(self, _script: str, *, isolated_context: bool = True) -> object:
             raise AssertionError("oversized set must not be scanned")
 
         async def is_visible(self) -> bool:
@@ -1567,7 +1567,7 @@ async def test_hydrated_composer_refuses_truncated_editable_scan(tmp_path: Path)
 @pytest.mark.asyncio
 async def test_hydrated_composer_rejects_ambiguous_unnamed_editors(tmp_path: Path) -> None:
     class Candidate:
-        async def evaluate(self, script: str) -> object:
+        async def evaluate(self, script: str, *, isolated_context: bool = True) -> object:
             return [] if "new Set(labels)" in script else True
 
         async def is_visible(self) -> bool:
@@ -1720,7 +1720,7 @@ async def test_model_selector_matches_current_public_label(tmp_path: Path) -> No
         async def is_enabled(self) -> bool:
             return True
 
-        async def evaluate(self, _script: str) -> bool:
+        async def evaluate(self, _script: str, *, isolated_context: bool = True) -> bool:
             return True
 
     class Collection:
@@ -1775,7 +1775,7 @@ async def test_model_selector_prefers_visible_submenu_when_composed_guard_false(
         async def is_enabled(self) -> bool:
             return True
 
-        async def evaluate(self, _script: str) -> bool:
+        async def evaluate(self, _script: str, *, isolated_context: bool = True) -> bool:
             return False
 
     class Collection:
@@ -1829,7 +1829,7 @@ async def test_model_selector_ignores_unrelated_visible_popup(tmp_path: Path) ->
         async def is_enabled(self) -> bool:
             return True
 
-        async def evaluate(self, _script: str) -> list[str]:
+        async def evaluate(self, _script: str, *, isolated_context: bool = True) -> list[str]:
             return ["Plugins"]
 
     class Collection:
@@ -1903,7 +1903,7 @@ async def test_model_selection_walks_outer_and_submenu_before_option(
         async def is_enabled(self) -> bool:
             return True
 
-        async def evaluate(self, _script: str) -> bool:
+        async def evaluate(self, _script: str, *, isolated_context: bool = True) -> bool:
             return False
 
         async def get_attribute(self, name: str) -> str | None:
@@ -2068,7 +2068,7 @@ async def test_model_picker_opens_high_row_before_gpt6(
         async def inner_text(self) -> str:
             return self.label
 
-        async def evaluate(self, _script: str) -> bool:
+        async def evaluate(self, _script: str, *, isolated_context: bool = True) -> bool:
             return True
 
         async def get_attribute(self, name: str) -> str | None:
@@ -2147,7 +2147,7 @@ async def test_model_selection_accepts_menuitem_and_aria_selected(
         async def is_enabled(self) -> bool:
             return True
 
-        async def evaluate(self, _script: str) -> bool:
+        async def evaluate(self, _script: str, *, isolated_context: bool = True) -> bool:
             return False
 
         async def get_attribute(self, name: str) -> str | None:
@@ -2226,7 +2226,7 @@ async def test_model_selection_verifies_click_before_reporting_success(
         async def is_enabled(self) -> bool:
             return True
 
-        async def evaluate(self, _script: str) -> bool:
+        async def evaluate(self, _script: str, *, isolated_context: bool = True) -> bool:
             return False
 
         async def get_attribute(self, name: str) -> str | None:
@@ -2236,7 +2236,7 @@ async def test_model_selection_verifies_click_before_reporting_success(
             self.clicks += 1
 
     class Selector:
-        async def evaluate(self, _script: str) -> list[str]:
+        async def evaluate(self, _script: str, *, isolated_context: bool = True) -> list[str]:
             return ["Select ChatGPT model", current_label or "GPT-5.6 Luna"]
 
     class Collection:
@@ -2761,7 +2761,7 @@ async def test_composer_text_fallback_targets_the_composer(tmp_path: Path, monke
         async def focus(self) -> None:
             self.presses.append("focus")
 
-        async def evaluate(self, expression: str) -> bool:
+        async def evaluate(self, expression: str, *, isolated_context: bool = True) -> bool:
             assert "document.activeElement" in expression
             return True
 
@@ -2807,7 +2807,7 @@ async def test_composer_fallback_rejects_stolen_focus(
         async def focus(self) -> None:
             pass
 
-        async def evaluate(self, expression: str) -> bool:
+        async def evaluate(self, expression: str, *, isolated_context: bool = True) -> bool:
             assert "document.activeElement" in expression
             return False
 
@@ -2951,7 +2951,7 @@ async def test_first_usable_refuses_truncated_candidate_scan(tmp_path: Path) -> 
         async def is_enabled(self) -> bool:
             return True
 
-        async def evaluate(self, _script: str) -> bool:
+        async def evaluate(self, _script: str, *, isolated_context: bool = True) -> bool:
             return True
 
     class Collection:
@@ -2977,7 +2977,7 @@ async def test_unique_usable_refuses_truncated_candidate_scan(tmp_path: Path) ->
         async def is_enabled(self) -> bool:
             return True
 
-        async def evaluate(self, _script: str) -> bool:
+        async def evaluate(self, _script: str, *, isolated_context: bool = True) -> bool:
             return True
 
     class Collection:
@@ -3029,7 +3029,7 @@ async def test_model_selector_does_not_trust_truncated_control_scan(tmp_path: Pa
         async def is_enabled(self) -> bool:
             return True
 
-        async def evaluate(self, _script: str) -> list[str]:
+        async def evaluate(self, _script: str, *, isolated_context: bool = True) -> list[str]:
             return [self.label]
 
     class Collection:
@@ -3161,7 +3161,7 @@ async def test_model_selection_verifies_selector_after_option_unmount(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     class Selector:
-        async def evaluate(self, _script: str) -> list[str]:
+        async def evaluate(self, _script: str, *, isolated_context: bool = True) -> list[str]:
             return ["Select ChatGPT model", "GPT-5.6 Sol"]
 
     driver = PlaywrightDriver(profile=tmp_path / "profile")
@@ -3236,7 +3236,7 @@ async def test_connector_grace_keeps_tab_until_deadline_and_signals_acceptance(
     class PermissionDriver(FakeDriver):
         checks = 0
 
-        async def eval(self, _script: str) -> str:
+        async def eval(self, _script: str, *, main_world: bool = False) -> str:
             if "always allow" in _script:
                 assert accepted.is_set()
                 assert not self.closed_contexts
@@ -3266,7 +3266,7 @@ async def test_connector_grace_approves_multiple_dialogs_before_timeout(
         checks = 0
         approvals = 0
 
-        async def eval(self, _script: str) -> str | bool:
+        async def eval(self, _script: str, *, main_world: bool = False) -> str | bool:
             if "always allow" in _script:
                 assert accepted.is_set()
                 assert not self.closed_contexts
@@ -3441,7 +3441,7 @@ async def test_accepted_owned_chat_persists_url_and_backend_reply_identity(tmp_p
             self.observed = False
             self.sends = 0
 
-        async def eval(self, _script: str) -> str | bool:
+        async def eval(self, _script: str, *, main_world: bool = False) -> str | bool:
             if "location.pathname" in _script:
                 return f"/c/{chat}" if self.sent else "/"
             return True

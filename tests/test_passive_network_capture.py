@@ -118,3 +118,18 @@ async def test_observer_binding_propagates_ambiguous_dom_rollover(tmp_path: Path
     assert update is not None and update.source == "dom"
     assert update.status == "unknown" and update.message_id is None and not update.text
     await driver.close()
+
+
+@pytest.mark.asyncio
+async def test_patchright_driver_selects_main_world_for_passive_callbacks(tmp_path: Path) -> None:
+    driver = PlaywrightDriver(profile=tmp_path)
+    driver.context = "owned-fresh-tab"
+    page = Mock(spec=Page)
+    page.is_closed.return_value = False
+    page.evaluate = AsyncMock(return_value=True)
+    driver._pages[driver.context] = page
+
+    assert await driver.eval("main-world observer", main_world=True) is True
+    page.evaluate.assert_awaited_with("main-world observer", isolated_context=False)
+    assert await driver.eval("scoped DOM check") is True
+    page.evaluate.assert_awaited_with("scoped DOM check", isolated_context=True)

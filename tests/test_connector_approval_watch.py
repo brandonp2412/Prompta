@@ -41,7 +41,7 @@ async def test_background_watcher_opens_unread_chat_and_grants_permission(
         async def goto(self, _url: str, **_kwargs: object) -> None:
             return None
 
-        async def evaluate(self, _script: str) -> list[str]:
+        async def evaluate(self, _script: str, *, isolated_context: bool = True) -> list[str]:
             self.scans += 1
             if self.scans > 1:
                 self.closed = True
@@ -63,7 +63,7 @@ async def test_background_watcher_opens_unread_chat_and_grants_permission(
         async def goto(self, url: str, **_kwargs: object) -> None:
             self.url = url
 
-        async def evaluate(self, _script: str) -> bool:
+        async def evaluate(self, _script: str, *, isolated_context: bool = True) -> bool:
             if self.grants == 0:
                 self.grants += 1
                 return True

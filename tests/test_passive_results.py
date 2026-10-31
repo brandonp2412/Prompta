@@ -155,7 +155,7 @@ class StreamDriver:
         self.dom_reads += 1
         return _capture("")
 
-    async def eval(self, _script: str) -> object:
+    async def eval(self, _script: str, *, main_world: bool = False) -> object:
         self.eval_calls += 1
         return False
 
@@ -358,7 +358,7 @@ async def test_late_same_tab_recovery_after_observer_failure(
                 observer_id="owned-answer",
             )
 
-        async def eval(self, _script: str) -> str:
+        async def eval(self, _script: str, *, main_world: bool = False) -> str:
             self.eval_calls += 1
             return f"/c/{_RECOVERED_CHAT}"
 
@@ -447,7 +447,7 @@ async def test_real_browser_late_answer_recovers_without_external_reads(
                     )
                     return normalize_dom_snapshot(payload)
 
-                async def eval(self, script: str) -> object:
+                async def eval(self, script: str, *, main_world: bool = False) -> object:
                     return await page.evaluate(script)
 
             driver = SilentBrowserDriver()

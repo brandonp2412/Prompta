@@ -38,7 +38,7 @@ class FakeDriver:
     async def wait_for_composer(self) -> None:
         pass
 
-    async def eval(self, script: str) -> object:
+    async def eval(self, script: str, *, main_world: bool = False) -> object:
         if "const parent =" in script:
             return self.correct_branch
         return True
@@ -292,7 +292,7 @@ def test_atomic_manual_claim_is_exactly_once_across_workers(tmp_path: Path) -> N
 
 
 class DomOnlyDriver(FakeDriver):
-    async def eval(self, script: str) -> object:
+    async def eval(self, script: str, *, main_world: bool = False) -> object:
         if script.strip() == "location.pathname":
             return "/c/" + CONVERSATION
         return await super().eval(script)
@@ -371,7 +371,7 @@ def test_transient_ambiguous_dom_does_not_interrupt_accepted_reply(
 
 
 class AmbiguousWrongRouteDriver(AmbiguousThenCompleteDriver):
-    async def eval(self, script: str) -> object:
+    async def eval(self, script: str, *, main_world: bool = False) -> object:
         if script.strip() == "location.pathname":
             return "/c/unrelated"
         return await super().eval(script)
@@ -403,7 +403,7 @@ class MissedPostDriver(FakeDriver):
         super().__init__()
         self.verified = verified
 
-    async def eval(self, script: str) -> object:
+    async def eval(self, script: str, *, main_world: bool = False) -> object:
         if "const targetReply =" in script:
             return {
                 "verified": self.verified,

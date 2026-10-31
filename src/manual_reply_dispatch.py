@@ -295,7 +295,9 @@ class ManualReplyDispatcher:
                 return
             preflight_stage = "arm_passive_observer"
             await driver.enable_passive_updates()
-            await driver.eval(load_browser_script("passive_response_observer.js"))
+            await driver.eval(
+                load_browser_script("passive_response_observer.js"), main_world=True
+            )
             # A never-claimed reply may leave its exact text in the composer.
             # Reuse only that identical draft after another explicit user click.
             preflight_stage = "prepare_composer"
@@ -532,7 +534,9 @@ class ManualReplyDispatcher:
                 driver.clear_send_capture(capture)
             if context:
                 try:
-                    await driver.eval(load_browser_script("passive_response_stop.js"))
+                    await driver.eval(
+                        load_browser_script("passive_response_stop.js"), main_world=True
+                    )
                 except Exception:
                     pass
                 try:

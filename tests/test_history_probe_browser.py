@@ -174,3 +174,59 @@ def test_live_capture_deduplicates_nested_messages_and_keeps_tool_headings() -> 
                 await browser.close()
 
     asyncio.run(fixture())
+
+
+@pytest.mark.asyncio
+async def test_patchright_passive_observer_uses_main_world_for_exposed_callbacks() -> None:
+    chromium = Path(os.environ.get("PROMPTA_TEST_CHROMIUM", "/usr/bin/chromium"))
+    if not chromium.is_file():
+        pytest.skip("Chromium test browser is not installed")
+
+    updates: list[object] = []
+
+    def receive(payload: object) -> None:
+        updates.append(payload)
+
+    async with async_playwright() as playwright:
+        browser = await playwright.chromium.launch(
+            executable_path=str(chromium), headless=True, args=["--no-sandbox"]
+        )
+        try:
+            page = await browser.new_page()
+            await page.set_content("<main></main>")
+            await page.expose_function("__promptaPassiveUpdate", receive)
+            assert await page.evaluate(
+                load_browser_script("passive_response_observer.js"), isolated_context=False
+            )
+            response = (
+                '<article><div data-message-author-role="assistant" data-message-id="fresh">'
+                '<div class="markdown">A new answer</div></div>'
+                '<button data-testid="copy-turn-action-button">Copy</button></article>'
+            )
+            await page.locator("main").evaluate(
+                "(element, html) => { element.innerHTML = html }", response
+            )
+            deadline = asyncio.get_running_loop().time() + 4.0
+            while asyncio.get_running_loop().time() < deadline:
+                if any(
+                    isinstance(item, dict)
+                    and item.get("text") == "A new answer"
+                    and item.get("complete") is True
+                    for item in updates
+                ):
+                    break
+                await asyncio.sleep(0.1)
+            assert any(
+                isinstance(item, dict)
+                and item.get("text") == "A new answer"
+                and item.get("complete") is True
+                for item in updates
+            )
+            assert await page.evaluate(
+                load_browser_script("passive_response_read.js"), isolated_context=False
+            )
+            await page.evaluate(
+                load_browser_script("passive_response_stop.js"), isolated_context=False
+            )
+        finally:
+            await browser.close()

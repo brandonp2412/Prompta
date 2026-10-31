@@ -95,7 +95,7 @@ def test_later_reply_recovers_via_one_read_only_exact_chat_visit(tmp_path: Path)
         async def dom_state(self) -> dict[str, object]:
             return {}
 
-        async def eval(self, expression: str) -> object:
+        async def eval(self, expression: str, *, main_world: bool = False) -> object:
             assert "Second follow-up" in expression and FIRST_REPLY_ID in expression
             return {
                 "verified": True, "ambiguous": False,
@@ -176,7 +176,7 @@ def test_short_complete_looking_probe_remains_retryable_after_storage_guard(tmp_
         async def dom_state(self) -> dict[str, object]:
             return {}
 
-        async def eval(self, expression: str) -> object:
+        async def eval(self, expression: str, *, main_world: bool = False) -> object:
             assert "Second follow-up" in expression
             return {
                 "verified": True, "ambiguous": False,

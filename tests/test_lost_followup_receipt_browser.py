@@ -7,7 +7,7 @@ import time
 from pathlib import Path
 
 import pytest
-from playwright.sync_api import Route, expect, sync_playwright
+from patchright.sync_api import Route, expect, sync_playwright
 from test_stage5_composer import serve_test_ui
 
 from prompta.reply_contracts import ManualReplyStore

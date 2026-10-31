@@ -591,7 +591,7 @@ class PlaywrightDriver:
 
     async def observed_assistant_response(self) -> CaptureResult:
         try:
-            payload = await self.eval(load_browser_script("passive_response_read.js"))
+            payload = await self.eval(load_browser_script("passive_response_read.js"), main_world=True)
         except (PlaywrightError, RuntimeError, TimeoutError):
             return normalize_dom_snapshot(None)
         return normalize_dom_snapshot(payload)
@@ -1106,11 +1106,14 @@ class PlaywrightDriver:
         *,
         await_promise: bool = False,
         context: str | None = None,
+        main_world: bool = False,
     ) -> object:
         del await_promise  # Playwright awaits returned promises automatically.
         page = self._page(context)
         try:
-            return await asyncio.wait_for(page.evaluate(expression), timeout=30.0)
+            return await asyncio.wait_for(
+                page.evaluate(expression, isolated_context=not main_world), timeout=30.0
+            )
         except TimeoutError as exc:
             self.needs_browser_restart = True
             raise RuntimeError("Playwright page evaluation timed out after 30s") from exc

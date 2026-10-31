@@ -131,7 +131,7 @@ class FakeHistoryDriver:
     def history_rate_limited(self) -> bool:
         return self.http_limited
 
-    async def eval(self, expression: str) -> object:
+    async def eval(self, expression: str, *, main_world: bool = False) -> object:
         assert CONVERSATION in expression and "Original prompt" in expression
         return {
             "verified": True, "ambiguous": False,
@@ -155,7 +155,7 @@ def test_transient_ambiguous_dom_does_not_discard_same_tab_recovery(
             super().__init__()
             self.probes = 0
 
-        async def eval(self, expression: str) -> object:
+        async def eval(self, expression: str, *, main_world: bool = False) -> object:
             self.probes += 1
             if self.probes == 1:
                 return {"verified": False, "ambiguous": True}
@@ -192,7 +192,7 @@ def test_transient_dom_and_probe_timeouts_retry_same_owned_tab(
                 raise TimeoutError("Transient DOM wait")
             return await super().dom_state()
 
-        async def eval(self, expression: str) -> object:
+        async def eval(self, expression: str, *, main_world: bool = False) -> object:
             self.probes += 1
             if self.probes == 1:
                 raise TimeoutError("Transient evaluation")
@@ -281,7 +281,7 @@ def test_read_only_recovery_restores_uncertain_explicit_reply_without_resending(
     assert before is not None and before["status"] == "outcome_unknown"
 
     class ReplyDriver(FakeHistoryDriver):
-        async def eval(self, expression: str) -> object:
+        async def eval(self, expression: str, *, main_world: bool = False) -> object:
             assert "Follow up" in expression and original_id in expression
             return {
                 "verified": True, "ambiguous": False,
