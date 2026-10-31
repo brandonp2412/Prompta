@@ -14957,7 +14957,7 @@ function DeliveryDiagnostics({ model }) {
 		className: "delivery-diagnostics",
 		children: [
 			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("summary", { children: [
-				/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: error || health?.ready === false || health?.admission?.blocked ? "delivery-indicator degraded" : "delivery-indicator" }),
+				/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: error || health?.ready === false || health?.admission?.blocked || attentionCount > 0 ? "delivery-indicator degraded" : "delivery-indicator" }),
 				"Delivery ",
 				label,
 				health && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
@@ -15557,6 +15557,7 @@ function createChatComposerController(initialProps) {
 	const canAttach = O(() => mode.value === "fresh" && !disabled.value && !sending.value && !uploading.value);
 	const hasDraft = O(() => !!draft.value.trim());
 	const canSend = O(() => !disabled.value && !sendDisabled.value && !sending.value && !uploading.value && hasDraft.value);
+	const canFallback = O(() => mode.value === "reply" && !disabled.value && !sending.value && !uploading.value && hasDraft.value && fallbackAvailable.value && !!onFallbackSend.value);
 	function resizeTextarea() {
 		fitTextarea();
 	}
@@ -15662,7 +15663,7 @@ function createChatComposerController(initialProps) {
 		}
 	}
 	async function submit(useFallback = false) {
-		if (!canSend.value || useFallback && (!fallbackAvailable.value || !onFallbackSend.value)) return;
+		if (useFallback ? !canFallback.value : !canSend.value) return;
 		const submittedKey = draftStorageKey.value;
 		const generation = ++submissionGeneration;
 		const submitted = draft.value;
@@ -15823,6 +15824,7 @@ function createChatComposerController(initialProps) {
 		canAttach,
 		hasDraft,
 		canSend,
+		canFallback,
 		draftChanged,
 		addFiles,
 		submit,
@@ -15838,7 +15840,7 @@ function createChatComposerController(initialProps) {
 function ChatComposer(props) {
 	const model = (0, import_react.useMemo)(() => createChatComposerController(props), []);
 	N$1();
-	const { mode, onFallbackSend, onNewChat, disabled, draft, images, uploading, sending, feedback, fallbackAvailable, dragging, fileInput, draftStorageKey, canAttach, hasDraft, canSend, draftChanged, addFiles, submit, keydown, pasted, dropped } = model;
+	const { mode, onFallbackSend, onNewChat, disabled, draft, images, uploading, sending, feedback, fallbackAvailable, dragging, fileInput, draftStorageKey, canAttach, hasDraft, canSend, canFallback, draftChanged, addFiles, submit, keydown, pasted, dropped } = model;
 	const refs = (0, import_react.useMemo)(() => ({
 		textarea: (element) => {
 			if (model.textarea.peek() !== (element ?? void 0)) model.textarea.value = element ?? void 0;
@@ -15994,9 +15996,9 @@ function ChatComposer(props) {
 				className: "composer-feedback",
 				children: feedback.value
 			}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {}),
-			fallbackAvailable.value && onFallbackSend.value && hasDraft.value ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+			mode.value === "reply" && fallbackAvailable.value && onFallbackSend.value && hasDraft.value ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 				type: "button",
-				disabled: sending.value,
+				disabled: !canFallback.value,
 				onClick: () => void submit(true),
 				className: "composer-fallback",
 				children: "Start new chat with last result"
