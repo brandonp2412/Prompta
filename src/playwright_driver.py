@@ -1626,22 +1626,6 @@ class PlaywrightDriver:
         finally:
             await page.keyboard.press("Escape")
 
-    async def click_send_button(self, timeout: float = 120.0) -> None:
-        page = self._page()
-        deadline = asyncio.get_running_loop().time() + max(1.0, timeout)
-        while asyncio.get_running_loop().time() < deadline:
-            button = await self._send_control(page)
-            if button is not None:
-                try:
-                    await button.click()
-                except Exception as exc:
-                    raise SendOutcomeUnknownError(
-                        "ChatGPT send-button mutation failed; the prompt may have been submitted"
-                    ) from exc
-                return
-            await asyncio.sleep(0.15)
-        raise RuntimeError("ChatGPT send button did not become enabled")
-
     async def _rate_limit_texts(self, page: _RateLimitPage[_RateT]) -> list[str]:
         # Rate-limit UI has changed wrappers and private test IDs repeatedly.
         # Search durable accessibility surfaces first, then matching text inside

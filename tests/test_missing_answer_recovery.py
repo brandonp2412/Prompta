@@ -9,6 +9,7 @@ import pytest
 from patchright.sync_api import sync_playwright
 
 from prompta.manual_reply_dispatch import _recovery_probe
+from prompta.reply_contracts import ManualReplyStore
 
 CONVERSATION = "00000000-0000-4000-8000-000000000001"
 PARENT = "00000000-0000-4000-8000-000000000002"
@@ -63,7 +64,9 @@ def test_missing_answer_recovers_only_a_completed_exact_original_turn(
         browser.close()
 
 
-def test_missing_answer_recovery_dispatcher_uses_only_the_saved_branch(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_missing_answer_recovery_dispatcher_uses_only_the_saved_branch(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
     import asyncio
     from types import SimpleNamespace
 
@@ -71,23 +74,27 @@ def test_missing_answer_recovery_dispatcher_uses_only_the_saved_branch(monkeypat
 
     seen: list[str] = []
 
-    class Store:
-        def turns(self, send_id: str) -> list[dict[str, object]]:
-            assert send_id == "saved-run"
-            return [{
-                "status": "unavailable", "conversation_id": CONVERSATION,
-                "user_text": "Original prompt", "assistant_text": "",
-                "message_id": "", "reply_id": "",
-            }]
+    store = ManualReplyStore(tmp_path / "recovery.db")
 
-        def recover_original_parent(
-            self, send_id: str, conversation: str, candidate: str, answer: str,
-        ) -> bool:
-            assert (send_id, conversation, candidate, answer) == (
-                "saved-run", CONVERSATION, PARENT, "",
-            )
-            seen.append("saved")
-            return True
+    def turns(send_id: str) -> list[dict[str, object]]:
+        assert send_id == "saved-run"
+        return [{
+            "status": "unavailable", "conversation_id": CONVERSATION,
+            "user_text": "Original prompt", "assistant_text": "",
+            "message_id": "", "reply_id": "",
+        }]
+
+    def recover_original_parent(
+        send_id: str, conversation: str, candidate: str, answer: str,
+    ) -> bool:
+        assert (send_id, conversation, candidate, answer) == (
+            "saved-run", CONVERSATION, PARENT, "",
+        )
+        seen.append("saved")
+        return True
+
+    monkeypatch.setattr(store, "turns", turns)
+    monkeypatch.setattr(store, "recover_original_parent", recover_original_parent)
 
     class Driver:
         def __init__(self, **kwargs: object) -> None:
@@ -122,7 +129,7 @@ def test_missing_answer_recovery_dispatcher_uses_only_the_saved_branch(monkeypat
         profile=None, chrome_path="", debugger_address="", auth_timeout_seconds=0,
     ))
     monkeypatch.setattr(dispatch, "PlaywrightDriver", Driver)
-    dispatcher = dispatch.ManualReplyDispatcher(Store(), Path("/tmp/isolated-test-state"))
+    dispatcher = dispatch.ManualReplyDispatcher(store, tmp_path / "isolated-test-state")
     result = asyncio.run(dispatcher._recover_exact_parent("saved-run"))
     assert result == {"message_id": PARENT}
     assert seen == ["connect", "exact-tab", "composer", "read-only-probe", "saved", "closed-tab", "closed"]

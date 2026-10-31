@@ -109,7 +109,7 @@ async def test_click_send_prefers_ready_send_control_over_enter(
 
 
 @pytest.mark.asyncio
-async def test_click_send_button_failure_keeps_outcome_unknown(
+async def test_click_send_control_failure_keeps_outcome_unknown(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
