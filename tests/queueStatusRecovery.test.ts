@@ -55,7 +55,7 @@ test("malformed successful queue responses do not crash job rendering", async ()
     const model = createJobsPageController({});
     await model.loadQueue();
     expect(model.queueSnapshot.value).toBeNull();
-    expect(model.waitingJob("scheduled")).toBeUndefined();
+    expect(model.queueSnapshot.value?.waiting).toBeUndefined();
     expect(model.queueError.value).toContain("temporarily unavailable");
   } finally {
     globalThis.fetch = original;
@@ -98,7 +98,7 @@ test("an unavailable queue estimate clears its old position and recovers", async
   try {
     const model = createJobsPageController({});
     await model.loadQueue();
-    expect(model.waitingJob("scheduled")?.position).toBe(2);
+    expect(model.queueSnapshot.value?.waiting[0]?.position).toBe(2);
 
     response = new Response("unavailable", { status: 500 });
     await model.loadQueue();
@@ -107,7 +107,7 @@ test("an unavailable queue estimate clears its old position and recovers", async
 
     response = Response.json(snapshot(1));
     await model.loadQueue();
-    expect(model.waitingJob("scheduled")?.position).toBe(1);
+    expect(model.queueSnapshot.value?.waiting[0]?.position).toBe(1);
     expect(model.queueError.value).toBe("");
   } finally {
     globalThis.fetch = original;
