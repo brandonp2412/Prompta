@@ -1129,7 +1129,12 @@ export function createChatsPageController(initialProps: Props) {
       return { ok: false, message: "Wait for the current response to finish." };
     }
     if (!latest.conversation_id) {
-      return sendFresh(freshContinuationPrompt(text), originalImageRefs());
+      return {
+        ok: false,
+        fallbackAvailable: true,
+        message:
+          "This chat has no verified ChatGPT conversation ID. Nothing was sent. Choose Continue in new chat to create a separate conversation with saved context.",
+      };
     }
     // Explicit Send is the sole trigger for recovering a persisted ChatGPT branch.
     // Failed or partial response capture must never permanently lock the composer.

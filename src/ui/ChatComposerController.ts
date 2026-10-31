@@ -29,6 +29,7 @@ export type Props = {
   sendDisabled?: boolean;
   restoreDraft?: string;
   retryablePreflight?: boolean;
+  offerFreshContinuation?: boolean;
 };
 export function createChatComposerController(initialProps: Props) {
   type ImageRef = ComposerImageRef;
@@ -42,6 +43,7 @@ export function createChatComposerController(initialProps: Props) {
   const sendDisabled = signal(initialProps.sendDisabled);
   const restoreDraft = signal(initialProps.restoreDraft);
   const retryablePreflight = signal(initialProps.retryablePreflight);
+  const offerFreshContinuation = signal(initialProps.offerFreshContinuation);
 
   let draft = signal("");
   let restoredDraft = signal("");
@@ -86,7 +88,7 @@ export function createChatComposerController(initialProps: Props) {
       !sending.value &&
       !uploading.value &&
       hasDraft.value &&
-      fallbackAvailable.value &&
+      (fallbackAvailable.value || offerFreshContinuation.value) &&
       !!onFallbackSend.value,
   );
 
@@ -420,6 +422,8 @@ export function createChatComposerController(initialProps: Props) {
       if (restoreDraft.peek() !== next.restoreDraft) restoreDraft.value = next.restoreDraft;
       if (retryablePreflight.peek() !== next.retryablePreflight)
         retryablePreflight.value = next.retryablePreflight;
+      if (offerFreshContinuation.peek() !== next.offerFreshContinuation)
+        offerFreshContinuation.value = next.offerFreshContinuation;
     });
   }
   return {
@@ -433,6 +437,7 @@ export function createChatComposerController(initialProps: Props) {
     sending,
     feedback,
     fallbackAvailable,
+    offerFreshContinuation,
     dragging,
     textarea,
     fileInput,

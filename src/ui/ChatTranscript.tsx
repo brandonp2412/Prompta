@@ -261,7 +261,7 @@ export default function ChatTranscript({
                               onClick={() => void retryFailedTurn(turn)}
                               className="row-action"
                             >
-                              Retry this follow-up
+                              Retry unsent reply
                             </button>
                           </>
                         ) : (
@@ -286,7 +286,7 @@ export default function ChatTranscript({
                             aria-busy={startingNewChat.value}
                             onClick={() => void startFailedReplyInNewChat(turn)}
                           >
-                            Start new chat with last result
+                            Continue in new chat
                           </button>
                           {turn.status === "outcome_unknown" && (
                             <span>The original reply may still have been delivered.</span>

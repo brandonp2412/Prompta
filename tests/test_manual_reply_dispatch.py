@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 from prompta import manual_reply_dispatch as dispatch
-from prompta.reply_contracts import ManualReplyStore, ReplyIntent
+from prompta.reply_contracts import ManualReplyStore, ReplyConflict, ReplyIntent
 from prompta.response_capture import CaptureResult
 from prompta.scheduler_runtime import SchedulerRuntime
 
@@ -182,6 +182,28 @@ def test_explicit_reply_respects_shared_resource_admission(
     assert turns[-1]["status"] == "preflight_failed"
     assert fake.calls == 0
     assert fake.type_calls == 0
+    saved = store.get(REPLY_ID)
+    assert saved is not None and saved["user_text"] == intent.text
+    assert saved["conversation_id"] == CONVERSATION
+    assert saved["parent_id"] == PARENT
+
+    # Resource admission can recover, but only another explicit click with
+    # the exact immutable intent may rearm this definitely-unsent request.
+    SchedulerRuntime(state, state).set_resource_admission(True, "")
+    assert store.get(REPLY_ID)["status"] == "preflight_failed"
+    with pytest.raises(ReplyConflict, match="Idempotency key"):
+        service.submit("send-1", ReplyIntent(REPLY_ID, CONVERSATION, PARENT, "Changed text"))
+    assert service.submit("send-1", intent)["status"] == "prepared"
+    until = time.monotonic() + 3.0
+    while time.monotonic() < until and REPLY_ID in service._active:
+        time.sleep(0.02)
+    assert fake.calls == 1
+    assert fake.type_calls == 1
+    saved = store.get(REPLY_ID)
+    assert saved is not None and saved["status"] == "completed"
+    assert saved["user_text"] == intent.text
+    assert service.submit("send-1", intent)["status"] == "completed"
+    assert fake.calls == 1
 
 
 def test_blank_rich_text_composer_newline_is_not_an_existing_draft(

@@ -16,6 +16,7 @@ export default function ChatComposer(props: Props) {
     sending,
     feedback,
     fallbackAvailable,
+    offerFreshContinuation,
     dragging,
     fileInput,
     draftStorageKey,
@@ -244,7 +245,7 @@ export default function ChatComposer(props: Props) {
           <></>
         )}
         {mode.value === "reply" &&
-        fallbackAvailable.value &&
+        (fallbackAvailable.value || offerFreshContinuation.value) &&
         onFallbackSend.value &&
         hasDraft.value ? (
           <>
@@ -254,7 +255,7 @@ export default function ChatComposer(props: Props) {
               onClick={() => void submit(true)}
               className="composer-fallback"
             >
-              Start new chat with last result
+              Continue in new chat
             </button>
           </>
         ) : (

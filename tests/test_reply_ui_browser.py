@@ -100,10 +100,19 @@ def test_terminal_chat_send_is_enabled_and_routes_safely(
             field.fill("Please continue")
             button = page.get_by_role("button", name="Send reply")
             expect(button).to_be_enabled()
-            with page.expect_request(
-                "**/api/chats" if missing_id else f"**/api/results/{send_id}/reply-send"
-            ):
+            if missing_id:
                 button.click()
+                expect(page.get_by_text("Nothing was sent. Choose Continue in new chat", exact=False)).to_be_visible()
+                assert not fresh
+                fallback = page.get_by_role("form", name="Reply composer").get_by_role(
+                    "button", name="Continue in new chat"
+                )
+                expect(fallback).to_be_visible()
+                with page.expect_request("**/api/chats"):
+                    fallback.click()
+            else:
+                with page.expect_request(f"**/api/results/{send_id}/reply-send"):
+                    button.click()
             page.wait_for_timeout(200)
             if missing_id:
                 assert len(fresh) == 1
@@ -185,7 +194,7 @@ def test_failed_exact_recovery_keeps_draft_and_allows_retry(
             assert not fresh
             with page.expect_request("**/api/chats"):
                 page.get_by_role("form", name="Reply composer").get_by_role(
-                    "button", name="Start new chat with last result"
+                    "button", name="Continue in new chat"
                 ).click()
             page.wait_for_timeout(200)
             assert len(fresh) == 1
@@ -241,7 +250,7 @@ def test_stuck_reply_starts_new_chat_with_latest_saved_result_first(
 
             page.route("**/api/chats", fresh_route)
             page.goto(f"http://127.0.0.1:{port}/?view=chats&run=broken-reply")
-            action = page.get_by_role("button", name="Start new chat with last result")
+            action = page.get_by_role("button", name="Continue in new chat")
             expect(action).to_be_visible()
             with page.expect_request("**/api/chats"):
                 action.click()
@@ -309,13 +318,20 @@ def test_uncertain_fresh_queue_reuses_idempotency_key(
             field = page.get_by_role("textbox", name="Message for current chat")
             field.fill("Try to deliver")
             button = page.get_by_role("button", name="Send reply")
+            fallback = page.get_by_role("form", name="Reply composer").get_by_role(
+                "button", name="Continue in new chat"
+            )
+            expect(fallback).to_be_visible()
+            button.click()
+            expect(page.get_by_text("Nothing was sent. Choose Continue in new chat", exact=False)).to_be_visible()
+            assert not requests
             with page.expect_request("**/api/chats"):
-                button.click()
+                fallback.click()
             expect(page.get_by_text("Queue receipt is uncertain.", exact=False)).to_be_visible()
             expect(button).to_be_enabled()
             assert field.input_value() == "Try to deliver"
             with page.expect_request("**/api/chats"):
-                button.click()
+                fallback.click()
             page.wait_for_timeout(200)
             assert len(requests) == 2
             assert requests[0]["request_id"] == requests[1]["request_id"]

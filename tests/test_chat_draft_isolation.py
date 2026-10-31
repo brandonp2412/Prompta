@@ -64,6 +64,14 @@ def test_prepared_reply_does_not_repopulate_composer_until_preflight_fails(
             assert app.replies.mark_preflight_failed("r" * 32)
             page.reload()
             expect(reply).to_have_value(reply_text)
+            with page.expect_request(f"**/api/results/{send_id}/reply-send"):
+                page.get_by_role("button", name="Send reply").click()
+            expect(reply).to_have_value("")
+            saved = app.replies.get("r" * 32)
+            assert saved is not None
+            assert saved["status"] == "prepared"
+            assert saved["queued_by_user"] is True
+            assert saved["user_text"] == reply_text
             browser.close()
     finally:
         app.shutdown()
