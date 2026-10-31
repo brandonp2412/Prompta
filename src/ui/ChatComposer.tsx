@@ -254,7 +254,7 @@ export default function ChatComposer(props: Props) {
               onClick={() => void submit(true)}
               className={["composer-fallback"].filter(Boolean).join(" ")}
             >
-              Continue in new chat
+              Start new chat with last result
             </button>
           </>
         ) : (

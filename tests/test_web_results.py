@@ -1356,14 +1356,17 @@ def test_unread_badges_follow_completed_answers_not_metadata(tmp_path: Path) -> 
                 page.reload(wait_until="networkidle")
                 expect(answered.locator(".unread-indicator")).to_have_count(0)
 
+                # The live test server performs orphan recovery during reloads.
+                # Use a real, live process owner and a future lease deadline.
+                owner = f"{os.getpid()}:manual"
                 intent = ReplyIntent("reply-12345678901234", "c1", "m1", "Follow up")
                 assert app.replies.prepare("answered", intent, now=600)
                 page.reload(wait_until="networkidle")
                 expect(answered.locator(".unread-indicator")).to_have_count(0)
-                assert app.replies.claim(intent.reply_id, "100:manual", deadline=900, now=601)
+                assert app.replies.claim(intent.reply_id, owner, deadline=time.time() + 3600, now=601)
                 assert app.replies.accepted(
                     intent.reply_id,
-                    "100:manual",
+                    owner,
                     conversation_id="c1",
                     parent_id="m1",
                     message_id="m2",
@@ -1371,7 +1374,7 @@ def test_unread_badges_follow_completed_answers_not_metadata(tmp_path: Path) -> 
                 )
                 assert app.replies.observe(
                     intent.reply_id,
-                    "100:manual",
+                    owner,
                     CaptureResult(
                         "dom",
                         "partial",
@@ -1386,7 +1389,7 @@ def test_unread_badges_follow_completed_answers_not_metadata(tmp_path: Path) -> 
                 expect(answered.locator(".unread-indicator")).to_have_count(0)
                 assert app.replies.observe(
                     intent.reply_id,
-                    "100:manual",
+                    owner,
                     CaptureResult(
                         "sse",
                         "complete",

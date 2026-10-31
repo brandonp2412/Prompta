@@ -15573,7 +15573,7 @@ function ChatComposer(props) {
 				disabled: sending.value,
 				onClick: () => void submit(true),
 				className: ["composer-fallback"].filter(Boolean).join(" "),
-				children: "Continue in new chat"
+				children: "Start new chat with last result"
 			}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {})
 		]
 	}) });
