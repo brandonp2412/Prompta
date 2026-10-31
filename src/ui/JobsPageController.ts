@@ -150,15 +150,15 @@ export function createJobsPageController(initialProps: Props) {
   let prompt = signal("");
   let images = signal<ImageRef[]>([]);
   let uploadingImage = signal(false);
-  let imageUploadGeneration = 0;
-  let imageUploadAbort: AbortController | null = null;
+  let uploadGen = 0;
+  let uploadAbort: AbortController | null = null;
   let imageInput = signal<HTMLInputElement>();
   let schedule = signal<"interval" | "daily" | "once">("once");
   let interval = signal("40");
   let onceDelay = signal("0");
   let pinChat = signal(false);
-  let initialOnceDelay = "0";
-  let originalRunAtEpoch: number | null = null;
+  let initialDelay = "0";
+  let originalRunAt: number | null = null;
   let dailyAt = signal("09:00");
   let exact = signal(false);
   let editorOpen = signal(false);
@@ -195,8 +195,8 @@ export function createJobsPageController(initialProps: Props) {
     interval.value = "40";
     onceDelay.value = "0";
     pinChat.value = false;
-    initialOnceDelay = "0";
-    originalRunAtEpoch = null;
+    initialDelay = "0";
+    originalRunAt = null;
     dailyAt.value = "09:00";
     exact.value = false;
   }
@@ -216,9 +216,9 @@ export function createJobsPageController(initialProps: Props) {
   }
 
   function cancelEditorUpload() {
-    imageUploadGeneration += 1;
-    imageUploadAbort?.abort();
-    imageUploadAbort = null;
+    uploadGen += 1;
+    uploadAbort?.abort();
+    uploadAbort = null;
     uploadingImage.value = false;
   }
 
@@ -240,13 +240,9 @@ export function createJobsPageController(initialProps: Props) {
   }
 
   function routeKey(route: EditorRoute | null) {
-    return route?.kind === "new"
-      ? route.once
-        ? "new:once"
-        : "new"
-      : route?.kind === "edit"
-        ? "edit:" + route.name
-        : "";
+    if (route?.kind === "new") return route.once ? "new:once" : "new";
+    if (route?.kind === "edit") return "edit:" + route.name;
+    return "";
   }
 
   function jobsUrl() {
@@ -340,15 +336,17 @@ export function createJobsPageController(initialProps: Props) {
       name.value = job.name;
       prompt.value = job.prompt;
       images.value = [...(job.images || [])];
-      schedule.value = job.run_at_epoch ? "once" : job.daily_at ? "daily" : "interval";
-      originalRunAtEpoch = job.run_at_epoch;
+      if (job.run_at_epoch) schedule.value = "once";
+      else if (job.daily_at) schedule.value = "daily";
+      else schedule.value = "interval";
+      originalRunAt = job.run_at_epoch;
       pinChat.value = job.pin_chat;
       onceDelay.value = String(
         job.run_at_epoch
           ? Math.max(0, Math.round((job.run_at_epoch - Date.now() / 1000) / 6) / 10)
           : 0,
       );
-      initialOnceDelay = onceDelay.value;
+      initialDelay = onceDelay.value;
       dailyAt.value = job.daily_at || "09:00";
       interval.value = String(job.interval_minutes || 40);
       exact.value = job.exact_interval;
@@ -665,9 +663,9 @@ export function createJobsPageController(initialProps: Props) {
       return;
     }
     const route = activeEditorRoute.value;
-    const generation = ++imageUploadGeneration;
+    const generation = ++uploadGen;
     const controller = new AbortController();
-    imageUploadAbort = controller;
+    uploadAbort = controller;
     const originalImages = [...images.value];
     uploadingImage.value = true;
     editorError.value = "";
@@ -684,7 +682,7 @@ export function createJobsPageController(initialProps: Props) {
           };
           reader.readAsDataURL(file);
         });
-        if (generation !== imageUploadGeneration || activeEditorRoute.value !== route) return;
+        if (generation !== uploadGen || activeEditorRoute.value !== route) return;
         const response = await localPost(
           "./api/images",
           { name: file.name, data },
@@ -693,7 +691,7 @@ export function createJobsPageController(initialProps: Props) {
             signal: controller.signal,
           },
         );
-        if (generation !== imageUploadGeneration || activeEditorRoute.value !== route) return;
+        if (generation !== uploadGen || activeEditorRoute.value !== route) return;
         if (!response.ok) throw new Error("Image upload failed.");
         const result = (await response.json()) as { image?: ImageRef };
         if (!result.image?.ref || !result.image.url.startsWith("./api/images/")) {
@@ -702,14 +700,14 @@ export function createJobsPageController(initialProps: Props) {
         if (images.value.some((image) => image.ref === result.image?.ref)) continue;
         images.value = [...images.value, result.image];
         await tick();
-        if (generation !== imageUploadGeneration || activeEditorRoute.value !== route) return;
+        if (generation !== uploadGen || activeEditorRoute.value !== route) return;
         imagePreviewList.value?.scrollIntoView({
           block: "nearest",
           behavior: "smooth",
         });
       }
     } catch (error) {
-      if (generation === imageUploadGeneration && activeEditorRoute.value === route) {
+      if (generation === uploadGen && activeEditorRoute.value === route) {
         images.value = originalImages;
         editorError.value =
           error instanceof DOMException && error.name === "TimeoutError"
@@ -717,8 +715,8 @@ export function createJobsPageController(initialProps: Props) {
             : String(error).replace(/^Error:\s*/, "");
       }
     } finally {
-      if (generation === imageUploadGeneration && activeEditorRoute.value === route) {
-        imageUploadAbort = null;
+      if (generation === uploadGen && activeEditorRoute.value === route) {
+        uploadAbort = null;
         uploadingImage.value = false;
       }
     }
@@ -765,8 +763,7 @@ export function createJobsPageController(initialProps: Props) {
         daily_at: daily ? dailyAt.value : "",
         interval_minutes: schedule.value === "interval" ? Number(interval.value) : null,
         exact_interval: schedule.value === "interval" && exact.value,
-        ...(schedule.value === "once" &&
-        (!originalRunAtEpoch || onceDelay.value !== initialOnceDelay)
+        ...(schedule.value === "once" && (!originalRunAt || onceDelay.value !== initialDelay)
           ? { delay_minutes: Number(onceDelay.value) }
           : {}),
       },
@@ -809,7 +806,7 @@ export function createJobsPageController(initialProps: Props) {
       leaveEditor();
   }
 
-  const onMountImpl = () => {
+  function mount() {
     const onBeforeUnload = (event: BeforeUnloadEvent) => {
       if (!dirty.value) return;
       event.preventDefault();
@@ -842,14 +839,6 @@ export function createJobsPageController(initialProps: Props) {
       window.visualViewport?.removeEventListener("resize", onViewportResize);
       window.removeEventListener("popstate", syncEditorFromUrl);
     };
-  };
-  function mount() {
-    const cleanup = onMountImpl();
-    const disposers: Array<() => void> = [];
-    return () => {
-      for (const dispose of disposers) dispose();
-      if (typeof cleanup === "function") cleanup();
-    };
   }
   function syncProps(next: Props) {
     batch(() => {
@@ -857,7 +846,6 @@ export function createJobsPageController(initialProps: Props) {
     });
   }
   return {
-    workspace,
     deliveryHealth,
     deliveryHealthError,
     jobsLoadError,
@@ -876,8 +864,6 @@ export function createJobsPageController(initialProps: Props) {
     filterCounts,
     page,
     pageCount,
-    pageStart,
-    pageEnd,
     visibleJobs,
     allVisiblePaused,
     status,
@@ -887,15 +873,11 @@ export function createJobsPageController(initialProps: Props) {
     prompt,
     images,
     uploadingImage,
-    imageUploadGeneration,
-    imageUploadAbort,
     imageInput,
     schedule,
     interval,
     onceDelay,
     pinChat,
-    initialOnceDelay,
-    originalRunAtEpoch,
     dailyAt,
     exact,
     editorOpen,
@@ -906,47 +888,21 @@ export function createJobsPageController(initialProps: Props) {
     editorForm,
     jobsTitle,
     imagePreviewList,
-    activeEditorRoute,
-    listScrollY,
     editorError,
     confirmDiscard,
-    initialForm,
     dirty,
     runOnce,
     duplicateName,
-    loadInFlight,
-    refreshPending,
-    dataGeneration,
-    healthInFlight,
-    healthRefreshPending,
-    reset,
-    formSnapshot,
-    cancelEditorUpload,
-    closeEditorState,
-    editorRouteFromUrl,
-    routeKey,
-    jobsUrl,
-    workspaceScroll,
-    restoreListScroll,
     keepFocusedPromptVisible,
-    leaveEditor,
     requestClose,
     discardEditor,
-    openEditor,
-    showEditor,
-    pushEditor,
-    syncEditorFromUrl,
     beginNew,
     beginOnce,
     onEditorKeydown,
     formatDate,
     scheduleText,
-    jobFilter,
     toggleFilter,
     jobStateText,
-    sameJob,
-    applyJobs,
-    clampPage,
     changePage,
     loadDeliveryHealth,
     load,

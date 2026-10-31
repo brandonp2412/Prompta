@@ -62,13 +62,10 @@ export function createChatComposerController(initialProps: Props) {
   let textarea = signal<HTMLTextAreaElement>();
   let fileInput = signal<HTMLInputElement>();
   const newChatDraftKey = "prompta.new-chat-draft.v1";
-  const draftStorageKey = computed(() =>
-    mode.value === "fresh"
-      ? newChatDraftKey
-      : chatId.value
-        ? "prompta.reply-draft.v1." + chatId.value
-        : "",
-  );
+  const draftStorageKey = computed(() => {
+    if (mode.value === "fresh") return newChatDraftKey;
+    return chatId.value ? "prompta.reply-draft.v1." + chatId.value : "";
+  });
   const canAttach = computed(
     () => mode.value === "fresh" && !disabled.value && !sending.value && !uploading.value,
   );
@@ -81,73 +78,6 @@ export function createChatComposerController(initialProps: Props) {
       !uploading.value &&
       hasDraft.value,
   );
-
-  const reactiveEffect0 = () =>
-    effect(() => {
-      const key = draftStorageKey.value;
-      untrack(() => {
-        if (key === hydratedKey) return;
-        hydratedKey = key;
-        submissionGeneration += 1;
-        // An upload started for an old chat must never attach its late receipt
-        // to the composer after a route/mode change.
-        uploadGeneration += 1;
-        uploadAbort?.abort();
-        uploadAbort = null;
-        uploading.value = false;
-        // Memory wins over readable-but-unwritable storage with stale values.
-        let saved = key ? readComposerDraft(key) || "" : "";
-        let found = !!key && readComposerDraft(key) !== undefined;
-        if (!found) {
-          try {
-            const cached = key ? localStorage.getItem(key) : null;
-            if (cached !== null) {
-              saved = cached.slice(0, 32000);
-              found = true;
-              rememberComposerDraft(key, saved);
-            }
-          } catch {
-            /* Storage may be unavailable. */
-          }
-        }
-        draft.value = saved;
-        hasLocalDraft.value = found;
-        images.value = readComposerImages(key);
-        feedback.value = "";
-        fallbackAvailable.value = false;
-        restoredDraft.value = "";
-        restoredPreflight.value = false;
-        sending.value = false;
-        hydrated.value = true;
-        // Keep the composer height stable when switching between saved replies.
-        // Long drafts remain scrollable and grow once the user edits them.
-      });
-    });
-
-  const reactiveEffect1 = () =>
-    effect(() => {
-      if (mode.value !== "reply" || !restoreDraft.value || !hydrated.value) return;
-      // Saved reply intents are immutable. Hydrate them only when the server
-      // changes the intent/status, never on each keystroke in this composer.
-      if (
-        restoredDraft.value === restoreDraft.value &&
-        restoredPreflight.value === retryablePreflight.value
-      )
-        return;
-      restoredDraft.value = restoreDraft.value;
-      restoredPreflight.value = Boolean(retryablePreflight.value);
-      if (!sending.value && !hasLocalDraft.value) {
-        draft.value = restoreDraft.value;
-        hasLocalDraft.value = true;
-        rememberComposerDraft(draftStorageKey.value, draft.value);
-        try {
-          if (draftStorageKey.value) localStorage.setItem(draftStorageKey.value, draft.value);
-        } catch {
-          /* In-memory editing still works. */
-        }
-        // A restored failed send must not resize the surrounding transcript.
-      }
-    });
 
   function resizeTextarea() {
     fitTextarea();
@@ -272,12 +202,11 @@ export function createChatComposerController(initialProps: Props) {
         // Roll back this batch if a later file fails; retain older attachments.
         images.value = images.value.filter((image) => !batchRefs.includes(image.ref));
         rememberComposerImages(key, images.value);
-        feedback.value =
-          error instanceof DOMException && error.name === "TimeoutError"
-            ? "Image upload timed out. The unsent attachments were restored; try again."
-            : error instanceof Error
-              ? error.message
-              : "Image upload failed.";
+        if (error instanceof DOMException && error.name === "TimeoutError")
+          feedback.value =
+            "Image upload timed out. The unsent attachments were restored; try again.";
+        else if (error instanceof Error) feedback.value = error.message;
+        else feedback.value = "Image upload failed.";
       }
     } finally {
       if (generation === uploadGeneration && key === draftStorageKey.value) {
@@ -403,7 +332,68 @@ export function createChatComposerController(initialProps: Props) {
   };
   function mount() {
     const cleanup = onMountImpl();
-    const disposers = [reactiveEffect0(), reactiveEffect1()];
+    const disposers = [
+      effect(() => {
+        const key = draftStorageKey.value;
+        untrack(() => {
+          if (key === hydratedKey) return;
+          hydratedKey = key;
+          submissionGeneration += 1;
+          // An upload started for an old chat must never attach its late receipt
+          // to the composer after a route/mode change.
+          uploadGeneration += 1;
+          uploadAbort?.abort();
+          uploadAbort = null;
+          uploading.value = false;
+          // Memory wins over readable-but-unwritable storage with stale values.
+          let saved = key ? readComposerDraft(key) || "" : "";
+          let found = !!key && readComposerDraft(key) !== undefined;
+          if (!found) {
+            try {
+              const cached = key ? localStorage.getItem(key) : null;
+              if (cached !== null) {
+                saved = cached.slice(0, 32000);
+                found = true;
+                rememberComposerDraft(key, saved);
+              }
+            } catch {
+              /* Storage may be unavailable. */
+            }
+          }
+          draft.value = saved;
+          hasLocalDraft.value = found;
+          images.value = readComposerImages(key);
+          feedback.value = "";
+          fallbackAvailable.value = false;
+          restoredDraft.value = "";
+          restoredPreflight.value = false;
+          sending.value = false;
+          hydrated.value = true;
+        });
+      }),
+      effect(() => {
+        if (mode.value !== "reply" || !restoreDraft.value || !hydrated.value) return;
+        // Saved reply intents are immutable. Hydrate them only when the server
+        // changes the intent/status, never on each keystroke in this composer.
+        if (
+          restoredDraft.value === restoreDraft.value &&
+          restoredPreflight.value === retryablePreflight.value
+        )
+          return;
+        restoredDraft.value = restoreDraft.value;
+        restoredPreflight.value = Boolean(retryablePreflight.value);
+        if (!sending.value && !hasLocalDraft.value) {
+          draft.value = restoreDraft.value;
+          hasLocalDraft.value = true;
+          rememberComposerDraft(draftStorageKey.value, draft.value);
+          try {
+            if (draftStorageKey.value) localStorage.setItem(draftStorageKey.value, draft.value);
+          } catch {
+            /* In-memory editing still works. */
+          }
+        }
+      }),
+    ];
     return () => {
       for (const dispose of disposers) dispose();
       if (typeof cleanup === "function") cleanup();
@@ -425,37 +415,22 @@ export function createChatComposerController(initialProps: Props) {
   }
   return {
     mode,
-    chatId,
-    onSend,
     onFallbackSend,
     onNewChat,
     disabled,
-    sendDisabled,
-    restoreDraft,
-    retryablePreflight,
     draft,
-    restoredDraft,
-    restoredPreflight,
-    hydrated,
-    hydratedKey,
-    hasLocalDraft,
     images,
     uploading,
-    uploadGeneration,
-    uploadAbort,
     sending,
     feedback,
     fallbackAvailable,
     dragging,
     textarea,
     fileInput,
-    newChatDraftKey,
     draftStorageKey,
     canAttach,
     hasDraft,
     canSend,
-    resizeTextarea,
-    fitTextarea,
     draftChanged,
     addFiles,
     submit,
