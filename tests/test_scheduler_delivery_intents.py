@@ -419,7 +419,7 @@ def test_global_parallelism_hot_reloads_without_restart(tmp_path: Path) -> None:
 
     config.write_text("[parallelism]\nmax_workers = 4\n", encoding="utf-8")
     assert producer.tick(now=due + 1) == 1
-    assert producer._current_parallelism_settings() == ParallelismSettings(4)
+    assert producer._current_parallelism_settings() == ParallelismSettings(max_workers=4)
     config.write_text("[parallelism]\n", encoding="utf-8")
     assert producer.tick(now=due + 2) == 1
     assert len(producer.queue.records()) == 5
@@ -434,7 +434,7 @@ def test_invalid_global_parallelism_reload_does_not_admit_work(tmp_path: Path) -
     producer = DurableSchedulerProducer(state, state, concurrency_config_path=config)
     assert producer._current_parallelism_settings().max_workers == 3
     config.write_text("[parallelism]\nmax_workers = 0\n", encoding="utf-8")
-    with pytest.raises(ValueError, match="parallelism.max_workers"):
+    with pytest.raises(ValueError, match=r"parallelism[\s\S]*max_workers"):
         producer.tick(now=due)
     assert producer.queue.records() == []
 

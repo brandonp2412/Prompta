@@ -19,9 +19,9 @@ USER = "00000000-0000-4000-8000-000000000003"
 
 
 def seed_terminal(app: object, *, send_id: str, missing_id: bool) -> None:
-    from prompta.web import PromptaJobServer
+    from live_server import LiveServer
 
-    assert isinstance(app, PromptaJobServer)
+    assert isinstance(app, LiveServer)
     app.results.ensure_queued(send_id, "Original private question", now=100)
     if missing_id:
         app.results.unavailable(send_id, now=102)

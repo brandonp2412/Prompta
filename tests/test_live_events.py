@@ -10,17 +10,17 @@ from http.client import HTTPConnection, HTTPResponse
 from pathlib import Path
 from unittest.mock import patch
 
+from live_server import LiveServer
 from playwright.sync_api import expect, sync_playwright
 
 from prompta.jobs import add_job
 from prompta.live_events import LocalEventSignals
-from prompta.web import PromptaJobServer
 
 
 @contextmanager
-def live_server(tmp_path: Path) -> Generator[tuple[PromptaJobServer, int, Path]]:
+def live_server(tmp_path: Path) -> Generator[tuple[LiveServer, int, Path]]:
     jobs_path = tmp_path / "jobs.sqlite3"
-    app = PromptaJobServer(
+    app = LiveServer(
         ("127.0.0.1", 0), state_path=tmp_path / "runtime.sqlite3",
         jobs_path=jobs_path,
     )

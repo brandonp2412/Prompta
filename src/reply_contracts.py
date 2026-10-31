@@ -10,8 +10,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
-from alembic.migration import MigrationContext
-from alembic.operations import Operations
 from sqlalchemy import (
     Boolean,
     Column,
@@ -23,7 +21,6 @@ from sqlalchemy import (
     Text,
     case,
     func,
-    inspect,
     literal,
     or_,
     select,
@@ -40,6 +37,7 @@ from .response_store import (
     merge_tool_calls,
     results,
 )
+from .web_models import ReplyRequest
 
 ReplyStatus = Literal[
     "queued", "prepared", "preflight_failed", "dispatching", "outcome_unknown", "accepted",
@@ -76,22 +74,8 @@ class ReplyIntent:
 
     @classmethod
     def parse(cls, payload: dict[str, object]) -> ReplyIntent:
-        if set(payload) != {"reply_id", "conversation_id", "parent_id", "text"}:
-            raise ValueError("Invalid reply fields")
-        values = [payload[name] for name in ("reply_id", "conversation_id", "parent_id")]
-        if not all(
-            isinstance(value, str) and re.fullmatch(r"[A-Za-z0-9_-]{16,200}", value)
-            for value in values
-        ):
-            raise ValueError("Invalid reply/branch identifier")
-        text = payload["text"]
-        if not isinstance(text, str) or not text.strip() or len(text) > 32000:
-            raise ValueError("Invalid reply text")
-        reply_id, conversation_id, parent_id = values
-        assert isinstance(reply_id, str)
-        assert isinstance(conversation_id, str)
-        assert isinstance(parent_id, str)
-        return cls(reply_id, conversation_id, parent_id, text)
+        validated = ReplyRequest.model_validate(payload)
+        return cls(validated.reply_id, validated.conversation_id, validated.parent_id, validated.text)
 
 
 class ReplyConflict(ValueError):
@@ -104,36 +88,6 @@ class ManualReplyStore:
     def __init__(self, path: Path) -> None:
         self.responses = ResponseStore(path)
         self.engine = self.responses.engine
-        with self.engine.begin() as connection:
-            connection.exec_driver_sql("BEGIN IMMEDIATE")
-            if not inspect(connection).has_table(replies.name):
-                migration = Operations(MigrationContext.configure(connection))
-                migration.create_table(
-                    replies.name,
-                    *(Column(c.name, c.type, primary_key=c.primary_key, nullable=c.nullable,
-                             server_default=c.server_default)
-                      for c in replies.columns),
-                )
-                migration.create_index(
-                    "manual_reply_turns_branch", replies.name, ["send_id", "created_at"]
-                )
-            elif not any(
-                column["name"] == "response_parent_id"
-                for column in inspect(connection).get_columns(replies.name)
-            ):
-                migration = Operations(MigrationContext.configure(connection))
-                migration.add_column(
-                    replies.name, Column(
-                        "response_parent_id", String, nullable=False, server_default="",
-                    ),
-                )
-            existing_columns = {column["name"] for column in inspect(connection).get_columns(replies.name)}
-            if "tool_calls_json" not in existing_columns:
-                migration = Operations(MigrationContext.configure(connection))
-                migration.add_column(replies.name, Column("tool_calls_json", Text, nullable=False, server_default="[]"))
-            if "queued_by_user" not in existing_columns:
-                migration = Operations(MigrationContext.configure(connection))
-                migration.add_column(replies.name, Column("queued_by_user", Boolean, nullable=False, server_default="0"))
         self.responses._secure_files()
 
     @staticmethod

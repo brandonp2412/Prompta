@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import math
-import re
 import time
 import uuid
 from collections.abc import Callable
@@ -15,6 +13,15 @@ from .jobs import PromptJob, add_job, clear_jobs, load_jobs, remove_job
 from .manual_fire import fire_job_now
 from .scheduler_runtime import SchedulerRuntime
 from .strict_types import float_value, string_object_dict
+from .web_models import (
+    JOB_ACTION,
+    AddJob,
+    AllJobAction,
+    JobAction,
+    ManyJobAction,
+    NamedJobAction,
+    RunOnce,
+)
 
 
 class ScheduledJobsPayload(TypedDict):
@@ -24,46 +31,6 @@ class ScheduledJobsPayload(TypedDict):
 
 class WebJobActionResult(ScheduledJobsPayload):
     ok: bool
-
-
-def _validated_interval_minutes(value: object) -> float:
-    if isinstance(value, bool) or not isinstance(value, (str, int, float)):
-        raise ValueError("Interval minutes must be a number")
-    try:
-        minutes = float(value)
-    except ValueError as exc:
-        raise ValueError("Interval minutes must be a number") from exc
-    if not math.isfinite(minutes) or minutes < 0.1:
-        raise ValueError("Interval minutes must be at least 0.1")
-    if minutes > 60.0 * 24.0 * 30.0:
-        raise ValueError("Interval minutes cannot exceed 30 days")
-    return minutes
-
-
-def _validated_once_delay_minutes(value: object) -> float:
-    if isinstance(value, bool) or not isinstance(value, (str, int, float)):
-        raise ValueError("Once delay minutes must be a number")
-    try:
-        minutes = float(value)
-    except ValueError as exc:
-        raise ValueError("Once delay minutes must be a number") from exc
-    if not math.isfinite(minutes) or not 0 <= minutes <= 43200:
-        raise ValueError("Once delay minutes must be between 0 and 43200")
-    return minutes
-
-
-def _validated_pin_chat(value: object) -> bool:
-    if not isinstance(value, bool):
-        raise ValueError("Pin chat must be true or false")
-    return value
-
-
-def _validated_request_id(value: object) -> str | None:
-    if value is None:
-        return None
-    if not isinstance(value, str) or re.fullmatch(r"[0-9a-f]{32}", value) is None:
-        raise ValueError("Invalid manual queue request identifier")
-    return value
 
 
 def serialize_scheduled_jobs(
@@ -150,43 +117,41 @@ class WebJobService:
             self.start_scheduler()
 
     def apply(self, action: str, payload: dict[str, object]) -> WebJobActionResult:
-        normalized_action = action.strip().lower()
+        command = JOB_ACTION.validate_python({**payload, "action": action.strip().lower()})
+        return self.execute(command)
+
+    def execute(self, command: JobAction) -> WebJobActionResult:
         runtime = self.runtime
-
-        if normalized_action == "add":
-            name = str(payload.get("name") or "").strip()
-            prompt = str(payload.get("prompt") or "").strip()
-            if not name:
-                raise ValueError("Job name is required")
-            if not prompt:
-                raise ValueError("Job prompt is required")
-
+        if isinstance(command, AddJob):
+            name, prompt = command.name, command.prompt
             existing = load_jobs(self.jobs_path).get(name)
-            images = image_refs(payload.get("images", existing.images if existing else []))
+            images = (
+                image_refs(command.images)
+                if "images" in command.model_fields_set
+                else (existing.images if existing else ())
+            )
             for ref in images:
                 self.images.path(ref)
-            mutex_group = str(
-                payload.get("mutex_group")
-                if "mutex_group" in payload
-                else (existing.mutex_group if existing is not None else "")
-            ).strip()
-            once = payload.get("schedule") == "once"
+            mutex_group = (
+                command.mutex_group.strip()
+                if "mutex_group" in command.model_fields_set
+                else (existing.mutex_group if existing else "")
+            )
+            once = command.schedule == "once"
             pin_chat = (
-                _validated_pin_chat(
-                    payload.get("pin_chat", existing.pin_chat if existing else False)
+                (
+                    command.pin_chat
+                    if "pin_chat" in command.model_fields_set
+                    else (existing.pin_chat if existing else False)
                 )
                 if once
                 else False
             )
-            daily_at = str(payload.get("daily_at") or "").strip() or None
+            daily_at = command.daily_at or None
             if once:
-                daily_at = None
-                interval_seconds = 0.0
-                exact_interval = False
-                if "delay_minutes" in payload:
-                    run_at_epoch = (
-                        time.time() + _validated_once_delay_minutes(payload["delay_minutes"]) * 60
-                    )
+                daily_at, interval_seconds, exact_interval = None, 0.0, False
+                if "delay_minutes" in command.model_fields_set:
+                    run_at_epoch = time.time() + command.delay_minutes * 60
                 else:
                     run_at_epoch = (
                         existing.run_at_epoch
@@ -194,17 +159,12 @@ class WebJobService:
                         else time.time()
                     )
             elif daily_at is not None:
-                if re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", daily_at) is None:
-                    raise ValueError("Daily time must use HH:MM")
-                interval_seconds = 0.0
-                exact_interval = False
-                run_at_epoch = None
+                interval_seconds, exact_interval, run_at_epoch = 0.0, False, None
             else:
-                minutes = _validated_interval_minutes(payload.get("interval_minutes"))
-                interval_seconds = minutes * 60.0
-                exact_interval = payload.get("exact_interval") is True
-                run_at_epoch = None
-
+                # The model requires an interval whenever no other cadence is set.
+                assert command.interval_minutes is not None
+                interval_seconds = command.interval_minutes * 60.0
+                exact_interval, run_at_epoch = command.exact_interval, None
             add_job(
                 self.jobs_path,
                 name,
@@ -218,7 +178,6 @@ class WebJobService:
                 images=images,
             )
             if existing is None:
-                # A newly created job must not inherit state from an older deleted job.
                 runtime.clear_job_state(name)
             elif (
                 existing.interval_seconds != interval_seconds
@@ -226,111 +185,85 @@ class WebJobService:
                 or existing.run_at_epoch != run_at_epoch
                 or existing.exact_interval != exact_interval
             ):
-                # Rebase a changed cadence from the last actual dispatch, without
-                # discarding delivery history, manual-fire timing, or pause state.
+                # Preserve dispatch history; a cadence edit rebases from the last send.
                 runtime.update_job_state(
                     name, {"next_due_at_epoch": 0.0, "initial_due_at_epoch": 0.0}
                 )
-            # Editing only the prompt must not restart the schedule.
             self._wake_scheduler()
 
-        elif normalized_action == "fire_now":
-            name = str(payload.get("name") or "").strip()
-            job = load_jobs(self.jobs_path).get(name)
-            if job is None:
-                raise ValueError("Unknown job: " + name)
-            request_id = _validated_request_id(payload.get("request_id"))
-            queue = DeliveryQueueStore(self.state_path.parent / "ui-send-jobs.sqlite3")
-            existing = queue.get("manual-" + request_id) if request_id else None
-            if existing is not None:
-                client_id = f"manual:{'once:' if job.pin_chat else ''}{request_id}"
-                if (
-                    existing["client_id"] != client_id
-                    or existing["message"] != job.prompt
-                    or image_refs(existing["images"]) != job.images
-                ):
-                    raise ValueError("Manual queue identifier belongs to a different job payload")
-            else:
-                fire_job_now(
-                    job, runtime=runtime, queue=queue, request_id=request_id,
-                )
-
-        elif normalized_action == "run_once":
-            prompt = payload.get("prompt")
-            if not isinstance(prompt, str) or not prompt.strip():
-                raise ValueError("Job prompt is required")
-            images = image_refs(payload.get("images", []))
+        elif isinstance(command, RunOnce):
+            images = image_refs(command.images)
             for ref in images:
                 self.images.path(ref)
-            delay_minutes = _validated_once_delay_minutes(payload.get("delay_minutes", 0))
-            pin_chat = _validated_pin_chat(payload.get("pin_chat", False))
-            request_id = _validated_request_id(payload.get("request_id"))
-            if delay_minutes == 0:
+            if command.delay_minutes == 0:
                 DeliveryQueueStore(self.state_path.parent / "ui-send-jobs.sqlite3").enqueue_manual(
-                    prompt.strip(), images=images, pin_chat=pin_chat, request_id=request_id,
+                    command.prompt,
+                    images=images,
+                    pin_chat=command.pin_chat,
+                    request_id=command.request_id,
                 )
             else:
-                if request_id:
-                    raise ValueError("Delayed one-time jobs cannot use an immediate queue receipt")
-                run_at_epoch = time.time() + delay_minutes * 60
+                run_at_epoch = time.time() + command.delay_minutes * 60
                 label = datetime.fromtimestamp(run_at_epoch).strftime("%d %b %H:%M")
                 name = f"Once {label} {uuid.uuid4().hex[:8]}"
                 add_job(
                     self.jobs_path,
                     name,
-                    prompt.strip(),
+                    command.prompt,
                     0,
                     run_at_epoch=run_at_epoch,
                     images=images,
-                    pin_chat=pin_chat,
+                    pin_chat=command.pin_chat,
                 )
                 runtime.clear_job_state(name)
                 self._wake_scheduler()
 
-        elif normalized_action == "remove":
-            name = str(payload.get("name") or "").strip()
-            if not name:
-                raise ValueError("Job name is required")
-            remove_job(self.jobs_path, name)
-            self._cancel_pending_delivery(name, error="scheduled job removed")
-            runtime.clear_job_state(name)
+        elif isinstance(command, NamedJobAction):
+            name = command.name
+            if command.action == "fire_now":
+                job = load_jobs(self.jobs_path).get(name)
+                if job is None:
+                    raise ValueError("Unknown job: " + name)
+                request_id = command.request_id
+                queue = DeliveryQueueStore(self.state_path.parent / "ui-send-jobs.sqlite3")
+                existing_delivery = queue.get("manual-" + request_id) if request_id else None
+                if existing_delivery is not None:
+                    client_id = f"manual:{'once:' if job.pin_chat else ''}{request_id}"
+                    if (
+                        existing_delivery["client_id"] != client_id
+                        or existing_delivery["message"] != job.prompt
+                        or image_refs(existing_delivery["images"]) != job.images
+                    ):
+                        raise ValueError(
+                            "Manual queue identifier belongs to a different job payload"
+                        )
+                else:
+                    fire_job_now(job, runtime=runtime, queue=queue, request_id=request_id)
+            elif command.action == "remove":
+                remove_job(self.jobs_path, name)
+                self._cancel_pending_delivery(name, error="scheduled job removed")
+                runtime.clear_job_state(name)
+            else:
+                if not runtime.set_job_paused(name, command.action == "pause"):
+                    raise ValueError("Unknown job: " + name)
+                if command.action == "resume":
+                    self._wake_scheduler()
 
-        elif normalized_action in {"pause", "resume"}:
-            name = str(payload.get("name") or "").strip()
-            if not name:
-                raise ValueError("Job name is required")
-            if not runtime.set_job_paused(name, normalized_action == "pause"):
-                raise ValueError("Unknown job: " + name)
-            if normalized_action == "resume":
+        elif isinstance(command, ManyJobAction):
+            runtime.set_jobs_paused(command.names, command.action == "pause_many")
+            if command.action == "resume_many":
                 self._wake_scheduler()
 
-        elif normalized_action in {"pause_many", "resume_many"}:
-            names = payload.get("names")
-            if not isinstance(names, list) or not names:
-                raise ValueError("Job names must be a nonempty list")
-            selected: list[str] = []
-            for name in names:
-                if not isinstance(name, str) or not name.strip():
-                    raise ValueError("Job names must be a nonempty list")
-                selected.append(name.strip())
-            runtime.set_jobs_paused(selected, normalized_action == "pause_many")
-            if normalized_action == "resume_many":
-                self._wake_scheduler()
+        elif isinstance(command, AllJobAction):
+            if command.action == "clear":
+                names = list(load_jobs(self.jobs_path))
+                clear_jobs(self.jobs_path)
+                for name in names:
+                    self._cancel_pending_delivery(name, error="scheduled job cleared")
+                runtime.clear_all_job_state()
+            else:
+                runtime.set_all_jobs_paused(command.action == "pause_all")
+                if command.action == "resume_all":
+                    self._wake_scheduler()
 
-        elif normalized_action in {"pause_all", "resume_all"}:
-            runtime.set_all_jobs_paused(normalized_action == "pause_all")
-            if normalized_action == "resume_all":
-                self._wake_scheduler()
-
-        elif normalized_action == "clear":
-            names = list(load_jobs(self.jobs_path))
-            clear_jobs(self.jobs_path)
-            for name in names:
-                self._cancel_pending_delivery(name, error="scheduled job cleared")
-            runtime.clear_all_job_state()
-
-        else:
-            raise ValueError("Unsupported jobs action: " + normalized_action)
-
-        scheduled = self.scheduled_jobs()
-        return {"ok": True, "jobs": scheduled["jobs"], "server": scheduled["server"]}
+        return {"ok": True, **self.scheduled_jobs()}

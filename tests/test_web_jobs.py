@@ -81,9 +81,9 @@ def test_bulk_pause_validates_full_selection_before_mutating(tmp_path: Path) -> 
     with pytest.raises(ValueError, match="Unknown job"):
         service.apply("pause_many", {"names": ["known", "unknown"]})
     assert service.runtime.job_state("known").get("paused") is not True
-    with pytest.raises(ValueError, match="nonempty list"):
+    with pytest.raises(ValueError, match="names"):
         service.apply("pause_many", {"names": []})
-    with pytest.raises(ValueError, match="nonempty list"):
+    with pytest.raises(ValueError, match="names"):
         service.apply("pause_many", {"names": ["known", 10]})
 
 
@@ -294,7 +294,7 @@ def test_once_rejects_non_boolean_pin_choice(tmp_path: Path, action: str) -> Non
     payload: dict[str, object] = {"prompt": "No", "pin_chat": "false"}
     if action == "add":
         payload.update({"name": "invalid", "schedule": "once"})
-    with pytest.raises(ValueError, match="Pin chat must be true or false"):
+    with pytest.raises(ValueError, match="pin_chat"):
         service.apply(action, payload)
     assert service.scheduled_jobs()["jobs"] == []
 
@@ -306,7 +306,7 @@ def test_once_rejects_invalid_delay(tmp_path: Path, delay: object, action: str) 
     payload: dict[str, object] = {"prompt": "No", "delay_minutes": delay}
     if action == "add":
         payload.update({"name": "invalid", "schedule": "once"})
-    with pytest.raises(ValueError, match="Once delay minutes"):
+    with pytest.raises(ValueError, match="delay_minutes"):
         service.apply(action, payload)
     assert service.scheduled_jobs()["jobs"] == []
     assert DeliveryQueueStore(tmp_path / "ui-send-jobs.sqlite3").records() == []
@@ -316,7 +316,7 @@ def test_run_once_rejects_empty_prompt(tmp_path: Path) -> None:
     import pytest
 
     service = WebJobService(tmp_path / "jobs.sqlite3", tmp_path / "state.sqlite3", "test-host")
-    with pytest.raises(ValueError, match="Job prompt is required"):
+    with pytest.raises(ValueError, match="prompt"):
         service.apply("run_once", {"prompt": "   "})
     assert DeliveryQueueStore(tmp_path / "ui-send-jobs.sqlite3").records() == []
 

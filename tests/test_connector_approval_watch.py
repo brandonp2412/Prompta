@@ -114,7 +114,7 @@ async def test_open_non_prompta_tabs_get_backup_permission_without_navigation(
                  'this.parentElement.remove()">Always allow</button><button>Allow once</button></div>',
         )
 
-    monkeypatch.setattr(watcher.ConnectorApproval, "load", lambda: watcher.ConnectorApproval(True))
+    monkeypatch.setattr(watcher.ConnectorApproval, "load", lambda: watcher.ConnectorApproval(enabled=True))
     monkeypatch.setattr(watcher, "MAX_OWNED_TAB_AGE_SECONDS", 0.5)
     async with async_playwright() as playwright:
         browser = await playwright.chromium.launch(

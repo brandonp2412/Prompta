@@ -8,8 +8,6 @@ import time
 from pathlib import Path
 from typing import Literal, TypedDict
 
-from alembic.migration import MigrationContext
-from alembic.operations import Operations
 from sqlalchemy import (
     Column,
     Float,
@@ -22,7 +20,6 @@ from sqlalchemy import (
     create_engine,
     delete,
     func,
-    inspect,
     or_,
     select,
     update,
@@ -31,6 +28,7 @@ from sqlalchemy.dialects.sqlite import insert
 from sqlalchemy.engine import Engine
 
 from .response_capture import CaptureResult, conversation_id_from_path
+from .schema_migrations import upgrade_database
 
 ResultStatus = Literal["queued", "accepted", "generating", "completed", "interrupted", "unavailable"]
 
@@ -187,42 +185,7 @@ class ResponseStore:
         )
         with self.engine.begin() as connection:
             connection.exec_driver_sql("PRAGMA journal_mode=WAL")
-            connection.exec_driver_sql("BEGIN IMMEDIATE")  # serialize migrations across workers
-            if not inspect(connection).has_table(results.name):
-                migration = Operations(MigrationContext.configure(connection))
-                migration.create_table(
-                    results.name,
-                    *(Column(column.name, column.type, primary_key=column.primary_key,
-                              nullable=column.nullable) for column in results.columns),
-                )
-                migration.create_index("job_responses_active", results.name, ["status", "capture_deadline"])
-            if "tool_calls_json" not in {column["name"] for column in inspect(connection).get_columns(results.name)}:
-                migration = Operations(MigrationContext.configure(connection))
-                migration.add_column(results.name, Column("tool_calls_json", Text, nullable=False, server_default="[]"))
-            if not inspect(connection).has_table(local_chat_pins.name):
-                migration = Operations(MigrationContext.configure(connection))
-                migration.create_table(
-                    local_chat_pins.name,
-                    Column("send_id", String, primary_key=True),
-                    Column("pinned_at", Float, nullable=False),
-                )
-            if not inspect(connection).has_table(local_chat_reads.name):
-                migration = Operations(MigrationContext.configure(connection))
-                migration.create_table(
-                    local_chat_reads.name,
-                    Column("send_id", String, primary_key=True),
-                    Column("seen_revision", String(64), nullable=False),
-                    Column("read_at", Float, nullable=False),
-                )
-            if not inspect(connection).has_table(history_recovery_attempts.name):
-                migration = Operations(MigrationContext.configure(connection))
-                migration.create_table(
-                    history_recovery_attempts.name,
-                    Column("send_id", String, primary_key=True),
-                    Column("attempt_count", Integer, nullable=False),
-                    Column("next_attempt_at", Float, nullable=False),
-                    Column("last_attempt_at", Float, nullable=False),
-                )
+        upgrade_database(self.engine, "results")
         self._secure_files()
 
     def _secure_files(self) -> None:

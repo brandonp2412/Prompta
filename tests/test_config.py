@@ -66,7 +66,7 @@ timezone = "Pacific/Auckland"
         encoding="utf-8",
     )
 
-    with pytest.raises(ValueError, match="working_hours.start"):
+    with pytest.raises(ValueError, match=r"working_hours[\s\S]*start"):
         WorkingHours.load(path)
 
 
@@ -78,7 +78,7 @@ def test_connector_approval_defaults_off_and_requires_boolean(tmp_path: Path) ->
     config.write_text('[connector_approval]\nenabled = true\n')
     assert ConnectorApproval.load(config).enabled
     config.write_text('[connector_approval]\nenabled = "true"\n')
-    with pytest.raises(ValueError, match="true or false"):
+    with pytest.raises(ValueError, match="boolean"):
         ConnectorApproval.load(config)
 
 
@@ -95,14 +95,14 @@ def test_parallelism_defaults_to_unlimited_and_accepts_a_positive_cap(tmp_path: 
 def test_parallelism_invalid_limits_fail_closed(tmp_path: Path, value: str) -> None:
     path = tmp_path / "config.toml"
     path.write_text(f"[parallelism]\nmax_workers = {value}\n", encoding="utf-8")
-    with pytest.raises(ValueError, match="parallelism.max_workers"):
+    with pytest.raises(ValueError, match=r"parallelism[\s\S]*max_workers"):
         ParallelismSettings.load(path)
 
 
 def test_parallelism_rejects_non_table(tmp_path: Path) -> None:
     path = tmp_path / "config.toml"
     path.write_text('parallelism = "unlimited"\n', encoding="utf-8")
-    with pytest.raises(ValueError, match=r"\[parallelism\]"):
+    with pytest.raises(ValueError, match="parallelism"):
         ParallelismSettings.load(path)
 
 

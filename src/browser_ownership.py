@@ -7,6 +7,8 @@ import uuid
 from contextlib import closing
 from pathlib import Path
 
+from .schema_migrations import upgrade_path
+
 OWNED_WINDOW_PREFIX = "prompta:"
 MAX_OWNED_TAB_AGE_SECONDS = 45 * 60
 OWNED_TAB_LEDGER = Path.home() / ".local/state/prompta/owned-tabs.sqlite3"
@@ -74,19 +76,8 @@ def owned_window_owner_alive(owner_id: str) -> bool:
 
 def _tab_ledger(path: Path) -> sqlite3.Connection:
     path.parent.mkdir(parents=True, exist_ok=True)
-    connection = sqlite3.connect(path, timeout=2.0)
-    connection.execute(
-        "CREATE TABLE IF NOT EXISTS owned_tabs "
-        "(target_id TEXT PRIMARY KEY, opened_at REAL NOT NULL, last_activity_at REAL NOT NULL)"
-    )
-    columns = {row[1] for row in connection.execute("PRAGMA table_info(owned_tabs)")}
-    if "last_activity_at" not in columns:
-        connection.execute(
-            "ALTER TABLE owned_tabs ADD COLUMN last_activity_at REAL NOT NULL DEFAULT 0"
-        )
-        connection.execute("UPDATE owned_tabs SET last_activity_at = opened_at")
-        connection.commit()
-    return connection
+    upgrade_path(path, "ownership")
+    return sqlite3.connect(path, timeout=2.0)
 
 
 def record_owned_tab(target_id: str, opened_at: float, path: Path = OWNED_TAB_LEDGER) -> None:

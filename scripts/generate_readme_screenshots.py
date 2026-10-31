@@ -4,6 +4,7 @@ import html
 import io
 import os
 import re
+import socket
 import sys
 import tempfile
 import threading
@@ -13,11 +14,12 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 
+import uvicorn
 from playwright.sync_api import Browser, Playwright, sync_playwright
 
 from prompta import core
 from prompta.scheduler_runtime import SchedulerRuntime
-from prompta.web import PromptaJobServer
+from prompta.web import create_app
 
 ROOT = Path(__file__).resolve().parents[1]
 CLI_OUTPUT = ROOT / "docs" / "prompta-cli.png"
@@ -288,14 +290,12 @@ def _render_cli(browser: Browser, output: str) -> None:
 
 def _render_ui(browser: Browser, runtime_path: Path) -> None:
     with patch("prompta.web.socket.gethostname", return_value="demo"):
-        server = PromptaJobServer(
-            ("127.0.0.1", 0),
-            state_path=runtime_path,
-            jobs_path=runtime_path,
-        )
-    thread = threading.Thread(
-        target=server.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True
-    )
+        app = create_app(state_path=runtime_path, jobs_path=runtime_path)
+    listener = socket.socket()
+    listener.bind(("127.0.0.1", 0))
+    listener.listen(128)
+    server = uvicorn.Server(uvicorn.Config(app, access_log=False, timeout_graceful_shutdown=1))
+    thread = threading.Thread(target=server.run, kwargs={"sockets": [listener]}, daemon=True)
     thread.start()
 
     context = browser.new_context(
@@ -309,16 +309,16 @@ def _render_ui(browser: Browser, runtime_path: Path) -> None:
     )
     try:
         page = context.new_page()
-        port = int(server.server_address[1])
-        page.goto(f"http://127.0.0.1:{port}/", wait_until="networkidle")
+        port = int(listener.getsockname()[1])
+        page.goto(f"http://127.0.0.1:{port}/?view=jobs", wait_until="networkidle")
         page.get_by_role("table", name="Scheduled jobs").wait_for()
         UI_OUTPUT.parent.mkdir(parents=True, exist_ok=True)
         page.screenshot(path=str(UI_OUTPUT), animations="disabled")
     finally:
         context.close()
-        server.shutdown()
-        server.server_close()
-        thread.join(timeout=2)
+        server.should_exit = True
+        thread.join(timeout=5)
+        listener.close()
 
 
 def main() -> None:

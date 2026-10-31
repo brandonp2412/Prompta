@@ -62,7 +62,7 @@ async def test_rate_limited_or_failed_load_is_not_a_successful_approval_watch(
     if not chromium:
         pytest.skip("Chromium unavailable")
     gate = FakeReadGate()
-    monkeypatch.setattr(watcher.ConnectorApproval, "load", lambda: watcher.ConnectorApproval(True))
+    monkeypatch.setattr(watcher.ConnectorApproval, "load", lambda: watcher.ConnectorApproval(enabled=True))
 
     async with async_playwright() as playwright:
         browser = await playwright.chromium.launch(

@@ -13,12 +13,12 @@ from http.client import HTTPConnection
 from pathlib import Path
 
 import pytest
+from live_server import LiveServer
 from playwright.sync_api import expect, sync_playwright
 
 from prompta.response_capture import CaptureResult
 from prompta.response_store import ResponseStore
 from prompta.strict_types import json_object
-from prompta.web import PromptaJobServer
 
 _PNG = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLytQAAAABJRU5ErkJggg=="
@@ -27,7 +27,7 @@ _PNG = base64.b64decode(
 
 @contextmanager
 def serve_test_ui(tmp_path: Path) -> Generator[int]:
-    app = PromptaJobServer(
+    app = LiveServer(
         ("127.0.0.1", 0),
         state_path=tmp_path / "state.sqlite3",
         jobs_path=tmp_path / "jobs.sqlite3",
@@ -243,7 +243,7 @@ def test_existing_chat_reply_composer_is_explicit_and_branch_bound(
     executable = os.environ.get("PROMPTA_TEST_CHROMIUM", "")
     if not executable or not Path(executable).exists():
         pytest.skip("Headless Chromium unavailable")
-    app = PromptaJobServer(
+    app = LiveServer(
         ("127.0.0.1", 0),
         state_path=tmp_path / "state.sqlite3",
         jobs_path=tmp_path / "jobs.sqlite3",
@@ -403,7 +403,7 @@ def test_reply_composer_preserves_terminal_recovery_without_sending(
     executable = os.environ.get("PROMPTA_TEST_CHROMIUM", "")
     if not executable or not Path(executable).exists():
         pytest.skip("Headless Chromium unavailable")
-    app = PromptaJobServer(
+    app = LiveServer(
         ("127.0.0.1", 0),
         state_path=tmp_path / "state.sqlite3",
         jobs_path=tmp_path / "jobs.sqlite3",

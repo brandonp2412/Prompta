@@ -7,9 +7,8 @@ import time
 from pathlib import Path
 
 import pytest
+from live_server import LiveServer
 from playwright.sync_api import expect, sync_playwright
-
-from prompta.web import PromptaJobServer
 
 
 @pytest.mark.parametrize("width,height", [(1440, 900), (390, 844)])
@@ -19,7 +18,7 @@ def test_sidebar_and_reply_composer_keep_identity_through_new_chat(
     chromium = Path(os.environ.get("PROMPTA_TEST_CHROMIUM", "/usr/bin/chromium"))
     if not chromium.is_file():
         pytest.skip("Chromium unavailable")
-    app = PromptaJobServer(
+    app = LiveServer(
         ("127.0.0.1", 0),
         state_path=tmp_path / "state.sqlite3",
         jobs_path=tmp_path / "jobs.sqlite3",

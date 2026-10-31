@@ -8,11 +8,11 @@ import time
 from pathlib import Path
 
 import pytest
+from live_server import LiveServer
 from playwright.sync_api import expect, sync_playwright
 
 from prompta.reply_contracts import ReplyIntent
 from prompta.response_capture import CaptureResult
-from prompta.web import PromptaJobServer
 
 
 @pytest.mark.parametrize("width,height", [(1440, 900), (390, 844)])
@@ -25,7 +25,7 @@ def test_prepared_reply_does_not_repopulate_composer_until_preflight_fails(
     if not executable or not Path(executable).exists():
         pytest.skip("Headless Chromium unavailable")
 
-    app = PromptaJobServer(
+    app = LiveServer(
         ("127.0.0.1", 0),
         state_path=tmp_path / "state.sqlite3",
         jobs_path=tmp_path / "jobs.sqlite3",
@@ -81,7 +81,7 @@ def test_chat_drafts_are_scoped_during_spa_navigation_and_reload(
     if not executable or not Path(executable).exists():
         pytest.skip("Headless Chromium unavailable")
 
-    app = PromptaJobServer(
+    app = LiveServer(
         ("127.0.0.1", 0),
         state_path=tmp_path / "state.sqlite3",
         jobs_path=tmp_path / "jobs.sqlite3",

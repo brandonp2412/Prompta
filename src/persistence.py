@@ -1,10 +1,9 @@
 from __future__ import annotations
 
+import os
 from functools import lru_cache
 from pathlib import Path
 
-from alembic.migration import MigrationContext
-from alembic.operations import Operations
 from sqlalchemy import (
     Boolean,
     Column,
@@ -16,12 +15,10 @@ from sqlalchemy import (
     Table,
     Text,
     create_engine,
-    inspect,
-    literal,
-    select,
 )
-from sqlalchemy.dialects.sqlite import insert
 from sqlalchemy.engine import Engine
+
+from .schema_migrations import upgrade_database
 
 STATE_DIR = Path.home() / ".local" / "state" / "prompta"
 DEFAULT_RUNTIME_PATH = STATE_DIR / "runtime.sqlite3"
@@ -100,7 +97,11 @@ service_health = Table(
 
 def create_database(path: Path, *, timeout: float = 5.0) -> Engine:
     target = path.expanduser()
-    target.parent.mkdir(parents=True, exist_ok=True)
+    target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    target.parent.chmod(0o700)
+    descriptor = os.open(target, os.O_CREAT | os.O_RDWR, 0o600)
+    os.close(descriptor)
+    target.chmod(0o600)
     return _database_engine(str(target.resolve()), timeout)
 
 
@@ -109,47 +110,5 @@ def _database_engine(path: str, timeout: float) -> Engine:
     engine = create_engine(
         f"sqlite:///{path}", connect_args={"timeout": timeout, "check_same_thread": False}
     )
-    with engine.begin() as connection:
-        metadata.create_all(connection)
-        columns = {column["name"] for column in inspect(connection).get_columns("scheduled_jobs")}
-        migrations = Operations(MigrationContext.configure(connection))
-        if "source_revision" not in columns:
-            migrations.add_column(
-                "scheduled_jobs",
-                Column("source_revision", String, nullable=False, server_default=""),
-            )
-        if "mutex_group" not in columns:
-            migrations.add_column(
-                "scheduled_jobs", Column("mutex_group", String, nullable=False, server_default="")
-            )
-        if "images_json" not in columns:
-            migrations.add_column(
-                "scheduled_jobs", Column("images_json", Text, nullable=False, server_default="[]")
-            )
-        if "pin_chat" not in columns:
-            migrations.add_column(
-                "scheduled_jobs", Column("pin_chat", Boolean, nullable=False, server_default="0")
-            )
-        delivery_columns = {
-            column["name"] for column in inspect(connection).get_columns("job_deliveries")
-        }
-        if "images_json" not in delivery_columns:
-            migrations.add_column(
-                "job_deliveries", Column("images_json", Text, nullable=False, server_default="[]")
-            )
-        if "pin_chat" not in delivery_columns:
-            migrations.add_column(
-                "job_deliveries", Column("pin_chat", Boolean, nullable=False, server_default="0")
-            )
-        account_backoff = insert(account_state).from_select(
-            ["key", "value_json"],
-            select(literal("rate_limit_backoff"), scheduler_state.c.value_json).where(
-                scheduler_state.c.scope == "scheduler",
-                scheduler_state.c.name == "",
-                scheduler_state.c.key == "rate_limit_backoff",
-            ),
-        )
-        connection.execute(
-            account_backoff.on_conflict_do_nothing(index_elements=[account_state.c.key])
-        )
+    upgrade_database(engine, "runtime")
     return engine

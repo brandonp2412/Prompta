@@ -13,12 +13,12 @@ from pathlib import Path
 from typing import Literal
 
 import pytest
+from live_server import LiveServer
 from playwright.sync_api import expect, sync_playwright
 
 from prompta.jobs import add_job
 from prompta.response_capture import CaptureResult
 from prompta.strict_types import json_object, string_object_dict
-from prompta.web import PromptaJobServer
 
 
 @pytest.fixture(autouse=True)
@@ -32,8 +32,8 @@ def serve_worktree_assets(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @contextmanager
-def server(tmp_path: Path) -> Generator[tuple[PromptaJobServer, int]]:
-    app = PromptaJobServer(
+def server(tmp_path: Path) -> Generator[tuple[LiveServer, int]]:
+    app = LiveServer(
         ("127.0.0.1", 0),
         state_path=tmp_path / "runtime.sqlite3",
         jobs_path=tmp_path / "jobs.sqlite3",
@@ -78,7 +78,7 @@ def post_json(port: int, path: str, data: dict[str, object]) -> tuple[int, dict[
         conn.close()
 
 
-def completed_run(app: PromptaJobServer, send_id: str, name: str, now: float) -> None:
+def completed_run(app: LiveServer, send_id: str, name: str, now: float) -> None:
     app.results.ensure_queued(send_id, f"Prompt for {name}", name, now=now)
     assert app.results.accept(send_id, f"100:{send_id}", deadline=now + 1000, now=now + 1)
     assert app.results.write(
@@ -151,7 +151,7 @@ def test_results_api_lists_only_local_runs_with_filter_search_and_pagination(
         assert get(port, "/api/results?q=x&q=y")[0] == 400
         assert get(port, "/api/results?offset=-1")[0] == 400
         assert get(port, "/api/results/xx%2Fyy")[0] == 404
-        assert get(port, "/api/results/run-1", method="POST")[0] == 404
+        assert get(port, "/api/results/run-1", method="POST")[0] == 405
 
 
 def pin_ids(payload: dict[str, object]) -> list[str]:
@@ -344,7 +344,7 @@ def test_mark_all_local_chats_read_uses_completed_revisions_across_pages(tmp_pat
             {"ok": True, "count": 0},
         )
         assert post_json(port, "/api/local-chat-reads/all", {"send_id": "bulk-01"})[0] == 400
-        assert get(port, "/api/local-chat-reads/all")[0] == 404
+        assert get(port, "/api/local-chat-reads/all")[0] == 405
         for index in range(31):
             detail = get(port, f"/api/results/bulk-{index:02}")[1]
             assert detail["last_read_revision"] == detail["last_reply_revision"]
@@ -1227,7 +1227,7 @@ def test_explicit_reply_intent_contract_is_local_and_not_dispatched(
             assert post({**payload, "reply_id": "reply-9999999999999"})[0] == 409
             assert post(payload, content_type="text/plain")[0] == 400
             assert get(port, "/api/results/unknown/turns")[0] == 404
-            assert get(port, "/api/results/known/turns", method="POST")[0] == 404
+            assert get(port, "/api/results/known/turns", method="POST")[0] == 405
         turns = get(port, "/api/results/known/turns")[1]["turns"]
         assert isinstance(turns, list) and len(turns) == 2
         turn = string_object_dict(turns[1])
@@ -1498,7 +1498,7 @@ def test_queue_status_api_is_private_read_only_and_exposes_worker_wait_order(
             ],
         }
         assert "Secret prompt" not in str(payload)
-        assert get(port, "/api/queue-status", method="POST")[0] == 404
+        assert get(port, "/api/queue-status", method="POST")[0] == 405
         assert len(app.queue.records()) == 1
 
 

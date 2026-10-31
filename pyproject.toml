@@ -11,13 +11,18 @@ requires-python = ">=3.11"
 license = "MIT"
 dependencies = [
     "alembic>=1.13",
+    "fastapi>=0.162.0",
     "playwright>=1.55.0",
+    "pydantic>=2.14.2",
     "sqlalchemy>=2.0",
+    "sse-starlette>=3.6.0",
+    "uvicorn>=0.54.0",
 ]
 
 [project.scripts]
 prompta = "prompta.core:main"
 prompta-ui = "prompta.web:main"
+prompta-migrate = "prompta.schema_migrations:main"
 prompta-delivery-worker = "prompta.delivery_worker:main"
 prompta-scheduler = "prompta.scheduler_service:main"
 
@@ -27,7 +32,7 @@ package-dir = { prompta = "src" }
 include-package-data = false
 
 [tool.setuptools.package-data]
-prompta = ["static/*", "ui/*", "browser_scripts/*.js"]
+prompta = ["static/*", "ui/*", "browser_scripts/*.js", "migrations/*.py", "migrations/*/*.py", "migrations/*.mako"]
 
 [tool.ruff]
 line-length = 100
@@ -92,6 +97,7 @@ config-settings = { editable_mode = "strict" }
 
 [dependency-groups]
 dev = [
+    "httpx2>=2.16.0",
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
     "ruff>=0.16.10",

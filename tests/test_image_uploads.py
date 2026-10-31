@@ -11,12 +11,12 @@ from urllib.parse import urljoin
 from urllib.request import Request, urlopen
 
 import pytest
+from live_server import LiveServer
 from playwright.sync_api import sync_playwright
 
 from prompta.delivery_queue import DeliveryQueueStore
 from prompta.image_store import ImageStore
 from prompta.jobs import add_job, load_jobs
-from prompta.web import PromptaJobServer
 
 PNG = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZ0AAAAASUVORK5CYII="
@@ -62,7 +62,7 @@ def object_map(value: object) -> dict[str, object]:
 
 def test_web_image_upload_preview_and_job_submission(tmp_path: Path) -> None:
     database = tmp_path / "runtime.sqlite3"
-    server = PromptaJobServer(("127.0.0.1", 0), state_path=database, jobs_path=database)
+    server = LiveServer(("127.0.0.1", 0), state_path=database, jobs_path=database)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     base = f"http://127.0.0.1:{server.server_port}"
@@ -122,7 +122,7 @@ def test_mobile_image_previews_do_not_hide_under_footer(tmp_path: Path) -> None:
     for file in files:
         file.write_bytes(PNG)
 
-    server = PromptaJobServer(("127.0.0.1", 0), state_path=database, jobs_path=database)
+    server = LiveServer(("127.0.0.1", 0), state_path=database, jobs_path=database)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:

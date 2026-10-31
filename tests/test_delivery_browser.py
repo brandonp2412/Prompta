@@ -50,7 +50,7 @@ async def test_successful_confirmation_polls_do_not_spam_info(
 @pytest.fixture(autouse=True)
 def offline_approval_default(monkeypatch: pytest.MonkeyPatch) -> None:
     # Test behavior must not depend on the host's live connector-approval config.
-    monkeypatch.setattr(ConnectorApproval, "load", classmethod(lambda cls: cls(False)))
+    monkeypatch.setattr(ConnectorApproval, "load", classmethod(lambda cls: cls(enabled=False)))
 
 
 class FakeDriver:

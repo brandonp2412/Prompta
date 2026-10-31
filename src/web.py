@@ -1,22 +1,31 @@
-"""Local jobs-only web UI for Prompta."""
+"""FastAPI HTTP boundary for private local job management and results."""
 
 from __future__ import annotations
 
 import argparse
+import asyncio
 import hashlib
 import json
 import logging
 import mimetypes
 import os
-import re
 import socket
 import subprocess
 import time
-from collections.abc import Mapping
-from http import HTTPStatus
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from collections.abc import AsyncGenerator, AsyncIterator, Callable, Coroutine
+from contextlib import asynccontextmanager, suppress
 from pathlib import Path
-from urllib.parse import parse_qs, unquote, urlparse
+from typing import Annotated
+
+import uvicorn
+from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import HTMLResponse, JSONResponse, Response
+from fastapi.routing import APIRoute
+from sse_starlette import EventSourceResponse, ServerSentEvent
+from starlette.concurrency import run_in_threadpool
+from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from .core import DEFAULT_JOBS_PATH, DEFAULT_STATE_PATH
 from .delivery_queue import DeliveryQueueStore
@@ -27,8 +36,22 @@ from .reply_contracts import ManualReplyStore, ReplyConflict, ReplyIntent
 from .response_store import ResponseStore
 from .scheduler_service import DurableSchedulerProducer
 from .service_health import ServiceHealthStore, browser_page_count, notify_watchdog
-from .strict_types import json_object
 from .web_jobs import WebJobService
+from .web_models import (
+    EmptyRequest,
+    ErrorResponse,
+    FollowupRequest,
+    FreshChatRequest,
+    ImageUpload,
+    JobAction,
+    PinImport,
+    PinRequest,
+    ReadImport,
+    ReadRequest,
+    ReplyRequest,
+    RequestId,
+    ResultsQuery,
+)
 
 logger = logging.getLogger(__name__)
 _STATIC_ROOT = Path(__file__).with_name("static")
@@ -78,17 +101,13 @@ def _start_scheduler_service() -> bool:
     return completed.returncode == 0
 
 
-class PromptaJobServer(ThreadingHTTPServer):
-    daemon_threads = True
-
+class WebServices:
     def __init__(
         self,
-        address: tuple[str, int],
         *,
         state_path: Path = DEFAULT_STATE_PATH,
         jobs_path: Path = DEFAULT_JOBS_PATH,
     ) -> None:
-        super().__init__(address, PromptaJobHandler)
         self.state_path = state_path.expanduser()
         self.jobs_path = jobs_path.expanduser()
         self.live_events = LocalEventSignals(self.jobs_path, self.state_path)
@@ -112,7 +131,6 @@ class PromptaJobServer(ThreadingHTTPServer):
         self.health.beat("ui")
 
     def service_actions(self) -> None:
-        super().service_actions()
         now = time.time()
         if now - self._last_health_beat < 5.0:
             return
@@ -132,7 +150,8 @@ class PromptaJobServer(ThreadingHTTPServer):
         services = self.health.snapshot(now=now)
         issues = [
             service + " heartbeat stale"
-            for service, snapshot in services.items() if snapshot["stale"] is True
+            for service, snapshot in services.items()
+            if snapshot["stale"] is True
         ]
         if not browser_reachable:
             issues.append("ChatGPT browser unreachable")
@@ -153,392 +172,376 @@ class PromptaJobServer(ThreadingHTTPServer):
         }
 
 
-class PromptaJobHandler(BaseHTTPRequestHandler):
-    server: PromptaJobServer
-    protocol_version = "HTTP/1.1"
+class JSONRoute(APIRoute):
+    """Require JSON only after routing has matched an actual POST endpoint."""
 
-    def log_message(self, format: str, *args: object) -> None:
-        if urlparse(self.path).path.startswith(("/api/results", "/api/images", "/api/local-chat-pins", "/api/local-chat-reads", "/api/queue-status", "/api/chats/requests")):
-            # Search terms and run identifiers can be sensitive; don't log request URLs.
-            logger.info("%s - %s /api/results", self.address_string(), self.command)
+    def get_route_handler(self) -> Callable[[Request], Coroutine[object, object, Response]]:
+        handler = super().get_route_handler()
+
+        async def handle(request: Request) -> Response:
+            if (
+                request.method == "POST"
+                and request.headers.get("content-type", "").split(";", 1)[0].strip().lower()
+                != "application/json"
+            ):
+                raise HTTPException(400, "Request requires JSON")
+            return await handler(request)
+
+        return handle
+
+
+class RequestBoundary:
+    """Bound streamed bodies and contain private failures before Uvicorn logs them."""
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
             return
-        logger.info("%s - %s", self.address_string(), format % args)
+        path = scope["path"]
+        limit = 1024 * 1024
+        if path == "/api/images":
+            limit = 11 * 1024 * 1024
+        elif path.startswith("/api/results/"):
+            limit = 65536
+        elif path.startswith("/api/local-chat-pins"):
+            limit = 8192
+        elif path.startswith("/api/local-chat-reads"):
+            limit = 786432 if path.endswith("/import") else 1024
+        received = 0
+        response_started = False
 
-    def _headers(self, status: HTTPStatus, content_type: str, length: int) -> None:
-        self.send_response(status)
-        self.send_header("content-type", content_type)
-        self.send_header("content-length", str(length))
-        self.send_header("cache-control", "no-store")
-        self.send_header("x-content-type-options", "nosniff")
-        self.end_headers()
+        async def bounded_receive() -> Message:
+            nonlocal received
+            message = await receive()
+            if message["type"] == "http.request":
+                received += len(message.get("body", b""))
+                if received > limit:
+                    raise HTTPException(400, "Invalid request body size")
+            return message
 
-    def _write(self, status: HTTPStatus, content_type: str, body: bytes) -> None:
-        self._headers(status, content_type, len(body))
-        if self.command != "HEAD":
-            self.wfile.write(body)
+        async def private_send(message: Message) -> None:
+            nonlocal response_started
+            if message["type"] == "http.response.start":
+                response_started = True
+                headers = list(message.get("headers", []))
+                if not any(key == b"cache-control" for key, _ in headers):
+                    headers.append((b"cache-control", b"no-store"))
+                headers.append((b"x-content-type-options", b"nosniff"))
+                message["headers"] = headers
+            await send(message)
 
-    def _json(self, payload: Mapping[str, object], status: HTTPStatus = HTTPStatus.OK) -> None:
-        body = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
-        self._write(status, "application/json; charset=utf-8", body)
+        try:
+            await self.app(scope, bounded_receive, private_send)
+        except Exception as exc:
+            logger.error("HTTP contract failed error_type=%s", type(exc).__name__)
+            if not response_started:
+                await JSONResponse(
+                    {"ok": False, "error": "Chat send contract unavailable"}, status_code=500
+                )(scope, receive, private_send)
 
-    def _index(self) -> None:
+
+def create_app(
+    *,
+    state_path: Path = DEFAULT_STATE_PATH,
+    jobs_path: Path = DEFAULT_JOBS_PATH,
+    services: WebServices | None = None,
+) -> FastAPI:
+    local = services or WebServices(state_path=state_path, jobs_path=jobs_path)
+
+    async def maintain() -> None:
+        while True:
+            try:
+                await run_in_threadpool(local.service_actions)
+            except Exception as exc:
+                logger.error("UI maintenance failed error_type=%s", type(exc).__name__)
+            await asyncio.sleep(5)
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
+        task = asyncio.create_task(maintain())
+        try:
+            yield
+        finally:
+            task.cancel()
+            with suppress(asyncio.CancelledError):
+                await task
+
+    app = FastAPI(
+        title="Prompta",
+        lifespan=lifespan,
+        responses={
+            "4XX": {
+                "model": ErrorResponse,
+                "description": "Invalid input (400), missing resource (404), unsupported method (405), or conflict (409)",
+            },
+            500: {"model": ErrorResponse, "description": "Local service unavailable"},
+        },
+    )
+    app.add_middleware(RequestBoundary)
+    app.router.route_class = JSONRoute
+
+    @app.exception_handler(RequestValidationError)
+    async def invalid_request(request: Request, exc: RequestValidationError) -> JSONResponse:
+        # Pydantic errors can contain input prompts and tool data. Never echo them.
+        return JSONResponse({"ok": False, "error": "Invalid request"}, status_code=400)
+
+    @app.exception_handler(ReplyConflict)
+    async def conflict(request: Request, exc: ReplyConflict) -> JSONResponse:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=409)
+
+    @app.exception_handler(ValueError)
+    async def invalid_value(request: Request, exc: ValueError) -> JSONResponse:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=400)
+
+    @app.exception_handler(StarletteHTTPException)
+    async def http_error(request: Request, exc: StarletteHTTPException) -> JSONResponse:
+        return JSONResponse(
+            {"ok": False, "error": str(exc.detail)},
+            status_code=exc.status_code,
+            headers=exc.headers,
+        )
+
+    @app.api_route(
+        "/", methods=["GET", "HEAD"], response_class=HTMLResponse, include_in_schema=False
+    )
+    def index() -> HTMLResponse:
         text = (_STATIC_ROOT / "index.html").read_text(encoding="utf-8")
-        text = text.replace("__PROMPTA_SERVER_NAME__", self.server.host_name)
-        self._write(HTTPStatus.OK, "text/html; charset=utf-8", text.encode("utf-8"))
+        return HTMLResponse(text.replace("__PROMPTA_SERVER_NAME__", local.host_name))
 
-    def _static(self, name: str) -> None:
-        if name not in _ALLOWED_STATIC:
-            self.send_error(HTTPStatus.NOT_FOUND)
-            return
+    @app.get(
+        "/api/events",
+        response_class=EventSourceResponse,
+        responses={200: {"content": {"text/event-stream": {}}}},
+    )
+    async def events() -> EventSourceResponse:
+        async def stream() -> AsyncIterator[ServerSentEvent]:
+            def digest() -> bytes:
+                payload = json.dumps(
+                    local.jobs.scheduled_jobs(),
+                    sort_keys=True,
+                    separators=(",", ":"),
+                    ensure_ascii=False,
+                )
+                return hashlib.blake2b(payload.encode(), digest_size=16).digest()
+
+            def event(topic: str) -> ServerSentEvent:
+                return ServerSentEvent(event=topic, data="refresh", id=str(time.time_ns()))
+
+            previous = local.live_events.snapshot()
+            previous_jobs = await run_in_threadpool(digest)
+            yield ServerSentEvent(retry=1500)
+            yield event("sync")
+            while True:
+                await asyncio.sleep(0.75)
+                current = local.live_events.snapshot()
+                if current.jobs != previous.jobs:
+                    current_jobs = await run_in_threadpool(digest)
+                    if current_jobs != previous_jobs:
+                        yield event("jobs")
+                    previous_jobs = current_jobs
+                if current.chats != previous.chats:
+                    yield event("chats")
+                previous = current
+
+        return EventSourceResponse(
+            stream(),
+            ping=15,
+            send_timeout=30,
+            sep="\n",
+            headers={"Cache-Control": "no-cache, no-transform"},
+        )
+
+    @app.head("/api/events", include_in_schema=False)
+    def events_head() -> Response:
+        return Response(media_type="text/event-stream")
+
+    @app.head("/api/jobs", include_in_schema=False)
+    @app.get("/api/jobs")
+    def jobs() -> dict[str, object]:
+        return dict(local.jobs.scheduled_jobs())
+
+    @app.post("/api/jobs")
+    def change_jobs(payload: JobAction) -> dict[str, object]:
+        return dict(local.jobs.execute(payload))
+
+    @app.head("/api/health", include_in_schema=False)
+    @app.get("/api/health")
+    def health() -> dict[str, object]:
+        return local.health_payload()
+
+    @app.head("/api/queue-status", include_in_schema=False)
+    @app.get("/api/queue-status")
+    def queue_status() -> dict[str, object]:
+        return dict(local.queue_view.concurrency_queue_snapshot())
+
+    @app.head("/api/chats/requests/{request_id}", include_in_schema=False)
+    @app.get("/api/chats/requests/{request_id}")
+    def receipt(request_id: RequestId) -> dict[str, object]:
+        record = local.queue.get("manual-" + request_id)
+        if record is None or record["client_id"] not in (
+            "manual:" + request_id,
+            "manual:once:" + request_id,
+        ):
+            raise HTTPException(404, "Queue request not found")
+        return {"send_id": record["send_id"], "status": record["status"]}
+
+    @app.post("/api/chats", status_code=202)
+    def fresh_chat(payload: FreshChatRequest) -> dict[str, object]:
+        refs = image_refs(payload.images)
+        for ref in refs:
+            local.images.path(ref)
+        accepted = local.queue.enqueue_manual(
+            payload.prompt.strip(),
+            images=refs,
+            request_id=payload.request_id,
+            pin_local_default=True,
+        )
+        return {"ok": True, "send_id": accepted["send_id"], "status": accepted["status"]}
+
+    @app.post("/api/images")
+    def upload(payload: ImageUpload) -> dict[str, object]:
+        ref = local.images.save(payload.name, payload.data)
+        return {
+            "ok": True,
+            "image": {"ref": ref, "name": ref.split("/", 1)[1], "url": "./api/images/" + ref},
+        }
+
+    @app.head("/api/images/{ref:path}", include_in_schema=False)
+    @app.get("/api/images/{ref:path}")
+    def image(ref: str) -> Response:
+        try:
+            mime, body = local.images.read(ref)
+        except ValueError as exc:
+            raise HTTPException(404) from exc
+        return Response(body, media_type=mime)
+
+    @app.head("/api/results", include_in_schema=False)
+    @app.get("/api/results")
+    def results(request: Request, params: Annotated[ResultsQuery, Query()]) -> dict[str, object]:
+        if any(len(request.query_params.getlist(key)) != 1 for key in request.query_params):
+            raise ValueError("Invalid result query")
+        page = local.results.page(
+            limit=params.limit, offset=params.offset, query=params.q.strip(), status=params.status
+        )
+        local.replies.annotate_response_markers(page["items"])
+        local.results.annotate_local_reads(page["items"])
+        return dict(page)
+
+    @app.head("/api/results/{send_id}/turns", include_in_schema=False)
+    @app.get("/api/results/{send_id}/turns")
+    def turns(send_id: str) -> dict[str, object]:
+        items = local.replies.turns(send_id)
+        if items is None:
+            raise HTTPException(404, "Run not found")
+        return {"turns": items}
+
+    @app.head("/api/results/{send_id}", include_in_schema=False)
+    @app.get("/api/results/{send_id}")
+    def detail(send_id: str) -> dict[str, object]:
+        record = local.results.detail(send_id)
+        if record is None:
+            raise HTTPException(404, "Run not found")
+        local.replies.annotate_response_markers([record])
+        local.results.annotate_local_reads([record])
+        queued = local.queue.get(send_id)
+        record["images"] = (
+            [
+                {"name": ref.split("/", 1)[1], "url": "./api/images/" + ref}
+                for ref in image_refs(queued["images"])
+            ]
+            if queued is not None
+            else []
+        )
+        return record
+
+    @app.post("/api/results/{send_id}/reply-recover")
+    def recover(send_id: str, payload: EmptyRequest) -> dict[str, object]:
+        return {"ok": True, **local.reply_dispatch.recover(send_id)}
+
+    @app.post("/api/results/{send_id}/reply-queue", status_code=202)
+    def followup(send_id: str, payload: FollowupRequest) -> dict[str, object]:
+        return {
+            "ok": True,
+            "turn": local.replies.queue_followup(send_id, payload.reply_id, payload.text),
+        }
+
+    @app.post("/api/results/{send_id}/reply-intents", status_code=202)
+    def prepare_reply(send_id: str, payload: ReplyRequest) -> dict[str, object]:
+        turn = local.replies.prepare(
+            send_id,
+            ReplyIntent(payload.reply_id, payload.conversation_id, payload.parent_id, payload.text),
+        )
+        return {"ok": True, "dispatched": False, "turn": turn}
+
+    @app.post("/api/results/{send_id}/reply-send", status_code=202)
+    def send_reply(send_id: str, payload: ReplyRequest) -> dict[str, object]:
+        turn = local.replies.queue_explicit_send(
+            send_id,
+            ReplyIntent(payload.reply_id, payload.conversation_id, payload.parent_id, payload.text),
+        )
+        return {
+            "ok": True,
+            "dispatched": False,
+            "queued_for_explicit_dispatch": turn["status"] == "prepared",
+            "turn": turn,
+        }
+
+    @app.head("/api/local-chat-pins", include_in_schema=False)
+    @app.get("/api/local-chat-pins")
+    def pins() -> dict[str, object]:
+        items = local.results.local_pinned_runs()
+        local.replies.annotate_response_markers(items)
+        local.results.annotate_local_reads(items)
+        return {"items": items}
+
+    @app.post("/api/local-chat-pins")
+    def pin(payload: PinRequest) -> dict[str, object]:
+        if not local.results.set_local_pin(payload.send_id, pinned=payload.pinned):
+            raise HTTPException(404, "Local run not found")
+        return {"ok": True}
+
+    @app.post("/api/local-chat-pins/import")
+    def import_pins(payload: PinImport) -> dict[str, object]:
+        local.results.import_legacy_local_pins(payload.send_ids)
+        return {"ok": True}
+
+    @app.post("/api/local-chat-reads")
+    def read(payload: ReadRequest) -> dict[str, object]:
+        record = local.results.detail(payload.send_id)
+        if record is None:
+            raise HTTPException(404, "Local run not found")
+        local.replies.annotate_response_markers([record])
+        if not payload.revision or record["last_reply_revision"] != payload.revision:
+            raise ReplyConflict("Reply revision changed")
+        local.results.mark_local_read(payload.send_id, payload.revision)
+        return {"ok": True}
+
+    @app.post("/api/local-chat-reads/import")
+    def import_reads(payload: ReadImport) -> dict[str, object]:
+        local.results.import_legacy_local_reads(payload.reads)
+        return {"ok": True}
+
+    @app.post("/api/local-chat-reads/all")
+    def read_all(payload: EmptyRequest) -> dict[str, object]:
+        return {"ok": True, "count": local.replies.mark_all_local_read()}
+
+    @app.api_route("/{name}", methods=["GET", "HEAD"], include_in_schema=False)
+    def static(name: str) -> Response:
         path = _STATIC_ROOT / name
-        if not path.is_file():
-            self.send_error(HTTPStatus.NOT_FOUND)
-            return
+        if name not in _ALLOWED_STATIC or not path.is_file():
+            raise HTTPException(404)
         content = path.read_bytes()
         if name == "sw.js":
             content = content.replace(b"__PROMPTA_UI_HEAD__", _git_short_head().encode("ascii"))
-        content_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+        media_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
         if path.suffix in {".js", ".css", ".svg", ".webmanifest"}:
-            content_type += "; charset=utf-8"
-        self._write(HTTPStatus.OK, content_type, content)
+            media_type += "; charset=utf-8"
+        return Response(content, media_type=media_type)
 
-    def _json_body(self, *, max_bytes: int = 1024 * 1024) -> dict[str, object]:
-        try:
-            length = int(self.headers.get("content-length") or "0")
-        except ValueError as exc:
-            raise ValueError("Invalid content length") from exc
-        if length <= 0 or length > max_bytes:
-            raise ValueError("Invalid request body size")
-        try:
-            payload = json_object(self.rfile.read(length), label="request body")
-        except (TypeError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-            raise ValueError("Request body must be valid JSON") from exc
-        return payload
-
-    def _event_stream(self) -> None:
-        """Invalidate local views on storage changes; every reconnect starts with a full sync."""
-        self.send_response(HTTPStatus.OK)
-        self.send_header("content-type", "text/event-stream; charset=utf-8")
-        self.send_header("cache-control", "no-cache, no-transform")
-        self.send_header("x-accel-buffering", "no")
-        self.send_header("x-content-type-options", "nosniff")
-        self.send_header("transfer-encoding", "chunked")
-        self.end_headers()
-
-        def emit(payload: str) -> None:
-            data = payload.encode("utf-8")
-            self.wfile.write(f"{len(data):x}\r\n".encode("ascii") + data + b"\r\n")
-            self.wfile.flush()
-
-        def event(topic: str) -> None:
-            emit(f"id: {time.time_ns()}\nevent: {topic}\ndata: refresh\n\n")
-
-        try:
-            previous = self.server.live_events.snapshot()
-
-            def job_digest() -> bytes:
-                # Health heartbeats write to the same runtime database; do not
-                # wake the Jobs UI unless its actual payload changed.
-                payload = json.dumps(
-                    self.server.jobs.scheduled_jobs(),
-                    sort_keys=True, separators=(",", ":"), ensure_ascii=False,
-                ).encode("utf-8")
-                return hashlib.blake2b(payload, digest_size=16).digest()
-
-            previous_jobs = job_digest()
-            emit("retry: 1500\n\n")
-            event("sync")
-            last_heartbeat = time.monotonic()
-            while True:
-                time.sleep(0.75)
-                current = self.server.live_events.snapshot()
-                if current.jobs != previous.jobs:
-                    current_jobs = job_digest()
-                    if current_jobs != previous_jobs:
-                        event("jobs")
-                    previous_jobs = current_jobs
-                if current.chats != previous.chats:
-                    event("chats")
-                previous = current
-                if time.monotonic() - last_heartbeat >= 15:
-                    emit(": heartbeat\n\n")
-                    last_heartbeat = time.monotonic()
-        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, OSError):
-            # A closed EventSource is normal; avoid logging private request state.
-            return
-
-    def do_HEAD(self) -> None:
-        self.do_GET()
-
-    def do_GET(self) -> None:
-        parsed = urlparse(self.path)
-        path = parsed.path
-        if path in {"", "/"}:
-            self._index()
-            return
-        if path == "/api/events":
-            if self.command == "HEAD":
-                self._write(HTTPStatus.OK, "text/event-stream; charset=utf-8", b"")
-            else:
-                self._event_stream()
-            return
-        if path == "/api/jobs":
-            self._json(self.server.jobs.scheduled_jobs())
-            return
-        if path.startswith("/api/chats/requests/"):
-            # Local-only acknowledgement lookup; never opens ChatGPT or resends.
-            request_id = path[len("/api/chats/requests/"):]
-            if not re.fullmatch(r"[0-9a-f]{32}", request_id):
-                self.send_error(HTTPStatus.NOT_FOUND)
-                return
-            record = self.server.queue.get("manual-" + request_id)
-            if record is None or record["client_id"] not in (
-                "manual:" + request_id, "manual:once:" + request_id,
-            ):
-                self._json({"error": "Queue request not found"}, HTTPStatus.NOT_FOUND)
-                return
-            self._json({"send_id": record["send_id"], "status": record["status"]})
-            return
-        if path.startswith("/api/images/"):
-            ref = unquote(path[len("/api/images/"):])
-            try:
-                mime, body = self.server.images.read(ref)
-            except ValueError:
-                self.send_error(HTTPStatus.NOT_FOUND)
-                return
-            self._write(HTTPStatus.OK, mime, body)
-            return
-        if path == "/api/health":
-            self._json(self.server.health_payload())
-            return
-        if path == "/api/local-chat-pins":
-            pinned = self.server.results.local_pinned_runs()
-            self.server.replies.annotate_response_markers(pinned)
-            self.server.results.annotate_local_reads(pinned)
-            self._json({"items": pinned})
-            return
-        if path == "/api/queue-status":
-            self._json(self.server.queue_view.concurrency_queue_snapshot())
-            return
-        if path == "/api/results":
-            params = parse_qs(parsed.query, keep_blank_values=True)
-            try:
-                if any(len(values) != 1 for values in params.values()):
-                    raise ValueError("Invalid result query")
-                if set(params) - {"limit", "offset", "q", "status"}:
-                    raise ValueError("Unknown result query")
-                limit = int(params.get("limit", ["20"])[0])
-                offset = int(params.get("offset", ["0"])[0])
-                payload = self.server.results.page(
-                    limit=limit, offset=offset, query=params.get("q", [""])[0].strip(),
-                    status=params.get("status", [""])[0],
-                )
-                self.server.replies.annotate_response_markers(payload["items"])
-                self.server.results.annotate_local_reads(payload["items"])
-            except ValueError as exc:
-                self._json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
-                return
-            self._json(payload)
-            return
-        if path.startswith("/api/results/") and path.endswith("/turns"):
-            send_id = unquote(path[len("/api/results/"):-len("/turns")])
-            if not send_id or "/" in send_id:
-                self.send_error(HTTPStatus.NOT_FOUND)
-                return
-            turns = self.server.replies.turns(send_id)
-            if turns is None:
-                self._json({"error": "Run not found"}, HTTPStatus.NOT_FOUND)
-            else:
-                self._json({"turns": turns})
-            return
-        if path.startswith("/api/results/"):
-            send_id = unquote(path[len("/api/results/"):])
-            if "/" in send_id:
-                self.send_error(HTTPStatus.NOT_FOUND)
-                return
-            record = self.server.results.detail(send_id)
-            if record is None:
-                self._json({"error": "Run not found"}, HTTPStatus.NOT_FOUND)
-            else:
-                self.server.replies.annotate_response_markers([record])
-                self.server.results.annotate_local_reads([record])
-                queued = self.server.queue.get(send_id)
-                record["images"] = [
-                    {"name": ref.split("/", 1)[1], "url": "./api/images/" + ref}
-                    for ref in image_refs(queued["images"])
-                ] if queued is not None else []
-                self._json(record)
-            return
-        if path.startswith("/") and path[1:] in _ALLOWED_STATIC:
-            self._static(path[1:])
-            return
-        self.send_error(HTTPStatus.NOT_FOUND)
-
-    def do_POST(self) -> None:
-        path = urlparse(self.path).path
-        reply_path = path.startswith("/api/results/") and path.endswith("/reply-intents")
-        send_reply_path = path.startswith("/api/results/") and path.endswith("/reply-send")
-        recover_reply_path = path.startswith("/api/results/") and path.endswith("/reply-recover")
-        queue_reply_path = path.startswith("/api/results/") and path.endswith("/reply-queue")
-        if path not in {"/api/jobs", "/api/images", "/api/chats", "/api/local-chat-pins", "/api/local-chat-pins/import", "/api/local-chat-reads", "/api/local-chat-reads/import", "/api/local-chat-reads/all"} and not (
-            reply_path or send_reply_path or recover_reply_path or queue_reply_path
-        ):
-            self.send_error(HTTPStatus.NOT_FOUND)
-            return
-        try:
-            if reply_path or send_reply_path or recover_reply_path or queue_reply_path:
-                suffix = (
-                    "/reply-recover" if recover_reply_path
-                    else "/reply-queue" if queue_reply_path
-                    else "/reply-send" if send_reply_path else "/reply-intents"
-                )
-                send_id = unquote(path[len("/api/results/"):-len(suffix)])
-                if not send_id or "/" in send_id:
-                    self.send_error(HTTPStatus.NOT_FOUND)
-                    return
-                if self.headers.get("content-type", "").split(";", 1)[0].strip().lower() != "application/json":
-                    raise ValueError("Reply contract requires JSON")
-                payload = self._json_body(max_bytes=65536)
-                if recover_reply_path:
-                    if payload:
-                        raise ValueError("Reply recovery does not accept message content")
-                    recovered = self.server.reply_dispatch.recover(send_id)
-                    self._json({"ok": True, **recovered})
-                    return
-                if queue_reply_path:
-                    if set(payload) != {"reply_id", "text"}:
-                        raise ValueError("Invalid queued follow-up fields")
-                    reply_id, text = payload["reply_id"], payload["text"]
-                    if not isinstance(reply_id, str) or not isinstance(text, str):
-                        raise ValueError("Invalid queued follow-up fields")
-                    turn = self.server.replies.queue_followup(send_id, reply_id, text)
-                    self._json({"ok": True, "turn": turn}, HTTPStatus.ACCEPTED)
-                    return
-                intent = ReplyIntent.parse(payload)
-                if send_reply_path:
-                    turn = self.server.replies.queue_explicit_send(send_id, intent)
-                    self._json(
-                        {"ok": True, "dispatched": False, "queued_for_explicit_dispatch": turn["status"] == "prepared", "turn": turn},
-                        HTTPStatus.ACCEPTED,
-                    )
-                else:
-                    turn = self.server.replies.prepare(send_id, intent)
-                    self._json({"ok": True, "dispatched": False, "turn": turn}, HTTPStatus.ACCEPTED)
-                return
-            if path in {"/api/local-chat-reads", "/api/local-chat-reads/import", "/api/local-chat-reads/all"}:
-                if self.headers.get("content-type", "").split(";", 1)[0].strip().lower() != "application/json":
-                    raise ValueError("Local read changes require JSON")
-                payload = self._json_body(max_bytes=786432 if path.endswith("/import") else 1024)
-                if path.endswith("/all"):
-                    if payload:
-                        raise ValueError("Mark all read accepts no fields")
-                    count = self.server.replies.mark_all_local_read()
-                    self._json({"ok": True, "count": count})
-                    return
-                if path.endswith("/import"):
-                    raw_reads = payload.get("reads")
-                    if set(payload) != {"reads"} or not isinstance(raw_reads, dict):
-                        raise ValueError("Invalid legacy read import")
-                    reads: dict[str, str] = {}
-                    for send_id, revision in raw_reads.items():
-                        if not isinstance(send_id, str) or not isinstance(revision, str):
-                            raise ValueError("Invalid legacy read import")
-                        reads[send_id] = revision
-                    self.server.results.import_legacy_local_reads(reads)
-                else:
-                    send_id, revision = payload.get("send_id"), payload.get("revision")
-                    if set(payload) != {"send_id", "revision"} or not isinstance(send_id, str) or not isinstance(revision, str):
-                        raise ValueError("Invalid local read receipt")
-                    record = self.server.results.detail(send_id)
-                    if record is None:
-                        self._json({"ok": False, "error": "Local run not found"}, HTTPStatus.NOT_FOUND)
-                        return
-                    self.server.replies.annotate_response_markers([record])
-                    if not revision or record["last_reply_revision"] != revision:
-                        self._json({"ok": False, "error": "Reply revision changed"}, HTTPStatus.CONFLICT)
-                        return
-                    self.server.results.mark_local_read(send_id, revision)
-                self._json({"ok": True})
-                return
-            if path in {"/api/local-chat-pins", "/api/local-chat-pins/import"}:
-                if self.headers.get("content-type", "").split(";", 1)[0].strip().lower() != "application/json":
-                    raise ValueError("Local pin changes require JSON")
-                payload = self._json_body(max_bytes=8192)
-                if path.endswith("/import"):
-                    raw_ids = payload.get("send_ids")
-                    if set(payload) != {"send_ids"} or not isinstance(raw_ids, list):
-                        raise ValueError("Invalid legacy pin import")
-                    ids: list[str] = []
-                    for item in raw_ids:
-                        if not isinstance(item, str):
-                            raise ValueError("Invalid legacy pin import")
-                        ids.append(item)
-                    self.server.results.import_legacy_local_pins(ids)
-                else:
-                    send_id, pinned = payload.get("send_id"), payload.get("pinned")
-                    if set(payload) != {"send_id", "pinned"} or not isinstance(send_id, str) or not isinstance(pinned, bool):
-                        raise ValueError("Invalid local pin change")
-                    if not self.server.results.set_local_pin(send_id, pinned=pinned):
-                        self._json({"ok": False, "error": "Local run not found"}, HTTPStatus.NOT_FOUND)
-                        return
-                self._json({"ok": True})
-                return
-            payload = self._json_body(max_bytes=11 * 1024 * 1024 if path == "/api/images" else 1024 * 1024)
-            if path == "/api/chats":
-                if set(payload) != {"request_id", "prompt", "images"}:
-                    raise ValueError("Invalid fresh chat fields")
-                request_id, prompt, raw_images = (
-                    payload["request_id"], payload["prompt"], payload["images"]
-                )
-                if (
-                    not isinstance(request_id, str) or not isinstance(prompt, str)
-                    or not prompt.strip() or len(prompt) > 32000
-                    or not isinstance(raw_images, list) or len(raw_images) > 4
-                ):
-                    raise ValueError("Invalid fresh chat payload")
-                refs = image_refs(raw_images)
-                if len(refs) != len(raw_images):
-                    raise ValueError("Invalid image references")
-                for ref in refs:
-                    self.server.images.path(ref)
-                receipt = self.server.queue.enqueue_manual(
-                    prompt.strip(), images=refs, request_id=request_id,
-                    pin_local_default=True,
-                )
-                self._json(
-                    {"ok": True, "send_id": receipt["send_id"], "status": receipt["status"]},
-                    HTTPStatus.ACCEPTED,
-                )
-                return
-            if path == "/api/images":
-                name, data = payload.get("name"), payload.get("data")
-                if not isinstance(name, str) or not isinstance(data, str):
-                    raise ValueError("Invalid image upload")
-                ref = self.server.images.save(name, data)
-                self._json({"ok": True, "image": {"ref": ref, "name": ref.split("/", 1)[1], "url": "./api/images/" + ref}})
-                return
-            action = str(payload.get("action") or "")
-            result = self.server.jobs.apply(action, payload)
-        except ReplyConflict as exc:
-            self._json({"ok": False, "error": str(exc)}, HTTPStatus.CONFLICT)
-            return
-        except ValueError as exc:
-            self._json({"ok": False, "error": str(exc)}, HTTPStatus.BAD_REQUEST)
-            return
-        except Exception as exc:
-            if reply_path or send_reply_path or recover_reply_path or queue_reply_path or path == "/api/chats" or path.startswith(("/api/local-chat-pins", "/api/local-chat-reads")):
-                # DB/driver exceptions may contain secret prompts or SQLite parameters.
-                logger.error("Chat send contract failed error_type=%s", type(exc).__name__)
-                self._json({"ok": False, "error": "Chat send contract unavailable"},
-                           HTTPStatus.INTERNAL_SERVER_ERROR)
-                return
-            logger.exception("Prompta jobs update failed")
-            self._json(
-                {"ok": False, "error": str(exc) or exc.__class__.__name__},
-                HTTPStatus.INTERNAL_SERVER_ERROR,
-            )
-            return
-        self._json(result)
+    return app
 
 
 def serve(
@@ -548,13 +551,14 @@ def serve(
     state_path: Path = DEFAULT_STATE_PATH,
     jobs_path: Path = DEFAULT_JOBS_PATH,
 ) -> None:
-    server = PromptaJobServer((host, port), state_path=state_path, jobs_path=jobs_path)
-    logger.info("Prompta jobs UI listening on http://%s:%d", host, port)
-    notify_watchdog()
-    try:
-        server.serve_forever(poll_interval=0.5)
-    finally:
-        server.server_close()
+    # Uvicorn access/error tracebacks can expose query strings or database values.
+    # Handled failures are logged as exception types at the application boundary.
+    uvicorn.run(
+        create_app(state_path=state_path, jobs_path=jobs_path),
+        host=host,
+        port=port,
+        access_log=False,
+    )
 
 
 def main() -> None:

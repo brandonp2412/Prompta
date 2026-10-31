@@ -27,9 +27,9 @@ def serve_worktree_assets(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def populate(app: object) -> None:
-    from prompta.web import PromptaJobServer
+    from live_server import LiveServer
 
-    assert isinstance(app, PromptaJobServer)
+    assert isinstance(app, LiveServer)
     for index in range(16):
         add_job(
             app.jobs_path,

@@ -25,7 +25,7 @@ def test_exact_local_queue_receipt_is_read_only_and_idempotent(tmp_path: Path) -
         assert headers["cache-control"] == "no-store"
         assert receipt == {"send_id": first["send_id"], "status": "queued"}
         assert get(port, "/api/chats/requests/../invalid")[0] == 404
-        assert get(port, "/api/chats/requests/" + "A" * 32)[0] == 404
+        assert get(port, "/api/chats/requests/" + "A" * 32)[0] == 400
 
         status, replay = post_json(
             port, "/api/chats", {"request_id": request_id, "prompt": "One prompt", "images": []}
