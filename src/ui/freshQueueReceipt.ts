@@ -11,10 +11,6 @@ type PendingFreshRequest = {
 const storageKey = "prompta.pending-fresh-requests.v1";
 // Never silently evict an unresolved fresh-chat request ID.
 const maxRecords = 1024;
-let memoryRecords: PendingFreshRequest[] = [];
-// A browser can allow reads while rejecting writes (quota, policy or storage errors).
-// Once that happens, local memory must win until a later write succeeds.
-let memoryOnly = false;
 
 function valid(record: unknown): record is PendingFreshRequest {
   if (!record || typeof record !== "object") return false;
@@ -33,13 +29,13 @@ function valid(record: unknown): record is PendingFreshRequest {
 }
 
 function records(): PendingFreshRequest[] {
-  if (memoryOnly) return memoryRecords;
   let raw: string | null;
   try {
     raw = localStorage.getItem(storageKey);
   } catch {
-    // A denied read cannot erase IDs already created in this page.
-    return memoryRecords;
+    throw new Error(
+      "Unresolved chat receipts cannot be read from browser storage; nothing was sent.",
+    );
   }
   if (raw === null) return [];
   let stored: unknown;
@@ -48,7 +44,12 @@ function records(): PendingFreshRequest[] {
   } catch {
     throw new Error("Unresolved chat receipts are unreadable; no new send was attempted.");
   }
-  if (!Array.isArray(stored) || stored.length > maxRecords || !stored.every(valid)) {
+  if (
+    !Array.isArray(stored) ||
+    stored.length > maxRecords ||
+    !stored.every(valid) ||
+    new Set(stored.map((record: PendingFreshRequest) => record.fingerprint)).size !== stored.length
+  ) {
     // Never silently discard a damaged record: it could identify a real send.
     throw new Error("Unresolved chat receipts are unreadable; no new send was attempted.");
   }
@@ -59,13 +60,15 @@ function persist(items: PendingFreshRequest[]): void {
   if (items.length > maxRecords) {
     throw new Error("Unresolved chat requests are at capacity; no new send was attempted.");
   }
-  memoryRecords = items;
   try {
-    localStorage.setItem(storageKey, JSON.stringify(memoryRecords));
-    memoryOnly = false;
+    const serialized = JSON.stringify(items);
+    localStorage.setItem(storageKey, serialized);
+    if (localStorage.getItem(storageKey) !== serialized)
+      throw new Error("Storage write not retained");
   } catch {
-    // A readable but unwritable store must not erase an unresolved request ID.
-    memoryOnly = true;
+    throw new Error(
+      "Unresolved chat receipts cannot be saved in browser storage; nothing was sent.",
+    );
   }
 }
 
@@ -108,7 +111,13 @@ export async function findFreshQueueReceipt(requestId: string): Promise<string |
 
 export function acknowledgeFreshQueueRequest(fingerprint: string, requestId: string): void {
   // Clearing one accepted receipt must not erase other unresolved submissions.
-  persist(
-    records().filter((entry) => entry.fingerprint !== fingerprint || entry.requestId !== requestId),
-  );
+  try {
+    persist(
+      records().filter(
+        (entry) => entry.fingerprint !== fingerprint || entry.requestId !== requestId,
+      ),
+    );
+  } catch {
+    // The server confirmed acceptance; retain the ID for reconciliation if cleanup fails.
+  }
 }
