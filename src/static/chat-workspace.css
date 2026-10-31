@@ -18,8 +18,8 @@
 .chat-entry { margin: 1px 0; }
 .chat-entry .chat-row { min-height: 43px; padding: 10px 4px 10px 11px; display: flex; align-items: center; }
 .chat-entry .chat-row-top { width: 100%; align-items: center; gap: 8px; }
-.chat-entry .chat-row-top strong { font-size: .88rem; font-weight: 500; line-height: 1.45; }
-.chat-entry .chat-row-top .result-dot { width: 6px; height: 6px; margin-left: auto; }
+.chat-entry .chat-row-top strong { font-size: .94rem; font-weight: 500; line-height: 1.5; }
+.chat-entry .chat-row-top .result-dot { width: 9px; height: 9px; margin-left: auto; }
 .chat-entry .chat-pin { width: 32px; align-self: stretch; }
 .prompt-bubble { display: flex; flex-direction: column; align-items: flex-end; width: fit-content; max-width: 92%; margin-left: auto; border-radius: 17px 17px 5px 17px; background: #303030; overflow: hidden; }
 .prompt-bubble .prompt-message { width: 100%; max-width: none; margin: 0; padding: 14px 17px; background: transparent; border-radius: 0; }

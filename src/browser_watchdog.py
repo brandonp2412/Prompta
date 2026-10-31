@@ -49,23 +49,60 @@ def debugger_responding(address: str = "127.0.0.1:9222") -> bool:
 
 
 def delivery_in_flight(database: Path, now: float) -> bool:
-    """Avoid restarting the browser during a send with an unknown outcome."""
+    """Fail closed if a browser restart could interrupt a durable send or capture.
+
+    The worker's health row describes only its latest activity. Parallel
+    dispatches can overwrite one another there, so check each persisted lease.
+    """
     try:
         with sqlite3.connect(f"file:{database}?mode=ro", uri=True, timeout=1.0) as connection:
             row = connection.execute(
                 "SELECT activity, activity_started_at FROM service_health WHERE service = ?",
                 ("delivery_worker",),
             ).fetchone()
-    except sqlite3.Error:
+    except (OSError, sqlite3.Error):
         logger.warning("Cannot inspect in-flight delivery; deferring browser restart")
         return True
-    if row is None:
-        return False
-    activity, started_at = row
+    if row is not None:
+        activity, started_at = row
+        if isinstance(activity, str) and activity.startswith("dispatch:"):
+            try:
+                if 0 <= now - float(started_at) < 300.0:
+                    return True
+            except (TypeError, ValueError):
+                logger.warning("Invalid delivery activity timestamp; deferring browser restart")
+                return True
+
+    def active_lease(path: Path, query: str) -> bool:
+        try:
+            if not path.exists():
+                return False
+            with sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=1.0) as connection:
+                return connection.execute(query, (now,)).fetchone() is not None
+        except (OSError, sqlite3.Error):
+            logger.warning("Cannot inspect %s leases; deferring browser restart", path.name)
+            return True
+
+    state_dir = database.parent
     return (
-        isinstance(activity, str)
-        and activity.startswith("dispatch:")
-        and 0 <= now - float(started_at) < 300.0
+        active_lease(
+            state_dir / "ui-send-jobs.sqlite3",
+            "SELECT 1 FROM job_deliveries "
+            "WHERE status = 'running' AND lease_owner != '' "
+            "AND lease_expires_at > ? LIMIT 1",
+        )
+        or active_lease(
+            state_dir / "chat-results.sqlite3",
+            "SELECT 1 FROM manual_reply_turns "
+            "WHERE status IN ('dispatching', 'accepted', 'generating') "
+            "AND lease_owner != '' AND lease_deadline > ? LIMIT 1",
+        )
+        or active_lease(
+            state_dir / "chat-results.sqlite3",
+            "SELECT 1 FROM job_responses "
+            "WHERE status IN ('accepted', 'generating') "
+            "AND capture_owner != '' AND capture_deadline > ? LIMIT 1",
+        )
     )
 
 

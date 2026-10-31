@@ -8,14 +8,39 @@
   // The token tree is rendered as Svelte text/elements. Untrusted HTML is never injected.
   let tokens = $derived(marked.lexer(displaySource, { gfm: true, breaks: false }));
   let copiedCode = $state("");
+  let copyStatus = $state<"idle" | "copied" | "failed">("idle");
+  let feedbackTimer: ReturnType<typeof setTimeout> | undefined;
+  let copyGeneration = 0;
 
-  async function copyCode(text: string) {
+  $effect(() => {
+    // A copied-code toast belongs to this response, never the next chat.
+    void displaySource;
+    copyGeneration += 1;
+    copiedCode = "";
+    copyStatus = "idle";
+    return () => clearTimeout(feedbackTimer);
+  });
+
+  async function copyCode(text: string, index: number) {
+    const generation = ++copyGeneration;
+    clearTimeout(feedbackTimer);
+    const key = index + ":" + text;
     try {
       await navigator.clipboard.writeText(text);
-      copiedCode = text;
+      if (generation !== copyGeneration) return;
+      copiedCode = key;
+      copyStatus = "copied";
     } catch {
-      copiedCode = "";
+      if (generation !== copyGeneration) return;
+      copiedCode = key;
+      copyStatus = "failed";
     }
+    feedbackTimer = setTimeout(() => {
+      if (generation === copyGeneration) {
+        copiedCode = "";
+        copyStatus = "idle";
+      }
+    }, 2200);
   }
 
   function children(token: Token): Token[] {
@@ -50,7 +75,7 @@
 {/snippet}
 
 {#snippet blocks(items: Token[])}
-  {#each items as token}
+  {#each items as token, index}
     {#if token.type === "heading"}
       {#if token.depth === 1}<h1>{@render inline(children(token))}</h1>
       {:else if token.depth === 2}<h2>{@render inline(children(token))}</h2>
@@ -74,7 +99,7 @@
       {/if}
     {:else if token.type === "code"}
       <div class="code-snippet">
-        <div class="code-toolbar"><span>{token.lang || "Code"}</span><button type="button" aria-label="Copy code" onclick={() => copyCode(token.text)}>{copiedCode === token.text ? "Copied" : "Copy code"}</button></div>
+        <div class="code-toolbar"><span>{token.lang || "Code"}</span><button type="button" aria-label="Copy code" aria-live="polite" onclick={() => copyCode(token.text, index)}>{copiedCode === index + ":" + token.text ? (copyStatus === "copied" ? "Copied" : "Copy failed") : "Copy code"}</button></div>
         <pre><code class={token.lang ? "language-" + token.lang.split(/\s+/)[0] : ""}>{token.text}</code></pre>
       </div>
     {:else if token.type === "list"}
