@@ -17,7 +17,7 @@ from prompta.strict_types import json_object
 
 @pytest.fixture(autouse=True)
 def serve_worktree_assets(monkeypatch: pytest.MonkeyPatch) -> None:
-    # Nox's editable installation points at main even in an isolated worktree.
+    # test host's editable installation points at main even in an isolated worktree.
     import prompta.web as web_module
 
     assets = Path(__file__).resolve().parents[1] / "src/static"

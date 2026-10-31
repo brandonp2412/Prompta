@@ -320,7 +320,7 @@ def test_read_only_recovery_restores_uncertain_explicit_reply_without_resending(
                 "message_id": "reply-unit", "branch_message_id": "11111111-1111-4111-8111-111111111111",
                 "verified_parent_id": original_id, "pathname": "/c/" + CONVERSATION,
                 "text": "Recovered follow-up", "complete": True,
-                "tool_calls": [{"action": "Used Nox Python", "status": "completed"}],
+                "tool_calls": [{"action": "Used test connector", "status": "completed"}],
             }
 
     driver = ReplyDriver()

@@ -234,7 +234,7 @@ def test_legacy_chatgpt_metrics_and_checklist_are_reconstructed(
         send_id = "legacy-metrics"
         seed_terminal(app, send_id=send_id, missing_id=False)
         dom_capture = (
-            "I found a significant pattern in Prompta’s live database on Nox:\n\n"
+            "I found a significant pattern in Prompta’s live database on test host:\n\n"
             "28\nInterrupted\n9\nUnavailable\n107\nCompleted\n\n"
             "The interrupted results frequently occur exactly 45 minutes later.\n\n"
             "The verification is:\n\n"

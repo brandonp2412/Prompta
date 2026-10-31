@@ -21,8 +21,8 @@ The API factory is `prompta.web:create_app`; `prompta-ui` runs it with Uvicorn.
 Use strict Pydantic request models and keep browser/dispatch policy in services.
 The real HTTP/browser tests use Uvicorn; framework boundary tests use FastAPI's
 TestClient. Set `PROMPTA_TEST_CHROMIUM` to your Chromium/Brave executable when it
-is not installed at `/usr/bin/chromium`. On Glass, use
-`PROMPTA_TEST_CHROMIUM=/opt/brave-bin/brave`: the `~/.local/bin/chromium` wrapper
+is not installed at `/usr/bin/chromium`. On hosts with Brave, set
+`PROMPTA_TEST_CHROMIUM` to the installed browser executable: a `chromium` wrapper
 may exist even when its `/usr/bin/chromium` target does not. Browser-launch
 failures must not be mistaken for application regressions or passing skips.
 
@@ -46,9 +46,9 @@ The migration environment requires a caller-owned serialized connection; use
 
 ## Release
 
-Commit validated changes. Acquire `/home/brandon/prompta/.git/prompta-main-merge.lock` with `flock` before updating against `main`, integrating, or pushing. Hold it through the push, then deploy `main` to Nox.
+Commit validated changes. Acquire the checkout's `.git/prompta-main-merge.lock` with `flock` before updating against `main`, integrating, or pushing. Hold it through the push, then deploy `main` to the configured production host.
 
-On Nox, update `/home/brandon/prompta`. Adding Python modules requires `buildq --wait -- uv sync --locked --reinstall-package prompta` to refresh strict editable imports. Verify imports, take private SQLite backups, and run `buildq --wait -- .venv/bin/prompta-migrate` before restarting affected services. Allow active delivery and reply captures to finish; the manual-reply worker drains captures on shutdown. Check service health and `GET /api/health` after deployment. Documentation changes take effect when the checkout updates.
+On the production host, update the configured checkout. Adding Python modules requires `buildq --wait -- uv sync --locked --reinstall-package prompta` to refresh strict editable imports. Verify imports, take private SQLite backups, and run `buildq --wait -- .venv/bin/prompta-migrate` before restarting affected services. Allow active delivery and reply captures to finish; the manual-reply worker drains captures on shutdown. Check service health and `GET /api/health` after deployment. Documentation changes take effect when the checkout updates.
 
 For a deliberate live delivery/capture check that creates a real ChatGPT chat:
 

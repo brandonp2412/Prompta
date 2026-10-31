@@ -1,3 +1,3 @@
 - Do not disable lint/type-check rules, add blanket suppression comments, use `Any`/`cast`/`no_type_check` escape hatches, or weaken compiler settings to make checks pass. Fix the underlying types and behavior instead. Python must pass full-repo Ruff and Ty strictness; TypeScript must remain in strict mode.
 - At the end of every work session, integrate validated work into `main`, push `main`, and leave no completed work stranded only in a worktree.
-- When you finish working, deploy to nox.
+- When you finish working, deploy to the configured production host.
