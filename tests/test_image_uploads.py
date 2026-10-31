@@ -12,7 +12,7 @@ from urllib.request import Request, urlopen
 
 import pytest
 from live_server import LiveServer
-from patchright.sync_api import sync_playwright
+from patchright.sync_api import sync_playwright as sync_patchright
 
 from prompta.delivery_queue import DeliveryQueueStore
 from prompta.image_store import ImageStore
@@ -126,8 +126,8 @@ def test_mobile_image_previews_do_not_hide_under_footer(tmp_path: Path) -> None:
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
-        with sync_playwright() as playwright:
-            browser = playwright.chromium.launch(
+        with sync_patchright() as patchright:
+            browser = patchright.chromium.launch(
                 headless=True, executable_path=chromium, args=["--no-sandbox"]
             )
             try:

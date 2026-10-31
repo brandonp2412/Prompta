@@ -8,7 +8,8 @@ import time
 from pathlib import Path
 
 import pytest
-from patchright.sync_api import expect, sync_playwright
+from patchright.sync_api import expect
+from patchright.sync_api import sync_playwright as sync_patchright
 from web_results_support import completed_run, server
 
 from prompta.delivery_queue import DeliveryQueueStore
@@ -143,9 +144,9 @@ def test_chat_result_survives_optional_reply_read_failure(
     height: int,
     failure: str,
 ) -> None:
-    with server(tmp_path) as (app, port), sync_playwright() as playwright:
+    with server(tmp_path) as (app, port), sync_patchright() as patchright:
         completed_run(app, "partial-local-read", "Partial read probe", time.time())
-        browser = playwright.chromium.launch(executable_path=_chromium(), headless=True)
+        browser = patchright.chromium.launch(executable_path=_chromium(), headless=True)
         page = browser.new_page(viewport={"width": width, "height": height})
         posts: list[str] = []
         page.on(
@@ -182,8 +183,8 @@ def test_old_job_image_upload_cannot_reappear_in_reopened_editor(
     width: int,
     height: int,
 ) -> None:
-    with server(tmp_path) as (_, port), sync_playwright() as playwright:
-        browser = playwright.chromium.launch(executable_path=_chromium(), headless=True)
+    with server(tmp_path) as (_, port), sync_patchright() as patchright:
+        browser = patchright.chromium.launch(executable_path=_chromium(), headless=True)
         page = browser.new_page(viewport={"width": width, "height": height})
         page.add_init_script("""(() => {
           const original = window.fetch.bind(window);
@@ -226,8 +227,8 @@ def test_mobile_job_filters_are_discoverable_without_sideways_scroll(
     width: int,
     height: int,
 ) -> None:
-    with server(tmp_path) as (_, port), sync_playwright() as playwright:
-        browser = playwright.chromium.launch(executable_path=_chromium(), headless=True)
+    with server(tmp_path) as (_, port), sync_patchright() as patchright:
+        browser = patchright.chromium.launch(executable_path=_chromium(), headless=True)
         page = browser.new_page(viewport={"width": width, "height": height})
         page.goto(f"http://127.0.0.1:{port}/?view=jobs")
         filters = page.get_by_role("group", name="Filter jobs")

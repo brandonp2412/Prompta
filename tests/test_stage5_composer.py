@@ -14,7 +14,8 @@ from pathlib import Path
 
 import pytest
 from live_server import LiveServer
-from patchright.sync_api import expect, sync_playwright
+from patchright.sync_api import expect
+from patchright.sync_api import sync_playwright as sync_patchright
 
 from prompta.response_capture import CaptureResult
 from prompta.response_store import ResponseStore
@@ -118,8 +119,8 @@ def test_composer_queues_followup_while_first_answer_is_pending(
     results = ResponseStore(tmp_path / "chat-results.sqlite3")
     results.ensure_queued("early", "Original private prompt")
     assert results.accept("early", "owner", deadline=time.time() + 4000)
-    with serve_test_ui(tmp_path) as port, sync_playwright() as playwright:
-        browser = playwright.chromium.launch(executable_path=executable, headless=True)
+    with serve_test_ui(tmp_path) as port, sync_patchright() as patchright:
+        browser = patchright.chromium.launch(executable_path=executable, headless=True)
         page = browser.new_page(viewport={"width": width, "height": height})
         page.goto(f"http://127.0.0.1:{port}/?view=chats&run=early")
         composer = page.get_by_role("textbox", name="Message for current chat")
@@ -154,8 +155,8 @@ def test_real_composer_keyboard_image_and_overflow(
     images = Path(os.environ.get("PROMPTA_SCREENSHOT_DIR", str(tmp_path)))
     images.mkdir(parents=True, exist_ok=True, mode=0o700)
     requests: list[tuple[str, str]] = []
-    with serve_test_ui(tmp_path) as port, sync_playwright() as playwright:
-        browser = playwright.chromium.launch(executable_path=executable, headless=True)
+    with serve_test_ui(tmp_path) as port, sync_patchright() as patchright:
+        browser = patchright.chromium.launch(executable_path=executable, headless=True)
         page = browser.new_page(viewport={"width": width, "height": height}, device_scale_factor=1)
         page.on("request", lambda request: requests.append((request.method, request.url)))
         page.goto(f"http://127.0.0.1:{port}/?view=chats&draft=new")
@@ -287,8 +288,8 @@ def test_existing_chat_reply_composer_is_explicit_and_branch_bound(
     screenshots.mkdir(parents=True, exist_ok=True, mode=0o700)
     observed: list[tuple[str, str]] = []
     try:
-        with sync_playwright() as playwright:
-            browser = playwright.chromium.launch(executable_path=executable, headless=True)
+        with sync_patchright() as patchright:
+            browser = patchright.chromium.launch(executable_path=executable, headless=True)
             page = browser.new_page(viewport={"width": width, "height": height})
             page.on("request", lambda request: observed.append((request.method, request.url)))
             page.goto(f"http://127.0.0.1:{port}/?view=chats&run=run-1")
@@ -430,8 +431,8 @@ def test_reply_composer_preserves_terminal_recovery_without_sending(
     thread.start()
     observed: list[tuple[str, str]] = []
     try:
-        with sync_playwright() as playwright:
-            browser = playwright.chromium.launch(executable_path=executable, headless=True)
+        with sync_patchright() as patchright:
+            browser = patchright.chromium.launch(executable_path=executable, headless=True)
             page = browser.new_page(viewport={"width": width, "height": height})
             page.on("request", lambda request: observed.append((request.method, request.url)))
             page.goto(f"http://127.0.0.1:{app.server_address[1]}/?view=chats&run=run-1")
@@ -478,7 +479,7 @@ def test_fresh_chat_immediately_enters_sidebar_without_horizontal_scroll(
     executable = os.environ.get("PROMPTA_TEST_CHROMIUM", "")
     if not executable or not Path(executable).exists():
         pytest.skip("Headless Chromium unavailable")
-    with serve_test_ui(tmp_path) as port, sync_playwright() as playwright:
+    with serve_test_ui(tmp_path) as port, sync_patchright() as patchright:
         results = ResponseStore(tmp_path / "chat-results.sqlite3")
         for index in range(35):
             results.ensure_queued(
@@ -486,7 +487,7 @@ def test_fresh_chat_immediately_enters_sidebar_without_horizontal_scroll(
                 f"A very long synthetic chat {index} " + "X" * 250,
                 now=time.time() - 100 - index,
             )
-        browser = playwright.chromium.launch(executable_path=executable, headless=True)
+        browser = patchright.chromium.launch(executable_path=executable, headless=True)
         page = browser.new_page(viewport={"width": width, "height": height})
         page.goto(f"http://127.0.0.1:{port}/?view=chats&draft=new")
         page.get_by_role("textbox", name="Message for new chat").fill("Instant new sidebar chat")

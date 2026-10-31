@@ -12,12 +12,12 @@ import uuid
 from dataclasses import replace
 from pathlib import Path
 
-from patchright.async_api import Error as PlaywrightError
+from patchright.async_api import Error as PatchrightError
 
 from .browser_ownership import MAX_OWNED_TAB_AGE_SECONDS
 from .browser_script_loader import load_browser_script
 from .delivery_browser import BrowserDeliverySender
-from .playwright_driver import PlaywrightDriver, _normalise_composer_text
+from .patchright_driver import PatchrightDriver, _normalise_composer_text
 from .rate_limit import RateLimitError
 from .reply_contracts import ManualReplyStore, ReplyConflict, ReplyIntent
 from .response_capture import CaptureResult
@@ -188,7 +188,7 @@ class ManualReplyDispatcher:
             raise ReplyConflict(
                 f"ChatGPT account read cooldown is active; retry in {int(remaining + 0.999)} seconds"
             )
-        driver = PlaywrightDriver(
+        driver = PatchrightDriver(
             profile=sender.profile,
             chrome_path=sender.chrome_path,
             debugger_address=sender.debugger_address,
@@ -227,7 +227,7 @@ class ManualReplyDispatcher:
                     raise ReplyConflict("ChatGPT account read cooldown is active; retry later")
                 try:
                     candidate = await asyncio.wait_for(driver.eval(probe), timeout=5.0)
-                except (PlaywrightError, TimeoutError):
+                except (PatchrightError, TimeoutError):
                     candidate = None
                 if isinstance(candidate, str) and candidate:
                     break
@@ -279,7 +279,7 @@ class ManualReplyDispatcher:
             self.state_path,
             debugger_address=os.environ.get("PROMPTA_CHROME_DEBUGGER_ADDRESS", "127.0.0.1:9223"),
         )
-        driver = PlaywrightDriver(
+        driver = PatchrightDriver(
             profile=sender.profile,
             chrome_path=sender.chrome_path,
             debugger_address=sender.debugger_address,
@@ -302,7 +302,7 @@ class ManualReplyDispatcher:
             for attempt in range(2):
                 try:
                     await driver.connect()
-                except (PlaywrightError, RuntimeError) as exc:
+                except (PatchrightError, RuntimeError) as exc:
                     if attempt == 1:
                         raise
                     logger.warning(
@@ -387,7 +387,7 @@ class ManualReplyDispatcher:
                             key: value for key, value in probe.items()
                             if isinstance(key, str)
                         }
-                except (PlaywrightError, RuntimeError, TimeoutError):
+                except (PatchrightError, RuntimeError, TimeoutError):
                     pass
                 confirmed = delivery_proof.get("verified") is True
             if not confirmed:

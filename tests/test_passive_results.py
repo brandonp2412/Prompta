@@ -381,7 +381,7 @@ async def test_real_browser_late_answer_recovers_without_external_reads(
 ) -> None:
     import shutil
 
-    from patchright.async_api import async_playwright
+    from patchright.async_api import async_playwright as async_patchright
 
     from prompta import delivery_browser
     from prompta.browser_script_loader import load_browser_script
@@ -396,8 +396,8 @@ async def test_real_browser_late_answer_recovers_without_external_reads(
     assert sender.results.accept("browser-recover", owner, deadline=time.time() + 60)
     monkeypatch.setattr(delivery_browser, "_PASSIVE_RECOVERY_PROBE_SECONDS", 0.08)
 
-    async with async_playwright() as playwright:
-        browser = await playwright.chromium.launch(
+    async with async_patchright() as patchright:
+        browser = await patchright.chromium.launch(
             executable_path=chromium, headless=True, args=["--no-sandbox"],
         )
         try:

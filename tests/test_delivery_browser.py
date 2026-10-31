@@ -11,13 +11,13 @@ from _browser_fakes import FakeDriver
 from _browser_fakes import offline_approval_default as offline_approval_default
 
 import prompta.delivery_browser as delivery_browser
-import prompta.playwright_driver as playwright_driver
+import prompta.patchright_driver as patchright_driver
 from prompta.delivery_browser import (
     BrowserDeliverySender,
     DeliveryBackendUnavailableError,
     _is_conversation_path,
 )
-from prompta.playwright_driver import PlaywrightDriver
+from prompta.patchright_driver import PatchrightDriver
 from prompta.rate_limit import RateLimitError
 from prompta.send_outcome import SendOutcomeUnknownError
 
@@ -54,10 +54,10 @@ async def test_only_owned_event_stream_marks_live_generation(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    driver = PlaywrightDriver(profile=tmp_path / "profile")
-    request = MagicMock(spec=playwright_driver.Request)
+    driver = PatchrightDriver(profile=tmp_path / "profile")
+    request = MagicMock(spec=patchright_driver.Request)
     request.method = "POST"
-    response = MagicMock(spec=playwright_driver.Response)
+    response = MagicMock(spec=patchright_driver.Response)
     response.request = request
     response.url = "https://chatgpt.com/backend-api/conversation"
     response.status = 200
@@ -88,8 +88,8 @@ async def test_owned_tab_lease_precedes_failing_viewport_setup(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    driver = PlaywrightDriver(profile=tmp_path / "profile")
-    page = MagicMock(spec=playwright_driver.Page)
+    driver = PatchrightDriver(profile=tmp_path / "profile")
+    page = MagicMock(spec=patchright_driver.Page)
     session = MagicMock()
     session.send = AsyncMock(return_value={"targetInfo": {"targetId": "owned-target"}})
     session.detach = AsyncMock()
@@ -99,7 +99,7 @@ async def test_owned_tab_lease_precedes_failing_viewport_setup(
     page.close = AsyncMock()
     registered: list[str] = []
     monkeypatch.setattr(
-        playwright_driver,
+        patchright_driver,
         "record_owned_tab",
         lambda target_id, _time: registered.append(target_id),
     )

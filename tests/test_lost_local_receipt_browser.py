@@ -6,7 +6,8 @@ import time
 from pathlib import Path
 
 import pytest
-from patchright.sync_api import Route, expect, sync_playwright
+from patchright.sync_api import Route, expect
+from patchright.sync_api import sync_playwright as sync_patchright
 from web_results_support import completed_run, server
 
 
@@ -17,9 +18,9 @@ def test_lost_local_pin_and_read_acknowledgments_reconcile_without_replay(
     executable = os.environ.get("PROMPTA_TEST_CHROMIUM", "")
     if not executable or not Path(executable).exists():
         pytest.skip("Headless Chromium unavailable")
-    with server(tmp_path) as (app, port), sync_playwright() as playwright:
+    with server(tmp_path) as (app, port), sync_patchright() as patchright:
         completed_run(app, "receipt-one", "Local receipt probe", time.time() - 20)
-        browser = playwright.chromium.launch(executable_path=executable, headless=True)
+        browser = patchright.chromium.launch(executable_path=executable, headless=True)
         page = browser.new_page(viewport={"width": width, "height": height})
         remote: list[str] = []
         mutations: list[str] = []
@@ -87,9 +88,9 @@ def test_lost_bulk_read_acknowledgment_refreshes_without_a_second_write(
     executable = os.environ.get("PROMPTA_TEST_CHROMIUM", "")
     if not executable or not Path(executable).exists():
         pytest.skip("Headless Chromium unavailable")
-    with server(tmp_path) as (app, port), sync_playwright() as playwright:
+    with server(tmp_path) as (app, port), sync_patchright() as patchright:
         completed_run(app, "receipt-bulk", "Bulk read receipt probe", time.time() - 20)
-        browser = playwright.chromium.launch(executable_path=executable, headless=True)
+        browser = patchright.chromium.launch(executable_path=executable, headless=True)
         page = browser.new_page(viewport={"width": width, "height": height})
         writes: list[str] = []
         page.route("**/api/events", lambda route: route.abort())

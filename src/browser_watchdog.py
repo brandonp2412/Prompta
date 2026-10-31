@@ -14,7 +14,7 @@ from pathlib import Path
 from urllib.parse import quote
 from urllib.request import urlopen
 
-from patchright.async_api import async_playwright
+from patchright.async_api import async_playwright as async_patchright
 
 from .browser_ownership import (
     MAX_OWNED_TAB_AGE_SECONDS,
@@ -159,9 +159,9 @@ async def reap_expired_owned_tabs(
     current = time.time() if now is None else now
     cutoff = current - MAX_OWNED_TAB_AGE_SECONDS
     closed = 0
-    async with async_playwright() as playwright:
+    async with async_patchright() as patchright:
         browser = await asyncio.wait_for(
-            playwright.chromium.connect_over_cdp(f"http://{address}", timeout=5000),
+            patchright.chromium.connect_over_cdp(f"http://{address}", timeout=5000),
             timeout=6.0,
         )
         session = await asyncio.wait_for(browser.new_browser_cdp_session(), timeout=3.0)

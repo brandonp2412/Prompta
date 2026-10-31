@@ -7,7 +7,8 @@ import os
 from pathlib import Path
 
 import pytest
-from patchright.sync_api import FilePayload, expect, sync_playwright
+from patchright.sync_api import FilePayload, expect
+from patchright.sync_api import sync_playwright as sync_patchright
 from web_results_support import server
 
 PNG = base64.b64decode(
@@ -24,8 +25,8 @@ def test_malformed_upload_receipt_rejects_then_recovers(
     executable = os.environ.get("PROMPTA_TEST_CHROMIUM", "")
     if not executable or not Path(executable).exists():
         pytest.skip("Headless Chromium unavailable")
-    with server(tmp_path) as (_, port), sync_playwright() as playwright:
-        browser = playwright.chromium.launch(executable_path=executable, headless=True)
+    with server(tmp_path) as (_, port), sync_patchright() as patchright:
+        browser = patchright.chromium.launch(executable_path=executable, headless=True)
         page = browser.new_page(viewport={"width": width, "height": height})
         page.add_init_script("""(() => {
           const realFetch = window.fetch;

@@ -8,7 +8,8 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-from patchright.sync_api import expect, sync_playwright
+from patchright.sync_api import expect
+from patchright.sync_api import sync_playwright as sync_patchright
 from web_results_support import server
 
 PNG = base64.b64decode(
@@ -25,8 +26,8 @@ def test_rejected_image_send_recovers_without_duplicate(
     executable = os.environ.get("PROMPTA_TEST_CHROMIUM", "")
     if not executable or not Path(executable).exists():
         pytest.skip("Headless Chromium unavailable")
-    with server(tmp_path) as (app, port), sync_playwright() as playwright:
-        browser = playwright.chromium.launch(executable_path=executable, headless=True)
+    with server(tmp_path) as (app, port), sync_patchright() as patchright:
+        browser = patchright.chromium.launch(executable_path=executable, headless=True)
         page = browser.new_page(viewport={"width": width, "height": height})
         remote: list[str] = []
         posts: list[str] = []

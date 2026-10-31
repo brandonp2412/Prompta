@@ -8,7 +8,8 @@ import time
 from pathlib import Path
 
 import pytest
-from patchright.sync_api import Route, expect, sync_playwright
+from patchright.sync_api import Route, expect
+from patchright.sync_api import sync_playwright as sync_patchright
 from web_results_support import completed_run, server
 
 
@@ -26,9 +27,9 @@ def test_transient_turn_outage_keeps_confirmed_reply_visible(
     monkeypatch.setattr(
         web_module, "_STATIC_ROOT", Path(__file__).resolve().parents[1] / "src/static"
     )
-    with server(tmp_path) as (app, port), sync_playwright() as playwright:
+    with server(tmp_path) as (app, port), sync_patchright() as patchright:
         completed_run(app, "turn-outage-run", "Private thread", time.time())
-        browser = playwright.chromium.launch(
+        browser = patchright.chromium.launch(
             executable_path=str(executable), headless=True, args=["--no-sandbox"]
         )
         try:

@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 from patchright.async_api import Page, Request, Response
 
-from prompta.playwright_driver import PlaywrightDriver
+from prompta.patchright_driver import PatchrightDriver
 
 SSE = (
     'data: {"message":{"id":"response-1","author":{"role":"assistant"},'
@@ -21,7 +21,7 @@ SSE = (
 async def test_capture_reads_only_existing_post_sse_and_preserves_send_confirmation(
     tmp_path: Path,
 ) -> None:
-    driver = PlaywrightDriver(profile=tmp_path)
+    driver = PatchrightDriver(profile=tmp_path)
     driver._connected = True
     driver.context = "owned-fresh-tab"
     driver._pages[driver.context] = Mock(spec=Page, **{"is_closed.return_value": False})
@@ -51,7 +51,7 @@ async def test_capture_reads_only_existing_post_sse_and_preserves_send_confirmat
 
 @pytest.mark.asyncio
 async def test_unrelated_or_duplicate_post_cannot_replace_owned_stream(tmp_path: Path) -> None:
-    driver = PlaywrightDriver(profile=tmp_path)
+    driver = PatchrightDriver(profile=tmp_path)
     driver._connected = True
     driver.context = "owned-fresh-tab"
     driver._pages[driver.context] = Mock(spec=Page, **{"is_closed.return_value": False})
@@ -78,7 +78,7 @@ async def test_unrelated_or_duplicate_post_cannot_replace_owned_stream(tmp_path:
 
 @pytest.mark.asyncio
 async def test_non_sse_post_response_never_reads_body(tmp_path: Path) -> None:
-    driver = PlaywrightDriver(profile=tmp_path)
+    driver = PatchrightDriver(profile=tmp_path)
     driver._connected = True
     driver.context = "owned-fresh-tab"
     driver._pages[driver.context] = Mock(spec=Page, **{"is_closed.return_value": False})
@@ -100,7 +100,7 @@ async def test_non_sse_post_response_never_reads_body(tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_observer_binding_propagates_ambiguous_dom_rollover(tmp_path: Path) -> None:
-    driver = PlaywrightDriver(profile=tmp_path)
+    driver = PatchrightDriver(profile=tmp_path)
     driver._connected = True
     driver.context = "owned-fresh-tab"
     page = Mock(spec=Page)
@@ -123,7 +123,7 @@ async def test_observer_binding_propagates_ambiguous_dom_rollover(tmp_path: Path
 
 @pytest.mark.asyncio
 async def test_patchright_driver_selects_main_world_for_passive_callbacks(tmp_path: Path) -> None:
-    driver = PlaywrightDriver(profile=tmp_path)
+    driver = PatchrightDriver(profile=tmp_path)
     driver.context = "owned-fresh-tab"
     page = Mock(spec=Page)
     page.is_closed.return_value = False
@@ -138,7 +138,7 @@ async def test_patchright_driver_selects_main_world_for_passive_callbacks(tmp_pa
 
 @pytest.mark.asyncio
 async def test_native_completed_sse_persists_only_bounded_tool_metadata(tmp_path: Path) -> None:
-    driver = PlaywrightDriver(profile=tmp_path)
+    driver = PatchrightDriver(profile=tmp_path)
     driver._connected = True
     driver.context = "owned-fresh-tab"
     driver._pages[driver.context] = Mock(spec=Page, **{"is_closed.return_value": False})

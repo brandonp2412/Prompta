@@ -5,7 +5,8 @@ import os
 from pathlib import Path
 
 import pytest
-from patchright.sync_api import expect, sync_playwright
+from patchright.sync_api import expect
+from patchright.sync_api import sync_playwright as sync_patchright
 from web_results_support import completed_run, server
 
 
@@ -23,10 +24,10 @@ def test_chat_switch_keeps_transcript_and_composer_shell_stable(
     chromium = Path(os.environ.get("PROMPTA_TEST_CHROMIUM", "/usr/bin/chromium"))
     if not chromium.is_file():
         pytest.skip("Chromium unavailable")
-    with server(tmp_path) as (app, port), sync_playwright() as playwright:
+    with server(tmp_path) as (app, port), sync_patchright() as patchright:
         completed_run(app, "cls-alpha", "CLS Alpha", 100)
         completed_run(app, "cls-beta", "CLS Beta", 200)
-        browser = playwright.chromium.launch(
+        browser = patchright.chromium.launch(
             executable_path=str(chromium), headless=True, args=["--no-sandbox"],
         )
         try:
@@ -106,10 +107,10 @@ def test_slow_saved_turns_does_not_block_primary_chat(
     chromium = Path(os.environ.get("PROMPTA_TEST_CHROMIUM", "/usr/bin/chromium"))
     if not chromium.is_file():
         pytest.skip("Chromium unavailable")
-    with server(tmp_path) as (app, port), sync_playwright() as playwright:
+    with server(tmp_path) as (app, port), sync_patchright() as patchright:
         completed_run(app, "fast-alpha", "Fast Alpha", 100)
         completed_run(app, "fast-beta", "Fast Beta", 200)
-        browser = playwright.chromium.launch(
+        browser = patchright.chromium.launch(
             executable_path=str(chromium), headless=True, args=["--no-sandbox"],
         )
         try:
@@ -149,10 +150,10 @@ def test_fast_saved_replies_reveal_with_final_scroll_position(
     chromium = Path(os.environ.get("PROMPTA_TEST_CHROMIUM", "/usr/bin/chromium"))
     if not chromium.is_file():
         pytest.skip("Chromium unavailable")
-    with server(tmp_path) as (app, port), sync_playwright() as playwright:
+    with server(tmp_path) as (app, port), sync_patchright() as patchright:
         completed_run(app, "reveal-alpha", "Reveal Alpha", 100)
         completed_run(app, "reveal-beta", "Reveal Beta", 200)
-        browser = playwright.chromium.launch(
+        browser = patchright.chromium.launch(
             executable_path=str(chromium), headless=True, args=["--no-sandbox"],
         )
         try:

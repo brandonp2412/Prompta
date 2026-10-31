@@ -6,7 +6,8 @@ import os
 from pathlib import Path
 
 import pytest
-from patchright.sync_api import expect, sync_playwright
+from patchright.sync_api import expect
+from patchright.sync_api import sync_playwright as sync_patchright
 from test_reply_ui_browser import seed_terminal
 from web_results_support import server
 
@@ -39,7 +40,7 @@ def test_response_is_unboxed_and_preserves_markdown(
         "_STATIC_ROOT",
         Path(__file__).resolve().parents[1] / "src/static",
     )
-    with server(tmp_path) as (app, port), sync_playwright() as playwright:
+    with server(tmp_path) as (app, port), sync_patchright() as patchright:
         send_id = "response-style"
         seed_terminal(app, send_id=send_id, missing_id=False)
         ticks = chr(96)
@@ -60,7 +61,7 @@ def test_response_is_unboxed_and_preserves_markdown(
                 "UPDATE job_responses SET status = ?, assistant_text = ? WHERE send_id = ?",
                 (status, markdown, send_id),
             )
-        browser = playwright.chromium.launch(
+        browser = patchright.chromium.launch(
             executable_path=str(chromium),
             headless=True,
             args=["--no-sandbox"],
@@ -125,7 +126,7 @@ def test_multiple_local_responses_keep_distinct_turns_and_tool_activity(
         "_STATIC_ROOT",
         Path(__file__).resolve().parents[1] / "src/static",
     )
-    with server(tmp_path) as (app, port), sync_playwright() as playwright:
+    with server(tmp_path) as (app, port), sync_patchright() as patchright:
         send_id = "two-response-cards"
         conversation = "00000000-0000-4000-8000-000000000101"
         app.results.ensure_queued(send_id, "First question", now=100)
@@ -184,7 +185,7 @@ def test_multiple_local_responses_keep_distinct_turns_and_tool_activity(
             ),
             now=106,
         )
-        browser = playwright.chromium.launch(
+        browser = patchright.chromium.launch(
             executable_path=str(chromium),
             headless=True,
             args=["--no-sandbox"],
@@ -229,7 +230,7 @@ def test_legacy_chatgpt_metrics_and_checklist_are_reconstructed(
         "_STATIC_ROOT",
         Path(__file__).resolve().parents[1] / "src/static",
     )
-    with server(tmp_path) as (app, port), sync_playwright() as playwright:
+    with server(tmp_path) as (app, port), sync_patchright() as patchright:
         send_id = "legacy-metrics"
         seed_terminal(app, send_id=send_id, missing_id=False)
         dom_capture = (
@@ -250,7 +251,7 @@ def test_legacy_chatgpt_metrics_and_checklist_are_reconstructed(
                 "WHERE send_id = ?",
                 ("dom", "completed", dom_capture, send_id),
             )
-        browser = playwright.chromium.launch(
+        browser = patchright.chromium.launch(
             executable_path=str(chromium),
             headless=True,
             args=["--no-sandbox"],

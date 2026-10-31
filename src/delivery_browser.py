@@ -16,7 +16,7 @@ from .browser_script_loader import load_browser_script
 from .config import ConnectorApproval
 from .connector_approval_supervisor import supervise_connector_approvals
 from .image_store import ImageStore, image_refs
-from .playwright_driver import PlaywrightDriver, _normalise_composer_text
+from .patchright_driver import PatchrightDriver, _normalise_composer_text
 from .rate_limit import (
     DEFAULT_RETRY_AFTER,
     RateLimitError,
@@ -157,7 +157,7 @@ class BrowserDeliverySender:
     def _new_driver(self) -> BrowserDriver:
         if self.driver_factory is not None:
             return self.driver_factory()
-        return PlaywrightDriver(
+        return PatchrightDriver(
             profile=self.profile,
             chrome_path=self.chrome_path,
             headless=True,

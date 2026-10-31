@@ -6,7 +6,8 @@ import os
 import shutil
 
 import pytest
-from patchright.async_api import Browser, BrowserContext, Page, Route, async_playwright
+from patchright.async_api import Browser, BrowserContext, Page, Route
+from patchright.async_api import async_playwright as async_patchright
 
 import prompta.connector_approval_watch as watcher
 from prompta.account_read_gate import AccountReadGate
@@ -64,8 +65,8 @@ async def test_rate_limited_or_failed_load_is_not_a_successful_approval_watch(
     gate = FakeReadGate()
     monkeypatch.setattr(watcher.ConnectorApproval, "load", lambda: watcher.ConnectorApproval(enabled=True))
 
-    async with async_playwright() as playwright:
-        browser = await playwright.chromium.launch(
+    async with async_patchright() as patchright:
+        browser = await patchright.chromium.launch(
             executable_path=chromium, headless=True, args=["--no-sandbox"]
         )
         try:

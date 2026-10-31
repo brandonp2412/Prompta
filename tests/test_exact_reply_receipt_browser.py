@@ -6,7 +6,8 @@ import os
 from pathlib import Path
 
 import pytest
-from patchright.sync_api import Route, expect, sync_playwright
+from patchright.sync_api import Route, expect
+from patchright.sync_api import sync_playwright as sync_patchright
 from test_reply_ui_browser import CONVERSATION, seed_terminal
 from web_results_support import server
 
@@ -25,9 +26,9 @@ def test_lost_reply_post_receipt_reconciles_without_a_second_post(
     monkeypatch.setattr(
         web_module, "_STATIC_ROOT", Path(__file__).resolve().parents[1] / "src/static",
     )
-    with server(tmp_path) as (app, port), sync_playwright() as playwright:
+    with server(tmp_path) as (app, port), sync_patchright() as patchright:
         seed_terminal(app, send_id=SEND_ID, missing_id=False)
-        browser = playwright.chromium.launch(
+        browser = patchright.chromium.launch(
             executable_path=str(chromium), headless=True, args=["--no-sandbox"],
         )
         try:
@@ -76,9 +77,9 @@ def test_malformed_reply_receipt_does_not_clear_draft(
     monkeypatch.setattr(
         web_module, "_STATIC_ROOT", Path(__file__).resolve().parents[1] / "src/static",
     )
-    with server(tmp_path) as (app, port), sync_playwright() as playwright:
+    with server(tmp_path) as (app, port), sync_patchright() as patchright:
         seed_terminal(app, send_id="malformed-receipt", missing_id=False)
-        browser = playwright.chromium.launch(
+        browser = patchright.chromium.launch(
             executable_path=str(chromium), headless=True, args=["--no-sandbox"],
         )
         try:

@@ -9,7 +9,7 @@ import re
 from pathlib import Path
 
 import pytest
-from patchright.async_api import async_playwright
+from patchright.async_api import async_playwright as async_patchright
 
 from prompta.browser_script_loader import load_browser_script
 
@@ -43,8 +43,8 @@ def test_reply_history_probe_real_chromium_dom() -> None:
     )
 
     async def check() -> None:
-        async with async_playwright() as playwright:
-            browser = await playwright.chromium.launch(
+        async with async_patchright() as patchright:
+            browser = await patchright.chromium.launch(
                 executable_path=str(chromium),
                 headless=True,
             )

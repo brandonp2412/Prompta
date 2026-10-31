@@ -9,7 +9,8 @@ from pathlib import Path
 
 import pytest
 from live_server import LiveServer
-from patchright.sync_api import expect, sync_playwright
+from patchright.sync_api import expect
+from patchright.sync_api import sync_playwright as sync_patchright
 
 from prompta.reply_contracts import ReplyIntent
 from prompta.response_capture import CaptureResult
@@ -49,8 +50,8 @@ def test_prepared_reply_does_not_repopulate_composer_until_preflight_fails(
     thread = threading.Thread(target=app.serve_forever, daemon=True)
     thread.start()
     try:
-        with sync_playwright() as playwright:
-            browser = playwright.chromium.launch(executable_path=executable, headless=True)
+        with sync_patchright() as patchright:
+            browser = patchright.chromium.launch(executable_path=executable, headless=True)
             page = browser.new_page(viewport={"width": width, "height": height})
             page.goto(f"http://127.0.0.1:{app.server_address[1]}/?view=chats&run={send_id}")
             reply = page.get_by_role("textbox", name="Message for current chat")
@@ -116,8 +117,8 @@ def test_chat_drafts_are_scoped_during_spa_navigation_and_reload(
     thread.start()
     seen_posts: list[str] = []
     try:
-        with sync_playwright() as playwright:
-            browser = playwright.chromium.launch(executable_path=executable, headless=True)
+        with sync_patchright() as patchright:
+            browser = patchright.chromium.launch(executable_path=executable, headless=True)
             page = browser.new_page(viewport={"width": width, "height": height})
             page.on(
                 "request",

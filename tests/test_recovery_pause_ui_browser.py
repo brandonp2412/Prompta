@@ -7,7 +7,8 @@ import time
 from pathlib import Path
 
 import pytest
-from patchright.sync_api import Request, expect, sync_playwright
+from patchright.sync_api import Request, expect
+from patchright.sync_api import sync_playwright as sync_patchright
 from test_stage5_composer import serve_test_ui
 
 from prompta.response_store import ResponseStore
@@ -33,8 +34,8 @@ def test_interrupted_chat_shows_read_backoff_without_reopening_chatgpt(
         now=now + 2,
     )
     assert store.finish("cooldown", "owner", "interrupted", now=now + 3)
-    with serve_test_ui(tmp_path) as port, sync_playwright() as playwright:
-        browser = playwright.chromium.launch(executable_path=executable, headless=True)
+    with serve_test_ui(tmp_path) as port, sync_patchright() as patchright:
+        browser = patchright.chromium.launch(executable_path=executable, headless=True)
         page = browser.new_page(viewport={"width": width, "height": height})
         remote: list[str] = []
         posts: list[str] = []

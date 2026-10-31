@@ -7,7 +7,7 @@ import pytest
 
 from prompta.delivery_browser import BrowserDeliverySender, DeliveryBackendUnavailableError
 from prompta.delivery_worker import DeliveryAdmission
-from prompta.playwright_driver import BrowserSecurityChallengeError
+from prompta.patchright_driver import BrowserSecurityChallengeError
 from prompta.scheduler_runtime import SchedulerRuntime
 
 

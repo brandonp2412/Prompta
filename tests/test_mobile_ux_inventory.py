@@ -5,7 +5,8 @@ import time
 from pathlib import Path
 
 import pytest
-from patchright.sync_api import Page, expect, sync_playwright
+from patchright.sync_api import Page, expect
+from patchright.sync_api import sync_playwright as sync_patchright
 from web_results_support import completed_run, server
 
 from prompta.jobs import add_job
@@ -133,8 +134,8 @@ def test_mobile_ux_inventory_atlas(tmp_path: Path, width: int, height: int) -> N
     notes: list[str] = []
     with server(tmp_path) as (app, port):
         populate(app)
-        with sync_playwright() as playwright:
-            browser = playwright.chromium.launch(
+        with sync_patchright() as patchright:
+            browser = patchright.chromium.launch(
                 executable_path=chromium, headless=True, args=["--no-sandbox", "--no-zygote"]
             )
             try:
@@ -313,8 +314,8 @@ def test_mobile_ux_inventory_atlas(tmp_path: Path, width: int, height: int) -> N
 def test_mobile_ux_empty_and_error_states(tmp_path: Path, width: int, height: int) -> None:
     output = Path(os.environ.get("PROMPTA_ATLAS_OUTPUT", str(tmp_path))) / f"{width}x{height}"
     notes: list[str] = []
-    with server(tmp_path) as (_, port), sync_playwright() as playwright:
-        browser = playwright.chromium.launch(
+    with server(tmp_path) as (_, port), sync_patchright() as patchright:
+        browser = patchright.chromium.launch(
             executable_path=os.environ.get("PROMPTA_TEST_CHROMIUM", "/usr/bin/chromium"),
             headless=True,
             args=["--no-sandbox", "--no-zygote"],
@@ -366,8 +367,8 @@ def test_mobile_ux_named_one_time_job_is_persisted_only_in_fixture(tmp_path: Pat
     if not Path(chromium).exists():
         pytest.skip("Chromium unavailable")
     with server(tmp_path) as (_app, port):
-        with sync_playwright() as playwright:
-            browser = playwright.chromium.launch(
+        with sync_patchright() as patchright:
+            browser = patchright.chromium.launch(
                 executable_path=chromium, headless=True, args=["--no-sandbox", "--no-zygote"]
             )
             try:
@@ -399,8 +400,8 @@ def test_mobile_ux_destructive_job_confirmation_is_dismissed_in_fixture(tmp_path
         pytest.skip("Chromium unavailable")
     with server(tmp_path) as (app, port):
         populate(app)
-        with sync_playwright() as playwright:
-            browser = playwright.chromium.launch(
+        with sync_patchright() as patchright:
+            browser = patchright.chromium.launch(
                 executable_path=chromium, headless=True, args=["--no-sandbox", "--no-zygote"]
             )
             try:
@@ -433,8 +434,8 @@ def test_new_chat_composer_keyboard_layout(tmp_path: Path, width: int, height: i
     chromium = os.environ.get("PROMPTA_TEST_CHROMIUM", "/usr/bin/chromium")
     if not Path(chromium).exists():
         pytest.skip("Chromium unavailable")
-    with server(tmp_path) as (_, port), sync_playwright() as playwright:
-        browser = playwright.chromium.launch(
+    with server(tmp_path) as (_, port), sync_patchright() as patchright:
+        browser = patchright.chromium.launch(
             executable_path=chromium, headless=True, args=["--no-sandbox", "--no-zygote"]
         )
         try:

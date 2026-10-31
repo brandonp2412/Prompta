@@ -4,7 +4,8 @@ import os
 from pathlib import Path
 
 import pytest
-from patchright.sync_api import Page, expect, sync_playwright
+from patchright.sync_api import Page, expect
+from patchright.sync_api import sync_playwright as sync_patchright
 from test_mobile_ux_inventory import populate
 from web_results_support import server
 
@@ -65,8 +66,8 @@ def test_ux01_004_image_picker_and_footer_real_touch(
     viewport = f"{width}x{height}"
     with server(tmp_path) as (app, port):
         populate(app)
-        with sync_playwright() as playwright:
-            browser = playwright.chromium.launch(
+        with sync_patchright() as patchright:
+            browser = patchright.chromium.launch(
                 executable_path=chromium, headless=True, args=["--no-sandbox", "--no-zygote"]
             )
             try:

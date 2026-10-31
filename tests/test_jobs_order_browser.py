@@ -5,7 +5,8 @@ import os
 from pathlib import Path
 
 import pytest
-from patchright.sync_api import expect, sync_playwright
+from patchright.sync_api import expect
+from patchright.sync_api import sync_playwright as sync_patchright
 from web_results_support import server
 
 
@@ -42,8 +43,8 @@ def test_jobs_table_sorts_next_run_before_pagination(
             "last_uncertain_send_at": 0,
         })
 
-    with server(tmp_path) as (_, port), sync_playwright() as playwright:
-        browser = playwright.chromium.launch(
+    with server(tmp_path) as (_, port), sync_patchright() as patchright:
+        browser = patchright.chromium.launch(
             executable_path=str(chromium), headless=True, args=["--no-sandbox"]
         )
         try:

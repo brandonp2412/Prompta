@@ -6,7 +6,8 @@ import os
 from pathlib import Path
 
 import pytest
-from patchright.sync_api import expect, sync_playwright
+from patchright.sync_api import expect
+from patchright.sync_api import sync_playwright as sync_patchright
 from web_results_support import completed_run, server
 
 
@@ -25,10 +26,10 @@ def test_clear_chat_search_restores_results_and_focus(
     if not chromium.is_file():
         pytest.skip("Chromium unavailable")
 
-    with server(tmp_path) as (app, port), sync_playwright() as playwright:
+    with server(tmp_path) as (app, port), sync_patchright() as patchright:
         completed_run(app, "search-alpha", "Alpha Local Chat", 100)
         completed_run(app, "search-beta", "Beta Local Chat", 200)
-        browser = playwright.chromium.launch(
+        browser = patchright.chromium.launch(
             executable_path=str(chromium), headless=True, args=["--no-sandbox"],
         )
         try:

@@ -12,7 +12,8 @@ from pathlib import Path
 from unittest.mock import patch
 
 from live_server import LiveServer
-from patchright.sync_api import expect, sync_playwright
+from patchright.sync_api import expect
+from patchright.sync_api import sync_playwright as sync_patchright
 
 from prompta.jobs import add_job
 from prompta.live_events import LocalEventSignals
@@ -157,8 +158,8 @@ def test_live_revision_stat_failure_does_not_break_event_observation(tmp_path: P
 def test_browser_updates_jobs_and_chats_without_timer_polling(tmp_path: Path) -> None:
     """Real Chromium receives SSE invalidations and updates without clicking Refresh."""
     with live_server(tmp_path) as (app, port, jobs_path):
-        with sync_playwright() as playwright:
-            browser = playwright.chromium.launch(
+        with sync_patchright() as patchright:
+            browser = patchright.chromium.launch(
                 headless=True, executable_path=os.environ.get("PROMPTA_TEST_CHROMIUM", "/usr/bin/chromium"),
                 args=["--no-sandbox"],
             )
@@ -198,8 +199,8 @@ def test_browser_updates_jobs_and_chats_without_timer_polling(tmp_path: Path) ->
 def test_browser_polls_during_sse_outage_and_recovers_without_reloading(tmp_path: Path) -> None:
     """If SSE fails but the API works, stale Jobs recover without a full-page reload."""
     with live_server(tmp_path) as (_, port, jobs_path):
-        with sync_playwright() as playwright:
-            browser = playwright.chromium.launch(
+        with sync_patchright() as patchright:
+            browser = patchright.chromium.launch(
                 headless=True, executable_path=os.environ.get("PROMPTA_TEST_CHROMIUM", "/usr/bin/chromium"),
                 args=["--no-sandbox"],
             )

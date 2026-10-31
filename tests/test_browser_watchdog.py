@@ -222,7 +222,7 @@ def test_watchdog_crash_reaper_closes_only_expired_ledger_tabs(monkeypatch, tmp_
         async def connect_over_cdp(self, address, timeout):
             return Browser()
 
-    class Playwright:
+    class Patchright:
         chromium = Chromium()
 
         async def __aenter__(self):
@@ -231,7 +231,7 @@ def test_watchdog_crash_reaper_closes_only_expired_ledger_tabs(monkeypatch, tmp_
         async def __aexit__(self, *args):
             return None
 
-    monkeypatch.setattr(watchdog, "async_playwright", Playwright)
+    monkeypatch.setattr(watchdog, "async_patchright", Patchright)
     monkeypatch.setattr(watchdog, "owned_tab_records", lambda: owned_tab_records(path))
     monkeypatch.setattr(watchdog, "forget_owned_tabs", lambda ids: forget_owned_tabs(ids, path))
     monkeypatch.setattr(

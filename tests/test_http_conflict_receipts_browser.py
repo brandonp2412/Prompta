@@ -7,7 +7,8 @@ import os
 from pathlib import Path
 
 import pytest
-from patchright.sync_api import Route, expect, sync_playwright
+from patchright.sync_api import Route, expect
+from patchright.sync_api import sync_playwright as sync_patchright
 from test_reply_ui_browser import CONVERSATION, seed_terminal
 from web_results_support import server
 
@@ -30,8 +31,8 @@ def test_fresh_chat_committed_before_http_conflict(
         "_STATIC_ROOT",
         Path(__file__).resolve().parents[1] / "src/static",
     )
-    with server(tmp_path) as (app, port), sync_playwright() as playwright:
-        browser = playwright.chromium.launch(
+    with server(tmp_path) as (app, port), sync_patchright() as patchright:
+        browser = patchright.chromium.launch(
             executable_path=str(CHROMIUM),
             headless=True,
             args=["--no-sandbox"],
@@ -79,9 +80,9 @@ def test_exact_reply_committed_receipt_survives_http_conflict(
         Path(__file__).resolve().parents[1] / "src/static",
     )
     send_id = "conflicted-reply"
-    with server(tmp_path) as (app, port), sync_playwright() as playwright:
+    with server(tmp_path) as (app, port), sync_patchright() as patchright:
         seed_terminal(app, send_id=send_id, missing_id=False)
-        browser = playwright.chromium.launch(
+        browser = patchright.chromium.launch(
             executable_path=str(CHROMIUM),
             headless=True,
             args=["--no-sandbox"],

@@ -7,7 +7,8 @@ import time
 from pathlib import Path
 
 import pytest
-from patchright.sync_api import expect, sync_playwright
+from patchright.sync_api import expect
+from patchright.sync_api import sync_playwright as sync_patchright
 from web_results_support import completed_run, server
 
 
@@ -20,9 +21,9 @@ def test_search_failure_keeps_confirmed_chats_until_new_page_arrives(
     executable = os.environ.get("PROMPTA_TEST_CHROMIUM", "")
     if not executable or not Path(executable).exists():
         pytest.skip("Headless Chromium unavailable")
-    with server(tmp_path) as (app, port), sync_playwright() as playwright:
+    with server(tmp_path) as (app, port), sync_patchright() as patchright:
         completed_run(app, "stable-visible-run", "Keep visible across outage", time.time())
-        browser = playwright.chromium.launch(executable_path=executable, headless=True)
+        browser = patchright.chromium.launch(executable_path=executable, headless=True)
         page = browser.new_page(viewport={"width": width, "height": height})
         page.route("**/api/events", lambda route: route.abort())
         page.goto(f"http://127.0.0.1:{port}/?view=chats")

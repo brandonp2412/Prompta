@@ -7,13 +7,13 @@ import time
 from collections.abc import Awaitable, Sequence
 from typing import TYPE_CHECKING, Literal, Protocol, TypeVar
 
-from patchright.async_api import Error as PlaywrightError
+from patchright.async_api import Error as PatchrightError
 from patchright.async_api import Locator, Page
 
 from .browser_script_loader import load_browser_script
 from .strict_types import int_value
 
-logger = logging.getLogger("prompta.playwright_driver")
+logger = logging.getLogger("prompta.patchright_driver")
 
 _MODEL_SELECTION_VERIFY_ATTEMPTS = 40
 _MODEL_SELECTION_VERIFY_INTERVAL_SECONDS = 0.05
@@ -161,7 +161,7 @@ class ModelPickerMixin:
         for controls in semantic_candidates:
             try:
                 count = min(await controls.count(), 12)
-            except PlaywrightError:
+            except PatchrightError:
                 continue
             for index in range(count):
                 control = controls.nth(index)
@@ -172,7 +172,7 @@ class ModelPickerMixin:
                     if popup not in {"true", "menu", "listbox", "dialog", "tree", "grid"}:
                         continue
                     return control
-                except PlaywrightError:
+                except PatchrightError:
                     continue
 
         # Accessible-role implementations can churn independently of the public
@@ -182,7 +182,7 @@ class ModelPickerMixin:
         popup_controls = page.locator("[aria-haspopup]")
         try:
             count = min(await popup_controls.count(), 24)
-        except PlaywrightError:
+        except PatchrightError:
             count = 0
         for index in range(count):
             control = popup_controls.nth(index)
@@ -198,7 +198,7 @@ class ModelPickerMixin:
                 label = " ".join(str(value) for value in labels if value)
                 if _EFFORT_TRIGGER_RE.search(label) or _EFFORT_RE.search(label):
                     return control
-            except PlaywrightError:
+            except PatchrightError:
                 continue
         return None
 
@@ -210,7 +210,7 @@ class ModelPickerMixin:
             controls = page.get_by_role(role)
             try:
                 count = await controls.count()
-            except PlaywrightError:
+            except PatchrightError:
                 continue
             # A partial scan cannot prove which control owns the effort slider.
             if count > 40:
@@ -226,7 +226,7 @@ class ModelPickerMixin:
                         '[role="slider"],[aria-valuenow][aria-valuemin][aria-valuemax]'
                     ).count():
                         return item
-                except PlaywrightError:
+                except PatchrightError:
                     continue
 
         # Some UI builds drop the wrapper role entirely but keep a focusable owner
@@ -235,7 +235,7 @@ class ModelPickerMixin:
         sliders = page.locator('[role="slider"],[aria-valuenow][aria-valuemin][aria-valuemax]')
         try:
             slider_count = await sliders.count()
-        except PlaywrightError:
+        except PatchrightError:
             slider_count = 0
         if slider_count > 12:
             slider_count = 0  # Fall back to the explicitly named Power control.
@@ -259,7 +259,7 @@ class ModelPickerMixin:
                 ):
                     continue
                 owners.append(candidate)
-            except PlaywrightError:
+            except PatchrightError:
                 continue
         if len(owners) == 1:
             return owners[0]
@@ -287,7 +287,7 @@ class ModelPickerMixin:
             raise RuntimeError("ChatGPT thinking-effort control did not become available")
         try:
             await trigger.click()
-        except PlaywrightError as exc:
+        except PatchrightError as exc:
             raise RuntimeError("ChatGPT thinking-effort menu could not be opened") from exc
 
         deadline = asyncio.get_running_loop().time() + 2.0
@@ -336,7 +336,7 @@ class ModelPickerMixin:
                 if count > 60:
                     # Prefix scans cannot establish uniqueness across all controls.
                     continue
-            except PlaywrightError:
+            except PatchrightError:
                 continue
 
             matched: list[_UsableT] = []
@@ -354,7 +354,7 @@ class ModelPickerMixin:
                         if str(label).strip()
                     ):
                         matched.append(item)
-                except PlaywrightError:
+                except PatchrightError:
                     continue
             if len(matched) == 1:
                 return matched[0]
@@ -368,7 +368,7 @@ class ModelPickerMixin:
         model_name_re: re.Pattern[str],
     ) -> bool:
         # After a model click the menu option can disappear immediately.
-        # Reading attributes from a missing Playwright locator waits for its
+        # Reading attributes from a missing Patchright locator waits for its
         # default timeout, starving the bounded post-click verification.
         if await option.is_visible():
             if await self._selection_state(option) is True:
@@ -387,7 +387,7 @@ class ModelPickerMixin:
             try:
                 if await selected_options.count() == 1:
                     return True
-            except PlaywrightError:
+            except PatchrightError:
                 pass
 
         selector = await self._model_selector_control(page)
@@ -395,7 +395,7 @@ class ModelPickerMixin:
             return False
         try:
             labels = await selector.evaluate(load_browser_script("semantic_control_labels.js"))
-        except PlaywrightError:
+        except PatchrightError:
             return False
         if not isinstance(labels, list):
             return False
@@ -448,7 +448,7 @@ class ModelPickerMixin:
                                     await page.keyboard.press("Escape")
                                     return
                             await asyncio.sleep(0.1)
-            except PlaywrightError:
+            except PatchrightError:
                 pass
 
         async def find_option() -> Locator | None:
@@ -477,7 +477,7 @@ class ModelPickerMixin:
                 return (
                     await control.get_attribute("aria-expanded") or ""
                 ).strip().casefold() == "true"
-            except PlaywrightError:
+            except PatchrightError:
                 return False
 
         # Drive the menu as a semantic state machine. Never guess at unrelated popup
@@ -527,7 +527,7 @@ class ModelPickerMixin:
                             # ChatGPT's effort slider can overlap the centre of
                             # a model menu item and intercept pointer clicks.
                             await asyncio.wait_for(option.click(), timeout=1.25)
-                        except (TimeoutError, PlaywrightError):
+                        except (TimeoutError, PatchrightError):
                             # Never send a second click if the first one took.
                             if await self._model_selection_verified(page, option, model_name_re):
                                 return
@@ -548,7 +548,7 @@ class ModelPickerMixin:
                         await page.keyboard.press("Escape")
                         return
                     await self._raise_model_selection_unavailable(model_name)
-                except PlaywrightError:
+                except PatchrightError:
                     await asyncio.sleep(0.1)
                     continue
 
@@ -570,7 +570,7 @@ class ModelPickerMixin:
                     )
                     await asyncio.sleep(0.08)
                     continue
-                except PlaywrightError:
+                except PatchrightError:
                     await asyncio.sleep(0.1)
                     continue
 
@@ -594,7 +594,7 @@ class ModelPickerMixin:
                     )
                     await asyncio.sleep(0.08)
                     continue
-                except PlaywrightError:
+                except PatchrightError:
                     await asyncio.sleep(0.1)
                     continue
 
@@ -653,7 +653,7 @@ class ModelPickerMixin:
                     if text:
                         description_parts.append(text)
                     break
-        except (PlaywrightError, ValueError):
+        except (PatchrightError, ValueError):
             return {}
 
         if current_value < min_value or max_value < min_value:
@@ -686,7 +686,7 @@ class ModelPickerMixin:
             key = "ArrowRight" if position > current else "ArrowLeft"
             for _ in range(abs(position - current)):
                 await page.keyboard.press(key)
-        except PlaywrightError as exc:
+        except PatchrightError as exc:
             raise RuntimeError("ChatGPT Power control could not be adjusted") from exc
 
         deadline = asyncio.get_running_loop().time() + 2.0

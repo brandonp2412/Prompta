@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 
 import pytest
-from patchright.sync_api import sync_playwright
+from patchright.sync_api import sync_playwright as sync_patchright
 
 from prompta.manual_reply_dispatch import (
     _branch_probe,
@@ -41,8 +41,8 @@ def test_exact_branch_probe_decodes_only_one_backend_id(attribute: str, expected
         + attribute
         + ">Synthetic final assistant turn</div></main>"
     )
-    with sync_playwright() as playwright:
-        browser = playwright.chromium.launch(executable_path=executable, headless=True)
+    with sync_patchright() as patchright:
+        browser = patchright.chromium.launch(executable_path=executable, headless=True)
         page = browser.new_page()
         routed: list[str] = []
 
@@ -68,8 +68,8 @@ def test_exact_branch_rejects_later_user_turn() -> None:
         f"<main><div data-message-author-role='assistant' data-message-id='{PARENT}'>Answer</div>"
         "<div data-message-author-role='user'>External follow-up</div></main>"
     )
-    with sync_playwright() as playwright:
-        browser = playwright.chromium.launch(executable_path=executable, headless=True)
+    with sync_patchright() as patchright:
+        browser = patchright.chromium.launch(executable_path=executable, headless=True)
         page = browser.new_page()
         page.route("https://chatgpt.com/**", lambda route: route.fulfill(
             status=200, content_type="text/html", body=html,
@@ -107,8 +107,8 @@ def test_explicit_recovery_verifies_only_the_one_original_branch(
         f"data-chatgpt-search-message-ids='{ids}'>"
         f"<div class='markdown'>{answer}</div></div>{extra}</main>"
     )
-    with sync_playwright() as playwright:
-        browser = playwright.chromium.launch(executable_path=executable, headless=True)
+    with sync_patchright() as patchright:
+        browser = patchright.chromium.launch(executable_path=executable, headless=True)
         page = browser.new_page()
         page.route(
             "https://chatgpt.com/**",
@@ -127,8 +127,8 @@ def test_branch_wait_observes_delayed_assistant_hydration_without_polling(
     executable = os.environ.get("PROMPTA_TEST_CHROMIUM", "")
     if not executable or not Path(executable).exists():
         pytest.skip("Headless Chromium unavailable")
-    with sync_playwright() as playwright:
-        browser = playwright.chromium.launch(executable_path=executable, headless=True)
+    with sync_patchright() as patchright:
+        browser = patchright.chromium.launch(executable_path=executable, headless=True)
         page = browser.new_page()
         routed: list[str] = []
 
@@ -171,8 +171,8 @@ def test_recover_manual_tip_requires_exact_preceding_parent_and_latest_user() ->
         f"<div data-message-author-role='assistant' data-message-id='{recovered}'>"
         "<div class='markdown'>Partial reply that grew longer</div></div></main>"
     )
-    with sync_playwright() as playwright:
-        browser = playwright.chromium.launch(executable_path=executable, headless=True)
+    with sync_patchright() as patchright:
+        browser = patchright.chromium.launch(executable_path=executable, headless=True)
         page = browser.new_page()
         page.route("https://chatgpt.com/**", lambda route: route.fulfill(
             status=200, content_type="text/html", body=html,

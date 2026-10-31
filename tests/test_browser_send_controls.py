@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 import pytest
 from _browser_fakes import offline_approval_default as offline_approval_default
 
-from prompta.playwright_driver import PlaywrightDriver, _normalise_composer_text
+from prompta.patchright_driver import PatchrightDriver, _normalise_composer_text
 from prompta.send_outcome import SendOutcomeUnknownError
 
 
@@ -29,7 +29,7 @@ async def test_click_send_rechecks_composer_after_readiness_before_enter(
     class Composer:
         pass
 
-    driver = PlaywrightDriver(profile=tmp_path / "profile")
+    driver = PatchrightDriver(profile=tmp_path / "profile")
     page = Page()
     composer = Composer()
     composer_text = "Scheduled work"
@@ -83,7 +83,7 @@ async def test_click_send_prefers_ready_send_control_over_enter(
         async def click(self) -> None:
             self.clicks += 1
 
-    driver = PlaywrightDriver(profile=tmp_path / "profile")
+    driver = PatchrightDriver(profile=tmp_path / "profile")
     page = Page()
     composer = Composer()
     control = Control()
@@ -130,7 +130,7 @@ async def test_click_send_control_failure_keeps_outcome_unknown(
         async def click(self) -> None:
             raise RuntimeError("detached while dispatching")
 
-    driver = PlaywrightDriver(profile=tmp_path / "profile")
+    driver = PatchrightDriver(profile=tmp_path / "profile")
     page = Page()
     composer = Composer()
 
@@ -172,7 +172,7 @@ async def test_click_send_accepts_normalised_prompt_on_final_recheck(
     class Composer:
         pass
 
-    driver = PlaywrightDriver(profile=tmp_path / "profile")
+    driver = PatchrightDriver(profile=tmp_path / "profile")
     page = Page()
     composer = Composer()
 
@@ -205,7 +205,7 @@ async def test_send_readiness_fails_closed_when_known_control_stays_disabled(
             return False
 
     control = Control()
-    driver = PlaywrightDriver(profile=tmp_path / "profile")
+    driver = PatchrightDriver(profile=tmp_path / "profile")
 
     async def send_control(_page: object, *, enabled: bool = True) -> object:
         assert enabled is False
@@ -235,7 +235,7 @@ async def test_send_readiness_preserves_keyboard_fallback_without_known_control(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    driver = PlaywrightDriver(profile=tmp_path / "profile")
+    driver = PatchrightDriver(profile=tmp_path / "profile")
     calls = 0
 
     async def send_control(_page: object, *, enabled: bool = True) -> None:
@@ -281,7 +281,7 @@ async def test_missing_send_control_rejects_session_interruptions(
     expected: str,
     login_calls: int,
 ) -> None:
-    driver = PlaywrightDriver(profile=tmp_path / "profile")
+    driver = PatchrightDriver(profile=tmp_path / "profile")
     calls: list[str] = []
 
     class PageStub:
@@ -312,7 +312,7 @@ async def test_missing_send_control_rejects_session_interruptions(
 
 def test_composer_normalisation_accounts_for_chatgpt_autolink_spacing() -> None:
     # ChatGPT's ProseMirror editor inserts a space after the opening
-    # parenthesis when linking URLs, even though Playwright filled the
+    # parenthesis when linking URLs, even though Patchright filled the
     # original exact string. This must not strand the delivery queue.
     requested = "Inspect upstream (https://github.com/stufently/gpt-web-gateway)."
     editor_text = "Inspect upstream ( https://github.com/stufently/gpt-web-gateway)."
@@ -342,7 +342,7 @@ def test_composer_normalisation_accounts_for_chatgpt_autolink_spacing() -> None:
     ],
 )
 def test_firstwari_authentication_redirect_classification(url: str, required: bool) -> None:
-    assert PlaywrightDriver._authentication_route(url) is required
+    assert PatchrightDriver._authentication_route(url) is required
 
 
 @pytest.mark.asyncio
@@ -364,7 +364,7 @@ async def test_first_usable_refuses_truncated_single_candidate_scan(tmp_path: Pa
         def nth(self, _index: int) -> Candidate:
             raise AssertionError("Oversized ambiguous collection must not be scanned")
 
-    driver = PlaywrightDriver(profile=tmp_path / "profile")
+    driver = PatchrightDriver(profile=tmp_path / "profile")
     assert await driver._first_usable([Collection()], limit=24) is None
 
 
@@ -385,7 +385,7 @@ async def test_power_control_does_not_trust_truncated_slider_scan(
     page = MagicMock()
     page.get_by_role.return_value = Collection(41)
     page.locator.return_value = Collection(13)
-    driver = PlaywrightDriver(profile=tmp_path / "profile")
+    driver = PatchrightDriver(profile=tmp_path / "profile")
 
     async def no_named_control(candidates: object, *, enabled: bool) -> None:
         assert enabled

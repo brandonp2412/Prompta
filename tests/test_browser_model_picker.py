@@ -11,11 +11,11 @@ from _browser_fakes import FakeDriver
 from _browser_fakes import offline_approval_default as offline_approval_default
 
 import prompta.delivery_browser as delivery_browser
-import prompta.playwright_driver as playwright_driver
+import prompta.patchright_driver as patchright_driver
 from prompta.delivery_browser import (
     BrowserDeliverySender,
 )
-from prompta.playwright_driver import PlaywrightDriver
+from prompta.patchright_driver import PatchrightDriver
 
 
 @pytest.mark.asyncio
@@ -61,7 +61,7 @@ async def test_model_selector_matches_current_public_label(tmp_path: Path) -> No
             return Collection([])
 
     control = Control()
-    driver = PlaywrightDriver(profile=tmp_path / "profile")
+    driver = PatchrightDriver(profile=tmp_path / "profile")
 
     found = await driver._model_selector_control(Page(control))
 
@@ -120,7 +120,7 @@ async def test_model_selector_prefers_visible_submenu_when_composed_guard_false(
 
     inner = Control("Select model")
     outer = Control("Select ChatGPT model")
-    driver = PlaywrightDriver(profile=tmp_path / "profile")
+    driver = PatchrightDriver(profile=tmp_path / "profile")
 
     found = await driver._model_selector_control(Page(inner, outer))
 
@@ -178,7 +178,7 @@ async def test_model_selector_ignores_unrelated_visible_popup(tmp_path: Path) ->
                 return Collection([self.control])
             return Collection([])
 
-    driver = PlaywrightDriver(profile=tmp_path / "profile")
+    driver = PatchrightDriver(profile=tmp_path / "profile")
 
     found = await driver._model_selector_control(Page(Control()))
 
@@ -271,7 +271,7 @@ async def test_model_selection_walks_outer_and_submenu_before_option(
     inner = Control(state)
     option = Option()
     page = Page(state, option)
-    driver = PlaywrightDriver(profile=tmp_path / "profile")
+    driver = PatchrightDriver(profile=tmp_path / "profile")
     monkeypatch.setattr(driver, "_page", lambda _context=None: page)
 
     async def selector(_page: object) -> object:
@@ -352,7 +352,7 @@ async def test_gpt6_uses_live_high_menu_path(
                 return Collection([Control("GPT-6")])
             return Collection([])
 
-    driver = PlaywrightDriver(profile=tmp_path / "profile")
+    driver = PatchrightDriver(profile=tmp_path / "profile")
     monkeypatch.setattr(driver, "_page", lambda _context=None: Page())
     await driver.select_effort_model("GPT-6")
     assert clicks == ["High", "High", "GPT-6"]
@@ -423,7 +423,7 @@ async def test_model_picker_opens_high_row_before_gpt6(
                 return Collection([Control("GPT-6")])
             return Collection([])
 
-    driver = PlaywrightDriver(profile=tmp_path / "profile")
+    driver = PatchrightDriver(profile=tmp_path / "profile")
     monkeypatch.setattr(driver, "_page", lambda _context=None: Page())
 
     async def selector(_page: object) -> Control | None:
@@ -500,7 +500,7 @@ async def test_model_selection_accepts_menuitem_and_aria_selected(
 
     option = Option()
     page = Page(option)
-    driver = PlaywrightDriver(profile=tmp_path / "profile")
+    driver = PatchrightDriver(profile=tmp_path / "profile")
     monkeypatch.setattr(driver, "_page", lambda _context=None: page)
 
     await driver.select_effort_model("GPT-5.6 Sol")
@@ -583,7 +583,7 @@ async def test_model_selection_verifies_click_before_reporting_success(
 
     option = Option()
     page = Page(option)
-    driver = PlaywrightDriver(profile=tmp_path / "profile")
+    driver = PatchrightDriver(profile=tmp_path / "profile")
     monkeypatch.setattr(driver, "_page", lambda _context=None: page)
     monkeypatch.setattr("prompta.model_picker._MODEL_SELECTION_VERIFY_ATTEMPTS", 1)
     monkeypatch.setattr("prompta.model_picker._MODEL_SELECTION_VERIFY_INTERVAL_SECONDS", 0.0)
@@ -629,7 +629,7 @@ async def test_send_readiness_recovers_when_disabled_control_is_replaced(
 
     stale = Control(False)
     replacement = Control(True)
-    driver = PlaywrightDriver(profile=tmp_path / "profile")
+    driver = PatchrightDriver(profile=tmp_path / "profile")
     discoveries = 0
 
     async def send_control(_page: object, *, enabled: bool = True) -> object:
@@ -695,7 +695,7 @@ async def test_model_selector_does_not_trust_truncated_control_scan(tmp_path: Pa
         def locator(self, _selector: str) -> Collection:
             return Collection(self.controls)
 
-    driver = PlaywrightDriver(profile=tmp_path / "profile")
+    driver = PatchrightDriver(profile=tmp_path / "profile")
     assert await driver._model_selector_control(Page()) is None
 
 
@@ -704,7 +704,7 @@ async def test_semantic_button_does_not_select_from_truncated_candidate_scan(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    driver = PlaywrightDriver(profile=tmp_path / "profile")
+    driver = PatchrightDriver(profile=tmp_path / "profile")
 
     class Candidates:
         async def count(self) -> int:
@@ -752,7 +752,7 @@ async def test_model_selection_uses_semantic_event_when_slider_obscures_click(
             return ("true" if self.selected else "false") if name == "aria-checked" else None
 
         async def click(self) -> None:
-            # Simulate Playwright waiting for a pointer-intercepting overlay.
+            # Simulate Patchright waiting for a pointer-intercepting overlay.
             await asyncio.sleep(5)
 
         async def dispatch_event(self, name: str) -> None:
@@ -775,7 +775,7 @@ async def test_model_selection_uses_semantic_event_when_slider_obscures_click(
             return Collection()
 
     option = Option()
-    driver = PlaywrightDriver(profile=tmp_path / "profile")
+    driver = PatchrightDriver(profile=tmp_path / "profile")
     monkeypatch.setattr(driver, "_page", lambda _context=None: Page())
 
     async def usable(_candidates: object, *, enabled: bool = False) -> Option:
@@ -799,7 +799,7 @@ async def test_model_selection_verifies_selector_after_option_unmount(
         async def evaluate(self, _script: str, *, isolated_context: bool = True) -> list[str]:
             return ["Select ChatGPT model", "GPT-5.6 Sol"]
 
-    driver = PlaywrightDriver(profile=tmp_path / "profile")
+    driver = PatchrightDriver(profile=tmp_path / "profile")
 
     async def selector(_page: object) -> Selector:
         return Selector()
@@ -813,9 +813,9 @@ async def test_model_selection_verifies_selector_after_option_unmount(
         async def count(self) -> int:
             return 0
 
-    page = MagicMock(spec=playwright_driver.Page)
+    page = MagicMock(spec=patchright_driver.Page)
     page.locator.return_value = NoSelectedItems()
-    option = MagicMock(spec=playwright_driver.Locator)
+    option = MagicMock(spec=patchright_driver.Locator)
     option.is_visible = AsyncMock(return_value=False)
     option.get_attribute = AsyncMock(
         side_effect=AssertionError("unmounted locator must not be read")
@@ -840,15 +840,15 @@ async def test_model_selection_verifies_hidden_checked_menu_option(
         assert '[role="menuitemradio"][aria-checked="true"]' in selector
         return SelectedCandidates()
 
-    driver = PlaywrightDriver(profile=tmp_path / "profile")
+    driver = PatchrightDriver(profile=tmp_path / "profile")
 
     async def no_selector(_page: object) -> None:
         return None
 
     monkeypatch.setattr(driver, "_model_selector_control", no_selector)
-    page = MagicMock(spec=playwright_driver.Page)
+    page = MagicMock(spec=patchright_driver.Page)
     page.locator.side_effect = selected_candidates
-    option = MagicMock(spec=playwright_driver.Locator)
+    option = MagicMock(spec=patchright_driver.Locator)
     option.is_visible = AsyncMock(return_value=False)
     option.get_attribute = AsyncMock(
         side_effect=AssertionError("hidden inaccessible role locator must not be read")

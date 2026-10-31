@@ -5,7 +5,8 @@ import os
 from pathlib import Path
 
 import pytest
-from patchright.sync_api import Route, expect, sync_playwright
+from patchright.sync_api import Route, expect
+from patchright.sync_api import sync_playwright as sync_patchright
 from web_results_support import server
 
 
@@ -17,8 +18,8 @@ def test_unknown_delivery_receipt_is_not_presented_as_success(
     if not executable or not Path(executable).exists():
         pytest.skip("Headless Chromium unavailable")
     with server(tmp_path) as (app, port):
-        with sync_playwright() as playwright:
-            browser = playwright.chromium.launch(executable_path=executable, headless=True)
+        with sync_patchright() as patchright:
+            browser = patchright.chromium.launch(executable_path=executable, headless=True)
             page = browser.new_page(viewport={"width": width, "height": height})
             posts: list[str] = []
 
@@ -61,8 +62,8 @@ def test_corrupt_receipt_ledger_blocks_post_and_retains_draft(tmp_path: Path) ->
     if not executable or not Path(executable).exists():
         pytest.skip("Headless Chromium unavailable")
     with server(tmp_path) as (app, port):
-        with sync_playwright() as playwright:
-            browser = playwright.chromium.launch(executable_path=executable, headless=True)
+        with sync_patchright() as patchright:
+            browser = patchright.chromium.launch(executable_path=executable, headless=True)
             page = browser.new_page(viewport={"width": 390, "height": 844})
             posts: list[str] = []
             page.on("request", lambda request: posts.append(request.url)

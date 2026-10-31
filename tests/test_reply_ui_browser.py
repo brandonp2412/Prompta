@@ -8,7 +8,8 @@ import re
 from pathlib import Path
 
 import pytest
-from patchright.sync_api import Route, expect, sync_playwright
+from patchright.sync_api import Route, expect
+from patchright.sync_api import sync_playwright as sync_patchright
 from web_results_support import server
 
 from prompta.reply_contracts import ReplyIntent
@@ -64,9 +65,9 @@ def test_terminal_chat_send_is_enabled_and_routes_safely(
         web_module, "_STATIC_ROOT", Path(__file__).resolve().parents[1] / "src/static"
     )
     send_id = "missing-id" if missing_id else "known-branch"
-    with server(tmp_path) as (app, port), sync_playwright() as playwright:
+    with server(tmp_path) as (app, port), sync_patchright() as patchright:
         seed_terminal(app, send_id=send_id, missing_id=missing_id)
-        browser = playwright.chromium.launch(
+        browser = patchright.chromium.launch(
             executable_path=str(chromium),
             headless=True,
             args=["--no-sandbox"],
@@ -156,14 +157,14 @@ def test_failed_exact_recovery_keeps_draft_and_allows_retry(
     monkeypatch.setattr(
         web_module, "_STATIC_ROOT", Path(__file__).resolve().parents[1] / "src/static"
     )
-    with server(tmp_path) as (app, port), sync_playwright() as playwright:
+    with server(tmp_path) as (app, port), sync_patchright() as patchright:
         seed_terminal(app, send_id="recover", missing_id=False)
         # Simulate a captured conversation without a verified assistant identity.
         with app.results.engine.begin() as connection:
             connection.exec_driver_sql(
                 "UPDATE job_responses SET message_id = '' WHERE send_id = 'recover'",
             )
-        browser = playwright.chromium.launch(
+        browser = patchright.chromium.launch(
             executable_path=str(chromium),
             headless=True,
             args=["--no-sandbox"],
@@ -237,7 +238,7 @@ def test_stuck_reply_starts_new_chat_with_latest_saved_result_first(
     monkeypatch.setattr(
         web_module, "_STATIC_ROOT", Path(__file__).resolve().parents[1] / "src/static"
     )
-    with server(tmp_path) as (app, port), sync_playwright() as playwright:
+    with server(tmp_path) as (app, port), sync_patchright() as patchright:
         seed_terminal(app, send_id="broken-reply", missing_id=False)
         if failed_reply:
             assert app.replies.prepare(
@@ -246,7 +247,7 @@ def test_stuck_reply_starts_new_chat_with_latest_saved_result_first(
                 now=103,
             )
             assert app.replies.mark_preflight_failed("f" * 32)
-        browser = playwright.chromium.launch(
+        browser = patchright.chromium.launch(
             executable_path=str(chromium), headless=True, args=["--no-sandbox"]
         )
         try:
@@ -301,9 +302,9 @@ def test_uncertain_fresh_queue_reuses_idempotency_key(
     monkeypatch.setattr(
         web_module, "_STATIC_ROOT", Path(__file__).resolve().parents[1] / "src/static"
     )
-    with server(tmp_path) as (app, port), sync_playwright() as playwright:
+    with server(tmp_path) as (app, port), sync_patchright() as patchright:
         seed_terminal(app, send_id="no-conversation", missing_id=True)
-        browser = playwright.chromium.launch(
+        browser = patchright.chromium.launch(
             executable_path=str(chromium),
             headless=True,
             args=["--no-sandbox"],

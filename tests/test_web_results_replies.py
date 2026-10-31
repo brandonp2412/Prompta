@@ -8,7 +8,8 @@ from http.client import HTTPConnection
 from pathlib import Path
 
 import pytest
-from patchright.sync_api import expect, sync_playwright
+from patchright.sync_api import expect
+from patchright.sync_api import sync_playwright as sync_patchright
 from web_results_support import (
     completed_run,
     get,
@@ -173,8 +174,8 @@ def test_unread_badges_follow_completed_answers_not_metadata(tmp_path: Path) -> 
         )
         completed_run(app, "answered", "Answered", 400)
 
-        with sync_playwright() as playwright:
-            browser = playwright.chromium.launch(
+        with sync_patchright() as patchright:
+            browser = patchright.chromium.launch(
                 executable_path=chromium,
                 headless=True,
                 args=["--no-sandbox", "--no-zygote"],
@@ -287,8 +288,8 @@ def test_read_receipts_survive_independent_browser_tabs(tmp_path: Path) -> None:
 
     with server(tmp_path) as (app, port):
         completed_run(app, "multi-tab", "Cross-tab receipt", 400)
-        with sync_playwright() as playwright:
-            browser = playwright.chromium.launch(
+        with sync_patchright() as patchright:
+            browser = patchright.chromium.launch(
                 executable_path=chromium,
                 headless=True,
                 args=["--no-sandbox"],
@@ -400,8 +401,8 @@ def test_waiting_chats_render_and_advance_on_desktop_and_mobile(tmp_path: Path) 
             add_job(app.jobs_path, name, f"Synthetic prompt for {name}", 60, exact_interval=True)
             app.queue_view.runtime.update_job_state(name, {"initial_due_at_epoch": at})
         assert app.queue_view.tick(now=at) == 1
-        with sync_playwright() as playwright:
-            browser = playwright.chromium.launch(
+        with sync_patchright() as patchright:
+            browser = patchright.chromium.launch(
                 executable_path=chromium_path, headless=True, args=["--no-sandbox"]
             )
             try:
@@ -529,8 +530,8 @@ def test_tool_cards_desktop_mobile_local_only(tmp_path: Path) -> None:
             now=212,
         )
         assert app.results.finish("tool-interrupted", "100:interrupted", "interrupted", now=213)
-        with sync_playwright() as playwright:
-            browser = playwright.chromium.launch(
+        with sync_patchright() as patchright:
+            browser = patchright.chromium.launch(
                 executable_path=chromium_path,
                 headless=True,
                 args=["--no-sandbox", "--disable-gpu"],

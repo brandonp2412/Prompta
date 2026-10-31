@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 
 import pytest
-from patchright.sync_api import sync_playwright
+from patchright.sync_api import sync_playwright as sync_patchright
 
 from prompta.browser_script_loader import load_browser_script
 
@@ -48,8 +48,8 @@ def test_tool_cards_sibling_to_the_inner_answer_are_captured_without_crossing_tu
       </div>
     </main>
     """
-    with sync_playwright() as playwright:
-        browser = playwright.chromium.launch(executable_path=executable, headless=True)
+    with sync_patchright() as patchright:
+        browser = patchright.chromium.launch(executable_path=executable, headless=True)
         try:
             page = browser.new_page()
             page.set_content(html)
@@ -74,8 +74,8 @@ def test_turn_root_prefers_exact_data_key_over_a_broad_article() -> None:
     if not executable or not Path(executable).is_file():
         pytest.skip("Headless Chromium unavailable")
     script = load_browser_script("markdown_from_dom.js")
-    with sync_playwright() as playwright:
-        browser = playwright.chromium.launch(executable_path=executable, headless=True)
+    with sync_patchright() as patchright:
+        browser = patchright.chromium.launch(executable_path=executable, headless=True)
         try:
             page = browser.new_page()
             page.set_content("""
@@ -106,8 +106,8 @@ def test_live_canary_probe_counts_only_visible_owned_tool_activity() -> None:
     if not executable or not Path(executable).is_file():
         pytest.skip("Headless Chromium unavailable")
     script = load_browser_script("markdown_from_dom.js")
-    with sync_playwright() as playwright:
-        browser = playwright.chromium.launch(executable_path=executable, headless=True)
+    with sync_patchright() as patchright:
+        browser = patchright.chromium.launch(executable_path=executable, headless=True)
         try:
             page = browser.new_page()
             page.set_content("""

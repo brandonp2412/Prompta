@@ -3,7 +3,7 @@
 from pathlib import Path
 
 from prompta.history_recovery import HistoryRecovery
-from prompta.playwright_driver import BrowserSecurityChallengeError
+from prompta.patchright_driver import BrowserSecurityChallengeError
 from prompta.response_capture import CaptureResult
 from prompta.response_store import ResponseStore
 from prompta.scheduler_runtime import SchedulerRuntime

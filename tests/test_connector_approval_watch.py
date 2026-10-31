@@ -4,7 +4,8 @@ import os
 import shutil
 
 import pytest
-from patchright.async_api import Browser, BrowserContext, Route, async_playwright
+from patchright.async_api import Browser, BrowserContext, Route
+from patchright.async_api import async_playwright as async_patchright
 
 from prompta.browser_script_loader import load_browser_script
 from prompta.connector_approval_watch import unread_chat_paths
@@ -116,8 +117,8 @@ async def test_open_non_prompta_tabs_get_backup_permission_without_navigation(
 
     monkeypatch.setattr(watcher.ConnectorApproval, "load", lambda: watcher.ConnectorApproval(enabled=True))
     monkeypatch.setattr(watcher, "MAX_OWNED_TAB_AGE_SECONDS", 0.5)
-    async with async_playwright() as playwright:
-        browser = await playwright.chromium.launch(
+    async with async_patchright() as patchright:
+        browser = await patchright.chromium.launch(
             executable_path=chromium, headless=True, args=["--no-sandbox"]
         )
         try:
@@ -145,8 +146,8 @@ async def test_unread_sidebar_detection_and_connector_approval() -> None:
     if not chromium:
         pytest.skip("System Chromium is unavailable")
 
-    async with async_playwright() as playwright:
-        browser = await playwright.chromium.launch(
+    async with async_patchright() as patchright:
+        browser = await patchright.chromium.launch(
             executable_path=chromium, headless=True, args=["--no-sandbox"]
         )
         try:

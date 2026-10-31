@@ -6,7 +6,8 @@ import os
 from pathlib import Path
 
 import pytest
-from patchright.sync_api import expect, sync_playwright
+from patchright.sync_api import expect
+from patchright.sync_api import sync_playwright as sync_patchright
 from test_reply_ui_browser import seed_terminal
 from web_results_support import server
 
@@ -23,7 +24,7 @@ def test_code_copy_reports_success_failure_and_resets(
     monkeypatch.setattr(
         web_module, "_STATIC_ROOT", Path(__file__).resolve().parents[1] / "src/static",
     )
-    with server(tmp_path) as (app, port), sync_playwright() as playwright:
+    with server(tmp_path) as (app, port), sync_patchright() as patchright:
         send_id = "copy-code-feedback"
         seed_terminal(app, send_id=send_id, missing_id=False)
         with app.results.engine.begin() as connection:
@@ -31,7 +32,7 @@ def test_code_copy_reports_success_failure_and_resets(
                 "UPDATE job_responses SET status = ?, assistant_text = ? WHERE send_id = ?",
                 ("completed", "```js\nhello()\n```", send_id),
             )
-        browser = playwright.chromium.launch(
+        browser = patchright.chromium.launch(
             executable_path=str(chromium), headless=True, args=["--no-sandbox"],
         )
         try:
@@ -71,9 +72,9 @@ def test_mobile_chat_sidebar_keeps_readable_status_indicators(
     monkeypatch.setattr(
         web_module, "_STATIC_ROOT", Path(__file__).resolve().parents[1] / "src/static",
     )
-    with server(tmp_path) as (app, port), sync_playwright() as playwright:
+    with server(tmp_path) as (app, port), sync_patchright() as patchright:
         seed_terminal(app, send_id="readable-sidebar", missing_id=False)
-        browser = playwright.chromium.launch(
+        browser = patchright.chromium.launch(
             executable_path=str(chromium), headless=True, args=["--no-sandbox"],
         )
         try:

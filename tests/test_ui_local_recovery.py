@@ -7,7 +7,8 @@ import time
 from pathlib import Path
 
 import pytest
-from patchright.sync_api import expect, sync_playwright
+from patchright.sync_api import expect
+from patchright.sync_api import sync_playwright as sync_patchright
 from web_results_support import completed_run, server
 
 
@@ -21,8 +22,8 @@ def test_local_recovery_controls_restore_list_pins_detail_and_turns(
 
     with server(tmp_path) as (app, port):
         completed_run(app, "local-recovery-run", "Local recovery probe", time.time())
-        with sync_playwright() as playwright:
-            browser = playwright.chromium.launch(executable_path=executable, headless=True)
+        with sync_patchright() as patchright:
+            browser = patchright.chromium.launch(executable_path=executable, headless=True)
             page = browser.new_page(viewport={"width": width, "height": height})
             remote: list[str] = []
             page.on("request", lambda request: remote.append(request.url) if not request.url.startswith(
@@ -40,7 +41,7 @@ def test_local_recovery_controls_restore_list_pins_detail_and_turns(
 
             # Exercise Retry while the injected outage is still active. If the
             # route is removed first, a background refresh may already have
-            # restored the view and detached the button before Playwright clicks.
+            # restored the view and detached the button before Patchright clicks.
             page.get_by_role("button", name="Retry pins").click()
             expect(page.get_by_role("button", name="Retry pins")).to_be_visible()
             page.unroute("**/api/results?*")
@@ -72,9 +73,9 @@ def test_retry_chats_recovers_list_without_a_pin_failure(
     executable = os.environ.get("PROMPTA_TEST_CHROMIUM", "")
     if not executable or not Path(executable).exists():
         pytest.skip("Headless Chromium unavailable")
-    with server(tmp_path) as (app, port), sync_playwright() as playwright:
+    with server(tmp_path) as (app, port), sync_patchright() as patchright:
         completed_run(app, "list-only-outage", "List-only recovery probe", time.time())
-        browser = playwright.chromium.launch(executable_path=executable, headless=True)
+        browser = patchright.chromium.launch(executable_path=executable, headless=True)
         page = browser.new_page(viewport={"width": width, "height": height})
         posts: list[str] = []
         page.on("request", lambda request: posts.append(request.url) if request.method == "POST" else None)
@@ -103,11 +104,11 @@ def test_retry_older_chats_retries_failed_page_without_resetting_list(
     executable = os.environ.get("PROMPTA_TEST_CHROMIUM", "")
     if not executable or not Path(executable).exists():
         pytest.skip("Headless Chromium unavailable")
-    with server(tmp_path) as (app, port), sync_playwright() as playwright:
+    with server(tmp_path) as (app, port), sync_patchright() as patchright:
         now = time.time()
         for index in range(25):
             completed_run(app, f"older-page-{index}", f"Older page {index}", now - index)
-        browser = playwright.chromium.launch(executable_path=executable, headless=True)
+        browser = patchright.chromium.launch(executable_path=executable, headless=True)
         page = browser.new_page(viewport={"width": width, "height": height})
         posts: list[str] = []
         page.on("request", lambda request: posts.append(request.url) if request.method == "POST" else None)

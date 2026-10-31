@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from prompta.config import ConnectorApproval
-from prompta.playwright_driver import _normalise_composer_text
+from prompta.patchright_driver import _normalise_composer_text
 from prompta.response_capture import CaptureResult
 
 

@@ -5,7 +5,7 @@ import os
 import shutil
 
 import pytest
-from patchright.async_api import async_playwright
+from patchright.async_api import async_playwright as async_patchright
 
 from prompta.browser_script_loader import load_browser_script
 from prompta.connector_approval_supervisor import (
@@ -80,8 +80,8 @@ async def test_trusted_retry_handles_unhydrated_permission_controls() -> None:
     chromium = os.environ.get("PROMPTA_TEST_CHROMIUM") or shutil.which("chromium")
     if chromium is None:
         pytest.skip("System Chromium is unavailable")
-    async with async_playwright() as playwright:
-        browser = await playwright.chromium.launch(
+    async with async_patchright() as patchright:
+        browser = await patchright.chromium.launch(
             executable_path=chromium, headless=True, args=["--no-sandbox"]
         )
         try:
@@ -109,8 +109,8 @@ async def test_trusted_retry_checks_checkbox_before_grant() -> None:
     chromium = os.environ.get("PROMPTA_TEST_CHROMIUM") or shutil.which("chromium")
     if chromium is None:
         pytest.skip("System Chromium is unavailable")
-    async with async_playwright() as playwright:
-        browser = await playwright.chromium.launch(
+    async with async_patchright() as patchright:
+        browser = await patchright.chromium.launch(
             executable_path=chromium, headless=True, args=["--no-sandbox"]
         )
         try:
