@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 from sse_starlette import EventSourceResponse
 
 from prompta.web import WebServices, create_app
+from prompta.web_boundary import RequestBoundary
 
 
 @pytest.fixture
@@ -180,3 +181,29 @@ async def test_sse_transport_cancels_generator_on_disconnect_and_emits_heartbeat
     await asyncio.wait_for(task, timeout=2)
     assert closed.is_set()
     assert b"event: sync" in b"".join(frames)
+
+
+@pytest.mark.asyncio
+async def test_stream_failure_terminates_started_response_without_leaking_details(caplog) -> None:
+    frames: list[dict[str, object]] = []
+
+    async def broken(scope, receive, send):
+        await send({"type": "http.response.start", "status": 200, "headers": []})
+        await send({"type": "http.response.body", "body": b"data: ready\n\n", "more_body": True})
+        raise RuntimeError("private transcript must not reach logs")
+
+    async def receive():
+        return {"type": "http.disconnect"}
+
+    async def send(message):
+        frames.append(message)
+
+    await RequestBoundary(broken)(
+        {"type": "http", "method": "GET", "path": "/api/events"}, receive, send
+    )
+    assert [frame["type"] for frame in frames] == [
+        "http.response.start", "http.response.body", "http.response.body"
+    ]
+    assert frames[-1] == {"type": "http.response.body", "body": b"", "more_body": False}
+    assert "private transcript" not in caplog.text
+    assert "RuntimeError" in caplog.text

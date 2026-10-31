@@ -226,3 +226,16 @@ def test_browser_polls_during_sse_outage_and_recovers_without_reloading(tmp_path
                 assert "POST" not in request_methods
             finally:
                 browser.close()
+
+
+def test_idle_sse_sends_named_ping_visible_to_eventsource(tmp_path: Path) -> None:
+    with live_server(tmp_path) as (_, port, _):
+        client = HTTPConnection("127.0.0.1", port, timeout=19)
+        try:
+            client.request("GET", "/api/events")
+            stream = client.getresponse()
+            assert next_event(stream)[0] == "sync"
+            topic, data, _ = next_event(stream)
+            assert (topic, data) == ("ping", "keepalive")
+        finally:
+            client.close()

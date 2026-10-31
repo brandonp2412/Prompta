@@ -263,6 +263,7 @@ def create_app(
         return EventSourceResponse(
             stream(),
             ping=15,
+            ping_message_factory=lambda: ServerSentEvent(event="ping", data="keepalive"),
             send_timeout=30,
             sep="\n",
             headers={"Cache-Control": "no-cache, no-transform"},

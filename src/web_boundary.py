@@ -51,6 +51,7 @@ class RequestBoundary:
             limit = 786432 if path.endswith("/import") else 1024
         received = 0
         response_started = False
+        response_complete = False
 
         async def bounded_receive() -> Message:
             nonlocal received
@@ -62,7 +63,9 @@ class RequestBoundary:
             return message
 
         async def private_send(message: Message) -> None:
-            nonlocal response_started
+            nonlocal response_started, response_complete
+            if message["type"] == "http.response.body" and not message.get("more_body", False):
+                response_complete = True
             if message["type"] == "http.response.start":
                 response_started = True
                 headers = list(message.get("headers", []))
@@ -76,7 +79,9 @@ class RequestBoundary:
             await self.app(scope, bounded_receive, private_send)
         except Exception as exc:
             logger.error("HTTP contract failed error_type=%s", type(exc).__name__)
-            if not response_started:
+            if response_started and not response_complete:
+                await private_send({"type": "http.response.body", "body": b"", "more_body": False})
+            elif not response_started:
                 await JSONResponse(
                     {"ok": False, "error": "Chat send contract unavailable"}, status_code=500
                 )(scope, receive, private_send)
