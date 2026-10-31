@@ -21,7 +21,7 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 	enumerable: true
 }) : target, mod));
 //#endregion
-//#region node_modules/scheduler/cjs/scheduler.production.js
+//#region ../prompta/node_modules/scheduler/cjs/scheduler.production.js
 /**
 * @license React
 * scheduler.production.js
@@ -276,12 +276,12 @@ var require_scheduler_production = /* @__PURE__ */ __commonJSMin(((exports) => {
 	};
 }));
 //#endregion
-//#region node_modules/scheduler/index.js
+//#region ../prompta/node_modules/scheduler/index.js
 var require_scheduler = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_scheduler_production();
 }));
 //#endregion
-//#region node_modules/react/cjs/react.production.js
+//#region ../prompta/node_modules/react/cjs/react.production.js
 /**
 * @license React
 * react.production.js
@@ -668,12 +668,12 @@ var require_react_production = /* @__PURE__ */ __commonJSMin(((exports) => {
 	exports.version = "19.3.1";
 }));
 //#endregion
-//#region node_modules/react/index.js
+//#region ../prompta/node_modules/react/index.js
 var require_react = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_react_production();
 }));
 //#endregion
-//#region node_modules/react-dom/cjs/react-dom.production.js
+//#region ../prompta/node_modules/react-dom/cjs/react-dom.production.js
 /**
 * @license React
 * react-dom.production.js
@@ -826,7 +826,7 @@ var require_react_dom_production = /* @__PURE__ */ __commonJSMin(((exports) => {
 	exports.version = "19.3.1";
 }));
 //#endregion
-//#region node_modules/react-dom/index.js
+//#region ../prompta/node_modules/react-dom/index.js
 var require_react_dom = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	function checkDCE() {
 		if (typeof __REACT_DEVTOOLS_GLOBAL_HOOK__ === "undefined" || typeof __REACT_DEVTOOLS_GLOBAL_HOOK__.checkDCE !== "function") return;
@@ -840,7 +840,7 @@ var require_react_dom = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_react_dom_production();
 }));
 //#endregion
-//#region node_modules/react-dom/cjs/react-dom-client.production.js
+//#region ../prompta/node_modules/react-dom/cjs/react-dom-client.production.js
 /**
 * @license React
 * react-dom-client.production.js
@@ -11415,7 +11415,7 @@ var require_react_dom_client_production = /* @__PURE__ */ __commonJSMin(((export
 	};
 }));
 //#endregion
-//#region node_modules/react-dom/client.js
+//#region ../prompta/node_modules/react-dom/client.js
 var require_client = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	function checkDCE() {
 		if (typeof __REACT_DEVTOOLS_GLOBAL_HOOK__ === "undefined" || typeof __REACT_DEVTOOLS_GLOBAL_HOOK__.checkDCE !== "function") return;
@@ -11429,7 +11429,7 @@ var require_client = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_react_dom_client_production();
 }));
 //#endregion
-//#region node_modules/@preact/signals-core/dist/signals-core.module.js
+//#region ../prompta/node_modules/@preact/signals-core/dist/signals-core.module.js
 var import_react = /* @__PURE__ */ __toESM(require_react());
 var import_client = require_client();
 var i$1 = Symbol.for("preact-signals");
@@ -11841,7 +11841,7 @@ function x$2(i, t) {
 	return n;
 }
 //#endregion
-//#region node_modules/use-sync-external-store/cjs/use-sync-external-store-shim.production.js
+//#region ../prompta/node_modules/use-sync-external-store/cjs/use-sync-external-store-shim.production.js
 /**
 * @license React
 * use-sync-external-store-shim.production.js
@@ -11901,7 +11901,7 @@ var require_use_sync_external_store_shim_production = /* @__PURE__ */ __commonJS
 	exports.useSyncExternalStore = void 0 !== React.useSyncExternalStore ? React.useSyncExternalStore : shim;
 }));
 //#endregion
-//#region node_modules/@preact/signals-react/runtime/dist/runtime.module.js
+//#region ../prompta/node_modules/@preact/signals-react/runtime/dist/runtime.module.js
 var import_shim = (/* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_use_sync_external_store_shim_production();
 })))();
@@ -14709,7 +14709,7 @@ function createJobsPageController(initialProps) {
 	};
 }
 //#endregion
-//#region node_modules/react/cjs/react-jsx-runtime.production.js
+//#region ../prompta/node_modules/react/cjs/react-jsx-runtime.production.js
 /**
 * @license React
 * react-jsx-runtime.production.js
@@ -16116,13 +16116,10 @@ function ChatComposer(props) {
 //#endregion
 //#region src/ui/resultFormatting.ts
 function recoveryProgress(recovery, now) {
-	if (!recovery) return null;
-	if (!recovery.eligible) return "No verified conversation ID for automatic recovery.";
-	if (recovery.attempt_count === 0) return "Awaiting first read-only recovery check.";
-	const attempts = recovery.attempt_count;
-	const checked = `Read-only recovery checked ${attempts} ${attempts === 1 ? "time" : "times"}.`;
-	if (recovery.next_attempt_at > now) return `${checked} Next eligible check in about ${Math.ceil((recovery.next_attempt_at - now) / 60)} min; account pacing may delay it.`;
-	return `${checked} Awaiting next available recovery slot.`;
+	if (!recovery || !recovery.eligible) return null;
+	if (recovery.attempt_count === 0) return "First check pending";
+	if (recovery.next_attempt_at > now) return `next check ~${Math.ceil((recovery.next_attempt_at - now) / 60)} min`;
+	return "Next check queued";
 }
 function responseBadge(status) {
 	switch (status) {
@@ -16711,7 +16708,7 @@ function ChatsSidebar({ model, refs }) {
 	});
 }
 //#endregion
-//#region node_modules/marked/lib/marked.esm.js
+//#region ../prompta/node_modules/marked/lib/marked.esm.js
 /**
 * marked v16.4.2 - a markdown parser
 * Copyright (c) 2018-2025, MarkedJS. (MIT License)
@@ -18513,7 +18510,7 @@ function ToolCalls({ calls }) {
 //#region src/ui/ChatTranscript.tsx
 function ChatTranscript({ model, refs }) {
 	N$1();
-	const { selectedRunId, recoveryPauseSeconds: pauseSeconds, recoveryPauseReason: pauseReason, recoveryBacklog: recoveryQueue, recoveryUnverified: unverifiedCaptures, recoveryReplyBacklog: replyQueue, expandedPrompts, detail, turns, turnsError, startingNewChatFromFailure: startingNewChat, detailError, switchingChat, loadDetail, startFailedReplyInNewChat, continueUnverifiedInNewChat, retryFailedTurn, copyText, togglePrompt, copyState } = model;
+	const { selectedRunId, recoveryPauseSeconds: pauseSeconds, recoveryBacklog: recoveryQueue, recoveryUnverified: unverifiedCaptures, recoveryReplyBacklog: replyQueue, expandedPrompts, detail, turns, turnsError, startingNewChatFromFailure: startingNewChat, detailError, switchingChat, loadDetail, startFailedReplyInNewChat, continueUnverifiedInNewChat, retryFailedTurn, copyText, togglePrompt, copyState } = model;
 	function copyLabel(id) {
 		if (copyState.value === id) return "Copied";
 		if (copyState.value === "error:" + id) return "Copy failed";
@@ -18666,12 +18663,12 @@ function ChatTranscript({ model, refs }) {
 								"aria-busy": startingNewChat.value,
 								onClick: () => void continueUnverifiedInNewChat(),
 								children: "Continue in new chat"
-							}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "The original send is unverified. Nothing will be resent automatically. Continuing creates a separate request with saved context and attachments." })]
+							}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { children: "Original send unverified; continuing starts a separate request." })]
 						}),
-						index === 0 && ["interrupted", "unavailable"].includes(turn.status) && detail.value?.recovery?.eligible === false && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+						index === 0 && ["interrupted", "unavailable"].includes(turn.status) && detail.value?.recovery?.eligible === false && (Boolean(turn.assistant_text.trim()) || !turn.user_text.trim()) && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 							className: "chat-recovery-guidance",
 							role: "status",
-							children: [recoveryProgress(detail.value.recovery, Date.now() / 1e3), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "The capture has no verified ChatGPT conversation to revisit. No automatic resend will occur." })]
+							children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { children: "No verified ChatGPT chat for read-only recovery." })
 						}),
 						[
 							"interrupted",
@@ -18679,43 +18676,23 @@ function ChatTranscript({ model, refs }) {
 							"outcome_unknown"
 						].includes(turn.status) && exactConversationUrl(turn.conversation_id || detail.value.conversation_id) ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 							className: "chat-recovery-guidance",
-							children: [
-								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Recovery checks are read-only. No automatic resend." }),
-								recoveryQueue.value !== null && recoveryQueue.value > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
-									role: "status",
-									children: [
-										"Recovery backlog: ",
-										recoveryQueue.value,
-										" original captures",
-										replyQueue.value !== null && replyQueue.value > 0 ? `; ${replyQueue.value} unresolved follow-up captures` : "",
-										". Checks are account-paced, so completion may take time."
-									]
-								}),
-								unverifiedCaptures.value !== null && unverifiedCaptures.value > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
-									role: "status",
-									children: [unverifiedCaptures.value, " original captures lack a verified ChatGPT conversation, so automatic recovery cannot check them."]
-								}),
-								index === 0 && detail.value?.recovery && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-									role: "status",
-									children: recoveryProgress(detail.value.recovery, Date.now() / 1e3)
-								}),
-								pauseSeconds.value > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
-									role: "status",
-									children: [
-										"Recovery is waiting about ",
-										Math.ceil(pauseSeconds.value / 60),
-										" min (",
-										pauseReason.value,
-										")."
-									]
-								}),
-								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("a", {
-									href: exactConversationUrl(turn.conversation_id || detail.value.conversation_id) ?? void 0,
-									target: "_blank",
-									rel: "noopener noreferrer",
-									children: "Open exact chat in ChatGPT"
-								})
-							]
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", {
+								role: "status",
+								children: [
+									"Read-only recovery",
+									recoveryQueue.value !== null && recoveryQueue.value > 0 ? ` · ${recoveryQueue.value} originals pending` : "",
+									replyQueue.value !== null && replyQueue.value > 0 ? `, ${replyQueue.value} replies` : "",
+									unverifiedCaptures.value !== null && unverifiedCaptures.value > 0 ? ` · ${unverifiedCaptures.value} unverified` : "",
+									index === 0 && detail.value?.recovery?.eligible ? ` · ${recoveryProgress(detail.value.recovery, Date.now() / 1e3) ?? ""}` : "",
+									pauseSeconds.value > 0 ? ` · paused ~${Math.ceil(pauseSeconds.value / 60)} min` : "",
+									". No automatic resend."
+								]
+							}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("a", {
+								href: exactConversationUrl(turn.conversation_id || detail.value.conversation_id) ?? void 0,
+								target: "_blank",
+								rel: "noopener noreferrer",
+								children: "Open exact chat in ChatGPT"
+							})]
 						}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {})
 					]
 				})] }, turn.reply_id || detail.value.send_id))]

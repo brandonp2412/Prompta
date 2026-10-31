@@ -28,7 +28,6 @@ export default function ChatTranscript({
   const {
     selectedRunId,
     recoveryPauseSeconds: pauseSeconds,
-    recoveryPauseReason: pauseReason,
     recoveryBacklog: recoveryQueue,
     recoveryUnverified: unverifiedCaptures,
     recoveryReplyBacklog: replyQueue,
@@ -309,55 +308,40 @@ export default function ChatTranscript({
                           >
                             Continue in new chat
                           </button>
-                          <span>
-                            The original send is unverified. Nothing will be resent automatically.
-                            Continuing creates a separate request with saved context and
-                            attachments.
-                          </span>
+                          <p>Original send unverified; continuing starts a separate request.</p>
                         </div>
                       )}
                     {index === 0 &&
                       ["interrupted", "unavailable"].includes(turn.status) &&
-                      detail.value?.recovery?.eligible === false && (
+                      detail.value?.recovery?.eligible === false &&
+                      (Boolean(turn.assistant_text.trim()) || !turn.user_text.trim()) && (
                         <div className="chat-recovery-guidance" role="status">
-                          {recoveryProgress(detail.value.recovery, Date.now() / 1000)}
-                          <span>
-                            The capture has no verified ChatGPT conversation to revisit. No
-                            automatic resend will occur.
-                          </span>
+                          <p>No verified ChatGPT chat for read-only recovery.</p>
                         </div>
                       )}
                     {["interrupted", "unavailable", "outcome_unknown"].includes(turn.status) &&
                     exactConversationUrl(turn.conversation_id || detail.value!.conversation_id) ? (
                       <>
                         <div className="chat-recovery-guidance">
-                          <span>Recovery checks are read-only. No automatic resend.</span>
-                          {recoveryQueue.value !== null && recoveryQueue.value > 0 && (
-                            <span role="status">
-                              Recovery backlog: {recoveryQueue.value} original captures
-                              {replyQueue.value !== null && replyQueue.value > 0
-                                ? `; ${replyQueue.value} unresolved follow-up captures`
-                                : ""}
-                              . Checks are account-paced, so completion may take time.
-                            </span>
-                          )}
-                          {unverifiedCaptures.value !== null && unverifiedCaptures.value > 0 && (
-                            <span role="status">
-                              {unverifiedCaptures.value} original captures lack a verified ChatGPT
-                              conversation, so automatic recovery cannot check them.
-                            </span>
-                          )}
-                          {index === 0 && detail.value?.recovery && (
-                            <span role="status">
-                              {recoveryProgress(detail.value.recovery, Date.now() / 1000)}
-                            </span>
-                          )}
-                          {pauseSeconds.value > 0 && (
-                            <span role="status">
-                              Recovery is waiting about {Math.ceil(pauseSeconds.value / 60)} min (
-                              {pauseReason.value}).
-                            </span>
-                          )}
+                          <p role="status">
+                            Read-only recovery
+                            {recoveryQueue.value !== null && recoveryQueue.value > 0
+                              ? ` · ${recoveryQueue.value} originals pending`
+                              : ""}
+                            {replyQueue.value !== null && replyQueue.value > 0
+                              ? `, ${replyQueue.value} replies`
+                              : ""}
+                            {unverifiedCaptures.value !== null && unverifiedCaptures.value > 0
+                              ? ` · ${unverifiedCaptures.value} unverified`
+                              : ""}
+                            {index === 0 && detail.value?.recovery?.eligible
+                              ? ` · ${recoveryProgress(detail.value.recovery, Date.now() / 1000) ?? ""}`
+                              : ""}
+                            {pauseSeconds.value > 0
+                              ? ` · paused ~${Math.ceil(pauseSeconds.value / 60)} min`
+                              : ""}
+                            . No automatic resend.
+                          </p>
                           <a
                             href={
                               exactConversationUrl(

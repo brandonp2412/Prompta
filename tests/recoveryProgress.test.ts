@@ -13,7 +13,7 @@ test("recovery progress explains pending, paced, and nonrecoverable local reads"
       },
       100,
     ),
-  ).toContain("No verified conversation ID");
+  ).toBeNull();
   expect(
     recoveryProgress(
       {
@@ -24,7 +24,7 @@ test("recovery progress explains pending, paced, and nonrecoverable local reads"
       },
       100,
     ),
-  ).toContain("Awaiting first read-only recovery check");
+  ).toBe("First check pending");
   expect(
     recoveryProgress(
       {
@@ -35,7 +35,7 @@ test("recovery progress explains pending, paced, and nonrecoverable local reads"
       },
       101,
     ),
-  ).toContain("about 3 min");
+  ).toBe("next check ~3 min");
   expect(
     recoveryProgress(
       {
@@ -46,5 +46,5 @@ test("recovery progress explains pending, paced, and nonrecoverable local reads"
       },
       201,
     ),
-  ).toContain("next available recovery slot");
+  ).toBe("Next check queued");
 });

@@ -42,16 +42,12 @@ export type RunDetail = RunSummary & {
 };
 
 export function recoveryProgress(recovery: RunDetail["recovery"], now: number): string | null {
-  if (!recovery) return null;
-  if (!recovery.eligible) return "No verified conversation ID for automatic recovery.";
-  if (recovery.attempt_count === 0) return "Awaiting first read-only recovery check.";
-  const attempts = recovery.attempt_count;
-  const checked = `Read-only recovery checked ${attempts} ${attempts === 1 ? "time" : "times"}.`;
+  if (!recovery || !recovery.eligible) return null;
+  if (recovery.attempt_count === 0) return "First check pending";
   if (recovery.next_attempt_at > now) {
-    const minutes = Math.ceil((recovery.next_attempt_at - now) / 60);
-    return `${checked} Next eligible check in about ${minutes} min; account pacing may delay it.`;
+    return `next check ~${Math.ceil((recovery.next_attempt_at - now) / 60)} min`;
   }
-  return `${checked} Awaiting next available recovery slot.`;
+  return "Next check queued";
 }
 
 export type CapturedToolCall = {

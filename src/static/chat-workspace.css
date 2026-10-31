@@ -305,6 +305,7 @@
 }
 
 .chat-recovery-guidance { display: flex; flex-wrap: wrap; align-items: center; gap: 5px 14px; margin-top: 12px; font-size: .83rem; line-height: 1.45; color: #aaa; }
+.chat-recovery-guidance p { margin: 0; }
 .chat-recovery-guidance a { color: #b8caff; text-decoration: underline; text-underline-offset: 3px; }
 .chat-recovery-guidance a:focus-visible { outline: 2px solid #b8caff; outline-offset: 3px; border-radius: 3px; }
 
