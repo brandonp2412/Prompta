@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import threading
-from collections.abc import Generator
+from collections.abc import Generator, Mapping
 from contextlib import contextmanager
 from http.client import HTTPConnection
 from pathlib import Path
@@ -60,7 +60,7 @@ def get(
         conn.close()
 
 
-def post_json(port: int, path: str, data: dict[str, object]) -> tuple[int, dict[str, object]]:
+def post_json(port: int, path: str, data: Mapping[str, object]) -> tuple[int, dict[str, object]]:
     conn = HTTPConnection("127.0.0.1", port, timeout=3)
     try:
         conn.request(

@@ -280,3 +280,28 @@ def test_attention_filter_surfaces_uncertain_followups_and_clears_after_recovery
         ).values(status="unavailable"))
     assert responses.page(status="needs_attention")["total"] == 1
     assert responses.recovery_metrics(now=30)["attention_chats"] == 1
+
+
+def test_mark_all_read_tracks_only_the_latest_completed_revision(tmp_path: Path) -> None:
+    responses, replies, reply_id = _chain(tmp_path)
+    assert replies.mark_all_local_read() == 1
+    assert replies.mark_all_local_read() == 0
+
+    page = responses.page(status="completed")
+    replies.annotate_response_markers(page["items"])
+    first_revision = page["items"][0]["last_reply_revision"]
+    assert first_revision
+
+    assert replies.recover_historical_reply(
+        reply_id,
+        CaptureResult(
+            "dom", "complete", "Second answer", CONVERSATION,
+            SECOND_REPLY_ID, FIRST_REPLY_ID, "turn",
+        ),
+        now=25,
+    )
+    page = responses.page(status="completed")
+    replies.annotate_response_markers(page["items"])
+    assert page["items"][0]["last_reply_revision"] != first_revision
+    assert replies.mark_all_local_read() == 1
+    assert replies.mark_all_local_read() == 0
