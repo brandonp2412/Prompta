@@ -4,6 +4,7 @@ import { subscribeLiveUpdates } from "./liveUpdates";
 import { isQueueSnapshot, type QueueSnapshot } from "./queueStatus";
 import { localGet } from "./localRead";
 import { localPost, localRejectionDetail, localUploadTimeoutMs } from "./localMutation";
+import { attachmentSelectionError, isVideoAttachment } from "./mediaAttachments";
 import { jobFilter, sameJob, type ImageRef, type Job, type JobFilter } from "./jobView";
 import {
   acknowledgeFreshQueueRequest,
@@ -572,22 +573,9 @@ export function createJobsPageController(initialProps: Props) {
     const files = Array.from(input.files || []);
     input.value = "";
     if (!files.length || uploadingImage.value) return;
-    if (images.value.length + files.length > 4) {
-      editorError.value = "At most four images per job.";
-      return;
-    }
-    // Reject the entire batch before uploading anything, so selection errors
-    // cannot leave a surprising subset of new attachments.
-    if (
-      files.some(
-        (file) => !["image/png", "image/jpeg", "image/gif", "image/webp"].includes(file.type),
-      )
-    ) {
-      editorError.value = "Only PNG, JPEG, GIF or WebP images are supported.";
-      return;
-    }
-    if (files.some((file) => file.size > 8 * 1024 * 1024)) {
-      editorError.value = "Images must be 8 MiB or smaller.";
+    const invalid = attachmentSelectionError(files, images.value.length, "job");
+    if (invalid) {
+      editorError.value = invalid;
       return;
     }
     const route = activeEditorRoute.value;
@@ -601,18 +589,18 @@ export function createJobsPageController(initialProps: Props) {
       for (const file of files) {
         const data = await new Promise<string>((resolve, reject) => {
           const reader = new FileReader();
-          reader.onerror = () => reject(new Error("Could not read image."));
+          reader.onerror = () => reject(new Error("Could not read attachment."));
           reader.onload = () => {
             const value = reader.result;
             if (typeof value !== "string" || !value.includes(","))
-              reject(new Error("Could not encode image."));
+              reject(new Error("Could not encode attachment."));
             else resolve(value.split(",", 2)[1]);
           };
           reader.readAsDataURL(file);
         });
         if (generation !== uploadGen || activeEditorRoute.value !== route) return;
         const response = await localPost(
-          "./api/images",
+          isVideoAttachment(file.name) ? "./api/videos" : "./api/images",
           { name: file.name, data },
           {
             timeoutMs: localUploadTimeoutMs,
@@ -621,10 +609,10 @@ export function createJobsPageController(initialProps: Props) {
         );
         if (generation !== uploadGen || activeEditorRoute.value !== route) return;
         if (!response.ok)
-          throw new Error(await localRejectionDetail(response, "Image upload failed."));
+          throw new Error(await localRejectionDetail(response, "Attachment upload failed."));
         const result = (await response.json()) as { image?: ImageRef };
         if (!result.image?.ref || !result.image.url.startsWith("./api/images/")) {
-          throw new Error("Image upload receipt was invalid.");
+          throw new Error("Attachment upload receipt was invalid.");
         }
         if (images.value.some((image) => image.ref === result.image?.ref)) continue;
         images.value = [...images.value, result.image];
@@ -640,7 +628,7 @@ export function createJobsPageController(initialProps: Props) {
         images.value = originalImages;
         editorError.value =
           error instanceof DOMException && error.name === "TimeoutError"
-            ? "Image upload timed out. No new attachments were added; try again."
+            ? "Attachment upload timed out. No new attachments were added; try again."
             : String(error).replace(/^Error:\s*/, "");
       }
     } finally {

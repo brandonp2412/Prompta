@@ -175,7 +175,7 @@ def test_real_composer_keyboard_image_and_overflow(
         composer.type("Synthetic line two")
         assert composer.input_value() == "Synthetic line one\nSynthetic line two"
 
-        image = page.get_by_label("Choose images")
+        image = page.get_by_label("Choose photos or videos")
         image.set_input_files({"name": "tiny.png", "mimeType": "image/png", "buffer": _PNG})
         page.get_by_role("img", name="tiny.png").wait_for()
         assert page.get_by_role("button", name="Remove tiny.png").count() == 1

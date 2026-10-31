@@ -32,7 +32,7 @@ def test_upload_refs_survive_reload_but_removed_refs_do_not(
         page.goto(f"http://127.0.0.1:{port}/?view=chats&draft=new")
         message = page.get_by_role("textbox", name="Message for new chat")
         message.fill("Unsent message with image")
-        page.get_by_label("Choose images").set_input_files(
+        page.get_by_label("Choose photos or videos").set_input_files(
             {"name": "one.png", "mimeType": "image/png", "buffer": PNG},
         )
         expect(page.locator(".composer-preview")).to_have_count(1)

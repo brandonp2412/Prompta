@@ -466,7 +466,7 @@ def test_chats_ui_desktop_mobile_and_no_chatgpt_requests(tmp_path: Path) -> None
                 assert initial_box is not None
                 initial_height = initial_box["height"]
                 assert 25 <= initial_height <= 40  # Exactly one text row when empty.
-                attach = page.get_by_role("button", name="Attach images").bounding_box()
+                attach = page.get_by_role("button", name="Attach photos or videos").bounding_box()
                 expect(page.get_by_role("button", name="Send fresh chat")).to_have_count(0)
                 composer.fill("Draft")
                 send = page.get_by_role("button", name="Send fresh chat").bounding_box()

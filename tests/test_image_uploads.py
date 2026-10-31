@@ -51,6 +51,77 @@ def test_invalid_images_are_rejected(tmp_path: Path, name: str, raw: str) -> Non
         ImageStore(tmp_path).save(name, raw)
 
 
+MP4 = b"\x00\x00\x00\x18ftypisom\x00\x00\x02\x00isomiso2"
+MOV = b"\x00\x00\x00\x14ftypqt  \x00\x00\x00\x00"
+WEBM = b"\x1a\x45\xdf\xa3\x9f\x42\x82\x84webm"
+
+
+@pytest.mark.parametrize(
+    "name,mime,data",
+    [
+        ("clip.mp4", "video/mp4", MP4),
+        ("clip.mov", "video/quicktime", MOV),
+        ("clip.webm", "video/webm", WEBM),
+    ],
+)
+def test_video_files_are_stored_with_verified_media_types(
+    tmp_path: Path, name: str, mime: str, data: bytes,
+) -> None:
+    store = ImageStore(tmp_path)
+    ref = store.save(name, base64.b64encode(data).decode())
+    assert store.read(ref) == (mime, data)
+    assert store.path(ref).stat().st_mode & 0o077 == 0
+    with pytest.raises(ValueError, match="extension"):
+        store.save("wrong.png", base64.b64encode(data).decode())
+
+
+def test_video_upload_size_limit_and_spoofed_media(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import prompta.image_store as image_store
+
+    store = ImageStore(tmp_path)
+    with pytest.raises(ValueError, match="Unsupported"):
+        store.save("fake.mp4", base64.b64encode(b"<svg></svg>").decode())
+    monkeypatch.setattr(image_store, "MAX_VIDEO_BYTES", len(MP4) - 1)
+    with pytest.raises(ValueError, match="50 MiB"):
+        store.save("clip.mp4", base64.b64encode(MP4).decode())
+
+
+def test_video_upload_http_and_fresh_chat_receipt(tmp_path: Path) -> None:
+    database = tmp_path / "runtime.sqlite3"
+    server = LiveServer(("127.0.0.1", 0), state_path=database, jobs_path=database)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    base = f"http://127.0.0.1:{server.server_port}"
+
+    def post(path: str, payload: dict[str, object]) -> dict[str, object]:
+        request = Request(
+            base + path, data=json.dumps(payload).encode(),
+            headers={"Content-Type": "application/json"}, method="POST",
+        )
+        with urlopen(request, timeout=5) as response:
+            return object_map(json.load(response))
+
+    try:
+        video = object_map(post("/api/videos", {
+            "name": "sample.mp4", "data": base64.b64encode(MP4).decode(),
+        })["image"])
+        ref = video["ref"]
+        assert isinstance(ref, str)
+        with urlopen(base + "/api/images/" + ref, timeout=5) as response:
+            assert response.headers["Content-Type"] == "video/mp4"
+            assert response.read() == MP4
+        receipt = post("/api/chats", {
+            "request_id": "1" * 32, "prompt": "Describe the attached clip", "images": [ref],
+        })
+        assert receipt["ok"] is True
+        with urlopen(base + "/api/chats/requests/" + "1" * 32, timeout=5) as response:
+            assert object_map(json.load(response))["send_id"] == receipt["send_id"]
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=3)
+
+
 def object_map(value: object) -> dict[str, object]:
     assert isinstance(value, dict)
     parsed: dict[str, object] = {}
@@ -106,6 +177,38 @@ def test_web_image_upload_preview_and_job_submission(tmp_path: Path) -> None:
         with pytest.raises(HTTPError) as exc:
             urlopen(base + "/api/images/../../etc/passwd", timeout=5)
         assert exc.value.code == 404
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=3)
+
+
+def test_video_attachment_composer_preview_in_browser(tmp_path: Path) -> None:
+    chromium = os.environ.get("PROMPTA_TEST_CHROMIUM") or shutil.which("chromium")
+    if chromium is None:
+        pytest.skip("Chromium is not installed")
+    database = tmp_path / "runtime.sqlite3"
+    server = LiveServer(("127.0.0.1", 0), state_path=database, jobs_path=database)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        with sync_patchright() as patchright:
+            browser = patchright.chromium.launch(
+                headless=True, executable_path=chromium, args=["--no-sandbox"],
+            )
+            try:
+                page = browser.new_page(viewport={"width": 390, "height": 844})
+                page.goto(f"http://127.0.0.1:{server.server_port}/?view=chats&draft=new")
+                field = page.locator('input[type="file"][accept*="video/mp4"]')
+                field.set_input_files({
+                    "name": "clip.mp4", "mimeType": "video/mp4", "buffer": MP4,
+                })
+                page.get_by_label("Attachments to send").locator("video").wait_for()
+                assert page.get_by_label("Attachments to send").locator("video").count() == 1
+                assert page.get_by_role("button", name="Remove clip.mp4").count() == 1
+                assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+            finally:
+                browser.close()
     finally:
         server.shutdown()
         server.server_close()

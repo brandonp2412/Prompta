@@ -48,7 +48,7 @@ def test_rejected_image_send_recovers_without_duplicate(
             ),
         )
         page.goto(f"http://127.0.0.1:{port}/?view=chats&draft=new")
-        chooser = page.get_by_label("Choose images")
+        chooser = page.get_by_label("Choose photos or videos")
         chooser.set_input_files(
             {
                 "name": "photo.png",
@@ -62,7 +62,7 @@ def test_rejected_image_send_recovers_without_duplicate(
         with patch.object(app.images, "path", side_effect=ValueError("Image no longer exists")):
             page.get_by_role("button", name="Send fresh chat").click()
             expect(
-                page.get_by_text("Image unavailable. Reattach it before sending.")
+                page.get_by_text("Attachment unavailable. Reattach it before sending.")
             ).to_be_visible()
             assert app.queue.records() == []
 

@@ -722,13 +722,13 @@ button:disabled { cursor: default; opacity: 0.45; }
   border: 1px solid #474747; border-radius: 10px; overflow: hidden;
   scroll-margin-bottom: 120px;
 }
-.job-image-preview img { display: block; width: 100%; height: 164px; object-fit: contain; background: #202020; }
+.job-image-preview img, .job-image-preview video { display: block; width: 100%; height: 164px; object-fit: contain; background: #202020; }
 .job-image-preview span { display: block; padding: 5px 7px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: .73rem; }
 .job-image-preview button { position: absolute; top: 5px; right: 5px; border: 0; border-radius: 50%; background: #111e; color: white; font-size: 18px; width: 30px; height: 30px; cursor: pointer; }
 .job-image-count { font-size: .76rem; opacity: .7; margin-top: 3px; }
 @media (max-width: 600px) {
   .editor-body.has-images textarea { height: min(23dvh, 220px); min-height: 150px; }
-  .job-image-preview img { height: 146px; }
+  .job-image-preview img, .job-image-preview video { height: 146px; }
 }
 
 /* Stage 3: one persistent, locally backed ChatGPT-style shell. */
@@ -895,11 +895,11 @@ button:disabled { cursor: default; opacity: 0.45; }
 .copy-message:hover, .code-toolbar button:hover { color: #fff; background: #353535; }
 .chat-attachments { margin: 12px 0 0 auto; max-width: 92%; display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
 .chat-attachments a { display: block; border-radius: 12px; overflow: hidden; background: #272727; border: 1px solid #414141; }
-.chat-attachments img { width: 144px; height: 130px; object-fit: cover; display: block; }
+.chat-attachments img, .chat-attachments video { width: 144px; height: 130px; object-fit: cover; display: block; }
 .code-snippet { min-width: 0; margin: 16px 0; border: 1px solid #363636; border-radius: 10px; overflow: hidden; background: #1c1c1c; }
 .code-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 9px 4px 14px; color: #999; font-size: .72rem; border-bottom: 1px solid #343434; }
 .result-markdown .code-snippet pre { border: 0; border-radius: 0; margin: 0; }
-@media (max-width: 680px) { .chat-attachments img { width: 108px; height: 104px; } }
+@media (max-width: 680px) { .chat-attachments img, .chat-attachments video { width: 108px; height: 104px; } }
 
 /* Small-screen navigation and controls should take less space than the content. */
 .prompt-message.collapsed {
@@ -1039,7 +1039,9 @@ button:disabled { cursor: default; opacity: 0.45; }
 .composer-attach button:disabled { opacity: .5; }
 .composer-previews { display: flex; gap: 8px; overflow-x: auto; max-width: 100%; padding-bottom: 8px; }
 .composer-preview { position: relative; flex: 0 0 82px; width: 82px; height: 82px; border-radius: 10px; overflow: hidden; background: #252525; }
-.composer-preview img { width: 100%; height: 100%; object-fit: cover; }
+.composer-preview img, .composer-preview video { width: 100%; height: 100%; object-fit: cover; display: block; }
+.composer-video { position: relative; width: 100%; height: 100%; }
+.composer-video span { position: absolute; left: 4px; bottom: 4px; padding: 2px 5px; border-radius: 5px; background: #111c; font-size: .64rem; color: #fff; }
 .composer-preview button { position: absolute; right: 3px; top: 3px; width: 24px; height: 24px; border: 0; border-radius: 50%; background: #171717de; color: white; }
 .composer-feedback, .composer-disclaimer { color: #969696; font-size: .69rem; text-align: center; line-height: 1.4; margin: 6px 0 0; }
 .composer-error { color: #f2a3a3; }

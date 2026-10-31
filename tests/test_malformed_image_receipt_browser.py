@@ -57,10 +57,10 @@ def test_malformed_upload_receipt_rejects_then_recovers(
         page.goto(f"http://127.0.0.1:{port}/?view=chats&draft=new")
         draft = page.get_by_role("textbox", name="Message for new chat")
         draft.fill("Keep this draft")
-        chooser = page.get_by_label("Choose images")
+        chooser = page.get_by_label("Choose photos or videos")
         file: FilePayload = {"name": "photo.png", "mimeType": "image/png", "buffer": PNG}
         chooser.set_input_files(file)
-        expect(page.get_by_text("Image upload receipt was invalid.")).to_be_visible()
+        expect(page.get_by_text("Attachment upload receipt was invalid.")).to_be_visible()
         expect(page.locator(".composer-preview")).to_have_count(0)
         expect(draft).to_have_value("Keep this draft")
         chooser.set_input_files(file)

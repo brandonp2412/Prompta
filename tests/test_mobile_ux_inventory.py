@@ -250,7 +250,7 @@ def test_mobile_ux_inventory_atlas(tmp_path: Path, width: int, height: int) -> N
                 composer = page.get_by_role("textbox", name="Message for new chat")
                 initial = composer.bounding_box()
                 assert initial is not None and 25 <= initial["height"] <= 40
-                attach_initial = page.get_by_role("button", name="Attach images").bounding_box()
+                attach_initial = page.get_by_role("button", name="Attach photos or videos").bounding_box()
                 create_initial = page.locator(".chat-composer-wrap").get_by_role(
                     "button", name="New chat"
                 ).bounding_box()
@@ -274,7 +274,7 @@ def test_mobile_ux_inventory_atlas(tmp_path: Path, width: int, height: int) -> N
                 composer.fill("An unsent synthetic new-chat draft")
                 screenshot(page, root, "18-fresh-draft", notes)
                 if width <= 412:
-                    attach_box = page.get_by_role("button", name="Attach images").bounding_box()
+                    attach_box = page.get_by_role("button", name="Attach photos or videos").bounding_box()
                     send_box = page.get_by_role("button", name="Send fresh chat").bounding_box()
                     assert attach_box and send_box
                     assert (

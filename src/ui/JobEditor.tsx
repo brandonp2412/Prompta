@@ -1,6 +1,7 @@
 import React from "react";
 import { useSignals } from "@preact/signals-react/runtime";
 import type { createJobsPageController } from "./JobsPageController";
+import { attachmentAccept, isVideoAttachment } from "./mediaAttachments";
 
 type Controller = ReturnType<typeof createJobsPageController>;
 
@@ -234,12 +235,12 @@ export default function JobEditor({ model, refs }: { model: Controller; refs: Ed
               onClick={() => imageInput.value?.click()}
               className="toolbar-button"
             >
-              Add images
+              Add photos or videos
             </button>
             <input
               ref={refs.imageInput}
               type="file"
-              accept="image/png,image/jpeg,image/gif,image/webp"
+              accept={attachmentAccept}
               multiple={true}
               disabled={uploadingImage.value || saving.value || images.value.length >= 4}
               onChange={(event) => void addImages(event.currentTarget)}
@@ -248,7 +249,7 @@ export default function JobEditor({ model, refs }: { model: Controller; refs: Ed
             {uploadingImage.value || images.value.length ? (
               <>
                 <span>
-                  {uploadingImage.value ? "Uploading…" : images.value.length + "/4 images"}
+                  {uploadingImage.value ? "Uploading…" : images.value.length + "/4 attachments"}
                 </span>
               </>
             ) : (
@@ -261,7 +262,17 @@ export default function JobEditor({ model, refs }: { model: Controller; refs: Ed
                 {images.value.map((image, __index) => (
                   <React.Fragment key={image.ref}>
                     <div className="job-image-preview">
-                      <img src={image.url} alt={image.name} />
+                      {isVideoAttachment(image.name) ? (
+                        <video
+                          src={image.url}
+                          controls={true}
+                          playsInline={true}
+                          preload="metadata"
+                          aria-label={image.name}
+                        />
+                      ) : (
+                        <img src={image.url} alt={image.name} />
+                      )}
                       <span title={image.name}>{image.name}</span>
                       <button
                         type="button"

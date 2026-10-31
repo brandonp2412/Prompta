@@ -666,7 +666,17 @@ class PatchrightDriver(ModelPickerMixin):
                 continue
         return None
 
-    async def _image_input(self, page: Page) -> Locator | None:
+    async def _image_input(self, page: Page, *, videos: bool = False) -> Locator | None:
+        if videos:
+            video_picker = page.locator(
+                'input[type="file"][aria-label="Attach photos or videos"][accept*="video/"]:not([capture])'
+            )
+            if await video_picker.count() == 1 and await video_picker.first.is_enabled():
+                return video_picker.first
+            file_picker = page.locator('input[type="file"][aria-label="Attach files"]:not([capture])')
+            if await file_picker.count() == 1 and await file_picker.first.is_enabled():
+                return file_picker.first
+            return None
         # ChatGPT now exposes multiple hidden camera, photos, video and file
         # pickers at once. Select its semantically named photo picker first.
         photos = page.locator('input[type="file"][aria-label="Attach photos"]:not([capture])')
@@ -698,9 +708,10 @@ class PatchrightDriver(ModelPickerMixin):
             return
         for path in paths:
             if not path.is_file():
-                raise RuntimeError("Prompta image attachment missing")
+                raise RuntimeError("Prompta attachment missing")
         page = self._page()
-        field = await self._image_input(page)
+        has_video = any(path.suffix.lower() in {".mp4", ".mov", ".webm"} for path in paths)
+        field = await self._image_input(page, videos=has_video)
         if field is None:
             attach = await self._semantic_button(
                 page, re.compile(r"add files? and more|attach|upload|add (?:file|photo)", re.I)
@@ -708,13 +719,13 @@ class PatchrightDriver(ModelPickerMixin):
             if attach is not None:
                 await attach.click()
                 for _ in range(30):
-                    field = await self._image_input(page)
+                    field = await self._image_input(page, videos=has_video)
                     if field is not None:
                         break
                     await asyncio.sleep(0.1)
         if field is None:
-            raise RuntimeError("ChatGPT image attachment input unavailable")
-        previews = page.locator(".composer-attachment-surface img")
+            raise RuntimeError("ChatGPT attachment input unavailable")
+        previews = page.locator(".composer-attachment-surface")
         baseline = await previews.count()
         await field.set_input_files([str(path) for path in paths])
         stable = 0
@@ -725,7 +736,13 @@ class PatchrightDriver(ModelPickerMixin):
             if ready:
                 for index in range(baseline, baseline + len(paths)):
                     if not await previews.nth(index).evaluate(
-                        '(el) => el.complete && el.naturalWidth > 0 && Boolean(el.closest(".composer-attachment-surface"))'
+                        """(el) => {
+                            const img = el.querySelector("img");
+                            return img
+                                ? img.complete && img.naturalWidth > 0
+                                : Boolean(el.querySelector('svg[class*="text-file-video"]')) &&
+                                  !el.querySelector('[role="progressbar"],[aria-busy="true"]');
+                        }"""
                     ):
                         ready = False
                         break
@@ -736,7 +753,7 @@ class PatchrightDriver(ModelPickerMixin):
             else:
                 stable = 0
             await asyncio.sleep(0.25)
-        raise RuntimeError("ChatGPT image previews did not become ready within 120s")
+        raise RuntimeError("ChatGPT attachment previews did not become ready within 120s")
 
     async def _semantic_button(
         self,

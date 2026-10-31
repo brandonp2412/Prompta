@@ -47,7 +47,7 @@ def register_chat_routes(app: FastAPI, local: WebServices) -> None:
                 try:
                     local.images.path(ref)
                 except ValueError as exc:
-                    raise HTTPException(422, "Image unavailable. Reattach it before sending.") from exc
+                    raise HTTPException(422, "Attachment unavailable. Reattach it before sending.") from exc
         try:
             accepted = local.queue.enqueue_manual(
                 payload.prompt.strip(),
@@ -60,6 +60,7 @@ def register_chat_routes(app: FastAPI, local: WebServices) -> None:
         return {"ok": True, "send_id": accepted["send_id"], "status": accepted["status"]}
 
     @app.post("/api/images")
+    @app.post("/api/videos")
     def upload(payload: ImageUpload) -> dict[str, object]:
         ref = local.images.save(payload.name, payload.data)
         return {
