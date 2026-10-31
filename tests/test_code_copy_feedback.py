@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 from patchright.sync_api import expect, sync_playwright
 from test_reply_ui_browser import seed_terminal
-from test_web_results import server
+from web_results_support import server
 
 
 def test_code_copy_reports_success_failure_and_resets(

@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 from patchright.sync_api import Page, expect, sync_playwright
 from test_mobile_ux_inventory import populate
-from test_web_results import server
+from web_results_support import server
 
 VIEWPORTS = [(320, 700), (360, 800), (390, 844), (412, 915), (844, 390), (1440, 900)]
 
