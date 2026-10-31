@@ -18,12 +18,16 @@ from .browser_ownership import MAX_OWNED_TAB_AGE_SECONDS
 from .browser_script_loader import load_browser_script
 from .delivery_browser import BrowserDeliverySender
 from .playwright_driver import PlaywrightDriver, _normalise_composer_text
+from .rate_limit import RateLimitError
 from .reply_contracts import ManualReplyStore, ReplyConflict, ReplyIntent
 from .response_capture import CaptureResult
 from .strict_types import int_value
 
 logger = logging.getLogger(__name__)
 _CONFIRM_SECONDS = 20.0
+_RECOVER_PARENT_TIMEOUT_SECONDS = 20.0
+_RECOVER_PARENT_POLL_SECONDS = 1.0
+_MAX_QUEUED_REPLY_DISPATCHES = 2
 
 
 def _branch_probe(conversation_id: str, parent_id: str) -> str:
@@ -131,7 +135,9 @@ class ManualReplyDispatcher:
         ambiguous submissions are never automatically retried.
         """
         selected: set[str] = set()
-        for _ in range(4):
+        for _ in range(_MAX_QUEUED_REPLY_DISPATCHES):
+            if self.active_count() >= _MAX_QUEUED_REPLY_DISPATCHES:
+                return
             ready = self.store.next_queued_intent(exclude=selected)
             if ready is None:
                 return
@@ -192,8 +198,16 @@ class ManualReplyDispatcher:
         context = ""
         try:
             await driver.connect()
-            context = await driver.new_tab("https://chatgpt.com/c/" + conversation_id)
-            await driver.wait_for_composer()
+            try:
+                context = await driver.new_tab("https://chatgpt.com/c/" + conversation_id)
+                await driver.wait_for_composer()
+            except Exception:
+                if driver.history_rate_limited():
+                    sender.runtime.record_read_rate_limit(
+                        RateLimitError("ChatGPT exact conversation read returned HTTP 429")
+                    )
+                    raise ReplyConflict("ChatGPT account read cooldown is active; retry later") from None
+                raise
             if len(turns) == 1:
                 probe = _recovery_probe(
                     conversation_id, answer, original_prompt=str(latest["user_text"]),
@@ -204,9 +218,23 @@ class ManualReplyDispatcher:
                     conversation_id, previous_parent, str(latest["user_text"]),
                     answer, len(turns),
                 )
-            candidate = await driver.eval(probe)
-            if not isinstance(candidate, str) or not candidate:
-                raise ReplyConflict("The latest assistant message could not be verified")
+            deadline = asyncio.get_running_loop().time() + _RECOVER_PARENT_TIMEOUT_SECONDS
+            while True:
+                if driver.history_rate_limited():
+                    sender.runtime.record_read_rate_limit(
+                        RateLimitError("ChatGPT exact conversation read returned HTTP 429")
+                    )
+                    raise ReplyConflict("ChatGPT account read cooldown is active; retry later")
+                try:
+                    candidate = await asyncio.wait_for(driver.eval(probe), timeout=5.0)
+                except (PlaywrightError, TimeoutError):
+                    candidate = None
+                if isinstance(candidate, str) and candidate:
+                    break
+                remaining = deadline - asyncio.get_running_loop().time()
+                if remaining <= 0:
+                    raise ReplyConflict("The latest assistant message could not be verified")
+                await asyncio.sleep(min(_RECOVER_PARENT_POLL_SECONDS, remaining))
             if len(turns) == 1:
                 recovered = self.store.recover_original_parent(
                     send_id, conversation_id, candidate, answer
@@ -222,10 +250,13 @@ class ManualReplyDispatcher:
         finally:
             if context:
                 try:
-                    await driver.close_context(context)
-                except Exception:
-                    pass
-            await driver.close()
+                    await asyncio.wait_for(driver.close_context(context), timeout=5.0)
+                except Exception as exc:
+                    logger.warning("Exact recovery tab cleanup failed error_type=%s", type(exc).__name__)
+            try:
+                await asyncio.wait_for(driver.close(), timeout=5.0)
+            except Exception as exc:
+                logger.warning("Exact recovery browser disconnect failed error_type=%s", type(exc).__name__)
 
     def _run(self, turn: dict[str, object]) -> None:
         try:

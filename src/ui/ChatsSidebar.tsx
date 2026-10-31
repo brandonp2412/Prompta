@@ -32,6 +32,7 @@ export default function ChatsSidebar({
     markingAllRead,
     attentionChats,
     recoveryBacklog,
+    recoveryUnverified,
     recoveryReplyBacklog,
     recoveryPauseSeconds,
     drawerOpen,
@@ -52,6 +53,7 @@ export default function ChatsSidebar({
     loadMore,
     applyFilter,
     searchChanged,
+    clearSearch,
     toggleSearch,
     showJobs,
     createChat,
@@ -199,11 +201,15 @@ export default function ChatsSidebar({
         </button>
       )}
       {attentionCount > 0 &&
-        ((recoveryBacklog.value ?? 0) > 0 || (recoveryReplyBacklog.value ?? 0) > 0) && (
+        ((recoveryBacklog.value ?? 0) > 0 ||
+          (recoveryReplyBacklog.value ?? 0) > 0 ||
+          (recoveryUnverified.value ?? 0) > 0) && (
           <p className="chat-recovery-summary">
             Recovery: {recoveryBacklog.value ?? 0} original captures eligible
             {(recoveryReplyBacklog.value ?? 0) > 0 &&
               ` · ${recoveryReplyBacklog.value} follow-ups unresolved`}
+            {(recoveryUnverified.value ?? 0) > 0 &&
+              ` · ${recoveryUnverified.value} need manual review (no verified chat ID)`}
             {recoveryPauseSeconds.value > 0 &&
               ` · waiting ~${Math.ceil(recoveryPauseSeconds.value / 60)} min`}
           </p>
@@ -211,19 +217,32 @@ export default function ChatsSidebar({
       {filtersOpen.value ? (
         <>
           <div id="chat-filters" className="chats-controls">
-            <label className="search-label">
-              <span className="sr-only">Search job results</span>
-              <input
-                type="search"
-                placeholder="Search chats"
-                ref={refs.searchInput}
-                onInput={searchChanged}
-                value={search.value}
-                onChange={(event) => {
-                  search.value = event.currentTarget.value;
-                }}
-              />
-            </label>
+            <div className="search-field">
+              <label className="search-label">
+                <span className="sr-only">Search chats</span>
+                <input
+                  type="search"
+                  placeholder="Search chats"
+                  ref={refs.searchInput}
+                  onInput={searchChanged}
+                  value={search.value}
+                  onChange={(event) => {
+                    search.value = event.currentTarget.value;
+                  }}
+                />
+              </label>
+              {search.value && (
+                <button
+                  type="button"
+                  aria-label="Clear chat search"
+                  title="Clear search"
+                  className="chat-search-clear"
+                  onClick={clearSearch}
+                >
+                  ×
+                </button>
+              )}
+            </div>
             <label>
               <span className="sr-only">Filter results by state</span>
               <select

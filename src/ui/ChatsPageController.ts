@@ -1312,6 +1312,15 @@ export function createChatsPageController(initialProps: Props) {
     searchTimer = setTimeout(applyFilter, 300);
   }
 
+  function clearSearch() {
+    clearTimeout(searchTimer);
+    if (search.value) {
+      search.value = "";
+      applyFilter();
+    }
+    searchInput.value?.focus();
+  }
+
   async function toggleSearch() {
     filtersOpen.value = !filtersOpen.value;
     if (filtersOpen.value) {
@@ -1588,6 +1597,7 @@ export function createChatsPageController(initialProps: Props) {
     copyText,
     applyFilter,
     searchChanged,
+    clearSearch,
     toggleSearch,
     cancelSwipe,
     startSwipe,

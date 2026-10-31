@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import stat
+import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -138,6 +139,45 @@ def test_explicit_queue_pump_waits_for_first_answer_and_serializes_followups(
     ), now=113)
     dispatcher.pump_queued()
     assert submitted[-1] == ReplyIntent(second, CONVERSATION, MESSAGE, "Second")
+
+
+def test_queued_reply_pump_respects_active_dispatch_capacity(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from prompta.manual_reply_dispatch import ManualReplyDispatcher
+
+    store = ManualReplyStore(tmp_path / "private" / "chat-results.sqlite3")
+    for index in range(3):
+        send_id = f"capacity-run-{index}"
+        store.responses.ensure_queued(send_id, "Private prompt", now=100 + index)
+        assert store.responses.accept(send_id, "initial", deadline=200, now=110 + index)
+        assert store.responses.write(send_id, "initial", CaptureResult(
+            "sse", "complete", "Initial answer", CONVERSATION, PARENT, "initial-user",
+        ), now=120 + index)
+        store.queue_followup(
+            send_id, f"capacity-reply-{index}-00000000", "Explicit queued reply", now=130 + index,
+        )
+
+    dispatcher = ManualReplyDispatcher(store, tmp_path / "state.sqlite3")
+    started: list[str] = []
+
+    def fake_submit(send_id: str, submission: ReplyIntent) -> dict[str, object]:
+        now = time.time()
+        assert store.claim(submission.reply_id, "worker", deadline=now + 120, now=now)
+        dispatcher._active.add(submission.reply_id)
+        started.append(send_id)
+        return {"status": "dispatching"}
+
+    monkeypatch.setattr(dispatcher, "submit", fake_submit)
+    dispatcher.pump_queued()
+    assert len(started) == 2
+    dispatcher.pump_queued()
+    assert len(started) == 2
+
+    dispatcher._active.remove("capacity-reply-0-00000000")
+    dispatcher.pump_queued()
+    assert len(started) == 3
+    assert len(set(started)) == 3
 
 
 def test_exact_branch_idempotency_and_concurrent_intents(tmp_path: Path) -> None:

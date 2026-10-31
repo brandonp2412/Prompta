@@ -31,6 +31,7 @@ def test_sidebar_explains_recovery_backlog_and_read_cooldown(
                 body=json.dumps({"recovery": {
                     "attention_chats": 8,
                     "recoverable": 7,
+                    "missing_verified_identity": 1,
                     "unresolved_reply_captures": 3,
                     "account_read_backoff_seconds": 1200,
                     "security_pause_seconds": 0,
@@ -42,6 +43,7 @@ def test_sidebar_explains_recovery_backlog_and_read_cooldown(
         summary = page.locator(".chat-recovery-summary")
         expect(summary).to_contain_text("7 original captures eligible")
         expect(summary).to_contain_text("3 follow-ups unresolved")
+        expect(summary).to_contain_text("1 need manual review (no verified chat ID)")
         expect(summary).to_contain_text("waiting ~20 min")
         expect(page.get_by_role("button", name="Needs attention 8 chats")).to_be_visible()
         assert page.evaluate("document.documentElement.scrollWidth <= innerWidth + 1")
