@@ -108,12 +108,28 @@
   });
 
   function resizeTextarea() {
+    fitTextarea();
+  }
+
+  function fitTextarea(animateCollapse = false) {
     if (!textarea) return;
+    textarea.getAnimations().forEach((animation) => animation.cancel());
+    const previousHeight = textarea.getBoundingClientRect().height;
     textarea.style.height = "auto";
     const maxHeight = Number.parseFloat(getComputedStyle(textarea).maxHeight);
     const contentHeight = textarea.scrollHeight;
-    textarea.style.height = Math.min(contentHeight, maxHeight) + "px";
+    const nextHeight = Math.min(contentHeight, maxHeight);
+    textarea.style.height = nextHeight + "px";
     textarea.style.overflowY = contentHeight > maxHeight ? "auto" : "hidden";
+    // The transcript grows as the composer shrinks. Ease that movement after
+    // a successful send without delaying textarea growth while typing.
+    if (animateCollapse && previousHeight > nextHeight &&
+        !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      textarea.animate(
+        [{ height: previousHeight + "px" }, { height: nextHeight + "px" }],
+        { duration: 160, easing: "ease-out" },
+      );
+    }
   }
 
   function draftChanged(event: Event) {
@@ -208,18 +224,23 @@
       const submitted = draft;
       const send = useFallback && onFallbackSend ? onFallbackSend : onSend;
       const result = await send(submitted, images.map((image) => image.ref));
-      if (draftStorageKey !== submittedKey) return;
       if (result.ok) {
+        // Fresh-send acceptance can switch routes before this promise resolves.
+        // Clear only the submitted key, never the newly selected chat's draft.
+        clearComposerImages(submittedKey);
+        clearComposerDraft(submittedKey);
+        try { if (submittedKey) localStorage.removeItem(submittedKey); } catch { /* Storage may be unavailable. */ }
+        if (draftStorageKey !== submittedKey) {
+          requestAnimationFrame(() => fitTextarea(true));
+          return;
+        }
         draft = "";
         images = [];
-        clearComposerImages(submittedKey);
         feedback = result.message;
-        clearComposerDraft(submittedKey);
-        try { if (draftStorageKey) localStorage.removeItem(draftStorageKey); } catch { /* Storage may be unavailable. */ }
         hasLocalDraft = false;
         fallbackAvailable = false;
-        requestAnimationFrame(resizeTextarea);
-      } else {
+        requestAnimationFrame(() => fitTextarea(true));
+      } else if (draftStorageKey === submittedKey) {
         feedback = result.message;
         fallbackAvailable = Boolean(result.fallbackAvailable);
       }
@@ -279,7 +300,7 @@
       </div>
     {/if}
     <textarea bind:this={textarea} bind:value={draft} oninput={draftChanged} onkeydown={keydown} onpaste={pasted}
-      rows="1" maxlength="32000" disabled={disabled || sending}
+      rows="1" maxlength="32000" disabled={disabled} readonly={sending} aria-busy={sending}
       aria-label={mode === "fresh" ? "Message for new chat" : "Message for current chat"}
       placeholder="Message Prompta…"></textarea>
     <div class="composer-actions">

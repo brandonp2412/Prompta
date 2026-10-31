@@ -1160,7 +1160,6 @@
       <div class="jobs-workspace" bind:this={jobsWorkspace}><JobsPage workspace={jobsWorkspace} /></div>
     {:else if !selectedRunId && newChatOpen}
       <div class="new-chat-empty" aria-hidden="true"></div>
-      <ChatComposer mode="fresh" onSend={sendFresh} onNewChat={createChat} />
     {:else if !selectedRunId}
       <div class="chats-detail-empty"><button class="sidebar-primary" onclick={createChat}>New chat</button></div>
     {:else}
@@ -1266,12 +1265,15 @@
         </div>
       {/if}
       </div>
-      <ChatComposer mode="reply" chatId={selectedRunId} onSend={sendReply}
+    {/if}
+    {#if view === "chats" && Boolean(selectedRunId || newChatOpen)}
+      <ChatComposer mode={selectedRunId ? "reply" : "fresh"} chatId={selectedRunId ?? undefined}
+        onSend={selectedRunId ? sendReply : sendFresh}
         onFallbackSend={(text) => sendFresh(freshContinuationPrompt(text), originalImageRefs())}
         onNewChat={createChat}
-        restoreDraft={detail?.send_id === selectedRunId && turns.at(-1)?.status === "preflight_failed" ? turns.at(-1)?.user_text ?? "" : ""}
-        retryablePreflight={detail?.send_id === selectedRunId && turns.at(-1)?.status === "preflight_failed"}
-        sendDisabled={detail?.send_id !== selectedRunId || Boolean(replyBlockedReason) || recoveringReply} />
+        restoreDraft={selectedRunId && detail?.send_id === selectedRunId && turns.at(-1)?.status === "preflight_failed" ? turns.at(-1)?.user_text ?? "" : ""}
+        retryablePreflight={Boolean(selectedRunId && detail?.send_id === selectedRunId && turns.at(-1)?.status === "preflight_failed")}
+        sendDisabled={Boolean(selectedRunId && (detail?.send_id !== selectedRunId || replyBlockedReason || recoveringReply))} />
     {/if}
   </div>
 </section>

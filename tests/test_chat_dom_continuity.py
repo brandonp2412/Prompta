@@ -1,4 +1,5 @@
 """Browser regression: chat navigation and fresh sends preserve existing Svelte DOM."""
+
 from __future__ import annotations
 
 import os
@@ -13,7 +14,9 @@ from playwright.sync_api import expect, sync_playwright
 
 @pytest.mark.parametrize("width,height", [(1440, 900), (390, 844)])
 def test_sidebar_and_reply_composer_keep_identity_through_new_chat(
-    tmp_path: Path, width: int, height: int,
+    tmp_path: Path,
+    width: int,
+    height: int,
 ) -> None:
     chromium = Path(os.environ.get("PROMPTA_TEST_CHROMIUM", "/usr/bin/chromium"))
     if not chromium.is_file():
@@ -30,7 +33,9 @@ def test_sidebar_and_reply_composer_keep_identity_through_new_chat(
     try:
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch(
-                executable_path=str(chromium), headless=True, args=["--no-sandbox"],
+                executable_path=str(chromium),
+                headless=True,
+                args=["--no-sandbox"],
             )
             try:
                 page = browser.new_page(viewport={"width": width, "height": height})
@@ -59,7 +64,9 @@ def test_sidebar_and_reply_composer_keep_identity_through_new_chat(
                         document.querySelector(".chat-composer-wrap") === window.__composerNode
                     """), "Switching between replies remounted the composer"
                 else:
-                    expect(page.get_by_role("textbox", name="Message for current chat")).to_be_visible()
+                    expect(
+                        page.get_by_role("textbox", name="Message for current chat")
+                    ).to_be_visible()
 
                 if width <= 680:
                     page.get_by_role("button", name="Back to chats").click()
@@ -70,19 +77,118 @@ def test_sidebar_and_reply_composer_keep_identity_through_new_chat(
                 """), "New-chat navigation remounted the sidebar"
                 assert page.evaluate("() => window.__rowNode.isConnected")
 
-                page.get_by_role("textbox", name="Message for new chat").fill("Synthetic local test")
+                composer = page.get_by_role("textbox", name="Message for new chat")
+                composer.fill("Synthetic local test")
+                page.evaluate("""() => {
+                    window.__freshComposerNode = document.querySelector('.chat-composer-wrap');
+                    window.__freshTextareaNode = document.querySelector('.chat-composer textarea');
+                }""")
                 with page.expect_response(
-                    lambda response: response.url.endswith("/api/chats") and response.request.method == "POST",
+                    lambda response: (
+                        response.url.endswith("/api/chats") and response.request.method == "POST"
+                    ),
                 ) as queued:
-                    page.get_by_role("button", name="Send fresh chat").click()
+                    composer.press("Enter")
                 assert queued.value.status == 202
                 send_id = queued.value.json()["send_id"]
                 page.wait_for_url("**/?view=chats&run=" + send_id)
+                expect(page.get_by_role("textbox", name="Message for current chat")).to_have_value(
+                    ""
+                )
                 expect(page.locator(".chats-list .chat-entry")).to_have_count(3)
+                composer_state = page.evaluate("""() => ({
+                    wrapperStable: document.querySelector('.chat-composer-wrap') === window.__freshComposerNode,
+                    textareaStable: document.querySelector('.chat-composer textarea') === window.__freshTextareaNode,
+                    focused: document.activeElement === window.__freshTextareaNode,
+                    activeTag: document.activeElement?.tagName,
+                })""")
+                assert composer_state["wrapperStable"], (
+                    f"A fresh send remounted the composer: {composer_state}"
+                )
+                assert composer_state["textareaStable"], (
+                    f"A fresh send replaced the textarea: {composer_state}"
+                )
+                assert composer_state["focused"], (
+                    f"A fresh send blurred the textarea: {composer_state}"
+                )
+                assert page.evaluate("""() =>
+                    localStorage.getItem('prompta.new-chat-draft.v1') === null
+                """), "The submitted fresh draft was retained after route change"
                 assert page.evaluate("""() =>
                     document.querySelector(".chats-sidebar") === window.__sidebarNode
                     && window.__rowNode.isConnected && !window.__rowWasRemoved
                 """), "A confirmed fresh send discarded existing sidebar rows"
+            finally:
+                browser.close()
+    finally:
+        app.shutdown()
+        thread.join(timeout=3)
+        app.server_close()
+
+
+@pytest.mark.parametrize("width,height", [(1440, 900), (390, 844)])
+def test_multiline_reply_clears_with_smooth_resize_and_keeps_focus(
+    tmp_path: Path,
+    width: int,
+    height: int,
+) -> None:
+    chromium = Path(os.environ.get("PROMPTA_TEST_CHROMIUM", "/usr/bin/chromium"))
+    if not chromium.is_file():
+        pytest.skip("Chromium unavailable")
+    app = LiveServer(
+        ("127.0.0.1", 0),
+        state_path=tmp_path / "state.sqlite3",
+        jobs_path=tmp_path / "jobs.sqlite3",
+    )
+    app.results.ensure_queued("waiting", "Original synthetic prompt", now=time.time())
+    thread = threading.Thread(target=app.serve_forever, daemon=True)
+    thread.start()
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(
+                executable_path=str(chromium),
+                headless=True,
+                args=["--no-sandbox"],
+            )
+            try:
+                page = browser.new_page(viewport={"width": width, "height": height})
+                page.goto(f"http://127.0.0.1:{app.server_address[1]}/?view=chats&run=waiting")
+                composer = page.get_by_role("textbox", name="Message for current chat")
+                expect(composer).to_be_visible()
+                message = "Line one\nLine two\nLine three\nLine four"
+                composer.fill(message)
+                page.evaluate("""() => {
+                    window.__composerCollapse = [];
+                    const textarea = document.querySelector('.chat-composer textarea');
+                    const original = textarea.animate.bind(textarea);
+                    textarea.animate = (frames, options) => {
+                        window.__composerCollapse.push({ frames, options });
+                        return original(frames, options);
+                    };
+                    window.__composerNode = textarea;
+                }""")
+                with page.expect_response(
+                    lambda response: (
+                        response.url.endswith("/reply-queue") and response.request.method == "POST"
+                    ),
+                ) as queued:
+                    composer.press("Enter")
+                assert queued.value.status == 202
+                expect(composer).to_have_value("")
+                page.wait_for_function("() => window.__composerCollapse.length > 0")
+                state = page.evaluate("""() => ({
+                    sameNode: document.querySelector('.chat-composer textarea') === window.__composerNode,
+                    focused: document.activeElement === window.__composerNode,
+                    animations: window.__composerCollapse,
+                })""")
+                assert state["sameNode"] and state["focused"], state
+                animation = state["animations"][0]
+                assert float(animation["frames"][0]["height"].removesuffix("px")) > float(
+                    animation["frames"][1]["height"].removesuffix("px")
+                ), animation
+                assert animation["options"]["duration"] == 160
+                expect(page.locator(".message-group.user-group")).to_have_count(2)
+                assert page.evaluate("() => document.documentElement.scrollWidth <= innerWidth")
             finally:
                 browser.close()
     finally:
