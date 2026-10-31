@@ -60,11 +60,13 @@ def test_jobs_api_requests_are_relative_to_deployment_prefix() -> None:
 def test_jobs_ui_is_paginated() -> None:
     page = Path("src/ui/JobsPageController.ts").read_text()
     jsx = Path("src/ui/JobsPage.tsx").read_text()
+    table = Path("src/ui/JobsTable.tsx").read_text()
     assert "const pageSize = 10" in page
-    assert "visibleJobs.value.map((job" in jsx
-    assert 'aria-label="Job pages"' in jsx
-    assert "Previous" in jsx
-    assert "Next" in jsx
+    assert "<JobsTable model={model} />" in jsx
+    assert "visibleJobs.value.map((job" in table
+    assert 'aria-label="Job pages"' in table
+    assert "Previous" in table
+    assert "Next" in table
 
 
 def test_jobs_ui_pause_resume_targets_only_visible_page() -> None:

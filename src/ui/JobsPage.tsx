@@ -2,30 +2,22 @@ import React, { useEffect, useLayoutEffect, useMemo } from "react";
 import { useSignals } from "@preact/signals-react/runtime";
 import { createJobsPageController, type Props } from "./JobsPageController";
 import JobEditor from "./JobEditor";
-import { queueEtaExplanation, queueEtaText } from "./queueStatus";
+import DeliveryDiagnostics from "./DeliveryDiagnostics";
+import JobsTable from "./JobsTable";
 
 export default function JobsPage(props: Props) {
   const model = useMemo(() => createJobsPageController(props), []);
   useSignals();
   const {
-    deliveryHealth,
-    deliveryHealthError,
     jobsLoadError,
-    queueSnapshot,
-    waitingJob,
-    pendingDeliveries,
-    recoveryPauseSeconds,
     filterOptions,
-    pageSize,
     jobs,
     activeFilters,
     showRepeatingJobs,
     repeatingJobsCount,
     cadenceJobs,
-    filteredJobs,
     filterCounts,
     page,
-    pageCount,
     visibleJobs,
     allVisiblePaused,
     status,
@@ -34,16 +26,8 @@ export default function JobsPage(props: Props) {
     beginNew,
     beginOnce,
     onEditorKeydown,
-    formatDate,
-    scheduleText,
     toggleFilter,
-    jobStateText,
-    changePage,
-    loadDeliveryHealth,
     load,
-    command,
-    edit,
-    remove,
     toggleVisible,
     clearAll,
   } = model;
@@ -94,13 +78,6 @@ export default function JobsPage(props: Props) {
       window.removeEventListener("keydown", onEditorKeydown);
     };
   }, [model]);
-
-  function deliveryLabel() {
-    if (deliveryHealthError.value) return "status unavailable";
-    if (deliveryHealth.value?.ready === false) return "needs attention";
-    if (deliveryHealth.value?.admission?.blocked) return "waiting for capacity";
-    return deliveryHealth.value ? "online" : "status unavailable";
-  }
 
   return (
     <>
@@ -209,282 +186,29 @@ export default function JobsPage(props: Props) {
               </div>
             </div>
 
-            {jobsLoadError.value ? (
-              <>
-                <div
-                  role="alert"
-                  className={["result-error recovery-error jobs-recovery-error"]
-                    .filter(Boolean)
-                    .join(" ")}
-                >
-                  <span>{jobsLoadError.value}</span>
-                  <button type="button" onClick={() => void load()}>
-                    Retry jobs
-                  </button>
-                </div>
-              </>
-            ) : (
-              <></>
+            {jobsLoadError.value && (
+              <div role="alert" className="result-error recovery-error jobs-recovery-error">
+                <span>{jobsLoadError.value}</span>
+                <button type="button" onClick={() => void load()}>
+                  Retry jobs
+                </button>
+              </div>
             )}
 
-            {deliveryHealth.value || deliveryHealthError.value ? (
-              <>
-                <details className="delivery-diagnostics">
-                  <summary>
-                    <span
-                      className={[
-                        "delivery-indicator",
-                        Boolean(deliveryHealthError.value) ||
-                        deliveryHealth.value?.ready === false ||
-                        deliveryHealth.value?.admission?.blocked === true
-                          ? "degraded"
-                          : "",
-                      ]
-                        .filter(Boolean)
-                        .join(" ")}
-                    ></span>
-                    Delivery {deliveryLabel()}
-                    {deliveryHealth.value ? (
-                      <>
-                        <span className="delivery-count">{pendingDeliveries.value} pending</span>
-                        {deliveryHealth.value.queue.outcome_unknown ? (
-                          <>
-                            <span className="delivery-count">
-                              {deliveryHealth.value.queue.outcome_unknown} unconfirmed historically
-                            </span>
-                          </>
-                        ) : (
-                          <></>
-                        )}
-                        {recoveryPauseSeconds.value > 0 &&
-                        (deliveryHealth.value.recovery.recoverable > 0 ||
-                          deliveryHealth.value.recovery.recoverable_reply_captures > 0) ? (
-                          <>
-                            <span className="delivery-count">Recovery paused</span>
-                          </>
-                        ) : (
-                          <></>
-                        )}
-                      </>
-                    ) : (
-                      <></>
-                    )}
-                  </summary>
-                  {deliveryHealthError.value ? (
-                    <>
-                      <p role="alert">
-                        {deliveryHealthError.value}{" "}
-                        <button type="button" onClick={() => void loadDeliveryHealth()}>
-                          Retry
-                        </button>
-                      </p>
-                    </>
-                  ) : (
-                    <></>
-                  )}
-                  {deliveryHealth.value ? (
-                    <>
-                      {deliveryHealthError.value ? (
-                        <>
-                          <p>
-                            Counts below are from the last successful check, not current service
-                            status.
-                          </p>
-                        </>
-                      ) : (
-                        <></>
-                      )}
-                      {deliveryHealth.value.issues.length ? (
-                        <>
-                          <p role="status">{deliveryHealth.value.issues.join(" · ")}</p>
-                        </>
-                      ) : (
-                        <>
-                          {!deliveryHealthError.value ? (
-                            <>
-                              <p>UI, scheduler, delivery worker and browser are responding.</p>
-                            </>
-                          ) : (
-                            <></>
-                          )}
-                        </>
-                      )}
-                      {deliveryHealth.value.admission?.blocked ? (
-                        <>
-                          <p role="status">
-                            Dispatch paused:{" "}
-                            {deliveryHealth.value.admission?.reason ||
-                              "Host resource admission is blocking new sends"}
-                            . Queued jobs are retained until capacity returns; no sends are retried
-                            after an uncertain outcome.
-                          </p>
-                        </>
-                      ) : (
-                        <></>
-                      )}
-                      <dl>
-                        <div>
-                          <dt>Queued</dt>
-                          <dd>{deliveryHealth.value.queue.queued}</dd>
-                        </div>
-                        <div>
-                          <dt>Running</dt>
-                          <dd>{deliveryHealth.value.queue.running}</dd>
-                        </div>
-                        <div>
-                          <dt>Retrying</dt>
-                          <dd>{deliveryHealth.value.queue.retrying}</dd>
-                        </div>
-                        <div>
-                          <dt>Rate limited</dt>
-                          <dd>{deliveryHealth.value.queue.rate_limited}</dd>
-                        </div>
-                        {deliveryHealth.value.queue.next_retry_at_epoch ? (
-                          <>
-                            <div>
-                              <dt>Next queued retry</dt>
-                              <dd>{formatDate(deliveryHealth.value.queue.next_retry_at_epoch)}</dd>
-                            </div>
-                          </>
-                        ) : (
-                          <></>
-                        )}
-                        <div>
-                          <dt>Dead letters</dt>
-                          <dd>{deliveryHealth.value.queue.dead_lettered}</dd>
-                        </div>
-                        <div>
-                          <dt>Unconfirmed sends</dt>
-                          <dd>{deliveryHealth.value.queue.outcome_unknown}</dd>
-                        </div>
-                      </dl>
-                      <dl>
-                        <div>
-                          <dt>Captures in progress</dt>
-                          <dd>{deliveryHealth.value.recovery.active_captures}</dd>
-                        </div>
-                        <div>
-                          <dt>Stale capture leases</dt>
-                          <dd>{deliveryHealth.value.recovery.stale_capture_leases}</dd>
-                        </div>
-                        <div>
-                          <dt>Chats eligible for read-only recovery</dt>
-                          <dd>{deliveryHealth.value.recovery.recoverable}</dd>
-                        </div>
-                        <div>
-                          <dt>Due for recovery probe</dt>
-                          <dd>{deliveryHealth.value.recovery.ready_for_read_only_probe}</dd>
-                        </div>
-                        <div>
-                          <dt>Unresolved follow-up captures</dt>
-                          <dd>{deliveryHealth.value.recovery.unresolved_reply_captures}</dd>
-                        </div>
-                        <div>
-                          <dt>Follow-ups eligible for recovery</dt>
-                          <dd>{deliveryHealth.value.recovery.recoverable_reply_captures}</dd>
-                        </div>
-                        <div>
-                          <dt>Due follow-up probes</dt>
-                          <dd>{deliveryHealth.value.recovery.due_reply_recovery_probes}</dd>
-                        </div>
-                        <div>
-                          <dt>Missing verified chat identity</dt>
-                          <dd>{deliveryHealth.value.recovery.missing_verified_identity}</dd>
-                        </div>
-                      </dl>
-                      {deliveryHealth.value.recovery.stale_capture_leases > 0 ? (
-                        <>
-                          <p role="status">
-                            A capture lease is overdue. The worker will reconcile it as interrupted
-                            before read-only recovery; the original send is never replayed.
-                          </p>
-                        </>
-                      ) : (
-                        <></>
-                      )}
-                      {recoveryPauseSeconds.value > 0 &&
-                      (deliveryHealth.value.recovery.recoverable > 0 ||
-                        deliveryHealth.value.recovery.recoverable_reply_captures > 0) ? (
-                        <>
-                          <p role="status">
-                            Read-only recovery is waiting for the account safety cooldown (about{" "}
-                            {Math.ceil(recoveryPauseSeconds.value / 60)} min). No automatic resends
-                            will occur.
-                          </p>
-                        </>
-                      ) : (
-                        <>
-                          {deliveryHealth.value.recovery.global_pace_seconds > 0 &&
-                          deliveryHealth.value.recovery.ready_for_read_only_probe > 0 ? (
-                            <>
-                              <p>
-                                Read-only recovery is paced to one verified chat at a time; next
-                                probe in about{" "}
-                                {Math.ceil(deliveryHealth.value.recovery.global_pace_seconds)}{" "}
-                                seconds.
-                              </p>
-                            </>
-                          ) : (
-                            <></>
-                          )}
-                        </>
-                      )}
-                      {deliveryHealth.value.recovery.missing_verified_identity > 0 ? (
-                        <>
-                          <p>
-                            Chats without a verified conversation identity cannot be recovered
-                            automatically. Their local partial results remain available.
-                          </p>
-                        </>
-                      ) : (
-                        <></>
-                      )}
-                      {deliveryHealth.value.queue.retrying ||
-                      deliveryHealth.value.queue.rate_limited ? (
-                        <>
-                          <p>
-                            Rejected or pre-dispatch attempts retry automatically after their
-                            backoff.
-                          </p>
-                        </>
-                      ) : (
-                        <></>
-                      )}
-                      {deliveryHealth.value.queue.outcome_unknown ? (
-                        <>
-                          <p>
-                            Unconfirmed sends are not automatically retried. Review the exact saved
-                            chat before sending again.
-                          </p>
-                        </>
-                      ) : (
-                        <></>
-                      )}
-                    </>
-                  ) : (
-                    <></>
-                  )}
-                </details>
-              </>
-            ) : (
-              <></>
-            )}
+            <DeliveryDiagnostics model={model} />
 
             <div role="group" aria-label="Filter jobs" className="jobs-summary">
-              {filterOptions.map((option, __index) => (
-                <React.Fragment key={option.key}>
-                  <button
-                    type="button"
-                    aria-pressed={activeFilters.value[option.key]}
-                    title={option.title}
-                    onClick={() => toggleFilter(option.key)}
-                    className={["filter-chip", activeFilters.value[option.key] ? "chosen" : ""]
-                      .filter(Boolean)
-                      .join(" ")}
-                  >
-                    {option.label} <span>{filterCounts.value[option.key]}</span>
-                  </button>
-                </React.Fragment>
+              {filterOptions.map((option) => (
+                <button
+                  key={option.key}
+                  type="button"
+                  aria-pressed={activeFilters.value[option.key]}
+                  title={option.title}
+                  onClick={() => toggleFilter(option.key)}
+                  className={activeFilters.value[option.key] ? "filter-chip chosen" : "filter-chip"}
+                >
+                  {option.label} <span>{filterCounts.value[option.key]}</span>
+                </button>
               ))}
               <button
                 type="button"
@@ -494,217 +218,25 @@ export default function JobsPage(props: Props) {
                   showRepeatingJobs.value = !showRepeatingJobs.value;
                   page.value = 1;
                 }}
-                className={["filter-chip", showRepeatingJobs.value ? "chosen" : ""]
-                  .filter(Boolean)
-                  .join(" ")}
+                className={showRepeatingJobs.value ? "filter-chip chosen" : "filter-chip"}
               >
                 Repeating jobs <span>{repeatingJobsCount.value}</span>
               </button>
             </div>
 
-            <div role="table" aria-label="Scheduled jobs" className="jobs-table">
-              <div role="row" className="jobs-table-head">
-                <span role="columnheader">Job</span>
-                <span role="columnheader">Schedule</span>
-                <span role="columnheader">Next run</span>
-                <span role="columnheader">State</span>
-                <span role="columnheader" className="actions-heading">
-                  Actions
-                </span>
-              </div>
+            <JobsTable model={model} />
 
-              {filteredJobs.value.length === 0 ? (
-                <>
-                  <div className="empty-row">
-                    {jobs.value.length ? "No jobs match these filters." : "No scheduled jobs."}
-                  </div>
-                </>
-              ) : (
-                <></>
-              )}
-
-              {visibleJobs.value.map((job, __index) => (
-                <React.Fragment key={job.name}>
-                  <div role="row" className="job-row">
-                    <div role="cell" className="job-main">
-                      <div className="job-name">{job.name}</div>
-                      <div title={job.prompt} className="job-prompt">
-                        {job.prompt}
-                      </div>
-                      {job.images?.length ? (
-                        <>
-                          <div className="job-image-count">
-                            {job.images.length} image{job.images.length === 1 ? "" : "s"}
-                          </div>
-                        </>
-                      ) : (
-                        <></>
-                      )}
-                      <div className="job-submeta">
-                        <span>Last sent {formatDate(job.last_sent_at)}</span>
-                        {job.source_revision ? (
-                          <>
-                            <span title={job.source_revision}>
-                              rev {job.source_revision.slice(0, 8)}
-                            </span>
-                          </>
-                        ) : (
-                          <></>
-                        )}
-                      </div>
-                    </div>
-
-                    <div role="cell" className="job-cell schedule-cell">
-                      <span className="cell-label">Schedule</span>
-                      <span>{scheduleText(job)}</span>
-                    </div>
-
-                    <div role="cell" className="job-cell">
-                      <span className="cell-label">Next run</span>
-                      <span>{job.paused ? "Paused" : formatDate(job.next_due_at_epoch)}</span>
-                    </div>
-
-                    <div role="cell" className="job-cell state-cell">
-                      <span className="cell-label">State</span>
-                      <span
-                        className={["state-value", job.status === "failing" ? "error" : ""]
-                          .filter(Boolean)
-                          .join(" ")}
-                      >
-                        <span className="state-dot"></span>
-                        {jobStateText(job)}
-                      </span>
-                      {waitingJob(job.name) && queueSnapshot.value ? (
-                        <span
-                          className="job-queue-eta"
-                          role="status"
-                          title={queueEtaExplanation(queueSnapshot.value)}
-                        >
-                          Queue #{waitingJob(job.name)!.position} of{" "}
-                          {queueSnapshot.value.waiting.length}
-                          {" · "}
-                          {queueEtaText(waitingJob(job.name)!)}
-                        </span>
-                      ) : null}
-                      {job.status_message ? (
-                        <>
-                          <span className="job-message">{job.status_message}</span>
-                        </>
-                      ) : (
-                        <></>
-                      )}
-                    </div>
-
-                    <div role="cell" className="job-actions">
-                      <button
-                        type="button"
-                        disabled={saving.value}
-                        title={
-                          job.daily_at || job.run_at_epoch
-                            ? "Launch a fresh chat without moving the fixed schedule"
-                            : "Launch a fresh chat and restart the interval countdown"
-                        }
-                        onClick={() =>
-                          void command(
-                            { action: "fire_now", name: job.name },
-                            "Queued one fresh chat for " + job.name + ".",
-                            {
-                              prompt: job.prompt,
-                              images: job.images.map((image) => image.ref),
-                              scope: "jobs:fire:" + job.name + ":" + job.pin_chat,
-                            },
-                          )
-                        }
-                        className="row-action"
-                      >
-                        Fire now
-                      </button>
-                      {!job.run_at_epoch ? (
-                        <>
-                          <button
-                            type="button"
-                            disabled={saving.value}
-                            onClick={() => edit(job)}
-                            className="row-action"
-                          >
-                            Edit
-                          </button>
-                        </>
-                      ) : (
-                        <></>
-                      )}
-                      <button
-                        type="button"
-                        disabled={saving.value}
-                        onClick={() =>
-                          void command(
-                            { action: job.paused ? "resume" : "pause", name: job.name },
-                            (job.paused ? "Resumed " : "Paused ") + job.name + ".",
-                          )
-                        }
-                        className="row-action"
-                      >
-                        {job.paused ? "Resume" : "Pause"}
-                      </button>
-                      <button
-                        type="button"
-                        disabled={saving.value}
-                        onClick={() => void remove(job)}
-                        className="row-action danger-text"
-                      >
-                        Remove
-                      </button>
-                    </div>
-                  </div>
-                </React.Fragment>
-              ))}
-            </div>
-
-            {filteredJobs.value.length > pageSize ? (
-              <>
-                <nav aria-label="Job pages" className="pagination">
-                  <span>
-                    Page {page.value} of {pageCount.value}
-                  </span>
-                  <div className="pagination-actions">
-                    <button
-                      type="button"
-                      disabled={page.value <= 1}
-                      onClick={() => changePage(page.value - 1)}
-                      className="toolbar-button"
-                    >
-                      Previous
-                    </button>
-                    <button
-                      type="button"
-                      disabled={page.value >= pageCount.value}
-                      onClick={() => changePage(page.value + 1)}
-                      className="toolbar-button"
-                    >
-                      Next
-                    </button>
-                  </div>
-                </nav>
-              </>
-            ) : (
-              <></>
-            )}
-
-            {jobs.value.length ? (
-              <>
-                <footer className="jobs-footer">
-                  <button
-                    type="button"
-                    disabled={saving.value}
-                    onClick={() => void clearAll()}
-                    className="row-action danger-text"
-                  >
-                    Clear all jobs
-                  </button>
-                </footer>
-              </>
-            ) : (
-              <></>
+            {jobs.value.length > 0 && (
+              <footer className="jobs-footer">
+                <button
+                  type="button"
+                  disabled={saving.value}
+                  onClick={() => void clearAll()}
+                  className="row-action danger-text"
+                >
+                  Clear all jobs
+                </button>
+              </footer>
             )}
           </section>
         </>
