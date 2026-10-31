@@ -3445,3 +3445,31 @@ async def test_accepted_owned_chat_persists_url_and_backend_reply_identity(tmp_p
     )
     assert reply["status"] == "prepared" and reply["parent_id"] == answer
     assert driver.sends == 1 and driver.closed_contexts == ["fresh-tab"]
+
+
+@pytest.mark.asyncio
+async def test_tool_only_dom_activity_is_saved_before_capture_disconnects(tmp_path: Path) -> None:
+    calls: tuple[dict[str, object], ...] = ({
+        "id": "dom-tool-0", "connector": "", "action": "Used Calendar", "status": "observed",
+    },)
+
+    class ToolOnlyDriver(FakeDriver):
+        async def wait_capture_update(self, *, timeout: float) -> CaptureResult | None:
+            self.is_connected = False
+            return CaptureResult(
+                "dom", "unknown", "", "chat", "message", None, tool_calls=calls,
+            )
+
+    driver = ToolOnlyDriver()
+    sender = BrowserDeliverySender(tmp_path / "runtime.sqlite3", connector_approval=False)
+    sender.results.ensure_queued("dom-tools", "Check calendar")
+    assert sender.results.accept("dom-tools", "100:owner", deadline=time.time() + 10)
+    await sender._capture_until_complete(
+        driver, driver.capture, "dom-tools", "100:owner",
+        deadline=asyncio.get_running_loop().time() + 10,
+    )
+    detail = sender.results.detail("dom-tools")
+    assert detail is not None
+    assert detail["status"] == "interrupted"
+    assert detail["tool_calls"] == list(calls)
+    assert detail["assistant_text"] == ""

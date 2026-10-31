@@ -24,7 +24,7 @@ const visible = (node) => ({
 const user = visible({ innerText: prompt });
 const root = visible({ get innerText() { return responseText; }, parentElement: null });
 const toolCard = visible({
-  parentElement: null, closest: () => null,
+  parentElement: null, closest: () => null, matches: () => true,
   getAttribute: (name) => ({
     'aria-label': 'Used Nox Python', 'data-state': 'completed',
   })[name] || '',

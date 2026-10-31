@@ -24,6 +24,10 @@ def test_legacy_snapshots_are_replacements_and_filter_private_content() -> None:
         conversation_id=CONVERSATION_ID,
         message_id="final-1",
         parent_id=None,
+        tool_calls=({
+            "id": "tool-1", "connector": "python", "action": "python",
+            "status": "running", "arguments": "private tool code", "result": "", "error": "",
+        },),
     )
 
 

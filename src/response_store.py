@@ -113,14 +113,31 @@ def merge_tool_calls(previous: object, incoming: tuple[dict[str, object], ...]) 
     if not incoming:
         return previous if isinstance(previous, str) else "[]"
     merged = deserialize_tool_calls(previous)
-    # Prefer structured POST evidence to visible DOM headings. They describe
-    # the same activity, but DOM headings have neither arguments nor results.
-    has_stream_calls = any(not str(call.get("id", "")).startswith("dom-tool-") for call in merged)
-    incoming_stream = any(not str(call.get("id", "")).startswith("dom-tool-") for call in incoming)
-    if has_stream_calls and not incoming_stream:
-        return previous if isinstance(previous, str) else "[]"
-    if incoming_stream:
-        merged = [call for call in merged if not str(call.get("id", "")).startswith("dom-tool-")]
+    # Replace only corresponding DOM headings. One structured invocation must
+    # not erase other visible calls (e.g. a subsequent connector POST).
+
+    def is_dom(call: dict[str, object]) -> bool:
+        return str(call.get("id", "")).startswith("dom-tool-")
+
+    def same_activity(dom: dict[str, object], stream: dict[str, object]) -> bool:
+        label = str(dom.get("action", "")).casefold().removeprefix("used ").strip()
+        names = (str(stream.get(field, "")).casefold().strip() for field in ("connector", "action"))
+        return label == "tool activity" or label in names
+
+    stream_calls = [call for call in (*merged, *incoming) if not is_dom(call)]
+    upgraded: list[dict[str, object]] = []
+    upgraded_ids: set[str] = set()
+    for call in merged:
+        if is_dom(call):
+            call = next((stream for stream in stream_calls if same_activity(call, stream)), call)
+        identifier = str(call.get("id"))
+        if identifier not in upgraded_ids:
+            upgraded.append(call)
+            upgraded_ids.add(identifier)
+    merged = upgraded
+    incoming = tuple(call for call in incoming if not (
+        is_dom(call) and any(same_activity(call, stream) for stream in stream_calls)
+    ))
     by_id = {str(call.get("id")): i for i, call in enumerate(merged)}
     for call in incoming:
         identifier = str(call.get("id"))
@@ -129,8 +146,8 @@ def merge_tool_calls(previous: object, incoming: tuple[dict[str, object], ...]) 
             old = merged[index]
             refreshed = {**old, **call}
             for field in ("arguments", "result", "error"):
-                if not call.get(field):
-                    refreshed[field] = old.get(field, "")
+                if not call.get(field) and field in old:
+                    refreshed[field] = old[field]
             if old.get("status") in ("completed", "error") and call.get("status") == "running":
                 refreshed["status"] = old["status"]
             merged[index] = refreshed

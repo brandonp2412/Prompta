@@ -123,6 +123,7 @@ class SseResponseAccumulator:
         self._overflow = False
         self._received = 0
         self._tools = ToolEventCollector()
+        self._tool_message: dict[str, object] | None = None
 
     def feed(self, chunk: str) -> None:
         if not chunk or self._overflow:
@@ -192,6 +193,9 @@ class SseResponseAccumulator:
             # Boolean liveness evidence only; never retain thoughts or their text.
             self._saw_reasoning = True
         is_tool = self._tools.observe(message)
+        self._tool_message = message if is_tool else None
+        if is_tool:
+            self._bind_identity(conversation_id, None)
         if is_tool or not _is_final_assistant(message):
             self._tracking = False
             return
@@ -217,6 +221,30 @@ class SseResponseAccumulator:
             self._complete = True
 
     def _patch(self, patch: dict[str, object]) -> None:
+        if self._tool_message is not None and not self._ambiguous:
+            path = _string(patch.get("p"))
+            value = patch.get("v")
+            match = _PART_PATH.fullmatch(
+                "/message/content/parts/0" if path in (None, "/message/content/text") else path
+            )
+            if match is not None and isinstance(value, str):
+                content = _record(self._tool_message.get("content"))
+                parts = _message_parts(self._tool_message)
+                index = int(match.group(1))
+                if index <= 16:
+                    while len(parts) <= index:
+                        parts.append("")
+                    previous = parts[index]
+                    if patch.get("o") in (None, "append"):
+                        value = previous + value
+                    elif patch.get("o") not in ("replace", "add"):
+                        return
+                    # Retain only the current bounded tool payload, never thought nodes.
+                    parts[index] = value[:64_000]
+                    content["parts"] = parts
+                    self._tool_message["content"] = content
+                    self._tools.observe(self._tool_message)
+            return
         if not self._tracking or self._ambiguous:
             return
         path = _string(patch.get("p"))

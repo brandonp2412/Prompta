@@ -261,3 +261,114 @@ def test_later_partial_tool_snapshot_cannot_erase_completed_result(tmp_path: Pat
     assert first_call is not None
     assert first_call["status"] == "completed"
     assert first_call["result"] == '{"count":2}'
+
+
+def test_native_tool_arguments_and_results_stream_incrementally(tmp_path: Path) -> None:
+    from prompta.response_capture import SseResponseAccumulator
+
+    stream = SseResponseAccumulator()
+    stream.feed(event({
+        "id": "native-call", "author": {"role": "assistant"},
+        "recipient": "web.run", "channel": "analysis",
+        "content": {"content_type": "text", "parts": [""]},
+    }))
+    stream.feed('data: ' + json.dumps({
+        "p": "/message/content/parts/0", "o": "append",
+        "v": '{"search_query":[{"q":"kiwi"}]}',
+    }) + '\n\n')
+    partial = stream.snapshot()
+    assert partial.conversation_id == "chat-1"
+    assert partial.text == ""
+    assert partial.tool_calls[0]["action"] == "run"
+    assert '"kiwi"' in str(partial.tool_calls[0]["arguments"])
+    stream.feed(event({
+        "id": "native-result", "author": {"role": "tool", "name": "web"},
+        "content": {"content_type": "text", "parts": ["First"]},
+    }))
+    stream.feed('data: ' + json.dumps({
+        "p": "/message/content/parts/0", "o": "append", "v": " result",
+    }) + '\n\n')
+    capture = stream.snapshot()
+    assert capture.tool_calls[0]["result"] == "First result"
+    assert capture.tool_calls[0]["status"] == "completed"
+    store = ResponseStore(tmp_path / "stream.sqlite3")
+    store.ensure_queued("native", "Search", now=1)
+    assert store.accept("native", "100:owner", deadline=100, now=2)
+    assert store.write("native", "100:owner", capture, now=3)
+    detail = store.detail("native")
+    assert detail is not None and detail["tool_calls"] == list(capture.tool_calls)
+    # A later analysis delta must never enter the tool arguments or answer.
+    stream.feed(event({
+        "id": "thought", "author": {"role": "assistant"}, "recipient": "all",
+        "channel": "analysis", "content": {"content_type": "text", "parts": [""]},
+    }))
+    stream.feed('data: ' + json.dumps({"o": "append", "v": "private reasoning"}) + '\n\n')
+    assert "private reasoning" not in str(stream.snapshot())
+
+
+def test_partial_tool_json_waits_until_credentials_can_be_redacted() -> None:
+    from prompta.response_capture import SseResponseAccumulator
+
+    stream = SseResponseAccumulator()
+    stream.feed(event({
+        "id": "call", "author": {"role": "assistant"}, "recipient": "web.run",
+        "content": {"content_type": "text", "parts": ['{"api_key":"private-value",']},
+    }))
+    assert "private-value" not in str(stream.snapshot())
+    stream.feed('data: ' + json.dumps({
+        "p": "/message/content/parts/0", "o": "append", "v": '"query":"kiwi"}',
+    }) + '\n\n')
+    assert "private-value" not in str(stream.snapshot())
+    assert "kiwi" in str(stream.snapshot().tool_calls)
+
+
+def test_one_stream_tool_does_not_erase_other_visible_connector_calls() -> None:
+    dom: tuple[dict[str, object], ...] = (
+        {"id": "dom-tool-0", "action": "Used Search", "status": "observed"},
+        {"id": "dom-tool-1", "action": "Used Calendar", "status": "observed"},
+    )
+    stream: tuple[dict[str, object], ...] = (
+        {"id": "search-1", "connector": "Search", "action": "find", "status": "completed"},
+    )
+    merged = merge_tool_calls(merge_tool_calls("[]", dom), stream)
+    calls = json.loads(merged)
+    assert len(calls) == 2
+    assert {call["action"] for call in calls} == {"Used Calendar", "find"}
+    assert merge_tool_calls(merged, dom) == merged
+
+
+def test_manual_reply_persists_tools_before_final_acceptance(tmp_path: Path) -> None:
+    path = tmp_path / "early-reply.sqlite3"
+    results = ResponseStore(path)
+    results.ensure_queued("initial", "Hello", now=1)
+    assert results.accept("initial", "100:initial", deadline=100, now=2)
+    assert results.write("initial", "100:initial", CaptureResult(
+        "sse", "complete", "Hello", "chat", "parent", None,
+    ), now=3)
+    replies = ManualReplyStore(path)
+    reply = "reply-1234567890-ab"
+    assert replies.prepare("initial", ReplyIntent(reply, "chat", "parent", "Search"), now=4)
+    assert replies.claim(reply, "100:reply", deadline=100, now=5)
+    calls: tuple[dict[str, object], ...] = ({
+        "id": "call", "connector": "Search", "action": "find", "status": "running",
+    },)
+    capture = CaptureResult("sse", "unknown", "", "wrong-chat", None, None, tool_calls=calls)
+    assert not replies.observe_tools(reply, "100:reply", capture, now=6)
+    capture = CaptureResult("sse", "unknown", "", "chat", None, None, tool_calls=calls)
+    assert not replies.observe_tools(reply, "wrong:owner", capture, now=6)
+    assert replies.observe_tools(reply, "100:reply", capture, now=6)
+    assert replies.finish(reply, "100:reply", uncertain=True, now=7)
+    turns = replies.turns("initial")
+    assert turns is not None and turns[1]["tool_calls"] == list(calls)
+    assert not replies.observe_tools(reply, "100:reply", capture, now=8)
+
+
+def test_plain_tool_result_citation_is_not_mistaken_for_partial_json() -> None:
+    body = event({
+        "id": "call", "author": {"role": "assistant"}, "recipient": "web.run",
+        "content": {"content_type": "text", "parts": ['{"query":"kiwi"}']},
+    }) + event({
+        "id": "result", "author": {"role": "tool", "name": "web"},
+        "content": {"content_type": "text", "parts": ["[1] A useful result"]},
+    })
+    assert parse_sse_body(body).tool_calls[0]["result"] == "[1] A useful result"

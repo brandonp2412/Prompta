@@ -1659,7 +1659,7 @@ def test_tool_cards_desktop_mobile_local_only(tmp_path: Path) -> None:
                     expect(page.locator(".tool-timeline-summary")).to_contain_text("2 tool calls")
                     expect(page.locator(".tool-failure-count")).to_have_text("1 failed")
                     expect(page.get_by_role("heading", name="Final answer")).to_be_visible()
-                    page.locator(".tool-timeline-summary").first.click()
+                    expect(page.locator(".tool-call-summary").first).to_be_visible()
                     page.locator(".tool-call-summary").first.click()
                     expect(page.locator(".tool-call-body pre").first).to_contain_text(
                         "demo/project"

@@ -101,21 +101,8 @@ const scanExactReplyTurn = (conversation, originalPrompt, replyText, parent, all
   const finalNode = lastTextIndex < 0 ? null : later[lastTextIndex].node;
   const finalIds = finalNode ? ids(finalNode) : [];
   const complete = !!text && copyReady && !streaming && !generating && finalIds.length === 1;
-  const toolSelector = '[data-testid*="tool-call"], [data-testid*="tool-card"], [data-testid*="tool-result"], [aria-label^="Used "]';
-  const tool_calls = later.flatMap(({ node }) => {
-    const turn = node.closest('[data-testid^="conversation-turn-"], article, [data-turn-key], .group.flex.flex-col') ||
-      node;
-    return [...turn.querySelectorAll(toolSelector)]
-      .filter((item) => visible(item) && !item.closest(markdownSelector) &&
-        !item.parentElement?.closest(toolSelector));
-  }).map((item) => {
-    const heading = item.getAttribute("aria-label") || item.getAttribute("data-tool-name") ||
-      item.querySelector('[data-testid*="tool-name"]')?.textContent || "Tool activity";
-    const state = item.getAttribute("data-state") || "";
-    return { action: heading.slice(0, 120), status: /error|fail/i.test(state) ? "error" :
-      /running|loading|pending/i.test(state) ? "running" :
-      /complete|success|done/i.test(state) ? "completed" : "observed" };
-  }).slice(0, 128);
+  const tool_calls = toolCallsFromTurns(later.map(({ node }) =>
+    node.closest('[data-testid^="conversation-turn-"], article, [data-turn-key], .group.flex.flex-col') || node), visible, markdownSelector);
   const first = later[0];
   const identity = first.node.getAttribute("data-message-id") || first.key;
   if (!identity) return { ...empty, ambiguous: true };

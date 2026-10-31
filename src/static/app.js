@@ -9230,11 +9230,16 @@ var root_2$2 = /* @__PURE__ */ from_html(`<section><h4>Output</h4><pre> </pre></
 var root_3$1 = /* @__PURE__ */ from_html(`<section><h4>Error</h4><pre> </pre></section>`);
 var root_4$1 = /* @__PURE__ */ from_html(`<p>No additional details captured.</p>`);
 var root_5$1 = /* @__PURE__ */ from_html(`<details><summary class="tool-call-summary"><span class="tool-call-mark" aria-hidden="true"> </span> <span class="tool-call-name"> </span> <span class="tool-call-status"> </span> <span class="tool-call-chevron" aria-hidden="true">⌄</span></summary> <div class="tool-call-body"><!> <!> <!> <!></div></details>`);
-var root_6$1 = /* @__PURE__ */ from_html(`<details class="tool-timeline"><summary class="tool-timeline-summary"><span class="tool-timeline-icon" aria-hidden="true">⌘</span> <span> </span> <!> <span class="tool-timeline-toggle" aria-hidden="true">⌄</span></summary> <div class="tool-call-list"></div></details>`);
+var root_6$1 = /* @__PURE__ */ from_html(`<details class="tool-timeline" open=""><summary class="tool-timeline-summary"><span class="tool-timeline-icon" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="2"></rect><rect x="14" y="3" width="7" height="7" rx="2"></rect><rect x="3" y="14" width="7" height="7" rx="2"></rect><rect x="14" y="14" width="7" height="7" rx="2"></rect></svg></span> <span> </span> <!> <span class="tool-timeline-toggle" aria-hidden="true">⌄</span></summary> <div class="tool-call-list"></div></details>`);
 function ToolCalls($$anchor, $$props) {
 	push($$props, true);
 	let failures = /* @__PURE__ */ user_derived(() => $$props.calls.filter((call) => call.status === "error" || call.error).length);
-	const title = (call) => [call.connector, call.action].filter(Boolean).join(" · ") || "Tool call";
+	const title = (call) => {
+		if (call.connector === "web") return call.status === "running" ? "Searching the web" : "Searched the web";
+		if (call.connector === "python") return call.status === "running" ? "Analyzing data" : "Analyzed data";
+		const name = [call.connector, call.action].filter(Boolean).join(" · ") || "Tool call";
+		return call.connector ? `${call.status === "running" ? "Using" : "Used"} ${name}` : name;
+	};
 	const status = (call) => call.status === "error" || call.error ? "Failed" : call.status === "running" ? "Running" : call.status === "observed" ? "Observed" : "Completed";
 	var fragment = comment();
 	var node = first_child(fragment);

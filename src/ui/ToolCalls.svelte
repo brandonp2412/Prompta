@@ -3,15 +3,25 @@
 
   let { calls }: { calls: CapturedToolCall[] } = $props();
   let failures = $derived(calls.filter((call) => call.status === "error" || call.error).length);
-  const title = (call: CapturedToolCall) => [call.connector, call.action].filter(Boolean).join(" · ") || "Tool call";
+  const title = (call: CapturedToolCall) => {
+    if (call.connector === "web") return call.status === "running" ? "Searching the web" : "Searched the web";
+    if (call.connector === "python") return call.status === "running" ? "Analyzing data" : "Analyzed data";
+    const name = [call.connector, call.action].filter(Boolean).join(" · ") || "Tool call";
+    return call.connector ? `${call.status === "running" ? "Using" : "Used"} ${name}` : name;
+  };
   const status = (call: CapturedToolCall) => call.status === "error" || call.error ? "Failed" :
     call.status === "running" ? "Running" : call.status === "observed" ? "Observed" : "Completed";
 </script>
 
 {#if calls.length}
-  <details class="tool-timeline">
+  <details class="tool-timeline" open>
     <summary class="tool-timeline-summary">
-      <span class="tool-timeline-icon" aria-hidden="true">⌘</span>
+      <span class="tool-timeline-icon" aria-hidden="true">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="3" width="7" height="7" rx="2" /><rect x="14" y="3" width="7" height="7" rx="2" />
+          <rect x="3" y="14" width="7" height="7" rx="2" /><rect x="14" y="14" width="7" height="7" rx="2" />
+        </svg>
+      </span>
       <span>{calls.length} tool {calls.length === 1 ? "call" : "calls"}</span>
       {#if failures}<span class="tool-failure-count">{failures} failed</span>{/if}
       <span class="tool-timeline-toggle" aria-hidden="true">⌄</span>

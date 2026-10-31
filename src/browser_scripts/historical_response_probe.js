@@ -44,16 +44,7 @@
     .join("\n\n").trim().slice(0, 2 * 1024 * 1024);
   const turn = assistant.closest('[data-testid^="conversation-turn-"], article, [data-turn-key]') || assistant;
   // Only visible tool headings in this verified turn, never tool bodies or reasoning.
-  const toolSelector = '[data-testid*="tool-call"], [data-testid*="tool-card"], [data-testid*="tool-result"], [aria-label^="Used "]';
-  const tool_calls = [...turn.querySelectorAll(toolSelector)].filter((node) =>
-    visible(node) && !node.closest(markdownSelector) && !node.parentElement?.closest(toolSelector)
-  ).slice(0, 128).map((node) => {
-    const heading = node.getAttribute('aria-label') || node.getAttribute('data-tool-name') ||
-      node.querySelector('[data-testid*="tool-name"]')?.textContent || 'Tool activity';
-    const state = node.getAttribute('data-state') || '';
-    return { action: heading.slice(0, 120), status: /error|fail/i.test(state) ? 'error' :
-      /running|loading|pending/i.test(state) ? 'running' : /complete|success|done/i.test(state) ? 'completed' : 'observed' };
-  });
+  const tool_calls = toolCallsFromTurns([turn], visible, markdownSelector);
   const copyReady = [...turn.querySelectorAll(
     'button[data-testid="copy-turn-action-button"], button[aria-label="Copy"]'
   )].some(visible);

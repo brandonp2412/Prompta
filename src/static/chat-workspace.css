@@ -374,7 +374,7 @@
 .response-metric-value.tone-error { color: #ff6467; }
 .response-metric span { color: #c5c5c5; font-size: .85rem; line-height: 1.35; overflow-wrap: anywhere; }
 
-/* Tool details are an optional disclosure, not a second response card. */
+/* Keep tool activity visible inline; individual payloads remain disclosures. */
 .assistant-group .tool-timeline {
   width: 100%;
   margin: 0 0 12px;
@@ -392,8 +392,11 @@
 }
 .assistant-group .tool-timeline-icon { background: transparent; color: #999; }
 .assistant-group .tool-timeline-toggle { margin-left: 0; }
-.assistant-group .tool-call-list { border-left-color: #393939; }
-.assistant-group .tool-call { border-color: #373737; background: #202020; }
+.assistant-group .tool-call-list { gap: 2px; margin-left: 0; padding-left: 0; border-left: 0; }
+.assistant-group .tool-call { border: 0; background: transparent; }
+.assistant-group .tool-call-summary { padding: 7px 8px; }
+.assistant-group .tool-call-mark { background: transparent; color: #aaa; }
+.assistant-group .tool-call.running .tool-call-mark { color: #ddd; }
 .assistant-group .tool-call-summary:hover { background: #292929; }
 .assistant-group .tool-call-body { border-top-color: #373737; }
 

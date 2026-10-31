@@ -20,6 +20,7 @@ HTML = """<html><body><main>
   data-message-id="87654321-4321-4321-8321-123456789abc">
   <div class="markdown"><p>Recovered <strong>answer</strong></p><ul><li>First</li><li>Second</li></ul><table><tr><th>State</th><th>Count</th></tr><tr><td>Done</td><td>3</td></tr></table></div></div>
   <button data-testid="tool-call-entry" aria-label="Used Nox Python" data-state="completed">Tool</button>
+  <button data-state="completed">Used Calendar</button>
   <button data-testid="copy-turn-action-button">Copy</button>
 </article></main></body></html>"""
 
@@ -57,7 +58,8 @@ def test_historical_probe_real_chromium_dom() -> None:
                     == "Recovered **answer**\n\n- First\n- Second\n\n| State | Count |\n| --- | --- |\n| Done | 3 |"
                 )
                 assert result["tool_calls"] == [
-                    {"action": "Used Nox Python", "status": "completed"}
+                    {"action": "Used Nox Python", "status": "completed"},
+                    {"action": "Used Calendar", "status": "completed"},
                 ]
                 assert result["branch_message_id"] == "87654321-4321-4321-8321-123456789abc"
                 await page.locator('[data-message-author-role="user"] p').evaluate(

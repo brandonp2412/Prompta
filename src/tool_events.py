@@ -48,7 +48,13 @@ def _redact(value: object, depth: int = 0) -> object:
 def _display(value: object, limit: int = 6000) -> str:
     if value is None or value == "":
         return ""
-    safe = _redact(_decode(value))
+    decoded = _decode(value)
+    if isinstance(decoded, str) and (
+        decoded.lstrip().startswith("{") or re.match(r'^\s*\[\s*(?:[\[{"]|$)', decoded)
+    ):
+        # Incomplete streamed JSON cannot be field-redacted safely yet.
+        return "[structured payload pending]"
+    safe = _redact(decoded)
     if isinstance(safe, str):
         result = safe
     else:
@@ -94,6 +100,8 @@ class ToolEventCollector:
     def __init__(self) -> None:
         self._calls: dict[str, dict[str, object]] = {}
         self._pending: list[str] = []
+        self._results: dict[str, str] = {}
+        self._recipients: dict[str, str] = {}
 
     def observe(self, message: dict[str, object]) -> bool:
         author = _record(message.get("author"))
@@ -115,8 +123,6 @@ class ToolEventCollector:
             nested = _record(_decode(parsed["text"]))
             if nested:
                 parsed = nested
-        if not parsed:
-            return False
         app = _record(parsed.get("appContext"))
         invoked = _record(message.get("invoked_resource"))
         path = parsed.get("path")
@@ -129,6 +135,8 @@ class ToolEventCollector:
             parsed.get("type") == "mcpToolCall" or bool(app)
             or (recipient == "api_tool.call_tool" and bool(path))
             or ("arguments" in parsed and bool(action))
+            or (recipient not in ("", "all") and isinstance(first, str)
+                and content.get("content_type") in ("text", "code"))
         )
         if not is_call or not action or (recipient in ("", "all") and not (
             parsed.get("type") == "mcpToolCall" or bool(app)
@@ -147,8 +155,10 @@ class ToolEventCollector:
             connector = ""
         if not connector or connector == action:
             connector = recipient.split(".", 1)[0].replace("api_tool", "Tool")
-        arguments = parsed.get("arguments", parsed.get("args"))
+        arguments = parsed.get("arguments", parsed.get("args", parsed or first))
         status = _text(parsed.get("status")) or "running"
+        if status not in ("running", "completed", "error", "observed"):
+            status = "running"
         result = parsed.get("result")
         if result is not None and status == "running":
             status = "completed"
@@ -165,6 +175,7 @@ class ToolEventCollector:
                 if not entry[field]:
                     entry[field] = existing[field]
         self._calls[identifier] = entry
+        self._recipients[identifier] = recipient
         if status == "running" and identifier not in self._pending:
             self._pending.append(identifier)
         if status != "running" and identifier in self._pending:
@@ -172,21 +183,36 @@ class ToolEventCollector:
         return True
 
     def _result(self, message: dict[str, object]) -> None:
-        if not self._pending:
+        result_id = _text(message.get("id"))
+        known = self._results.get(result_id) if result_id else None
+        if not self._pending and known is None:
             return
         invoked = _record(message.get("invoked_resource"))
-        action = _name_from_path(invoked.get("resource_uri"))
-        matching = [key for key in self._pending if not action or self._calls[key]["action"] == action]
-        if not matching:
+        action = (_name_from_path(invoked.get("resource_uri"))
+                  or _text(_record(message.get("author")).get("name"))).rsplit(".", 1)[-1]
+        metadata = _record(message.get("metadata"))
+        target = _text(metadata.get("tool_call_id"))
+        if target in self._pending:
+            action = _text(self._calls[target].get("action"))
+        author_name = _text(_record(message.get("author")).get("name"))
+        matching = [key for key in self._pending if (
+            not action or self._calls[key]["action"] == action
+            or (author_name and (self._recipients.get(key) == author_name
+                                 or self._recipients.get(key, "").split(".", 1)[0] == author_name))
+        )]
+        if not matching and known is None:
             return
-        key = matching[-1]
+        key = known or (target if target in matching else matching[0])
+        if result_id and len(self._results) < _MAX_TOOLS:
+            self._results[result_id] = key
         entry = self._calls[key]
         content = _record(message.get("content"))
         parts = content.get("parts")
         value = parts[0] if isinstance(parts, list) and parts else content.get("text")
         entry["result"] = _display(value)
         entry["status"] = "error" if _record(message.get("metadata")).get("is_error") is True else "completed"
-        self._pending.remove(key)
+        if key in self._pending:
+            self._pending.remove(key)
 
     def snapshot(self) -> tuple[dict[str, object], ...]:
         return tuple(dict(call) for call in self._calls.values())

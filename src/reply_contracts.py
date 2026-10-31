@@ -535,6 +535,29 @@ class ManualReplyStore:
                      lease_owner="" if complete else owner))
         return changed.rowcount == 1
 
+    def observe_tools(self, reply_id: str, owner: str, capture: CaptureResult,
+                      *, now: float | None = None) -> bool:
+        """Persist owned tool activity before final answer identity is available."""
+        if not capture.tool_calls or not capture.conversation_id:
+            return False
+        at = time.time() if now is None else now
+        with self.engine.begin() as connection:
+            connection.exec_driver_sql("BEGIN IMMEDIATE")
+            row = connection.execute(select(replies).where(
+                replies.c.reply_id == reply_id, replies.c.lease_owner == owner,
+                replies.c.status.in_(("dispatching", "accepted", "generating")),
+                replies.c.lease_deadline > at,
+                replies.c.conversation_id == capture.conversation_id,
+            )).mappings().one_or_none()
+            if row is None:
+                return False
+            merged = merge_tool_calls(row["tool_calls_json"], capture.tool_calls)
+            if merged != row["tool_calls_json"]:
+                connection.execute(update(replies).where(replies.c.reply_id == reply_id).values(
+                    tool_calls_json=merged, updated_at=at,
+                ))
+        return True
+
     def renew(
         self, reply_id: str, owner: str, *, deadline: float, now: float | None = None,
     ) -> bool:

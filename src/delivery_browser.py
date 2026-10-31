@@ -533,7 +533,7 @@ class BrowserDeliverySender:
                     update = sse
                 elif update is None and sse is not None and sse.text:
                     update = sse
-                if update is not None and update.text:
+                if update is not None and (update.text or update.tool_calls):
                     if seen_message and update.message_id and seen_message != update.message_id:
                         final_status = "unavailable"
                         break

@@ -112,3 +112,28 @@
     };
     return block(root).trim();
   };
+
+// Read visible tool headings only inside the already verified owned response turn.
+// Never expand controls, read tool bodies/thoughts, or issue requests.
+const toolCallsFromTurns = (turns, visible, markdownSelector) => {
+  const toolSelector = '[data-testid*="tool-call"], [data-testid*="tool-card"], [data-testid*="tool-result"], [data-tool-name], [aria-label^="Used "]';
+  const seen = new Set();
+  return turns.flatMap((turn) => [...turn.querySelectorAll(toolSelector + ', button, [role="button"]')]
+    .filter((node) => {
+      if (seen.has(node) || !visible(node) || node.closest(markdownSelector) ||
+          node.parentElement?.closest(toolSelector)) return false;
+      // Modern connector disclosures can have only a visible "Used …" label.
+      if (!node.matches(toolSelector) && !/^Used\s+\S/i.test(node.textContent?.trim() || "")) return false;
+      seen.add(node);
+      return true;
+    }).map((node) => {
+      const heading = node.getAttribute("aria-label") || node.getAttribute("data-tool-name") ||
+        node.querySelector('[data-testid*="tool-name"]')?.textContent ||
+        node.querySelector('summary, button, [role="button"]')?.textContent ||
+        (node.matches('button, [role="button"]') ? node.textContent : "") || "Tool activity";
+      const state = node.getAttribute("data-state") || "";
+      return { action: heading.trim().slice(0, 120), status: /error|fail/i.test(state) ? "error" :
+        /running|loading|pending/i.test(state) ? "running" :
+        /complete|success|done/i.test(state) ? "completed" : "observed" };
+    })).slice(0, 128);
+};

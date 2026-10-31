@@ -9,7 +9,7 @@
   const markdownSelector = '.markdown, [data-markdown-text-style="assistant-message"]';
   const stopSelector = 'button[data-testid="stop-button"], button[aria-label="Stop generating"], button[aria-label="Stop streaming"]';
   const copySelector = 'button[data-testid="copy-turn-action-button"], button[aria-label="Copy"]';
-  const toolSelector = '[data-testid*="tool-call"], [data-testid*="tool-card"], [data-testid*="tool-result"], [aria-label^="Used "]';
+
   const visible = (element) => element.isConnected && element.getClientRects().length > 0 && getComputedStyle(element).visibility !== "hidden";
   // Preserve visible response headings, lists, tables and code as Markdown.
   // Only the newly owned final-answer node is read; no history or HTTP requests.
@@ -94,17 +94,7 @@
     const turns = fresh.map((element) =>
       element.closest('[data-testid^="conversation-turn-"], article, [data-turn-key], .group.flex.flex-col') ||
       element);
-    const tool_calls = turns.flatMap((turn) => [...turn.querySelectorAll(toolSelector)]
-      .filter((node) => visible(node) && !node.closest(markdownSelector) &&
-        !node.parentElement?.closest(toolSelector))
-      .map((node) => {
-        const heading = node.getAttribute("aria-label") || node.getAttribute("data-tool-name") ||
-          node.querySelector('[data-testid*="tool-name"]')?.textContent || "Tool activity";
-        const state = node.getAttribute("data-state") || "";
-        return { action: heading.slice(0, 120), status: /error|fail/i.test(state) ? "error" :
-          /running|loading|pending/i.test(state) ? "running" :
-          /complete|success|done/i.test(state) ? "completed" : "observed" };
-      })).slice(0, 128);
+    const tool_calls = toolCallsFromTurns(turns, visible, markdownSelector);
     const copyReady = turns.some((turn) => [...turn.querySelectorAll(copySelector)].some(visible));
     const streaming = turns.some((turn) =>
       !!turn.querySelector('[data-is-streaming="true"], .result-streaming'));
@@ -139,7 +129,7 @@
     childList: true,
     characterData: true,
     attributes: true,
-    attributeFilter: ["data-is-streaming", "aria-label", "data-testid", "disabled"],
+    attributeFilter: ["data-is-streaming", "aria-label", "data-testid", "data-state", "data-tool-name", "disabled"],
   });
   window[key] = {
     read: () => {
