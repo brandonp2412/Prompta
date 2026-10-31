@@ -136,6 +136,13 @@ const assistantMessageIdsFromDom = (element) => {
 
 // Read visible tool headings only inside the already verified owned response turn.
 // Never expand controls, read tool bodies/thoughts, or issue requests.
+const responseTurnRoot = (element) =>
+  element.closest('[data-testid^="conversation-turn-"]') ||
+  element.closest('[data-turn-key]') ||
+  element.closest("article") ||
+  element.closest(".group.flex.flex-col") ||
+  element;
+
 const toolCallsFromTurns = (turns, visible, markdownSelector) => {
   const toolSelector = '[data-testid*="tool-call"], [data-testid*="tool-card"], [data-testid*="tool-result"], [data-tool-name], [aria-label^="Used "]';
   const seen = new Set();

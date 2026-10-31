@@ -79,9 +79,7 @@
         sample(); // single delayed finality check after this text change
       }, 850);
     }
-    const turns = fresh.map((element) =>
-      element.closest('[data-testid^="conversation-turn-"], article, [data-turn-key], .group.flex.flex-col') ||
-      element);
+    const turns = fresh.map(responseTurnRoot);
     const tool_calls = toolCallsFromTurns(turns, visible, markdownSelector);
     const copyReady = turns.some((turn) => [...turn.querySelectorAll(copySelector)].some(visible));
     const streaming = turns.some((turn) =>

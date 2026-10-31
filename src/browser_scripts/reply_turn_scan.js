@@ -89,8 +89,8 @@ const scanExactReplyTurn = (conversation, originalPrompt, replyText, parent, all
   const finalNode = lastTextIndex < 0 ? null : later[lastTextIndex].node;
   const finalIds = finalNode ? ids(finalNode) : [];
   const complete = !!text && copyReady && !streaming && !generating && finalIds.length === 1;
-  const tool_calls = toolCallsFromTurns(later.map(({ node }) =>
-    node.closest('[data-testid^="conversation-turn-"], article, [data-turn-key], .group.flex.flex-col') || node), visible, markdownSelector);
+  const tool_calls = toolCallsFromTurns(later.map(({ node }) => responseTurnRoot(node)),
+    visible, markdownSelector);
   const first = later[0];
   const identity = first.node.getAttribute("data-message-id") || first.key;
   if (!identity) return { ...empty, ambiguous: true };

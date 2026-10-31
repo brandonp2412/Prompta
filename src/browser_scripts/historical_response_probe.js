@@ -49,8 +49,7 @@
   // The main turn may contain tools and thoughts; only extract final-answer markdown.
   const text = segments.filter(Boolean)
     .join("\n\n").trim().slice(0, 2 * 1024 * 1024);
-  const turns = answerUnits.map((node) =>
-    node.closest('[data-testid^="conversation-turn-"], article, [data-turn-key]') || node);
+  const turns = answerUnits.map(responseTurnRoot);
   // Only visible tool headings in this verified turn, never tool bodies or reasoning.
   const tool_calls = toolCallsFromTurns(turns, visible, markdownSelector);
   const copyReady = turns.some((turn) => [...turn.querySelectorAll(
