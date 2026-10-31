@@ -13345,8 +13345,9 @@ function createChatsPageController(initialProps) {
 		const available = 32e3 - prefix.length - suffix.length;
 		if (available <= 0) return text;
 		const previousContext = lastResult || detail.value?.user_text || "";
-		const result = previousContext.length > available ? available > 3 ? previousContext.slice(0, available - 3) + "..." : previousContext.slice(0, available) : previousContext;
-		const transcript = turns.value.slice(0, lastResultIndex + 1).map((turn, index) => "User:\n" + turn.user_text + (index === lastResultIndex ? "" : turn.assistant_text ? "\n\nAssistant:\n" + turn.assistant_text : "")).join("\n\n");
+		let result = previousContext;
+		if (previousContext.length > available) result = available > 3 ? previousContext.slice(0, available - 3) + "..." : previousContext.slice(0, available);
+		const transcript = turns.value.slice(0, lastResultIndex + 1).map((turn, index) => "User:\n" + turn.user_text + (index !== lastResultIndex && turn.assistant_text ? "\n\nAssistant:\n" + turn.assistant_text : "")).join("\n\n");
 		const contextHeader = "\n\nEarlier conversation context:\n";
 		const contextBudget = available - result.length - 32;
 		const context = transcript && contextBudget > 0 ? contextHeader + transcript.slice(-contextBudget) : "";
@@ -13682,8 +13683,9 @@ function createChatsPageController(initialProps) {
 		if (gesture.locked) {
 			const dx = touch.clientX - gesture.x;
 			const progress = clampDrawer((gesture.opening ? 0 : 1) + dx / gesture.width);
-			const fling = Math.abs(dx) >= 30 && Math.abs(gesture.velocityX) >= .45 && performance.now() - gesture.lastTime < 120;
-			drawerOpen.value = fling ? gesture.velocityX > 0 : gesture.opening ? progress >= .35 : progress > .65;
+			if (Math.abs(dx) >= 30 && Math.abs(gesture.velocityX) >= .45 && performance.now() - gesture.lastTime < 120) drawerOpen.value = gesture.velocityX > 0;
+			else if (gesture.opening) drawerOpen.value = progress >= .35;
+			else drawerOpen.value = progress > .65;
 		}
 		cancelSwipe();
 	}
@@ -13695,10 +13697,6 @@ function createChatsPageController(initialProps) {
 	function showJobs() {
 		drawerOpen.value = false;
 		onNavigate.value("jobs");
-	}
-	function showChats() {
-		drawerOpen.value = false;
-		onSelect.value(null);
 	}
 	function createChat() {
 		drawerOpen.value = false;
@@ -13717,19 +13715,6 @@ function createChatsPageController(initialProps) {
 		await tick();
 		if (bubble && scrollPane.value && originalTop !== void 0) scrollPane.value.scrollTop += bubble.getBoundingClientRect().top - originalTop;
 	}
-	const reactiveEffect0 = () => x$2(() => {
-		const id = view.value === "chats" ? selectedRunId.value : null;
-		f$1(() => {
-			if (id) loadDetail(id);
-			else {
-				detailGeneration += 1;
-				detail.value = null;
-				turns.value = [];
-				turnsError.value = "";
-				detailError.value = "";
-			}
-		});
-	});
 	const onMountImpl = () => {
 		loadPreferences();
 		loadList();
@@ -13780,7 +13765,19 @@ function createChatsPageController(initialProps) {
 	};
 	function mount() {
 		const cleanup = onMountImpl();
-		const disposers = [reactiveEffect0()];
+		const disposers = [x$2(() => {
+			const id = view.value === "chats" ? selectedRunId.value : null;
+			f$1(() => {
+				if (id) loadDetail(id);
+				else {
+					detailGeneration += 1;
+					detail.value = null;
+					turns.value = [];
+					turnsError.value = "";
+					detailError.value = "";
+				}
+			});
+		})];
 		return () => {
 			for (const dispose of disposers) dispose();
 			if (typeof cleanup === "function") cleanup();
@@ -13803,12 +13800,6 @@ function createChatsPageController(initialProps) {
 		selectedRunId,
 		newChatOpen,
 		onSelect,
-		onNavigate,
-		onNewChat,
-		onQueued,
-		pageSize,
-		preferencesKey,
-		readSyncKey,
 		statuses,
 		responseBadge,
 		exactConversationUrl,
@@ -13818,35 +13809,17 @@ function createChatsPageController(initialProps) {
 		recoveryPauseReason,
 		recoveryBacklog,
 		recoveryReplyBacklog,
-		queueGeneration,
-		queueInFlight,
-		queueRefreshPending,
-		queuePollTimer,
-		detailPollTimer,
 		items,
-		pinnedItems,
 		pinnedIds,
-		legacyPinIds,
-		confirmedPins,
 		pinsReady,
-		pendingPinWrites,
-		pinWriteQueue,
 		pinError,
-		pinWriteError,
-		readAt,
-		readRevisions,
-		optimisticReads,
 		readError,
 		markingAllRead,
-		baselineAt,
 		drawerOpen,
 		drawerProgress,
 		visibleDrawerProgress,
 		filtersOpen,
 		expandedPrompts,
-		total,
-		nextOffset,
-		loadingMore,
 		search,
 		statusFilter,
 		detail,
@@ -13861,70 +13834,40 @@ function createChatsPageController(initialProps) {
 		jobsWorkspace,
 		searchInput,
 		loadingList,
-		loadingDetail,
-		pendingRevealFor,
 		listError,
 		morePageFailed,
 		detailError,
-		listGeneration,
-		listInFlight,
-		listRefreshPending,
-		pinsGeneration,
-		detailGeneration,
-		detailInFlightFor,
-		detailRefreshFor,
-		searchTimer,
-		liveRefreshTimer,
-		swipeStart,
-		activity,
-		newestFirst,
 		pinned,
 		replyBlockedReason,
 		visibleWaiting,
 		unpinned,
 		switchingChat,
 		selectedChatTitle,
-		loadPreferences,
-		savePreferences,
 		isUnread,
-		importLegacyReads,
 		retryReadSync,
-		markRead,
 		markAllRead,
-		onReadStorage,
-		loadPins,
 		togglePin,
 		loadQueue,
-		resultsParams,
-		mergeRuns,
 		maybeLoadMore,
 		loadList,
 		loadMore,
 		loadDetail,
-		receiptFailureMessage,
 		sendFresh,
-		recoverReply,
 		freshContinuationPrompt,
 		startFailedReplyInNewChat,
 		retryFailedInitialInNewChat,
 		originalImageRefs,
-		queueEarlyReply,
 		sendReply,
-		sendExactReply,
 		retryFailedTurn,
 		copyText,
-		refresh,
 		applyFilter,
 		searchChanged,
 		toggleSearch,
-		clampDrawer,
 		cancelSwipe,
 		startSwipe,
-		moveSwipe,
 		finishSwipe,
 		selectRun,
 		showJobs,
-		showChats,
 		createChat,
 		escapeDrawer,
 		togglePrompt,
@@ -14029,15 +13972,15 @@ function createJobsPageController(initialProps) {
 	let prompt = y$2("");
 	let images = y$2([]);
 	let uploadingImage = y$2(false);
-	let imageUploadGeneration = 0;
-	let imageUploadAbort = null;
+	let uploadGen = 0;
+	let uploadAbort = null;
 	let imageInput = y$2();
 	let schedule = y$2("once");
 	let interval = y$2("40");
 	let onceDelay = y$2("0");
 	let pinChat = y$2(false);
-	let initialOnceDelay = "0";
-	let originalRunAtEpoch = null;
+	let initialDelay = "0";
+	let originalRunAt = null;
 	let dailyAt = y$2("09:00");
 	let exact = y$2(false);
 	let editorOpen = y$2(false);
@@ -14070,8 +14013,8 @@ function createJobsPageController(initialProps) {
 		interval.value = "40";
 		onceDelay.value = "0";
 		pinChat.value = false;
-		initialOnceDelay = "0";
-		originalRunAtEpoch = null;
+		initialDelay = "0";
+		originalRunAt = null;
 		dailyAt.value = "09:00";
 		exact.value = false;
 	}
@@ -14089,9 +14032,9 @@ function createJobsPageController(initialProps) {
 		});
 	}
 	function cancelEditorUpload() {
-		imageUploadGeneration += 1;
-		imageUploadAbort?.abort();
-		imageUploadAbort = null;
+		uploadGen += 1;
+		uploadAbort?.abort();
+		uploadAbort = null;
 		uploadingImage.value = false;
 	}
 	function closeEditorState() {
@@ -14115,7 +14058,9 @@ function createJobsPageController(initialProps) {
 		};
 	}
 	function routeKey(route) {
-		return route?.kind === "new" ? route.once ? "new:once" : "new" : route?.kind === "edit" ? "edit:" + route.name : "";
+		if (route?.kind === "new") return route.once ? "new:once" : "new";
+		if (route?.kind === "edit") return "edit:" + route.name;
+		return "";
 	}
 	function jobsUrl() {
 		const url = new URL(window.location.href);
@@ -14196,11 +14141,13 @@ function createJobsPageController(initialProps) {
 			name.value = job.name;
 			prompt.value = job.prompt;
 			images.value = [...job.images || []];
-			schedule.value = job.run_at_epoch ? "once" : job.daily_at ? "daily" : "interval";
-			originalRunAtEpoch = job.run_at_epoch;
+			if (job.run_at_epoch) schedule.value = "once";
+			else if (job.daily_at) schedule.value = "daily";
+			else schedule.value = "interval";
+			originalRunAt = job.run_at_epoch;
 			pinChat.value = job.pin_chat;
 			onceDelay.value = String(job.run_at_epoch ? Math.max(0, Math.round((job.run_at_epoch - Date.now() / 1e3) / 6) / 10) : 0);
-			initialOnceDelay = onceDelay.value;
+			initialDelay = onceDelay.value;
 			dailyAt.value = job.daily_at || "09:00";
 			interval.value = String(job.interval_minutes || 40);
 			exact.value = job.exact_interval;
@@ -14443,9 +14390,9 @@ function createJobsPageController(initialProps) {
 			return;
 		}
 		const route = activeEditorRoute.value;
-		const generation = ++imageUploadGeneration;
+		const generation = ++uploadGen;
 		const controller = new AbortController();
-		imageUploadAbort = controller;
+		uploadAbort = controller;
 		const originalImages = [...images.value];
 		uploadingImage.value = true;
 		editorError.value = "";
@@ -14461,7 +14408,7 @@ function createJobsPageController(initialProps) {
 					};
 					reader.readAsDataURL(file);
 				});
-				if (generation !== imageUploadGeneration || activeEditorRoute.value !== route) return;
+				if (generation !== uploadGen || activeEditorRoute.value !== route) return;
 				const response = await localPost("./api/images", {
 					name: file.name,
 					data
@@ -14469,27 +14416,27 @@ function createJobsPageController(initialProps) {
 					timeoutMs: localUploadTimeoutMs,
 					signal: controller.signal
 				});
-				if (generation !== imageUploadGeneration || activeEditorRoute.value !== route) return;
+				if (generation !== uploadGen || activeEditorRoute.value !== route) return;
 				if (!response.ok) throw new Error("Image upload failed.");
 				const result = await response.json();
 				if (!result.image?.ref || !result.image.url.startsWith("./api/images/")) throw new Error("Image upload receipt was invalid.");
 				if (images.value.some((image) => image.ref === result.image?.ref)) continue;
 				images.value = [...images.value, result.image];
 				await tick();
-				if (generation !== imageUploadGeneration || activeEditorRoute.value !== route) return;
+				if (generation !== uploadGen || activeEditorRoute.value !== route) return;
 				imagePreviewList.value?.scrollIntoView({
 					block: "nearest",
 					behavior: "smooth"
 				});
 			}
 		} catch (error) {
-			if (generation === imageUploadGeneration && activeEditorRoute.value === route) {
+			if (generation === uploadGen && activeEditorRoute.value === route) {
 				images.value = originalImages;
 				editorError.value = error instanceof DOMException && error.name === "TimeoutError" ? "Image upload timed out. No new attachments were added; try again." : String(error).replace(/^Error:\s*/, "");
 			}
 		} finally {
-			if (generation === imageUploadGeneration && activeEditorRoute.value === route) {
-				imageUploadAbort = null;
+			if (generation === uploadGen && activeEditorRoute.value === route) {
+				uploadAbort = null;
 				uploadingImage.value = false;
 			}
 		}
@@ -14530,7 +14477,7 @@ function createJobsPageController(initialProps) {
 			daily_at: daily ? dailyAt.value : "",
 			interval_minutes: schedule.value === "interval" ? Number(interval.value) : null,
 			exact_interval: schedule.value === "interval" && exact.value,
-			...schedule.value === "once" && (!originalRunAtEpoch || onceDelay.value !== initialOnceDelay) ? { delay_minutes: Number(onceDelay.value) } : {}
+			...schedule.value === "once" && (!originalRunAt || onceDelay.value !== initialDelay) ? { delay_minutes: Number(onceDelay.value) } : {}
 		}, "Saved " + jobName + ".")) {
 			initialForm.value = formSnapshot();
 			leaveEditor();
@@ -14563,7 +14510,7 @@ function createJobsPageController(initialProps) {
 		if (!jobs.value.length || !window.confirm("Remove all " + String(jobs.value.length) + " configured jobs?")) return;
 		if (await command({ action: "clear" }, "Cleared all scheduled jobs.") && editorOpen.value) leaveEditor();
 	}
-	const onMountImpl = () => {
+	function mount() {
 		const onBeforeUnload = (event) => {
 			if (!dirty.value) return;
 			event.preventDefault();
@@ -14596,14 +14543,6 @@ function createJobsPageController(initialProps) {
 			window.visualViewport?.removeEventListener("resize", onViewportResize);
 			window.removeEventListener("popstate", syncEditorFromUrl);
 		};
-	};
-	function mount() {
-		const cleanup = onMountImpl();
-		const disposers = [];
-		return () => {
-			for (const dispose of disposers) dispose();
-			if (typeof cleanup === "function") cleanup();
-		};
 	}
 	function syncProps(next) {
 		r(() => {
@@ -14611,7 +14550,6 @@ function createJobsPageController(initialProps) {
 		});
 	}
 	return {
-		workspace,
 		deliveryHealth,
 		deliveryHealthError,
 		jobsLoadError,
@@ -14630,8 +14568,6 @@ function createJobsPageController(initialProps) {
 		filterCounts,
 		page,
 		pageCount,
-		pageStart,
-		pageEnd,
 		visibleJobs,
 		allVisiblePaused,
 		status,
@@ -14641,15 +14577,11 @@ function createJobsPageController(initialProps) {
 		prompt,
 		images,
 		uploadingImage,
-		imageUploadGeneration,
-		imageUploadAbort,
 		imageInput,
 		schedule,
 		interval,
 		onceDelay,
 		pinChat,
-		initialOnceDelay,
-		originalRunAtEpoch,
 		dailyAt,
 		exact,
 		editorOpen,
@@ -14660,47 +14592,21 @@ function createJobsPageController(initialProps) {
 		editorForm,
 		jobsTitle,
 		imagePreviewList,
-		activeEditorRoute,
-		listScrollY,
 		editorError,
 		confirmDiscard,
-		initialForm,
 		dirty,
 		runOnce,
 		duplicateName,
-		loadInFlight,
-		refreshPending,
-		dataGeneration,
-		healthInFlight,
-		healthRefreshPending,
-		reset,
-		formSnapshot,
-		cancelEditorUpload,
-		closeEditorState,
-		editorRouteFromUrl,
-		routeKey,
-		jobsUrl,
-		workspaceScroll,
-		restoreListScroll,
 		keepFocusedPromptVisible,
-		leaveEditor,
 		requestClose,
 		discardEditor,
-		openEditor,
-		showEditor,
-		pushEditor,
-		syncEditorFromUrl,
 		beginNew,
 		beginOnce,
 		onEditorKeydown,
 		formatDate,
 		scheduleText,
-		jobFilter,
 		toggleFilter,
 		jobStateText,
-		sameJob,
-		applyJobs,
-		clampPage,
 		changePage,
 		loadDeliveryHealth,
 		load,
@@ -14751,14 +14657,282 @@ var require_react_jsx_runtime_production = /* @__PURE__ */ __commonJSMin(((expor
 	exports.jsxs = jsxProd;
 }));
 //#endregion
-//#region src/ui/JobsPage.tsx
+//#region src/ui/JobEditor.tsx
 var import_jsx_runtime = (/* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_react_jsx_runtime_production();
 })))();
+function JobEditor({ model, refs }) {
+	N$1();
+	const { saving, editing, runOnce, name, schedule, interval, onceDelay, pinChat, dailyAt, exact, prompt, images, uploadingImage, imageInput, editorError, confirmDiscard, dirty, duplicateName, requestClose, discardEditor, keepFocusedPromptVisible, addImages, submit } = model;
+	function editorFeedback() {
+		if (editorError.value) return {
+			text: editorError.value,
+			error: true
+		};
+		if (duplicateName.value) return {
+			text: "This job already exists. Choose another name.",
+			error: true
+		};
+		if (dirty.value) return {
+			text: "Unsaved changes",
+			error: false
+		};
+		if (editing.value) return {
+			text: "No changes",
+			error: false
+		};
+		return {
+			text: "",
+			error: false
+		};
+	}
+	function submitButtonLabel() {
+		if (saving.value) return runOnce.value ? "Queuing…" : "Saving…";
+		if (editing.value) return "Save changes";
+		if (!runOnce.value) return "Create job";
+		return Number(onceDelay.value) > 0 ? "Schedule once" : "Run once";
+	}
+	const feedback = editorFeedback();
+	const editorModeTitle = runOnce.value ? "Run once" : "New job";
+	return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("section", {
+		ref: refs.editorPage,
+		"aria-labelledby": "editor-title",
+		tabIndex: -1,
+		className: "editor-page",
+		children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("form", {
+			id: "job-editor",
+			ref: refs.editorForm,
+			onSubmit: (event) => {
+				event.preventDefault();
+				submit();
+			},
+			className: "job-editor",
+			children: [
+				/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+					className: "editor-heading",
+					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+						type: "button",
+						disabled: saving.value,
+						onClick: requestClose,
+						className: "toolbar-button editor-back",
+						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("svg", {
+							"aria-hidden": "true",
+							viewBox: "0 0 24 24",
+							fill: "none",
+							stroke: "currentColor",
+							strokeWidth: "2.5",
+							strokeLinecap: "round",
+							strokeLinejoin: "round",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: "m12 19-7-7 7-7" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: "M5 12h14" })]
+						}), "Jobs"]
+					}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+						className: "editor-title",
+						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", {
+							id: "editor-title",
+							children: editing.value ? "Edit job" : editorModeTitle
+						}), editing.value ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+							title: editing.value,
+							children: editing.value
+						}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {})]
+					})]
+				}),
+				/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+					className: ["editor-body" + (images.value.length ? " has-images" : "")].filter(Boolean).join(" "),
+					children: [
+						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+							className: "editor-settings",
+							children: [
+								!runOnce.value ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
+									className: "name-field",
+									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Name" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+										ref: refs.nameInput,
+										autoComplete: "off",
+										readOnly: Boolean(editing.value),
+										required: true,
+										value: name.value,
+										onChange: (event) => {
+											name.value = event.currentTarget.value;
+										}
+									})]
+								}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {}),
+								/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Schedule" }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("select", {
+									disabled: runOnce.value,
+									"aria-label": "Schedule",
+									value: schedule.value,
+									onChange: (event) => {
+										schedule.value = event.currentTarget.value;
+									},
+									children: [
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
+											value: "interval",
+											children: "Interval"
+										}),
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
+											value: "daily",
+											children: "Daily"
+										}),
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
+											value: "once",
+											children: "Once"
+										})
+									]
+								})] }),
+								schedule.value === "interval" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Every (minutes)" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+									type: "number",
+									min: "0.1",
+									max: "43200",
+									step: "0.1",
+									required: true,
+									value: interval.value,
+									onChange: (event) => interval.value = event.currentTarget.value
+								})] }),
+								schedule.value === "once" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Delay (minutes, 0 = now)" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+									type: "number",
+									min: "0",
+									max: "43200",
+									step: "0.1",
+									required: true,
+									value: onceDelay.value,
+									onChange: (event) => onceDelay.value = event.currentTarget.value
+								})] }),
+								schedule.value === "daily" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "At (local time)" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+									type: "time",
+									required: true,
+									value: dailyAt.value,
+									onChange: (event) => dailyAt.value = event.currentTarget.value
+								})] })
+							]
+						}),
+						schedule.value === "interval" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
+							className: "checkbox-row",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+								type: "checkbox",
+								checked: exact.value,
+								onChange: (event) => exact.value = event.currentTarget.checked
+							}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Exact interval" })]
+						}),
+						schedule.value === "once" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
+							className: "checkbox-row",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+								type: "checkbox",
+								checked: pinChat.value,
+								onChange: (event) => pinChat.value = event.currentTarget.checked
+							}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Pin chat" })]
+						}),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
+							className: "prompt-field",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Prompt" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("textarea", {
+								ref: refs.promptInput,
+								rows: 14,
+								required: true,
+								onFocus: () => requestAnimationFrame(keepFocusedPromptVisible),
+								value: prompt.value,
+								onChange: (event) => {
+									prompt.value = event.currentTarget.value;
+								}
+							})]
+						}),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+							className: "job-image-picker",
+							children: [
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+									type: "button",
+									disabled: uploadingImage.value || saving.value || images.value.length >= 4,
+									onClick: () => imageInput.value?.click(),
+									className: "toolbar-button",
+									children: "Add images"
+								}),
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+									ref: refs.imageInput,
+									type: "file",
+									accept: "image/png,image/jpeg,image/gif,image/webp",
+									multiple: true,
+									disabled: uploadingImage.value || saving.value || images.value.length >= 4,
+									onChange: (event) => void addImages(event.currentTarget),
+									className: "image-input"
+								}),
+								uploadingImage.value || images.value.length ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: uploadingImage.value ? "Uploading…" : images.value.length + "/4 images" }) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {})
+							]
+						}),
+						images.value.length ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+							ref: refs.imagePreviewList,
+							className: "job-image-previews",
+							children: images.value.map((image, __index) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_react.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								className: "job-image-preview",
+								children: [
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("img", {
+										src: image.url,
+										alt: image.name
+									}),
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+										title: image.name,
+										children: image.name
+									}),
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+										type: "button",
+										title: "Remove " + image.name,
+										"aria-label": "Remove " + image.name,
+										disabled: saving.value || uploadingImage.value,
+										onClick: () => images.value = images.value.filter((item) => item.ref !== image.ref),
+										children: "×"
+									})
+								]
+							}) }, image.ref))
+						}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {})
+					]
+				}),
+				/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+					ref: refs.editorFooter,
+					className: "editor-footer",
+					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+						role: confirmDiscard.value ? "alertdialog" : "status",
+						"aria-label": confirmDiscard.value ? "Discard unsaved changes" : void 0,
+						"aria-live": "polite",
+						className: "editor-feedback",
+						children: confirmDiscard.value ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Discard unsaved changes?" }),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+								type: "button",
+								onClick: () => confirmDiscard.value = false,
+								className: "toolbar-button",
+								children: "Keep editing"
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+								type: "button",
+								onClick: discardEditor,
+								className: "toolbar-button danger-text",
+								children: "Discard"
+							})
+						] }) : feedback.text && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+							className: feedback.error ? "editor-error" : void 0,
+							children: feedback.text
+						})
+					}), !confirmDiscard.value ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+						className: "editor-actions",
+						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+							type: "button",
+							disabled: saving.value,
+							onClick: requestClose,
+							className: "toolbar-button",
+							children: "Cancel"
+						}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+							type: "submit",
+							disabled: saving.value || uploadingImage.value || !dirty.value || duplicateName.value || !prompt.value.trim() || !runOnce.value && !name.value.trim(),
+							className: "primary-button",
+							children: submitButtonLabel()
+						})]
+					}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {})]
+				})
+			]
+		})
+	});
+}
+//#endregion
+//#region src/ui/JobsPage.tsx
 function JobsPage(props) {
 	const model = (0, import_react.useMemo)(() => createJobsPageController(props), []);
 	N$1();
-	const { deliveryHealth, deliveryHealthError, jobsLoadError, queueSnapshot, waitingJob, pendingDeliveries, recoveryPauseSeconds, filterOptions, pageSize, jobs, activeFilters, showRepeatingJobs, repeatingJobsCount, cadenceJobs, filteredJobs, filterCounts, page, pageCount, visibleJobs, allVisiblePaused, status, saving, editing, name, prompt, images, uploadingImage, imageInput, schedule, interval, onceDelay, pinChat, dailyAt, exact, editorOpen, editorError, confirmDiscard, dirty, runOnce, duplicateName, keepFocusedPromptVisible, requestClose, discardEditor, beginNew, beginOnce, onEditorKeydown, formatDate, scheduleText, toggleFilter, jobStateText, changePage, loadDeliveryHealth, load, command, addImages, submit, edit, remove, toggleVisible, clearAll } = model;
+	const { deliveryHealth, deliveryHealthError, jobsLoadError, queueSnapshot, waitingJob, pendingDeliveries, recoveryPauseSeconds, filterOptions, pageSize, jobs, activeFilters, showRepeatingJobs, repeatingJobsCount, cadenceJobs, filteredJobs, filterCounts, page, pageCount, visibleJobs, allVisiblePaused, status, saving, editorOpen, beginNew, beginOnce, onEditorKeydown, formatDate, scheduleText, toggleFilter, jobStateText, changePage, loadDeliveryHealth, load, command, edit, remove, toggleVisible, clearAll } = model;
 	const refs = (0, import_react.useMemo)(() => ({
 		jobsTitle: (element) => {
 			if (model.jobsTitle.peek() !== (element ?? void 0)) model.jobsTitle.value = element ?? void 0;
@@ -14795,26 +14969,32 @@ function JobsPage(props) {
 			window.removeEventListener("keydown", onEditorKeydown);
 		};
 	}, [model]);
+	function deliveryLabel() {
+		if (deliveryHealthError.value) return "status unavailable";
+		if (deliveryHealth.value?.ready === false) return "needs attention";
+		if (deliveryHealth.value?.admission?.blocked) return "waiting for capacity";
+		return deliveryHealth.value ? "online" : "status unavailable";
+	}
 	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [!editorOpen.value ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", {
 		"aria-labelledby": "jobs-title",
-		className: ["jobs-panel"].filter(Boolean).join(" "),
+		className: "jobs-panel",
 		children: [
 			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-				className: ["jobs-toolbar"].filter(Boolean).join(" "),
+				className: "jobs-toolbar",
 				children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-					className: ["toolbar-title"].filter(Boolean).join(" "),
+					className: "toolbar-title",
 					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h1", {
 						id: "jobs-title",
 						ref: refs.jobsTitle,
 						children: "Jobs"
 					}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: cadenceJobs.value.length })]
 				}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-					className: ["toolbar-actions"].filter(Boolean).join(" "),
+					className: "toolbar-actions",
 					children: [
 						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
 							role: "status",
 							"aria-live": "polite",
-							className: ["status-line"].filter(Boolean).join(" "),
+							className: "status-line",
 							children: status.value
 						}),
 						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
@@ -14823,9 +15003,9 @@ function JobsPage(props) {
 							title: allVisiblePaused.value ? "Resume the jobs shown on this page" : "Pause the jobs shown on this page",
 							"aria-label": allVisiblePaused.value ? "Resume visible jobs" : "Pause visible jobs",
 							onClick: () => void toggleVisible(),
-							className: ["toolbar-button visible-toggle"].filter(Boolean).join(" "),
+							className: "toolbar-button visible-toggle",
 							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
-								className: ["action-copy"].filter(Boolean).join(" "),
+								className: "action-copy",
 								children: [
 									allVisiblePaused.value ? "Resume visible" : "Pause visible",
 									" (",
@@ -14834,7 +15014,7 @@ function JobsPage(props) {
 								]
 							}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
 								"aria-hidden": "true",
-								className: ["compact-action-icon"].filter(Boolean).join(" "),
+								className: "compact-action-icon",
 								children: allVisiblePaused.value ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("svg", {
 									viewBox: "0 0 24 24",
 									fill: "none",
@@ -14860,13 +15040,13 @@ function JobsPage(props) {
 							"aria-label": "Refresh jobs",
 							title: "Refresh jobs",
 							onClick: () => void load(),
-							className: ["toolbar-button refresh-action"].filter(Boolean).join(" "),
+							className: "toolbar-button refresh-action",
 							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-								className: ["action-copy"].filter(Boolean).join(" "),
+								className: "action-copy",
 								children: "Refresh"
 							}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
 								"aria-hidden": "true",
-								className: ["compact-action-icon"].filter(Boolean).join(" "),
+								className: "compact-action-icon",
 								children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("svg", {
 									viewBox: "0 0 24 24",
 									fill: "none",
@@ -14882,14 +15062,14 @@ function JobsPage(props) {
 							type: "button",
 							disabled: saving.value,
 							onClick: beginOnce,
-							className: ["toolbar-button run-once-action"].filter(Boolean).join(" "),
+							className: "toolbar-button run-once-action",
 							children: "Run once"
 						}),
 						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 							type: "button",
 							disabled: saving.value,
 							onClick: beginNew,
-							className: ["primary-button"].filter(Boolean).join(" "),
+							className: "primary-button",
 							children: "New job"
 						})
 					]
@@ -14905,24 +15085,23 @@ function JobsPage(props) {
 				})]
 			}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {}),
 			deliveryHealth.value || deliveryHealthError.value ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("details", {
-				className: ["delivery-diagnostics"].filter(Boolean).join(" "),
+				className: "delivery-diagnostics",
 				children: [
 					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("summary", { children: [
 						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: ["delivery-indicator", Boolean(deliveryHealthError.value) || deliveryHealth.value?.ready === false || deliveryHealth.value?.admission?.blocked === true ? "degraded" : ""].filter(Boolean).join(" ") }),
-						"Delivery",
-						" ",
-						deliveryHealthError.value ? "status unavailable" : deliveryHealth.value?.ready === false ? "needs attention" : deliveryHealth.value?.admission?.blocked ? "waiting for capacity" : deliveryHealth.value ? "online" : "status unavailable",
+						"Delivery ",
+						deliveryLabel(),
 						deliveryHealth.value ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
 							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
-								className: ["delivery-count"].filter(Boolean).join(" "),
+								className: "delivery-count",
 								children: [pendingDeliveries.value, " pending"]
 							}),
 							deliveryHealth.value.queue.outcome_unknown ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
-								className: ["delivery-count"].filter(Boolean).join(" "),
+								className: "delivery-count",
 								children: [deliveryHealth.value.queue.outcome_unknown, " unconfirmed historically"]
 							}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {}),
 							recoveryPauseSeconds.value > 0 && (deliveryHealth.value.recovery.recoverable > 0 || deliveryHealth.value.recovery.recoverable_reply_captures > 0) ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-								className: ["delivery-count"].filter(Boolean).join(" "),
+								className: "delivery-count",
 								children: "Recovery paused"
 							}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {})
 						] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {})
@@ -15001,7 +15180,7 @@ function JobsPage(props) {
 			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 				role: "group",
 				"aria-label": "Filter jobs",
-				className: ["jobs-summary"].filter(Boolean).join(" "),
+				className: "jobs-summary",
 				children: [filterOptions.map((option, __index) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_react.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
 					type: "button",
 					"aria-pressed": activeFilters.value[option.key],
@@ -15028,11 +15207,11 @@ function JobsPage(props) {
 			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 				role: "table",
 				"aria-label": "Scheduled jobs",
-				className: ["jobs-table"].filter(Boolean).join(" "),
+				className: "jobs-table",
 				children: [
 					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 						role: "row",
-						className: ["jobs-table-head"].filter(Boolean).join(" "),
+						className: "jobs-table-head",
 						children: [
 							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
 								role: "columnheader",
@@ -15052,34 +15231,34 @@ function JobsPage(props) {
 							}),
 							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
 								role: "columnheader",
-								className: ["actions-heading"].filter(Boolean).join(" "),
+								className: "actions-heading",
 								children: "Actions"
 							})
 						]
 					}),
 					filteredJobs.value.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-						className: ["empty-row"].filter(Boolean).join(" "),
+						className: "empty-row",
 						children: jobs.value.length ? "No jobs match these filters." : "No scheduled jobs."
 					}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {}),
 					visibleJobs.value.map((job, __index) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_react.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 						role: "row",
-						className: ["job-row"].filter(Boolean).join(" "),
+						className: "job-row",
 						children: [
 							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 								role: "cell",
-								className: ["job-main"].filter(Boolean).join(" "),
+								className: "job-main",
 								children: [
 									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-										className: ["job-name"].filter(Boolean).join(" "),
+										className: "job-name",
 										children: job.name
 									}),
 									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 										title: job.prompt,
-										className: ["job-prompt"].filter(Boolean).join(" "),
+										className: "job-prompt",
 										children: job.prompt
 									}),
 									job.images?.length ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-										className: ["job-image-count"].filter(Boolean).join(" "),
+										className: "job-image-count",
 										children: [
 											job.images.length,
 											" image",
@@ -15087,7 +15266,7 @@ function JobsPage(props) {
 										]
 									}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {}),
 									/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-										className: ["job-submeta"].filter(Boolean).join(" "),
+										className: "job-submeta",
 										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: ["Last sent ", formatDate(job.last_sent_at)] }), job.source_revision ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
 											title: job.source_revision,
 											children: ["rev ", job.source_revision.slice(0, 8)]
@@ -15097,31 +15276,31 @@ function JobsPage(props) {
 							}),
 							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 								role: "cell",
-								className: ["job-cell schedule-cell"].filter(Boolean).join(" "),
+								className: "job-cell schedule-cell",
 								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-									className: ["cell-label"].filter(Boolean).join(" "),
+									className: "cell-label",
 									children: "Schedule"
 								}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: scheduleText(job) })]
 							}),
 							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 								role: "cell",
-								className: ["job-cell"].filter(Boolean).join(" "),
+								className: "job-cell",
 								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-									className: ["cell-label"].filter(Boolean).join(" "),
+									className: "cell-label",
 									children: "Next run"
 								}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: job.paused ? "Paused" : formatDate(job.next_due_at_epoch) })]
 							}),
 							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 								role: "cell",
-								className: ["job-cell state-cell"].filter(Boolean).join(" "),
+								className: "job-cell state-cell",
 								children: [
 									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-										className: ["cell-label"].filter(Boolean).join(" "),
+										className: "cell-label",
 										children: "State"
 									}),
 									/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
 										className: ["state-value", job.status === "failing" ? "error" : ""].filter(Boolean).join(" "),
-										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: ["state-dot"].filter(Boolean).join(" ") }), jobStateText(job)]
+										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "state-dot" }), jobStateText(job)]
 									}),
 									waitingJob(job.name) && queueSnapshot.value ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
 										className: "job-queue-eta",
@@ -15138,14 +15317,14 @@ function JobsPage(props) {
 										]
 									}) : null,
 									job.status_message ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-										className: ["job-message"].filter(Boolean).join(" "),
+										className: "job-message",
 										children: job.status_message
 									}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {})
 								]
 							}),
 							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 								role: "cell",
-								className: ["job-actions"].filter(Boolean).join(" "),
+								className: "job-actions",
 								children: [
 									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 										type: "button",
@@ -15159,14 +15338,14 @@ function JobsPage(props) {
 											images: job.images.map((image) => image.ref),
 											scope: "jobs:fire:" + job.name + ":" + job.pin_chat
 										}),
-										className: ["row-action"].filter(Boolean).join(" "),
+										className: "row-action",
 										children: "Fire now"
 									}),
 									!job.run_at_epoch ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 										type: "button",
 										disabled: saving.value,
 										onClick: () => edit(job),
-										className: ["row-action"].filter(Boolean).join(" "),
+										className: "row-action",
 										children: "Edit"
 									}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {}),
 									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
@@ -15176,14 +15355,14 @@ function JobsPage(props) {
 											action: job.paused ? "resume" : "pause",
 											name: job.name
 										}, (job.paused ? "Resumed " : "Paused ") + job.name + "."),
-										className: ["row-action"].filter(Boolean).join(" "),
+										className: "row-action",
 										children: job.paused ? "Resume" : "Pause"
 									}),
 									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 										type: "button",
 										disabled: saving.value,
 										onClick: () => void remove(job),
-										className: ["row-action danger-text"].filter(Boolean).join(" "),
+										className: "row-action danger-text",
 										children: "Remove"
 									})
 								]
@@ -15194,282 +15373,44 @@ function JobsPage(props) {
 			}),
 			filteredJobs.value.length > pageSize ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("nav", {
 				"aria-label": "Job pages",
-				className: ["pagination"].filter(Boolean).join(" "),
+				className: "pagination",
 				children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [
 					"Page ",
 					page.value,
 					" of ",
 					pageCount.value
 				] }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-					className: ["pagination-actions"].filter(Boolean).join(" "),
+					className: "pagination-actions",
 					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 						type: "button",
 						disabled: page.value <= 1,
 						onClick: () => changePage(page.value - 1),
-						className: ["toolbar-button"].filter(Boolean).join(" "),
+						className: "toolbar-button",
 						children: "Previous"
 					}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 						type: "button",
 						disabled: page.value >= pageCount.value,
 						onClick: () => changePage(page.value + 1),
-						className: ["toolbar-button"].filter(Boolean).join(" "),
+						className: "toolbar-button",
 						children: "Next"
 					})]
 				})]
 			}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {}),
 			jobs.value.length ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("footer", {
-				className: ["jobs-footer"].filter(Boolean).join(" "),
+				className: "jobs-footer",
 				children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 					type: "button",
 					disabled: saving.value,
 					onClick: () => void clearAll(),
-					className: ["row-action danger-text"].filter(Boolean).join(" "),
+					className: "row-action danger-text",
 					children: "Clear all jobs"
 				})
 			}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {})
 		]
-	}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {}), editorOpen.value ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("section", {
-		ref: refs.editorPage,
-		"aria-labelledby": "editor-title",
-		tabIndex: -1,
-		className: ["editor-page"].filter(Boolean).join(" "),
-		children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("form", {
-			id: "job-editor",
-			ref: refs.editorForm,
-			onSubmit: (event) => {
-				event.preventDefault();
-				submit();
-			},
-			className: ["job-editor"].filter(Boolean).join(" "),
-			children: [
-				/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-					className: ["editor-heading"].filter(Boolean).join(" "),
-					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
-						type: "button",
-						disabled: saving.value,
-						onClick: requestClose,
-						className: ["toolbar-button editor-back"].filter(Boolean).join(" "),
-						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("svg", {
-							"aria-hidden": "true",
-							viewBox: "0 0 24 24",
-							fill: "none",
-							stroke: "currentColor",
-							strokeWidth: "2.5",
-							strokeLinecap: "round",
-							strokeLinejoin: "round",
-							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: "m12 19-7-7 7-7" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: "M5 12h14" })]
-						}), "Jobs"]
-					}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-						className: ["editor-title"].filter(Boolean).join(" "),
-						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", {
-							id: "editor-title",
-							children: editing.value ? "Edit job" : runOnce.value ? "Run once" : "New job"
-						}), editing.value ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-							title: editing.value,
-							children: editing.value
-						}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {})]
-					})]
-				}),
-				/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-					className: ["editor-body" + (images.value.length ? " has-images" : "")].filter(Boolean).join(" "),
-					children: [
-						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-							className: ["editor-settings"].filter(Boolean).join(" "),
-							children: [
-								!runOnce.value ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
-									className: ["name-field"].filter(Boolean).join(" "),
-									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Name" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
-										ref: refs.nameInput,
-										autoComplete: "off",
-										readOnly: Boolean(editing.value),
-										required: true,
-										value: name.value,
-										onChange: (event) => {
-											name.value = event.currentTarget.value;
-										}
-									})]
-								}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {}),
-								/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Schedule" }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("select", {
-									disabled: runOnce.value,
-									"aria-label": "Schedule",
-									value: schedule.value,
-									onChange: (event) => {
-										schedule.value = event.currentTarget.value;
-									},
-									children: [
-										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
-											value: "interval",
-											children: "Interval"
-										}),
-										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
-											value: "daily",
-											children: "Daily"
-										}),
-										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
-											value: "once",
-											children: "Once"
-										})
-									]
-								})] }),
-								schedule.value === "interval" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Every (minutes)" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
-									type: "number",
-									min: "0.1",
-									max: "43200",
-									step: "0.1",
-									required: true,
-									value: interval.value,
-									onChange: (event) => {
-										interval.value = event.currentTarget.value;
-									}
-								})] }) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: schedule.value === "once" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Delay (minutes, 0 = now)" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
-									type: "number",
-									min: "0",
-									max: "43200",
-									step: "0.1",
-									required: true,
-									value: onceDelay.value,
-									onChange: (event) => {
-										onceDelay.value = event.currentTarget.value;
-									}
-								})] }) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: schedule.value === "daily" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "At (local time)" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
-									type: "time",
-									required: true,
-									value: dailyAt.value,
-									onChange: (event) => {
-										dailyAt.value = event.currentTarget.value;
-									}
-								})] }) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {}) }) })
-							]
-						}),
-						schedule.value === "interval" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
-							className: ["checkbox-row"].filter(Boolean).join(" "),
-							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
-								type: "checkbox",
-								checked: exact.value,
-								onChange: (event) => {
-									exact.value = event.currentTarget.checked;
-								}
-							}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Exact interval" })]
-						}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: schedule.value === "once" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
-							className: ["checkbox-row"].filter(Boolean).join(" "),
-							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
-								type: "checkbox",
-								checked: pinChat.value,
-								onChange: (event) => {
-									pinChat.value = event.currentTarget.checked;
-								}
-							}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Pin chat" })]
-						}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {}) }),
-						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
-							className: ["prompt-field"].filter(Boolean).join(" "),
-							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Prompt" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("textarea", {
-								ref: refs.promptInput,
-								rows: 14,
-								required: true,
-								onFocus: () => requestAnimationFrame(keepFocusedPromptVisible),
-								value: prompt.value,
-								onChange: (event) => {
-									prompt.value = event.currentTarget.value;
-								}
-							})]
-						}),
-						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-							className: ["job-image-picker"].filter(Boolean).join(" "),
-							children: [
-								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-									type: "button",
-									disabled: uploadingImage.value || saving.value || images.value.length >= 4,
-									onClick: () => imageInput.value?.click(),
-									className: ["toolbar-button"].filter(Boolean).join(" "),
-									children: "Add images"
-								}),
-								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
-									ref: refs.imageInput,
-									type: "file",
-									accept: "image/png,image/jpeg,image/gif,image/webp",
-									multiple: true,
-									disabled: uploadingImage.value || saving.value || images.value.length >= 4,
-									onChange: (event) => void addImages(event.currentTarget),
-									className: ["image-input"].filter(Boolean).join(" ")
-								}),
-								uploadingImage.value || images.value.length ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: uploadingImage.value ? "Uploading…" : images.value.length + "/4 images" }) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {})
-							]
-						}),
-						images.value.length ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-							ref: refs.imagePreviewList,
-							className: ["job-image-previews"].filter(Boolean).join(" "),
-							children: images.value.map((image, __index) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_react.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-								className: ["job-image-preview"].filter(Boolean).join(" "),
-								children: [
-									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("img", {
-										src: image.url,
-										alt: image.name
-									}),
-									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-										title: image.name,
-										children: image.name
-									}),
-									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-										type: "button",
-										title: "Remove " + image.name,
-										"aria-label": "Remove " + image.name,
-										disabled: saving.value || uploadingImage.value,
-										onClick: () => images.value = images.value.filter((item) => item.ref !== image.ref),
-										children: "×"
-									})
-								]
-							}) }, image.ref))
-						}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {})
-					]
-				}),
-				/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-					ref: refs.editorFooter,
-					className: ["editor-footer"].filter(Boolean).join(" "),
-					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-						role: confirmDiscard.value ? "alertdialog" : "status",
-						"aria-label": confirmDiscard.value ? "Discard unsaved changes" : void 0,
-						"aria-live": "polite",
-						className: ["editor-feedback"].filter(Boolean).join(" "),
-						children: confirmDiscard.value ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
-							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Discard unsaved changes?" }),
-							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-								type: "button",
-								onClick: () => confirmDiscard.value = false,
-								className: ["toolbar-button"].filter(Boolean).join(" "),
-								children: "Keep editing"
-							}),
-							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-								type: "button",
-								onClick: discardEditor,
-								className: ["toolbar-button danger-text"].filter(Boolean).join(" "),
-								children: "Discard"
-							})
-						] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: editorError.value ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-							className: ["editor-error"].filter(Boolean).join(" "),
-							children: editorError.value
-						}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: duplicateName.value ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-							className: ["editor-error"].filter(Boolean).join(" "),
-							children: "This job already exists. Choose another name."
-						}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: dirty.value ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Unsaved changes" }) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: editing.value ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "No changes" }) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {}) }) }) }) })
-					}), !confirmDiscard.value ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-						className: ["editor-actions"].filter(Boolean).join(" "),
-						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-							type: "button",
-							disabled: saving.value,
-							onClick: requestClose,
-							className: ["toolbar-button"].filter(Boolean).join(" "),
-							children: "Cancel"
-						}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-							type: "submit",
-							disabled: saving.value || uploadingImage.value || !dirty.value || duplicateName.value || !prompt.value.trim() || !runOnce.value && !name.value.trim(),
-							className: ["primary-button"].filter(Boolean).join(" "),
-							children: saving.value ? runOnce.value ? "Queuing…" : "Saving…" : editing.value ? "Save changes" : runOnce.value ? Number(onceDelay.value) > 0 ? "Schedule once" : "Run once" : "Create job"
-						})]
-					}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {})]
-				})
-			]
-		})
-	}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {})] });
+	}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {}), editorOpen.value && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(JobEditor, {
+		model,
+		refs
+	})] });
 }
 //#endregion
 //#region src/ui/composerDraftMemory.ts
@@ -15546,55 +15487,13 @@ function createChatComposerController(initialProps) {
 	let textarea = y$2();
 	let fileInput = y$2();
 	const newChatDraftKey = "prompta.new-chat-draft.v1";
-	const draftStorageKey = O(() => mode.value === "fresh" ? newChatDraftKey : chatId.value ? "prompta.reply-draft.v1." + chatId.value : "");
+	const draftStorageKey = O(() => {
+		if (mode.value === "fresh") return newChatDraftKey;
+		return chatId.value ? "prompta.reply-draft.v1." + chatId.value : "";
+	});
 	const canAttach = O(() => mode.value === "fresh" && !disabled.value && !sending.value && !uploading.value);
 	const hasDraft = O(() => !!draft.value.trim());
 	const canSend = O(() => !disabled.value && !sendDisabled.value && !sending.value && !uploading.value && hasDraft.value);
-	const reactiveEffect0 = () => x$2(() => {
-		const key = draftStorageKey.value;
-		f$1(() => {
-			if (key === hydratedKey) return;
-			hydratedKey = key;
-			submissionGeneration += 1;
-			uploadGeneration += 1;
-			uploadAbort?.abort();
-			uploadAbort = null;
-			uploading.value = false;
-			let saved = key ? readComposerDraft(key) || "" : "";
-			let found = !!key && readComposerDraft(key) !== void 0;
-			if (!found) try {
-				const cached = key ? localStorage.getItem(key) : null;
-				if (cached !== null) {
-					saved = cached.slice(0, 32e3);
-					found = true;
-					rememberComposerDraft(key, saved);
-				}
-			} catch {}
-			draft.value = saved;
-			hasLocalDraft.value = found;
-			images.value = readComposerImages(key);
-			feedback.value = "";
-			fallbackAvailable.value = false;
-			restoredDraft.value = "";
-			restoredPreflight.value = false;
-			sending.value = false;
-			hydrated.value = true;
-		});
-	});
-	const reactiveEffect1 = () => x$2(() => {
-		if (mode.value !== "reply" || !restoreDraft.value || !hydrated.value) return;
-		if (restoredDraft.value === restoreDraft.value && restoredPreflight.value === retryablePreflight.value) return;
-		restoredDraft.value = restoreDraft.value;
-		restoredPreflight.value = Boolean(retryablePreflight.value);
-		if (!sending.value && !hasLocalDraft.value) {
-			draft.value = restoreDraft.value;
-			hasLocalDraft.value = true;
-			rememberComposerDraft(draftStorageKey.value, draft.value);
-			try {
-				if (draftStorageKey.value) localStorage.setItem(draftStorageKey.value, draft.value);
-			} catch {}
-		}
-	});
 	function resizeTextarea() {
 		fitTextarea();
 	}
@@ -15688,7 +15587,9 @@ function createChatComposerController(initialProps) {
 			if (generation === uploadGeneration && key === draftStorageKey.value) {
 				images.value = images.value.filter((image) => !batchRefs.includes(image.ref));
 				rememberComposerImages(key, images.value);
-				feedback.value = error instanceof DOMException && error.name === "TimeoutError" ? "Image upload timed out. The unsent attachments were restored; try again." : error instanceof Error ? error.message : "Image upload failed.";
+				if (error instanceof DOMException && error.name === "TimeoutError") feedback.value = "Image upload timed out. The unsent attachments were restored; try again.";
+				else if (error instanceof Error) feedback.value = error.message;
+				else feedback.value = "Image upload failed.";
 			}
 		} finally {
 			if (generation === uploadGeneration && key === draftStorageKey.value) {
@@ -15779,7 +15680,50 @@ function createChatComposerController(initialProps) {
 	};
 	function mount() {
 		const cleanup = onMountImpl();
-		const disposers = [reactiveEffect0(), reactiveEffect1()];
+		const disposers = [x$2(() => {
+			const key = draftStorageKey.value;
+			f$1(() => {
+				if (key === hydratedKey) return;
+				hydratedKey = key;
+				submissionGeneration += 1;
+				uploadGeneration += 1;
+				uploadAbort?.abort();
+				uploadAbort = null;
+				uploading.value = false;
+				let saved = key ? readComposerDraft(key) || "" : "";
+				let found = !!key && readComposerDraft(key) !== void 0;
+				if (!found) try {
+					const cached = key ? localStorage.getItem(key) : null;
+					if (cached !== null) {
+						saved = cached.slice(0, 32e3);
+						found = true;
+						rememberComposerDraft(key, saved);
+					}
+				} catch {}
+				draft.value = saved;
+				hasLocalDraft.value = found;
+				images.value = readComposerImages(key);
+				feedback.value = "";
+				fallbackAvailable.value = false;
+				restoredDraft.value = "";
+				restoredPreflight.value = false;
+				sending.value = false;
+				hydrated.value = true;
+			});
+		}), x$2(() => {
+			if (mode.value !== "reply" || !restoreDraft.value || !hydrated.value) return;
+			if (restoredDraft.value === restoreDraft.value && restoredPreflight.value === retryablePreflight.value) return;
+			restoredDraft.value = restoreDraft.value;
+			restoredPreflight.value = Boolean(retryablePreflight.value);
+			if (!sending.value && !hasLocalDraft.value) {
+				draft.value = restoreDraft.value;
+				hasLocalDraft.value = true;
+				rememberComposerDraft(draftStorageKey.value, draft.value);
+				try {
+					if (draftStorageKey.value) localStorage.setItem(draftStorageKey.value, draft.value);
+				} catch {}
+			}
+		})];
 		return () => {
 			for (const dispose of disposers) dispose();
 			if (typeof cleanup === "function") cleanup();
@@ -15800,37 +15744,22 @@ function createChatComposerController(initialProps) {
 	}
 	return {
 		mode,
-		chatId,
-		onSend,
 		onFallbackSend,
 		onNewChat,
 		disabled,
-		sendDisabled,
-		restoreDraft,
-		retryablePreflight,
 		draft,
-		restoredDraft,
-		restoredPreflight,
-		hydrated,
-		hydratedKey,
-		hasLocalDraft,
 		images,
 		uploading,
-		uploadGeneration,
-		uploadAbort,
 		sending,
 		feedback,
 		fallbackAvailable,
 		dragging,
 		textarea,
 		fileInput,
-		newChatDraftKey,
 		draftStorageKey,
 		canAttach,
 		hasDraft,
 		canSend,
-		resizeTextarea,
-		fitTextarea,
 		draftChanged,
 		addFiles,
 		submit,
@@ -15859,6 +15788,10 @@ function ChatComposer(props) {
 		model.syncProps(props);
 	});
 	(0, import_react.useEffect)(() => model.mount(), [model]);
+	function sendLabel() {
+		if (sending.value) return "Sending";
+		return mode.value === "fresh" ? "Send fresh chat" : "Send reply";
+	}
 	return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("form", {
 		"aria-label": mode.value === "fresh" ? "New chat composer" : "Reply composer",
 		onSubmit: (event) => {
@@ -15874,13 +15807,13 @@ function ChatComposer(props) {
 		className: ["chat-composer-wrap", dragging.value ? "dragging" : ""].filter(Boolean).join(" "),
 		children: [
 			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-				className: ["chat-composer"].filter(Boolean).join(" "),
+				className: "chat-composer",
 				children: [
 					images.value.length ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 						"aria-label": "Images to attach",
-						className: ["composer-previews"].filter(Boolean).join(" "),
+						className: "composer-previews",
 						children: images.value.map((image, __index) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_react.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-							className: ["composer-preview"].filter(Boolean).join(" "),
+							className: "composer-preview",
 							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("img", {
 								src: image.url,
 								alt: image.name
@@ -15914,9 +15847,9 @@ function ChatComposer(props) {
 						}
 					}),
 					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-						className: ["composer-actions"].filter(Boolean).join(" "),
+						className: "composer-actions",
 						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-							className: ["composer-attach"].filter(Boolean).join(" "),
+							className: "composer-attach",
 							children: [mode.value === "fresh" ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
 								type: "button",
 								"aria-label": "Attach images",
@@ -15954,7 +15887,7 @@ function ChatComposer(props) {
 							onClick: onNewChat.value,
 							"aria-label": "New chat",
 							title: "New chat",
-							className: ["composer-send composer-new-chat"].filter(Boolean).join(" "),
+							className: "composer-send composer-new-chat",
 							children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("svg", {
 								viewBox: "0 0 24 24",
 								fill: "none",
@@ -15968,8 +15901,8 @@ function ChatComposer(props) {
 						}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 							type: "submit",
 							disabled: !canSend.value,
-							"aria-label": sending.value ? "Sending" : mode.value === "fresh" ? "Send fresh chat" : "Send reply",
-							className: ["composer-send"].filter(Boolean).join(" "),
+							"aria-label": sendLabel(),
+							className: "composer-send",
 							children: sending.value ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("svg", {
 								viewBox: "0 0 24 24",
 								fill: "none",
@@ -15977,7 +15910,7 @@ function ChatComposer(props) {
 								strokeWidth: "2.4",
 								strokeLinecap: "round",
 								"aria-hidden": "true",
-								className: ["composer-send-spinner"].filter(Boolean).join(" "),
+								className: "composer-send-spinner",
 								children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: "M12 3a9 9 0 1 1-9 9" })
 							}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("svg", {
 								viewBox: "0 0 24 24",
@@ -15995,14 +15928,14 @@ function ChatComposer(props) {
 			}),
 			feedback.value ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
 				role: "status",
-				className: ["composer-feedback"].filter(Boolean).join(" "),
+				className: "composer-feedback",
 				children: feedback.value
 			}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {}),
 			fallbackAvailable.value && onFallbackSend.value && hasDraft.value ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 				type: "button",
 				disabled: sending.value,
 				onClick: () => void submit(true),
-				className: ["composer-fallback"].filter(Boolean).join(" "),
+				className: "composer-fallback",
 				children: "Start new chat with last result"
 			}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {})
 		]
@@ -17678,7 +17611,10 @@ function chatMessageTime(epoch, nowEpoch = Date.now() / 1e3) {
 		return Date.UTC(read("year"), read("month") - 1, read("day")) / 864e5;
 	};
 	const difference = dayParts(nowEpoch) - dayParts(epoch);
-	const day = difference === 0 ? "Today" : difference === 1 ? "Yesterday" : dateGroup(epoch);
+	let day;
+	if (difference === 0) day = "Today";
+	else if (difference === 1) day = "Yesterday";
+	else day = dateGroup(epoch);
 	const time = new Intl.DateTimeFormat("en-NZ", {
 		timeZone: "Pacific/Auckland",
 		hour: "numeric",
@@ -17696,7 +17632,9 @@ function legacyMetricSummary(text) {
 		const label = lines[i + 1];
 		if (!/^[+-]?[$£€]?\d[\d,.]*%?$/.test(value) || !/^[\p{L}][\p{L}\p{N} /&-]{0,30}$/u.test(label)) return null;
 		const lower = label.toLowerCase();
-		const tone = /^(completed|passed|success(?:ful)?|healthy)$/.test(lower) ? "success" : /^(failed|interrupted|errors?)$/.test(lower) ? "error" : "neutral";
+		let tone = "neutral";
+		if (/^(completed|passed|success(?:ful)?|healthy)$/.test(lower)) tone = "success";
+		else if (/^(failed|interrupted|errors?)$/.test(lower)) tone = "error";
 		metrics.push({
 			value,
 			label,
@@ -17784,7 +17722,10 @@ function ResultMarkdown({ source, captureSource = "" }) {
 	function blocks(items) {
 		return items.map((token, index) => {
 			switch (token.type) {
-				case "heading": return token.depth === 1 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h1", { children: inline(children(token)) }, index) : token.depth === 2 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { children: inline(children(token)) }, index) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h3", { children: inline(children(token)) }, index);
+				case "heading":
+					if (token.depth === 1) return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h1", { children: inline(children(token)) }, index);
+					if (token.depth === 2) return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { children: inline(children(token)) }, index);
+					return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h3", { children: inline(children(token)) }, index);
 				case "paragraph":
 				case "text": {
 					const metrics = legacyMetricSummary(token.text);
@@ -17807,22 +17748,26 @@ function ResultMarkdown({ source, captureSource = "" }) {
 					}, index);
 					return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { children: inline(children(token).length ? children(token) : [token]) }, index);
 				}
-				case "code": return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-					className: "code-snippet",
-					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-						className: "code-toolbar",
-						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: token.lang || "Code" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-							type: "button",
-							"aria-label": "Copy code",
-							"aria-live": "polite",
-							onClick: () => void copyCode(token.text, index),
-							children: copiedCode === index + ":" + token.text ? copyStatus === "copied" ? "Copied" : "Copy failed" : "Copy code"
-						})]
-					}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("pre", { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("code", {
-						className: token.lang ? "language-" + token.lang.split(/\s+/)[0] : "",
-						children: token.text
-					}) })]
-				}, index);
+				case "code": {
+					let copyLabel = "Copy code";
+					if (copiedCode === index + ":" + token.text) copyLabel = copyStatus === "copied" ? "Copied" : "Copy failed";
+					return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+						className: "code-snippet",
+						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+							className: "code-toolbar",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: token.lang || "Code" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+								type: "button",
+								"aria-label": "Copy code",
+								"aria-live": "polite",
+								onClick: () => void copyCode(token.text, index),
+								children: copyLabel
+							})]
+						}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("pre", { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("code", {
+							className: token.lang ? "language-" + token.lang.split(/\s+/)[0] : "",
+							children: token.text
+						}) })]
+					}, index);
+				}
 				case "list": return token.ordered ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("ol", {
 					start: token.start || 1,
 					children: token.items.map((item, i) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("li", { children: blocks(item.tokens) }, i))
@@ -17845,14 +17790,24 @@ function ResultMarkdown({ source, captureSource = "" }) {
 }
 //#endregion
 //#region src/ui/ToolCalls.tsx
+var statusMark = {
+	Failed: "!",
+	Running: "…",
+	Observed: "·",
+	Completed: "✓"
+};
 function title(call) {
 	if (call.connector === "web") return call.status === "running" ? "Searching the web" : "Searched the web";
 	if (call.connector === "python") return call.status === "running" ? "Analyzing data" : "Analyzed data";
 	const name = [call.connector, call.action].filter(Boolean).join(" · ") || "Tool call";
-	return call.connector ? `${call.status === "running" ? "Using" : "Used"} ${name}` : name;
+	if (!call.connector) return name;
+	return `${call.status === "running" ? "Using" : "Used"} ${name}`;
 }
 function status(call) {
-	return call.status === "error" || call.error ? "Failed" : call.status === "running" ? "Running" : call.status === "observed" ? "Observed" : "Completed";
+	if (call.status === "error" || call.error) return "Failed";
+	if (call.status === "running") return "Running";
+	if (call.status === "observed") return "Observed";
+	return "Completed";
 }
 function ToolCalls({ calls }) {
 	if (!calls.length) return null;
@@ -17932,7 +17887,7 @@ function ToolCalls({ calls }) {
 						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
 							className: "tool-call-mark",
 							"aria-hidden": "true",
-							children: status(call) === "Failed" ? "!" : status(call) === "Running" ? "…" : status(call) === "Observed" ? "·" : "✓"
+							children: statusMark[status(call)]
 						}),
 						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
 							className: "tool-call-name",
@@ -17962,11 +17917,85 @@ function ToolCalls({ calls }) {
 	});
 }
 //#endregion
+//#region src/ui/ChatRow.tsx
+function ChatRow({ item, model }) {
+	N$1();
+	const selected = model.view.value === "chats" && model.selectedRunId.value === item.send_id;
+	const unread = model.isUnread(item);
+	const pinned = model.pinnedIds.value.includes(item.send_id);
+	const hasPreview = item.has_response && !!item.preview.trim();
+	const preview = hasPreview ? plainPreview(item.preview) : "";
+	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+		className: [
+			"chat-entry",
+			selected ? "chosen" : "",
+			unread ? "unread" : ""
+		].filter(Boolean).join(" "),
+		children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+			type: "button",
+			onClick: () => model.selectRun(item),
+			"aria-current": selected ? "true" : void 0,
+			className: "chat-row",
+			children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+				className: "chat-row-top",
+				children: [
+					unread && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+						title: "Unread reply",
+						className: "unread-indicator",
+						children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+							className: "sr-only",
+							children: "Unread reply"
+						})
+					}),
+					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("strong", { children: item.title || "Untitled run" }),
+					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+						title: statusLabel(item.status),
+						className: "result-dot status-" + item.status,
+						children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+							className: "sr-only",
+							children: statusLabel(item.status)
+						})
+					})
+				]
+			}), hasPreview ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+				className: "chat-preview",
+				title: preview,
+				children: preview
+			}) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+				className: "chat-row-meta",
+				children: [
+					statusLabel(item.status),
+					" · ",
+					chatMessageTime(item.updated_at || item.created_at)
+				]
+			})]
+		}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+			type: "button",
+			disabled: !model.pinsReady.value,
+			title: pinned ? "Unpin local chat" : "Pin local chat",
+			"aria-label": (pinned ? "Unpin " : "Pin ") + item.title,
+			"aria-pressed": pinned,
+			onClick: () => model.togglePin(item),
+			className: ["chat-pin", pinned ? "active" : ""].filter(Boolean).join(" "),
+			children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("svg", {
+				viewBox: "0 0 24 24",
+				fill: "none",
+				stroke: "currentColor",
+				strokeWidth: "1.8",
+				strokeLinecap: "round",
+				strokeLinejoin: "round",
+				"aria-hidden": "true",
+				children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: "M9 3h6l-1 6 3 3v2H7v-2l3-3-1-6ZM12 14v7" })
+			})
+		})]
+	});
+}
+//#endregion
 //#region src/ui/ChatsPage.tsx
 function ChatsPage(props) {
 	const model = (0, import_react.useMemo)(() => createChatsPageController(props), []);
 	N$1();
-	const { retryPins, view, selectedRunId, newChatOpen, onSelect, statuses, responseBadge, exactConversationUrl, queueSnapshot, queueError, recoveryPauseSeconds, recoveryPauseReason, recoveryBacklog, recoveryReplyBacklog, items, pinnedIds, pinsReady, pinError, readError, markingAllRead, drawerOpen, drawerProgress, visibleDrawerProgress, filtersOpen, expandedPrompts, search, statusFilter, detail, turns, turnsError, recoveringReply, startingNewChatFromFailure, copyState, jobsWorkspace, loadingList, listError, morePageFailed, detailError, pinned, replyBlockedReason, visibleWaiting, unpinned, switchingChat, selectedChatTitle, isUnread, retryReadSync, markAllRead, togglePin, loadQueue, maybeLoadMore, loadList, loadMore, loadDetail, sendFresh, freshContinuationPrompt, startFailedReplyInNewChat, retryFailedInitialInNewChat, originalImageRefs, sendReply, retryFailedTurn, copyText, applyFilter, searchChanged, toggleSearch, cancelSwipe, startSwipe, finishSwipe, selectRun, showJobs, createChat, escapeDrawer, togglePrompt } = model;
+	const { retryPins, view, selectedRunId, newChatOpen, onSelect, statuses, responseBadge, exactConversationUrl, queueSnapshot, queueError, recoveryPauseSeconds, recoveryPauseReason, recoveryBacklog, recoveryReplyBacklog, items, pinError, readError, markingAllRead, drawerOpen, drawerProgress, visibleDrawerProgress, filtersOpen, expandedPrompts, search, statusFilter, detail, turns, turnsError, recoveringReply, startingNewChatFromFailure, copyState, jobsWorkspace, loadingList, listError, morePageFailed, detailError, pinned, replyBlockedReason, visibleWaiting, unpinned, switchingChat, selectedChatTitle, retryReadSync, markAllRead, loadQueue, maybeLoadMore, loadList, loadMore, loadDetail, sendFresh, freshContinuationPrompt, startFailedReplyInNewChat, retryFailedInitialInNewChat, originalImageRefs, sendReply, retryFailedTurn, copyText, applyFilter, searchChanged, toggleSearch, cancelSwipe, startSwipe, finishSwipe, showJobs, createChat, escapeDrawer, togglePrompt } = model;
 	const refs = (0, import_react.useMemo)(() => ({
 		sidebarPane: (element) => {
 			if (model.sidebarPane.peek() !== (element ?? void 0)) model.sidebarPane.value = element ?? void 0;
@@ -18003,71 +18032,15 @@ function ChatsPage(props) {
 			window.removeEventListener("touchcancel", cancelSwipe);
 		};
 	}, [model]);
-	function chatItem(item) {
-		return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-			className: [
-				"chat-entry",
-				view.value === "chats" && selectedRunId.value === item.send_id ? "chosen" : "",
-				isUnread(item) ? "unread" : ""
-			].filter(Boolean).join(" "),
-			children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
-				type: "button",
-				onClick: () => selectRun(item),
-				"aria-current": view.value === "chats" && selectedRunId.value === item.send_id ? "true" : void 0,
-				className: ["chat-row"].filter(Boolean).join(" "),
-				children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
-					className: ["chat-row-top"].filter(Boolean).join(" "),
-					children: [
-						isUnread(item) ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-							title: "Unread reply",
-							className: ["unread-indicator"].filter(Boolean).join(" "),
-							children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-								className: ["sr-only"].filter(Boolean).join(" "),
-								children: "Unread reply"
-							})
-						}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {}),
-						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("strong", { children: item.title || "Untitled run" }),
-						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-							title: statusLabel(item.status),
-							className: ["result-dot status-" + item.status].filter(Boolean).join(" "),
-							children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-								className: ["sr-only"].filter(Boolean).join(" "),
-								children: statusLabel(item.status)
-							})
-						})
-					]
-				}), item.has_response && item.preview.trim() ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-					className: "chat-preview",
-					title: plainPreview(item.preview),
-					children: plainPreview(item.preview)
-				}) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
-					className: "chat-row-meta",
-					children: [
-						statusLabel(item.status),
-						" · ",
-						chatMessageTime(item.updated_at || item.created_at)
-					]
-				})]
-			}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-				type: "button",
-				disabled: !pinsReady.value,
-				title: pinnedIds.value.includes(item.send_id) ? "Unpin local chat" : "Pin local chat",
-				"aria-label": pinnedIds.value.includes(item.send_id) ? "Unpin " + item.title : "Pin " + item.title,
-				"aria-pressed": pinnedIds.value.includes(item.send_id),
-				onClick: () => togglePin(item),
-				className: ["chat-pin", pinnedIds.value.includes(item.send_id) ? "active" : ""].filter(Boolean).join(" "),
-				children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("svg", {
-					viewBox: "0 0 24 24",
-					fill: "none",
-					stroke: "currentColor",
-					strokeWidth: "1.8",
-					strokeLinecap: "round",
-					strokeLinejoin: "round",
-					"aria-hidden": "true",
-					children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: "M9 3h6l-1 6 3 3v2H7v-2l3-3-1-6ZM12 14v7" })
-				})
-			})]
-		}) });
+	function emptyChatsLabel() {
+		if (listError.value) return "Chat list temporarily unavailable";
+		if (search.value || statusFilter.value) return "No matching chats";
+		return "No chats";
+	}
+	function copyLabel(id) {
+		if (copyState.value === id) return "Copied";
+		if (copyState.value === "error:" + id) return "Copy failed";
+		return "Copy";
 	}
 	return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", {
 		"aria-label": "Prompta local chats and jobs",
@@ -18087,26 +18060,26 @@ function ChatsPage(props) {
 				"aria-label": "Close chat sidebar",
 				tabIndex: drawerOpen.value ? 0 : -1,
 				onClick: () => drawerOpen.value = false,
-				className: ["drawer-backdrop"].filter(Boolean).join(" ")
+				className: "drawer-backdrop"
 			}),
 			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("aside", {
 				"aria-label": "Local chat sidebar",
 				ref: refs.sidebarPane,
-				className: ["chats-sidebar"].filter(Boolean).join(" "),
+				className: "chats-sidebar",
 				children: [
 					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-						className: ["sidebar-brand"].filter(Boolean).join(" "),
+						className: "sidebar-brand",
 						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("strong", { children: "Prompta" }) }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 							type: "button",
 							"aria-label": "Close sidebar",
 							onClick: () => drawerOpen.value = false,
-							className: ["sidebar-close"].filter(Boolean).join(" "),
+							className: "sidebar-close",
 							children: "×"
 						})]
 					}),
 					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("nav", {
 						"aria-label": "Main navigation",
-						className: ["sidebar-actions"].filter(Boolean).join(" "),
+						className: "sidebar-actions",
 						children: [
 							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
 								type: "button",
@@ -18131,7 +18104,7 @@ function ChatsPage(props) {
 										rx: "3"
 									}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: "M8 9h8M8 13h8M8 17h5" })]
 								}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-									className: ["action-label"].filter(Boolean).join(" "),
+									className: "action-label",
 									children: "Jobs"
 								})]
 							}),
@@ -18140,7 +18113,7 @@ function ChatsPage(props) {
 								onClick: createChat,
 								"aria-label": "New chat",
 								title: "New chat",
-								className: ["sidebar-primary"].filter(Boolean).join(" "),
+								className: "sidebar-primary",
 								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("svg", {
 									viewBox: "0 0 24 24",
 									fill: "none",
@@ -18151,7 +18124,7 @@ function ChatsPage(props) {
 									"aria-hidden": "true",
 									children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: "M12 5H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7M16 4l4 4M9 15l3.5-.7L21 5.8a2.1 2.1 0 0 0-3-3l-8.5 8.5L9 15Z" })
 								}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-									className: ["action-label"].filter(Boolean).join(" "),
+									className: "action-label",
 									children: "New"
 								})]
 							}),
@@ -18178,26 +18151,26 @@ function ChatsPage(props) {
 										}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: "m16 16 5 5" })]
 									}),
 									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-										className: ["action-label"].filter(Boolean).join(" "),
+										className: "action-label",
 										children: "Search"
 									}),
 									search.value || statusFilter.value ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
 										"aria-label": "Filters active",
-										className: ["filter-active-dot"].filter(Boolean).join(" ")
+										className: "filter-active-dot"
 									}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {})
 								]
 							})
 						]
 					}),
 					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-						className: ["sidebar-read-actions"].filter(Boolean).join(" "),
+						className: "sidebar-read-actions",
 						children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
 							type: "button",
 							onClick: markAllRead,
 							disabled: markingAllRead.value,
 							"aria-label": "Mark all local chats as read",
 							title: "Mark all local chats as read",
-							className: ["mark-all-read"].filter(Boolean).join(" "),
+							className: "mark-all-read",
 							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("svg", {
 								viewBox: "0 0 24 24",
 								fill: "none",
@@ -18212,11 +18185,11 @@ function ChatsPage(props) {
 					}),
 					filtersOpen.value ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 						id: "chat-filters",
-						className: ["chats-controls"].filter(Boolean).join(" "),
+						className: "chats-controls",
 						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
-							className: ["search-label"].filter(Boolean).join(" "),
+							className: "search-label",
 							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-								className: ["sr-only"].filter(Boolean).join(" "),
+								className: "sr-only",
 								children: "Search job results"
 							}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
 								type: "search",
@@ -18229,7 +18202,7 @@ function ChatsPage(props) {
 								}
 							})]
 						}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-							className: ["sr-only"].filter(Boolean).join(" "),
+							className: "sr-only",
 							children: "Filter results by state"
 						}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("select", {
 							value: statusFilter.value,
@@ -18245,7 +18218,7 @@ function ChatsPage(props) {
 					}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {}),
 					queueError.value ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 						role: "alert",
-						className: ["result-error recovery-error"].filter(Boolean).join(" "),
+						className: "result-error recovery-error",
 						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: queueError.value }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 							type: "button",
 							onClick: () => void loadQueue(),
@@ -18254,7 +18227,7 @@ function ChatsPage(props) {
 					}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {}),
 					listError.value ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 						role: "alert",
-						className: ["result-error recovery-error"].filter(Boolean).join(" "),
+						className: "result-error recovery-error",
 						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: listError.value }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 							type: "button",
 							onClick: () => morePageFailed.value ? void loadMore() : void loadList(),
@@ -18263,7 +18236,7 @@ function ChatsPage(props) {
 					}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {}),
 					pinError.value ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 						role: "alert",
-						className: ["result-error recovery-error"].filter(Boolean).join(" "),
+						className: "result-error recovery-error",
 						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: pinError.value }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 							type: "button",
 							onClick: () => {
@@ -18274,7 +18247,7 @@ function ChatsPage(props) {
 					}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {}),
 					readError.value && (view.value !== "chats" || !selectedRunId.value) ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 						role: "alert",
-						className: ["result-error recovery-error"].filter(Boolean).join(" "),
+						className: "result-error recovery-error",
 						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: readError.value }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 							type: "button",
 							onClick: () => void retryReadSync(),
@@ -18284,23 +18257,23 @@ function ChatsPage(props) {
 					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 						ref: refs.listPane,
 						onScroll: maybeLoadMore,
-						className: ["chats-list"].filter(Boolean).join(" "),
+						className: "chats-list",
 						children: [
 							visibleWaiting.value.length ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 								"aria-live": "polite",
-								className: ["chats-date queue-heading"].filter(Boolean).join(" "),
+								className: "chats-date queue-heading",
 								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: ["Waiting to start · ", visibleWaiting.value.length] }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: queueSnapshot.value.max_workers === null ? "Stage capacity" : `${queueSnapshot.value.occupied_slots}/${queueSnapshot.value.max_workers} global slots` })]
 							}), visibleWaiting.value.map((waiting, __index) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_react.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-								className: ["chat-entry queue-waiting"].filter(Boolean).join(" "),
+								className: "chat-entry queue-waiting",
 								children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
 									type: "button",
 									onClick: showJobs,
 									title: "Open Jobs for " + waiting.name,
-									className: ["chat-row"].filter(Boolean).join(" "),
+									className: "chat-row",
 									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
-										className: ["chat-row-top"].filter(Boolean).join(" "),
+										className: "chat-row-top",
 										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("strong", { children: waiting.name }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
-											className: ["queue-position"].filter(Boolean).join(" "),
+											className: "queue-position",
 											children: [
 												"#",
 												waiting.position,
@@ -18309,7 +18282,7 @@ function ChatsPage(props) {
 											]
 										})]
 									}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
-										className: ["queue-subtitle"].filter(Boolean).join(" "),
+										className: "queue-subtitle",
 										title: queueEtaExplanation(queueSnapshot.value),
 										children: [
 											queueEtaText(waiting),
@@ -18325,29 +18298,35 @@ function ChatsPage(props) {
 									})]
 								})
 							}) }, waiting.name))] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {}),
-							pinned.value.length ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: pinned.value.map((item, __index) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_react.Fragment, { children: chatItem(item) }, item.send_id)) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {}),
+							pinned.value.length ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: pinned.value.map((item, __index) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ChatRow, {
+								item,
+								model
+							}, item.send_id)) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {}),
 							loadingList.value && !items.value.length && !pinned.value.length ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
-								className: ["chats-empty"].filter(Boolean).join(" "),
+								className: "chats-empty",
 								children: "Loading chats…"
 							}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: !items.value.length && !pinned.value.length && !visibleWaiting.value.length ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
-								className: ["chats-empty"].filter(Boolean).join(" "),
-								children: listError.value ? "Chat list temporarily unavailable" : search.value || statusFilter.value ? "No matching chats" : "No chats"
-							}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: unpinned.value.map((item, __index) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_react.Fragment, { children: chatItem(item) }, item.send_id)) }) })
+								className: "chats-empty",
+								children: emptyChatsLabel()
+							}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: unpinned.value.map((item, __index) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ChatRow, {
+								item,
+								model
+							}, item.send_id)) }) })
 						]
 					})
 				]
 			}),
 			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-				className: ["chats-detail"].filter(Boolean).join(" "),
+				className: "chats-detail",
 				children: [
 					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-						className: ["workspace-header"].filter(Boolean).join(" "),
+						className: "workspace-header",
 						children: [view.value === "chats" && selectedRunId.value ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 							type: "button",
 							"aria-label": "Back to chats",
 							title: "Back to chats",
 							onClick: () => onSelect.value(null),
-							className: ["chat-header-back"].filter(Boolean).join(" "),
+							className: "chat-header-back",
 							children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("svg", {
 								viewBox: "0 0 24 24",
 								fill: "none",
@@ -18363,34 +18342,34 @@ function ChatsPage(props) {
 							"aria-label": "Open chat sidebar",
 							"aria-expanded": drawerOpen.value,
 							onClick: () => drawerOpen.value = true,
-							className: ["sidebar-menu"].filter(Boolean).join(" "),
+							className: "sidebar-menu",
 							children: "☰"
 						}) }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("strong", { children: view.value === "jobs" ? "Jobs" : selectedChatTitle.value })]
 					}),
 					view.value === "jobs" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 						ref: refs.jobsWorkspace,
-						className: ["jobs-workspace"].filter(Boolean).join(" "),
+						className: "jobs-workspace",
 						children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(JobsPage, { workspace: jobsWorkspace.value })
 					}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: !selectedRunId.value && newChatOpen.value ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 						"aria-hidden": "true",
-						className: ["new-chat-empty"].filter(Boolean).join(" ")
+						className: "new-chat-empty"
 					}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: !selectedRunId.value ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-						className: ["chats-detail-empty"].filter(Boolean).join(" "),
+						className: "chats-detail-empty",
 						children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 							onClick: createChat,
-							className: ["sidebar-primary"].filter(Boolean).join(" "),
+							className: "sidebar-primary",
 							children: "New chat"
 						})
 					}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [readError.value ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 						role: "alert",
-						className: ["result-error recovery-error"].filter(Boolean).join(" "),
+						className: "result-error recovery-error",
 						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: readError.value }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 							type: "button",
 							onClick: () => void retryReadSync(),
 							children: "Retry read status"
 						})]
 					}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-						className: ["chat-transcript-shell"].filter(Boolean).join(" "),
+						className: "chat-transcript-shell",
 						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 							ref: refs.scrollPane,
 							inert: switchingChat.value,
@@ -18405,7 +18384,7 @@ function ChatsPage(props) {
 									children: "Retry chat"
 								})]
 							}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {}), detail.value ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-								className: ["chat-detail-content"].filter(Boolean).join(" "),
+								className: "chat-detail-content",
 								children: [turnsError.value ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 									role: "alert",
 									className: ["result-error recovery-error"].filter(Boolean).join(" "),
@@ -18418,9 +18397,9 @@ function ChatsPage(props) {
 									className: ["message-group user-group"].filter(Boolean).join(" "),
 									children: [
 										/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-											className: ["message-role"].filter(Boolean).join(" "),
+											className: "message-role",
 											children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
-												className: ["sr-only"].filter(Boolean).join(" "),
+												className: "sr-only",
 												children: [
 													"You",
 													" ",
@@ -18433,7 +18412,7 @@ function ChatsPage(props) {
 											})]
 										}),
 										/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-											className: ["prompt-bubble"].filter(Boolean).join(" "),
+											className: "prompt-bubble",
 											children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 												className: ["prompt-message", turn.user_text.length > 280 && !expandedPrompts.value[(detail.value?.send_id ?? "") + ":" + index] ? "collapsed" : ""].filter(Boolean).join(" "),
 												children: turn.user_text
@@ -18498,17 +18477,17 @@ function ChatsPage(props) {
 													type: "button",
 													"aria-label": "Copy assistant reply " + (index + 1),
 													onClick: () => copyText(formatStoredResponse(turn.assistant_text, index === 0 ? detail.value?.source ?? "" : ""), turn.reply_id || selectedRunId.value || ""),
-													className: ["copy-message"].filter(Boolean).join(" "),
-													children: copyState.value === (turn.reply_id || detail.value.send_id) ? "Copied" : copyState.value === "error:" + (turn.reply_id || detail.value.send_id) ? "Copy failed" : "Copy"
+													className: "copy-message",
+													children: copyLabel(turn.reply_id || detail.value.send_id)
 												})
 											})
 										] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
-											className: ["no-response"].filter(Boolean).join(" "),
+											className: "no-response",
 											children: index > 0 && turn.status === "queued" ? "Follow-up queued · waiting for the preceding response" : turnStatus(turn.status)
 										}), turn.status === "preflight_failed" && turn.reply_id && turn.conversation_id && turn.parent_id ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 											type: "button",
 											onClick: () => void retryFailedTurn(turn),
-											className: ["row-action"].filter(Boolean).join(" "),
+											className: "row-action",
 											children: "Retry this follow-up"
 										}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {})] }),
 										index === turns.value.length - 1 && turns.value.some((saved) => saved.assistant_text.trim()) && [
@@ -18594,7 +18573,7 @@ function ChatsPage(props) {
 						}), switchingChat.value ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 							role: "status",
 							"aria-label": detailError.value ? "Chat unavailable" : "Loading selected chat",
-							className: ["chat-switch-cover"].filter(Boolean).join(" "),
+							className: "chat-switch-cover",
 							children: detailError.value ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 								className: ["result-error recovery-error"].filter(Boolean).join(" "),
 								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: detailError.value }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
@@ -18604,7 +18583,7 @@ function ChatsPage(props) {
 								})]
 							}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 								"aria-hidden": "true",
-								className: ["chat-switch-skeleton"].filter(Boolean).join(" "),
+								className: "chat-switch-skeleton",
 								children: [
 									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: ["chat-switch-line short"].filter(Boolean).join(" ") }),
 									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: ["chat-switch-line prompt"].filter(Boolean).join(" ") }),
@@ -18613,7 +18592,7 @@ function ChatsPage(props) {
 									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: ["chat-switch-line answer last"].filter(Boolean).join(" ") })
 								]
 							}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-								className: ["sr-only"].filter(Boolean).join(" "),
+								className: "sr-only",
 								children: "Loading selected chat…"
 							})] })
 						}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {})]

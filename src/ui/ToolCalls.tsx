@@ -1,22 +1,27 @@
 import type { CapturedToolCall } from "./resultFormatting";
 
+const statusMark: Record<string, string> = {
+  Failed: "!",
+  Running: "…",
+  Observed: "·",
+  Completed: "✓",
+};
+
 function title(call: CapturedToolCall): string {
   if (call.connector === "web")
     return call.status === "running" ? "Searching the web" : "Searched the web";
   if (call.connector === "python")
     return call.status === "running" ? "Analyzing data" : "Analyzed data";
   const name = [call.connector, call.action].filter(Boolean).join(" · ") || "Tool call";
-  return call.connector ? `${call.status === "running" ? "Using" : "Used"} ${name}` : name;
+  if (!call.connector) return name;
+  return `${call.status === "running" ? "Using" : "Used"} ${name}`;
 }
 
 function status(call: CapturedToolCall): string {
-  return call.status === "error" || call.error
-    ? "Failed"
-    : call.status === "running"
-      ? "Running"
-      : call.status === "observed"
-        ? "Observed"
-        : "Completed";
+  if (call.status === "error" || call.error) return "Failed";
+  if (call.status === "running") return "Running";
+  if (call.status === "observed") return "Observed";
+  return "Completed";
 }
 
 export default function ToolCalls({ calls }: { calls: CapturedToolCall[] }) {
@@ -62,13 +67,7 @@ export default function ToolCalls({ calls }: { calls: CapturedToolCall[] }) {
           >
             <summary className="tool-call-summary">
               <span className="tool-call-mark" aria-hidden="true">
-                {status(call) === "Failed"
-                  ? "!"
-                  : status(call) === "Running"
-                    ? "…"
-                    : status(call) === "Observed"
-                      ? "·"
-                      : "✓"}
+                {statusMark[status(call)]}
               </span>
               <span className="tool-call-name">{title(call)}</span>
               <span className="tool-call-status">{status(call)}</span>

@@ -47,6 +47,11 @@ export default function ChatComposer(props: Props) {
   });
   useEffect(() => model.mount(), [model]);
 
+  function sendLabel() {
+    if (sending.value) return "Sending";
+    return mode.value === "fresh" ? "Send fresh chat" : "Send reply";
+  }
+
   return (
     <>
       <form
@@ -65,16 +70,13 @@ export default function ChatComposer(props: Props) {
           .filter(Boolean)
           .join(" ")}
       >
-        <div className={["chat-composer"].filter(Boolean).join(" ")}>
+        <div className="chat-composer">
           {images.value.length ? (
             <>
-              <div
-                aria-label="Images to attach"
-                className={["composer-previews"].filter(Boolean).join(" ")}
-              >
+              <div aria-label="Images to attach" className="composer-previews">
                 {images.value.map((image, __index) => (
                   <React.Fragment key={image.ref}>
-                    <div className={["composer-preview"].filter(Boolean).join(" ")}>
+                    <div className="composer-preview">
                       <img src={image.url} alt={image.name} />
                       <button
                         type="button"
@@ -114,8 +116,8 @@ export default function ChatComposer(props: Props) {
               draft.value = event.currentTarget.value;
             }}
           ></textarea>
-          <div className={["composer-actions"].filter(Boolean).join(" ")}>
-            <div className={["composer-attach"].filter(Boolean).join(" ")}>
+          <div className="composer-actions">
+            <div className="composer-attach">
               {mode.value === "fresh" ? (
                 <>
                   <button
@@ -174,7 +176,7 @@ export default function ChatComposer(props: Props) {
                   onClick={onNewChat.value}
                   aria-label="New chat"
                   title="New chat"
-                  className={["composer-send composer-new-chat"].filter(Boolean).join(" ")}
+                  className="composer-send composer-new-chat"
                 >
                   <svg
                     viewBox="0 0 24 24"
@@ -194,14 +196,8 @@ export default function ChatComposer(props: Props) {
                 <button
                   type="submit"
                   disabled={!canSend.value}
-                  aria-label={
-                    sending.value
-                      ? "Sending"
-                      : mode.value === "fresh"
-                        ? "Send fresh chat"
-                        : "Send reply"
-                  }
-                  className={["composer-send"].filter(Boolean).join(" ")}
+                  aria-label={sendLabel()}
+                  className="composer-send"
                 >
                   {sending.value ? (
                     <>
@@ -212,7 +208,7 @@ export default function ChatComposer(props: Props) {
                         strokeWidth="2.4"
                         strokeLinecap="round"
                         aria-hidden="true"
-                        className={["composer-send-spinner"].filter(Boolean).join(" ")}
+                        className="composer-send-spinner"
                       >
                         <path d="M12 3a9 9 0 1 1-9 9"></path>
                       </svg>
@@ -239,7 +235,7 @@ export default function ChatComposer(props: Props) {
         </div>
         {feedback.value ? (
           <>
-            <p role="status" className={["composer-feedback"].filter(Boolean).join(" ")}>
+            <p role="status" className="composer-feedback">
               {feedback.value}
             </p>
           </>
@@ -252,7 +248,7 @@ export default function ChatComposer(props: Props) {
               type="button"
               disabled={sending.value}
               onClick={() => void submit(true)}
-              className={["composer-fallback"].filter(Boolean).join(" ")}
+              className="composer-fallback"
             >
               Start new chat with last result
             </button>

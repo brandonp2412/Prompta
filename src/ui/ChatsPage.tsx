@@ -5,17 +5,16 @@ import JobsPage from "./JobsPage";
 import ChatComposer from "./ChatComposer";
 import ResultMarkdown from "./ResultMarkdown";
 import ToolCalls from "./ToolCalls";
+import ChatRow from "./ChatRow";
 import { queueEtaExplanation, queueEtaText } from "./queueStatus";
 import {
-  statusLabel,
   chatMessageTime,
   formatStoredResponse,
   partialResponseLabel,
-  plainPreview,
   recoveryProgress,
   turnStatus,
 } from "./resultFormatting";
-import type { RunSummary, ResultStatus } from "./resultFormatting";
+import type { ResultStatus } from "./resultFormatting";
 export default function ChatsPage(props: Props) {
   const model = useMemo(() => createChatsPageController(props), []);
   useSignals();
@@ -35,8 +34,6 @@ export default function ChatsPage(props: Props) {
     recoveryBacklog,
     recoveryReplyBacklog,
     items,
-    pinnedIds,
-    pinsReady,
     pinError,
     readError,
     markingAllRead,
@@ -64,10 +61,8 @@ export default function ChatsPage(props: Props) {
     unpinned,
     switchingChat,
     selectedChatTitle,
-    isUnread,
     retryReadSync,
     markAllRead,
-    togglePin,
     loadQueue,
     maybeLoadMore,
     loadList,
@@ -87,7 +82,6 @@ export default function ChatsPage(props: Props) {
     cancelSwipe,
     startSwipe,
     finishSwipe,
-    selectRun,
     showJobs,
     createChat,
     escapeDrawer,
@@ -137,88 +131,18 @@ export default function ChatsPage(props: Props) {
       window.removeEventListener("touchcancel", cancelSwipe);
     };
   }, [model]);
-  function chatItem(item: RunSummary) {
-    return (
-      <>
-        <div
-          className={[
-            "chat-entry",
-            view.value === "chats" && selectedRunId.value === item.send_id ? "chosen" : "",
-            isUnread(item) ? "unread" : "",
-          ]
-            .filter(Boolean)
-            .join(" ")}
-        >
-          <button
-            type="button"
-            onClick={() => selectRun(item)}
-            aria-current={
-              view.value === "chats" && selectedRunId.value === item.send_id ? "true" : undefined
-            }
-            className={["chat-row"].filter(Boolean).join(" ")}
-          >
-            <span className={["chat-row-top"].filter(Boolean).join(" ")}>
-              {isUnread(item) ? (
-                <>
-                  <span
-                    title="Unread reply"
-                    className={["unread-indicator"].filter(Boolean).join(" ")}
-                  >
-                    <span className={["sr-only"].filter(Boolean).join(" ")}>Unread reply</span>
-                  </span>
-                </>
-              ) : (
-                <></>
-              )}
-              <strong>{item.title || "Untitled run"}</strong>
-              <span
-                title={statusLabel(item.status)}
-                className={["result-dot status-" + item.status].filter(Boolean).join(" ")}
-              >
-                <span className={["sr-only"].filter(Boolean).join(" ")}>
-                  {statusLabel(item.status)}
-                </span>
-              </span>
-            </span>
-            {item.has_response && item.preview.trim() ? (
-              <span className="chat-preview" title={plainPreview(item.preview)}>
-                {plainPreview(item.preview)}
-              </span>
-            ) : (
-              <span className="chat-row-meta">
-                {statusLabel(item.status)} · {chatMessageTime(item.updated_at || item.created_at)}
-              </span>
-            )}
-          </button>
-          <button
-            type="button"
-            disabled={!pinsReady.value}
-            title={pinnedIds.value.includes(item.send_id) ? "Unpin local chat" : "Pin local chat"}
-            aria-label={
-              pinnedIds.value.includes(item.send_id) ? "Unpin " + item.title : "Pin " + item.title
-            }
-            aria-pressed={pinnedIds.value.includes(item.send_id)}
-            onClick={() => togglePin(item)}
-            className={["chat-pin", pinnedIds.value.includes(item.send_id) ? "active" : ""]
-              .filter(Boolean)
-              .join(" ")}
-          >
-            <svg
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.8"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden="true"
-            >
-              <path d="M9 3h6l-1 6 3 3v2H7v-2l3-3-1-6ZM12 14v7"></path>
-            </svg>
-          </button>
-        </div>
-      </>
-    );
+  function emptyChatsLabel() {
+    if (listError.value) return "Chat list temporarily unavailable";
+    if (search.value || statusFilter.value) return "No matching chats";
+    return "No chats";
   }
+
+  function copyLabel(id: string) {
+    if (copyState.value === id) return "Copied";
+    if (copyState.value === "error:" + id) return "Copy failed";
+    return "Copy";
+  }
+
   return (
     <>
       <section
@@ -243,14 +167,10 @@ export default function ChatsPage(props: Props) {
           aria-label="Close chat sidebar"
           tabIndex={drawerOpen.value ? 0 : -1}
           onClick={() => (drawerOpen.value = false)}
-          className={["drawer-backdrop"].filter(Boolean).join(" ")}
+          className="drawer-backdrop"
         ></button>
-        <aside
-          aria-label="Local chat sidebar"
-          ref={refs.sidebarPane}
-          className={["chats-sidebar"].filter(Boolean).join(" ")}
-        >
-          <div className={["sidebar-brand"].filter(Boolean).join(" ")}>
+        <aside aria-label="Local chat sidebar" ref={refs.sidebarPane} className="chats-sidebar">
+          <div className="sidebar-brand">
             <div>
               <strong>Prompta</strong>
             </div>
@@ -258,15 +178,12 @@ export default function ChatsPage(props: Props) {
               type="button"
               aria-label="Close sidebar"
               onClick={() => (drawerOpen.value = false)}
-              className={["sidebar-close"].filter(Boolean).join(" ")}
+              className="sidebar-close"
             >
               ×
             </button>
           </div>
-          <nav
-            aria-label="Main navigation"
-            className={["sidebar-actions"].filter(Boolean).join(" ")}
-          >
+          <nav aria-label="Main navigation" className="sidebar-actions">
             <button
               type="button"
               onClick={showJobs}
@@ -289,14 +206,14 @@ export default function ChatsPage(props: Props) {
                 <rect x="4" y="4" width="16" height="16" rx="3"></rect>
                 <path d="M8 9h8M8 13h8M8 17h5"></path>
               </svg>
-              <span className={["action-label"].filter(Boolean).join(" ")}>Jobs</span>
+              <span className="action-label">Jobs</span>
             </button>
             <button
               type="button"
               onClick={createChat}
               aria-label="New chat"
               title="New chat"
-              className={["sidebar-primary"].filter(Boolean).join(" ")}
+              className="sidebar-primary"
             >
               <svg
                 viewBox="0 0 24 24"
@@ -309,7 +226,7 @@ export default function ChatsPage(props: Props) {
               >
                 <path d="M12 5H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7M16 4l4 4M9 15l3.5-.7L21 5.8a2.1 2.1 0 0 0-3-3l-8.5 8.5L9 15Z"></path>
               </svg>
-              <span className={["action-label"].filter(Boolean).join(" ")}>New</span>
+              <span className="action-label">New</span>
             </button>
             <button
               type="button"
@@ -333,27 +250,24 @@ export default function ChatsPage(props: Props) {
                 <circle cx="10.5" cy="10.5" r="6.5"></circle>
                 <path d="m16 16 5 5"></path>
               </svg>
-              <span className={["action-label"].filter(Boolean).join(" ")}>Search</span>
+              <span className="action-label">Search</span>
               {search.value || statusFilter.value ? (
                 <>
-                  <span
-                    aria-label="Filters active"
-                    className={["filter-active-dot"].filter(Boolean).join(" ")}
-                  ></span>
+                  <span aria-label="Filters active" className="filter-active-dot"></span>
                 </>
               ) : (
                 <></>
               )}
             </button>
           </nav>
-          <div className={["sidebar-read-actions"].filter(Boolean).join(" ")}>
+          <div className="sidebar-read-actions">
             <button
               type="button"
               onClick={markAllRead}
               disabled={markingAllRead.value}
               aria-label="Mark all local chats as read"
               title="Mark all local chats as read"
-              className={["mark-all-read"].filter(Boolean).join(" ")}
+              className="mark-all-read"
             >
               <svg
                 viewBox="0 0 24 24"
@@ -371,9 +285,9 @@ export default function ChatsPage(props: Props) {
           </div>
           {filtersOpen.value ? (
             <>
-              <div id="chat-filters" className={["chats-controls"].filter(Boolean).join(" ")}>
-                <label className={["search-label"].filter(Boolean).join(" ")}>
-                  <span className={["sr-only"].filter(Boolean).join(" ")}>Search job results</span>
+              <div id="chat-filters" className="chats-controls">
+                <label className="search-label">
+                  <span className="sr-only">Search job results</span>
                   <input
                     type="search"
                     placeholder="Search chats"
@@ -386,9 +300,7 @@ export default function ChatsPage(props: Props) {
                   />
                 </label>
                 <label>
-                  <span className={["sr-only"].filter(Boolean).join(" ")}>
-                    Filter results by state
-                  </span>
+                  <span className="sr-only">Filter results by state</span>
                   <select
                     value={statusFilter.value}
                     onChange={(event) => {
@@ -410,10 +322,7 @@ export default function ChatsPage(props: Props) {
           )}
           {queueError.value ? (
             <>
-              <div
-                role="alert"
-                className={["result-error recovery-error"].filter(Boolean).join(" ")}
-              >
+              <div role="alert" className="result-error recovery-error">
                 <span>{queueError.value}</span>
                 <button type="button" onClick={() => void loadQueue()}>
                   Retry queue status
@@ -425,10 +334,7 @@ export default function ChatsPage(props: Props) {
           )}
           {listError.value ? (
             <>
-              <div
-                role="alert"
-                className={["result-error recovery-error"].filter(Boolean).join(" ")}
-              >
+              <div role="alert" className="result-error recovery-error">
                 <span>{listError.value}</span>
                 <button
                   type="button"
@@ -443,10 +349,7 @@ export default function ChatsPage(props: Props) {
           )}
           {pinError.value ? (
             <>
-              <div
-                role="alert"
-                className={["result-error recovery-error"].filter(Boolean).join(" ")}
-              >
+              <div role="alert" className="result-error recovery-error">
                 <span>{pinError.value}</span>
                 <button
                   type="button"
@@ -463,10 +366,7 @@ export default function ChatsPage(props: Props) {
           )}
           {readError.value && (view.value !== "chats" || !selectedRunId.value) ? (
             <>
-              <div
-                role="alert"
-                className={["result-error recovery-error"].filter(Boolean).join(" ")}
-              >
+              <div role="alert" className="result-error recovery-error">
                 <span>{readError.value}</span>
                 <button type="button" onClick={() => void retryReadSync()}>
                   Retry read status
@@ -476,17 +376,10 @@ export default function ChatsPage(props: Props) {
           ) : (
             <></>
           )}
-          <div
-            ref={refs.listPane}
-            onScroll={maybeLoadMore}
-            className={["chats-list"].filter(Boolean).join(" ")}
-          >
+          <div ref={refs.listPane} onScroll={maybeLoadMore} className="chats-list">
             {visibleWaiting.value.length ? (
               <>
-                <div
-                  aria-live="polite"
-                  className={["chats-date queue-heading"].filter(Boolean).join(" ")}
-                >
+                <div aria-live="polite" className="chats-date queue-heading">
                   <span>Waiting to start · {visibleWaiting.value.length}</span>
                   <span>
                     {queueSnapshot.value.max_workers === null
@@ -496,21 +389,21 @@ export default function ChatsPage(props: Props) {
                 </div>
                 {visibleWaiting.value.map((waiting, __index) => (
                   <React.Fragment key={waiting.name}>
-                    <div className={["chat-entry queue-waiting"].filter(Boolean).join(" ")}>
+                    <div className="chat-entry queue-waiting">
                       <button
                         type="button"
                         onClick={showJobs}
                         title={"Open Jobs for " + waiting.name}
-                        className={["chat-row"].filter(Boolean).join(" ")}
+                        className="chat-row"
                       >
-                        <span className={["chat-row-top"].filter(Boolean).join(" ")}>
+                        <span className="chat-row-top">
                           <strong>{waiting.name}</strong>
-                          <span className={["queue-position"].filter(Boolean).join(" ")}>
+                          <span className="queue-position">
                             #{waiting.position} of {queueSnapshot.value.waiting.length}
                           </span>
                         </span>
                         <span
-                          className={["queue-subtitle"].filter(Boolean).join(" ")}
+                          className="queue-subtitle"
                           title={queueEtaExplanation(queueSnapshot.value)}
                         >
                           {queueEtaText(waiting)} ·{" "}
@@ -528,7 +421,7 @@ export default function ChatsPage(props: Props) {
             {pinned.value.length ? (
               <>
                 {pinned.value.map((item, __index) => (
-                  <React.Fragment key={item.send_id}>{chatItem(item)}</React.Fragment>
+                  <ChatRow key={item.send_id} item={item} model={model} />
                 ))}
               </>
             ) : (
@@ -536,24 +429,18 @@ export default function ChatsPage(props: Props) {
             )}
             {loadingList.value && !items.value.length && !pinned.value.length ? (
               <>
-                <p className={["chats-empty"].filter(Boolean).join(" ")}>Loading chats…</p>
+                <p className="chats-empty">Loading chats…</p>
               </>
             ) : (
               <>
                 {!items.value.length && !pinned.value.length && !visibleWaiting.value.length ? (
                   <>
-                    <p className={["chats-empty"].filter(Boolean).join(" ")}>
-                      {listError.value
-                        ? "Chat list temporarily unavailable"
-                        : search.value || statusFilter.value
-                          ? "No matching chats"
-                          : "No chats"}
-                    </p>
+                    <p className="chats-empty">{emptyChatsLabel()}</p>
                   </>
                 ) : (
                   <>
                     {unpinned.value.map((item, __index) => (
-                      <React.Fragment key={item.send_id}>{chatItem(item)}</React.Fragment>
+                      <ChatRow key={item.send_id} item={item} model={model} />
                     ))}
                   </>
                 )}
@@ -562,8 +449,8 @@ export default function ChatsPage(props: Props) {
           </div>
         </aside>
 
-        <div className={["chats-detail"].filter(Boolean).join(" ")}>
-          <div className={["workspace-header"].filter(Boolean).join(" ")}>
+        <div className="chats-detail">
+          <div className="workspace-header">
             {view.value === "chats" && selectedRunId.value ? (
               <>
                 <button
@@ -571,7 +458,7 @@ export default function ChatsPage(props: Props) {
                   aria-label="Back to chats"
                   title="Back to chats"
                   onClick={() => onSelect.value(null)}
-                  className={["chat-header-back"].filter(Boolean).join(" ")}
+                  className="chat-header-back"
                 >
                   <svg
                     viewBox="0 0 24 24"
@@ -593,7 +480,7 @@ export default function ChatsPage(props: Props) {
                   aria-label="Open chat sidebar"
                   aria-expanded={drawerOpen.value}
                   onClick={() => (drawerOpen.value = true)}
-                  className={["sidebar-menu"].filter(Boolean).join(" ")}
+                  className="sidebar-menu"
                 >
                   ☰
                 </button>
@@ -603,10 +490,7 @@ export default function ChatsPage(props: Props) {
           </div>
           {view.value === "jobs" ? (
             <>
-              <div
-                ref={refs.jobsWorkspace}
-                className={["jobs-workspace"].filter(Boolean).join(" ")}
-              >
+              <div ref={refs.jobsWorkspace} className="jobs-workspace">
                 <JobsPage workspace={jobsWorkspace.value}></JobsPage>
               </div>
             </>
@@ -614,20 +498,14 @@ export default function ChatsPage(props: Props) {
             <>
               {!selectedRunId.value && newChatOpen.value ? (
                 <>
-                  <div
-                    aria-hidden="true"
-                    className={["new-chat-empty"].filter(Boolean).join(" ")}
-                  ></div>
+                  <div aria-hidden="true" className="new-chat-empty"></div>
                 </>
               ) : (
                 <>
                   {!selectedRunId.value ? (
                     <>
-                      <div className={["chats-detail-empty"].filter(Boolean).join(" ")}>
-                        <button
-                          onClick={createChat}
-                          className={["sidebar-primary"].filter(Boolean).join(" ")}
-                        >
+                      <div className="chats-detail-empty">
+                        <button onClick={createChat} className="sidebar-primary">
                           New chat
                         </button>
                       </div>
@@ -636,10 +514,7 @@ export default function ChatsPage(props: Props) {
                     <>
                       {readError.value ? (
                         <>
-                          <div
-                            role="alert"
-                            className={["result-error recovery-error"].filter(Boolean).join(" ")}
-                          >
+                          <div role="alert" className="result-error recovery-error">
                             <span>{readError.value}</span>
                             <button type="button" onClick={() => void retryReadSync()}>
                               Retry read status
@@ -649,7 +524,7 @@ export default function ChatsPage(props: Props) {
                       ) : (
                         <></>
                       )}
-                      <div className={["chat-transcript-shell"].filter(Boolean).join(" ")}>
+                      <div className="chat-transcript-shell">
                         <div
                           ref={refs.scrollPane}
                           inert={switchingChat.value}
@@ -686,7 +561,7 @@ export default function ChatsPage(props: Props) {
 
                           {detail.value ? (
                             <>
-                              <div className={["chat-detail-content"].filter(Boolean).join(" ")}>
+                              <div className="chat-detail-content">
                                 {turnsError.value ? (
                                   <>
                                     <div
@@ -717,8 +592,8 @@ export default function ChatsPage(props: Props) {
                                         .filter(Boolean)
                                         .join(" ")}
                                     >
-                                      <div className={["message-role"].filter(Boolean).join(" ")}>
-                                        <span className={["sr-only"].filter(Boolean).join(" ")}>
+                                      <div className="message-role">
+                                        <span className="sr-only">
                                           You{" "}
                                           {index === 0 ? <>· Job prompt</> : <>· Reply {index}</>}
                                         </span>
@@ -735,7 +610,7 @@ export default function ChatsPage(props: Props) {
                                           )}
                                         </time>
                                       </div>
-                                      <div className={["prompt-bubble"].filter(Boolean).join(" ")}>
+                                      <div className="prompt-bubble">
                                         <div
                                           className={[
                                             "prompt-message",
@@ -902,22 +777,15 @@ export default function ChatsPage(props: Props) {
                                                   turn.reply_id || selectedRunId.value || "",
                                                 )
                                               }
-                                              className={["copy-message"].filter(Boolean).join(" ")}
+                                              className="copy-message"
                                             >
-                                              {copyState.value ===
-                                              (turn.reply_id || detail.value!.send_id)
-                                                ? "Copied"
-                                                : copyState.value ===
-                                                    "error:" +
-                                                      (turn.reply_id || detail.value!.send_id)
-                                                  ? "Copy failed"
-                                                  : "Copy"}
+                                              {copyLabel(turn.reply_id || detail.value!.send_id)}
                                             </button>
                                           </div>
                                         </>
                                       ) : (
                                         <>
-                                          <p className={["no-response"].filter(Boolean).join(" ")}>
+                                          <p className="no-response">
                                             {index > 0 && turn.status === "queued"
                                               ? "Follow-up queued · waiting for the preceding response"
                                               : turnStatus(turn.status)}
@@ -930,7 +798,7 @@ export default function ChatsPage(props: Props) {
                                               <button
                                                 type="button"
                                                 onClick={() => void retryFailedTurn(turn)}
-                                                className={["row-action"].filter(Boolean).join(" ")}
+                                                className="row-action"
                                               >
                                                 Retry this follow-up
                                               </button>
@@ -1081,7 +949,7 @@ export default function ChatsPage(props: Props) {
                               aria-label={
                                 detailError.value ? "Chat unavailable" : "Loading selected chat"
                               }
-                              className={["chat-switch-cover"].filter(Boolean).join(" ")}
+                              className="chat-switch-cover"
                             >
                               {detailError.value ? (
                                 <>
@@ -1103,10 +971,7 @@ export default function ChatsPage(props: Props) {
                                 </>
                               ) : (
                                 <>
-                                  <div
-                                    aria-hidden="true"
-                                    className={["chat-switch-skeleton"].filter(Boolean).join(" ")}
-                                  >
+                                  <div aria-hidden="true" className="chat-switch-skeleton">
                                     <div
                                       className={["chat-switch-line short"]
                                         .filter(Boolean)
@@ -1133,9 +998,7 @@ export default function ChatsPage(props: Props) {
                                         .join(" ")}
                                     ></div>
                                   </div>
-                                  <span className={["sr-only"].filter(Boolean).join(" ")}>
-                                    Loading selected chat…
-                                  </span>
+                                  <span className="sr-only">Loading selected chat…</span>
                                 </>
                               )}
                             </div>
