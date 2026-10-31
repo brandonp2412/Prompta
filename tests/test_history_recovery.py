@@ -48,6 +48,32 @@ def test_only_verified_incomplete_conversations_are_recovery_candidates(tmp_path
     assert candidate is not None and candidate["attempt_count"] == 2
 
 
+@pytest.mark.parametrize(
+    ("attempts", "delay"),
+    [(0, 90), (1, 180), (6, 5760), (8, 14400), (30, 14400)],
+)
+def test_repeated_failed_reads_back_off_without_resending(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, attempts: int, delay: int,
+) -> None:
+    store = ResponseStore(tmp_path / "chat-results.sqlite3")
+    _expired(store)
+    for _ in range(attempts):
+        store.schedule_history_recovery("manual-1", now=100, next_attempt_at=150)
+    runtime = SchedulerRuntime(tmp_path / "runtime.sqlite3", tmp_path / "jobs.json")
+    worker = HistoryRecovery(store, runtime, FakeHistoryDriver)
+
+    async def missing_response(_conversation_id: str, _prompt: str) -> None:
+        return None
+
+    monkeypatch.setattr(worker, "_read_original_response", missing_response)
+    assert not worker.recover_once(now=150)
+    record = store.detail("manual-1")
+    assert record is not None
+    assert record["status"] == "interrupted"
+    assert store.next_history_recovery(now=150 + delay - 1) is None
+    assert store.next_history_recovery(now=150 + delay) is not None
+
+
 def test_recovery_metrics_are_private_aggregate_and_respect_backoff(tmp_path: Path) -> None:
     store = ResponseStore(tmp_path / "chat-results.sqlite3")
     _expired(store, "verified")

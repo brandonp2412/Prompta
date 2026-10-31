@@ -4,6 +4,7 @@ import argparse
 import logging
 import math
 import os
+import signal
 import socket
 import sqlite3
 import threading
@@ -11,6 +12,7 @@ import time
 import uuid
 from collections.abc import Callable
 from pathlib import Path
+from types import FrameType
 from typing import Protocol
 
 from sqlalchemy.exc import OperationalError
@@ -38,6 +40,26 @@ def _sqlite_busy(exc: OperationalError) -> bool:
         "database is locked" in str(exc.orig).lower()
         or "database table is locked" in str(exc.orig).lower()
     )
+
+
+def _drain_background_captures(health: ServiceHealthStore) -> None:
+    names = {"prompta-passive-capture", "prompta-connector-approval"}
+    captures = [
+        thread for thread in threading.enumerate()
+        if thread.name in names and thread.is_alive()
+    ]
+    if captures:
+        logger.info("Prompta delivery worker draining captures count=%d", len(captures))
+    while captures:
+        health.beat("delivery_worker")
+        notify_watchdog()
+        for capture in captures:
+            capture.join(timeout=1.0)
+        captures = [
+            thread for thread in threading.enumerate()
+            if thread.name in names and thread.is_alive()
+        ]
+    logger.info("Prompta delivery worker captures drained")
 
 
 DEFAULT_STATE_PATH = DEFAULT_RUNTIME_PATH
@@ -367,7 +389,9 @@ def run(
     chrome_path: str = "/usr/bin/chromium",
     chrome_debugger_address: str | None = None,
     chrome_auth_timeout_seconds: float = 30.0,
+    stop: threading.Event | None = None,
 ) -> None:
+    shutdown = stop or threading.Event()
     state_path = state_path.expanduser()
     state_dir = state_path.parent
     queue = DeliveryQueueStore(state_dir / "ui-send-jobs.sqlite3")
@@ -400,7 +424,7 @@ def run(
     last_lease_sweep = float("-inf")
 
     try:
-        while True:
+        while not shutdown.is_set():
             try:
                 health.beat("delivery_worker")
                 notify_watchdog()
@@ -442,6 +466,7 @@ def run(
     finally:
         recovery_stop.set()
         recovery_thread.join(timeout=2.0)
+        _drain_background_captures(health)
 
 
 def main() -> None:
@@ -471,12 +496,20 @@ def main() -> None:
     )
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    shutdown = threading.Event()
+
+    def request_stop(_signum: int, _frame: FrameType | None) -> None:
+        shutdown.set()
+
+    signal.signal(signal.SIGTERM, request_stop)
+    signal.signal(signal.SIGINT, request_stop)
     run(
         args.state,
         chrome_profile=args.chrome_profile,
         chrome_path=args.chrome_path,
         chrome_debugger_address=args.chrome_debugger_address,
         chrome_auth_timeout_seconds=args.chrome_auth_timeout_seconds,
+        stop=shutdown,
     )
 
 

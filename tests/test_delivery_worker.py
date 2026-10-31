@@ -485,3 +485,44 @@ def test_renewal_thread_marks_lease_lost_on_persistent_failure(monkeypatch) -> N
     _renew_lease_until_done(queue, "send-1", "worker", stop, lost)
     assert queue.calls == 3
     assert lost.is_set()
+
+
+def test_shutdown_waits_for_passive_capture(monkeypatch) -> None:
+    from prompta import delivery_worker
+
+    release = threading.Event()
+    started = threading.Event()
+    heartbeat = threading.Event()
+    finished = threading.Event()
+
+    def capture() -> None:
+        started.set()
+        release.wait()
+        finished.set()
+
+    class Health:
+        def beat(self, _service: str) -> None:
+            heartbeat.set()
+
+    monkeypatch.setattr(delivery_worker, "notify_watchdog", lambda: None)
+    capture_thread = threading.Thread(
+        target=capture, name="prompta-passive-capture", daemon=True,
+    )
+    capture_thread.start()
+    assert started.wait(2)
+    drainer = threading.Thread(
+        target=delivery_worker._drain_background_captures,
+        args=(Health(),),
+        daemon=True,
+    )
+    drainer.start()
+    try:
+        assert heartbeat.wait(2)
+        assert drainer.is_alive()
+        assert not finished.is_set()
+    finally:
+        release.set()
+        drainer.join(3)
+        capture_thread.join(3)
+    assert finished.is_set()
+    assert not drainer.is_alive()
