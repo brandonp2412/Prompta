@@ -202,16 +202,26 @@ export default function ChatTranscript({
                       .filter(Boolean)
                       .join(" ")}
                   >
-                    {turn.status !== "completed" ? (
-                      <>
-                        <div className="message-role response-header">
-                          <span role="status" className="response-state">
-                            {responseBadge(turn.status)}
+                    {turn.status === "generating" && (
+                      <div className="message-role response-header">
+                        <div className="response-generation" role="status">
+                          <span className="response-generation-spark" aria-hidden="true" />
+                          <span className="response-state">{responseBadge(turn.status)}</span>
+                          <span className="response-generation-title">Generating response</span>
+                          <span className="response-generation-dots" aria-hidden="true">
+                            <i />
+                            <i />
+                            <i />
                           </span>
                         </div>
-                      </>
-                    ) : (
-                      <></>
+                      </div>
+                    )}
+                    {turn.status !== "generating" && turn.status !== "completed" && (
+                      <div className="message-role response-header">
+                        <span role="status" className="response-state">
+                          {responseBadge(turn.status)}
+                        </span>
+                      </div>
                     )}
                     {turn.tool_calls?.length ? (
                       <>
@@ -226,13 +236,9 @@ export default function ChatTranscript({
                           source={turn.assistant_text}
                           captureSource={index === 0 ? detail.value!.source : ""}
                         ></ResultMarkdown>
-                        {turn.status !== "completed" ? (
-                          <>
-                            <p className="partial-note">{partialResponseLabel(turn.status)}</p>
-                          </>
-                        ) : (
-                          <></>
-                        )}
+                        {turn.status !== "completed" && turn.status !== "generating" ? (
+                          <p className="partial-note">{partialResponseLabel(turn.status)}</p>
+                        ) : null}
                         <div className="response-actions">
                           <button
                             type="button"
@@ -254,11 +260,13 @@ export default function ChatTranscript({
                       </>
                     ) : (
                       <>
-                        <p className="no-response">
-                          {index > 0 && turn.status === "queued"
-                            ? "Follow-up queued · waiting for the preceding response"
-                            : turnStatus(turn.status)}
-                        </p>
+                        {turn.status !== "generating" && (
+                          <p className="no-response">
+                            {index > 0 && turn.status === "queued"
+                              ? "Follow-up queued · waiting for the preceding response"
+                              : turnStatus(turn.status)}
+                          </p>
+                        )}
                         {turn.status === "preflight_failed" &&
                         turn.reply_id &&
                         turn.conversation_id &&

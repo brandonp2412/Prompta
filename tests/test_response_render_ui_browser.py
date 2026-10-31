@@ -77,6 +77,19 @@ def test_response_is_unboxed_and_preserves_markdown(
                 else:
                     expect(response.locator(".response-state")).to_have_count(0)
                 assert f"response-{status}" in (response.get_attribute("class") or "")
+                if status == "generating":
+                    expect(response.locator(".response-generation")).to_be_visible()
+                    expect(response.locator(".response-generation-title")).to_have_text(
+                        "Generating response"
+                    )
+                    assert response.locator(".response-generation-spark").evaluate(
+                        "node => getComputedStyle(node).animationName"
+                    ) == "response-orbit"
+                    page.emulate_media(reduced_motion="reduce")
+                    assert response.locator(".response-generation-spark").evaluate(
+                        "node => getComputedStyle(node).animationName"
+                    ) == "none"
+                    page.emulate_media(reduced_motion="no-preference")
                 computed = response.evaluate(
                     """node => ({
                         width: getComputedStyle(node).borderLeftWidth,

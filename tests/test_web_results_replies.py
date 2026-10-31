@@ -560,6 +560,12 @@ def test_tool_cards_desktop_mobile_local_only(tmp_path: Path) -> None:
                     expect(page.locator(".tool-failure-count")).to_have_text("1 failed")
                     expect(page.get_by_role("heading", name="Final answer")).to_be_visible()
                     expect(page.locator(".tool-type-group")).to_have_count(1)
+                    assert page.locator(".tool-timeline").evaluate(
+                        "node => getComputedStyle(node).borderRadius"
+                    ) in {"14px", "17px"}
+                    assert page.locator(".tool-type-group > summary").first.evaluate(
+                        "node => node.getBoundingClientRect().height"
+                    ) >= 44
                     page.locator(".tool-type-group > summary").first.click()
                     expect(page.locator(".tool-call-summary").first).to_be_visible()
                     page.locator(".tool-call-summary").first.click()
