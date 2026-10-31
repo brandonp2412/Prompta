@@ -77,6 +77,37 @@ export type LocalTurn = {
   updated_at: number;
 };
 
+export function responseBadge(status: LocalTurn["status"]): string {
+  switch (status) {
+    case "completed":
+      return "Final";
+    case "generating":
+      return "Live";
+    case "interrupted":
+      return "Interrupted";
+    case "unavailable":
+      return "Unavailable";
+    case "outcome_unknown":
+      return "Uncertain";
+    case "preflight_failed":
+      return "Not sent";
+    case "dispatching":
+      return "Sending";
+    case "accepted":
+      return "Waiting";
+    case "queued":
+      return "Queued";
+    case "prepared":
+      return "Pending";
+  }
+}
+
+export function exactConversationUrl(conversationId: string | undefined): string | null {
+  return conversationId && /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(conversationId)
+    ? "https://chatgpt.com/c/" + conversationId
+    : null;
+}
+
 export function partialResponseLabel(status: LocalTurn["status"]): string {
   switch (status) {
     case "generating":

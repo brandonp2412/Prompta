@@ -1,9 +1,10 @@
 import { signal, computed, batch } from "@preact/signals-react";
 import { isRepeatingJob, sortJobs } from "./jobSorting";
 import { subscribeLiveUpdates } from "./liveUpdates";
-import { isQueueSnapshot, type QueueSnapshot, type WaitingJob } from "./queueStatus";
+import { isQueueSnapshot, type QueueSnapshot } from "./queueStatus";
 import { localGet } from "./localRead";
 import { localPost, localRejectionDetail, localUploadTimeoutMs } from "./localMutation";
+import { jobFilter, sameJob, type ImageRef, type Job, type JobFilter } from "./jobView";
 import {
   acknowledgeFreshQueueRequest,
   findFreshQueueReceiptStatus,
@@ -14,27 +15,6 @@ export function createJobsPageController(initialProps: Props) {
   const tick = () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
 
   const workspace = signal(initialProps.workspace);
-
-  type ImageRef = { ref: string; name: string; url: string };
-
-  type Job = {
-    images: ImageRef[];
-    name: string;
-    created_order: number;
-    prompt: string;
-    status: string;
-    status_message: string;
-    paused: boolean;
-    run_at_epoch: number | null;
-    pin_chat: boolean;
-    daily_at: string | null;
-    interval_minutes: number;
-    exact_interval: boolean;
-    source_revision: string;
-    next_due_at_epoch: number;
-    last_sent_at: number;
-    last_uncertain_send_at: number;
-  };
 
   type DeliveryHealth = {
     admission?: { blocked: boolean; kind: string; reason: string };
@@ -72,9 +52,6 @@ export function createJobsPageController(initialProps: Props) {
   let queueError = signal("");
   let queueInFlight = false;
   let queueRefreshPending = false;
-  function waitingJob(jobName: string): WaitingJob | undefined {
-    return queueSnapshot.value?.waiting.find((job) => job.name === jobName);
-  }
   async function loadQueue() {
     if (queueInFlight) {
       queueRefreshPending = true;
@@ -119,7 +96,6 @@ export function createJobsPageController(initialProps: Props) {
 
   type QueueRequestContext = { prompt: string; images: string[]; scope: string };
 
-  type JobFilter = "pending" | "healthy" | "paused" | "unhealthy";
   const filterOptions: { key: JobFilter; label: string; title: string }[] = [
     { key: "pending", label: "Pending", title: "Pending or queued jobs" },
     { key: "healthy", label: "Healthy", title: "Jobs whose last dispatch succeeded" },
@@ -419,76 +395,9 @@ export function createJobsPageController(initialProps: Props) {
     editorForm.value?.requestSubmit();
   }
 
-  function formatDate(epoch: number) {
-    if (!epoch) return "—";
-    return new Date(epoch * 1000).toLocaleString([], {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-      hour: "numeric",
-      minute: "2-digit",
-    });
-  }
-
-  function scheduleText(job: Job) {
-    if (job.run_at_epoch) return "once · " + formatDate(job.run_at_epoch);
-    if (job.daily_at) return "daily · " + job.daily_at;
-
-    const minutes = Number(job.interval_minutes);
-    const amount =
-      minutes >= 60 && minutes % 60 === 0
-        ? String(minutes / 60) + " hour" + (minutes === 60 ? "" : "s")
-        : String(minutes) + " minute" + (minutes === 1 ? "" : "s");
-    return "every " + amount + (job.exact_interval ? " · exact" : "");
-  }
-
-  function jobFilter(job: Job): JobFilter {
-    if (job.paused) return "paused";
-    if (
-      job.last_uncertain_send_at > job.last_sent_at ||
-      job.status === "failing" ||
-      job.status === "rate-limited"
-    )
-      return "unhealthy";
-    if (job.status === "healthy") return "healthy";
-    return "pending";
-  }
-
   function toggleFilter(filter: JobFilter) {
     activeFilters.value = { ...activeFilters.value, [filter]: !activeFilters.value[filter] };
     page.value = 1;
-  }
-
-  function jobStateText(job: Job) {
-    if (job.paused) return "paused";
-    if (
-      job.last_uncertain_send_at > job.last_sent_at ||
-      (job.status === "failing" &&
-        /lost send confirmation after dispatch/i.test(job.status_message))
-    )
-      return "unconfirmed";
-    return job.status || "pending";
-  }
-
-  function sameJob(left: Job, right: Job) {
-    return (
-      left.name === right.name &&
-      left.created_order === right.created_order &&
-      left.prompt === right.prompt &&
-      JSON.stringify(left.images) === JSON.stringify(right.images) &&
-      left.status === right.status &&
-      left.status_message === right.status_message &&
-      left.paused === right.paused &&
-      left.run_at_epoch === right.run_at_epoch &&
-      left.pin_chat === right.pin_chat &&
-      left.daily_at === right.daily_at &&
-      left.interval_minutes === right.interval_minutes &&
-      left.exact_interval === right.exact_interval &&
-      left.source_revision === right.source_revision &&
-      left.next_due_at_epoch === right.next_due_at_epoch &&
-      left.last_sent_at === right.last_sent_at &&
-      left.last_uncertain_send_at === right.last_uncertain_send_at
-    );
   }
 
   function applyJobs(nextJobs: Job[]) {
@@ -872,7 +781,6 @@ export function createJobsPageController(initialProps: Props) {
     queueSnapshot,
     queueError,
     loadQueue,
-    waitingJob,
     pendingDeliveries,
     recoveryPauseSeconds,
     filterOptions,
@@ -921,10 +829,7 @@ export function createJobsPageController(initialProps: Props) {
     beginNew,
     beginOnce,
     onEditorKeydown,
-    formatDate,
-    scheduleText,
     toggleFilter,
-    jobStateText,
     changePage,
     loadDeliveryHealth,
     load,

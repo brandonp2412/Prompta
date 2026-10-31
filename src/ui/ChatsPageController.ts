@@ -66,37 +66,6 @@ export function createChatsPageController(initialProps: Props) {
     { value: "queued", label: "Queued" },
   ];
 
-  function responseBadge(status: LocalTurn["status"]): string {
-    switch (status) {
-      case "completed":
-        return "Final";
-      case "generating":
-        return "Live";
-      case "interrupted":
-        return "Interrupted";
-      case "unavailable":
-        return "Unavailable";
-      case "outcome_unknown":
-        return "Uncertain";
-      case "preflight_failed":
-        return "Not sent";
-      case "dispatching":
-        return "Sending";
-      case "accepted":
-        return "Waiting";
-      case "queued":
-        return "Queued";
-      case "prepared":
-        return "Pending";
-    }
-  }
-
-  function exactConversationUrl(conversationId: string | undefined): string | null {
-    return conversationId && /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(conversationId)
-      ? "https://chatgpt.com/c/" + conversationId
-      : null;
-  }
-
   let queueSnapshot = signal<QueueSnapshot>(emptyQueueSnapshot);
   let queueError = signal("");
   let queueGeneration = 0;
@@ -1556,8 +1525,6 @@ export function createChatsPageController(initialProps: Props) {
     newChatOpen,
     onSelect,
     statuses,
-    responseBadge,
-    exactConversationUrl,
     queueSnapshot,
     queueError,
     recoveryPauseSeconds,

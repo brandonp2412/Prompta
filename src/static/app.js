@@ -12715,23 +12715,6 @@ function createChatsPageController(initialProps) {
 			label: "Queued"
 		}
 	];
-	function responseBadge(status) {
-		switch (status) {
-			case "completed": return "Final";
-			case "generating": return "Live";
-			case "interrupted": return "Interrupted";
-			case "unavailable": return "Unavailable";
-			case "outcome_unknown": return "Uncertain";
-			case "preflight_failed": return "Not sent";
-			case "dispatching": return "Sending";
-			case "accepted": return "Waiting";
-			case "queued": return "Queued";
-			case "prepared": return "Pending";
-		}
-	}
-	function exactConversationUrl(conversationId) {
-		return conversationId && /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(conversationId) ? "https://chatgpt.com/c/" + conversationId : null;
-	}
 	let queueSnapshot = y$2(emptyQueueSnapshot);
 	let queueError = y$2("");
 	let queueGeneration = 0;
@@ -13821,8 +13804,6 @@ function createChatsPageController(initialProps) {
 		newChatOpen,
 		onSelect,
 		statuses,
-		responseBadge,
-		exactConversationUrl,
 		queueSnapshot,
 		queueError,
 		recoveryPauseSeconds,
@@ -13916,6 +13897,38 @@ function sortJobs(jobs) {
 	return [...jobs].sort(compareJobs);
 }
 //#endregion
+//#region src/ui/jobView.ts
+function formatDate(epoch) {
+	if (!epoch) return "—";
+	return (/* @__PURE__ */ new Date(epoch * 1e3)).toLocaleString([], {
+		year: "numeric",
+		month: "short",
+		day: "numeric",
+		hour: "numeric",
+		minute: "2-digit"
+	});
+}
+function scheduleText(job) {
+	if (job.run_at_epoch) return "once · " + formatDate(job.run_at_epoch);
+	if (job.daily_at) return "daily · " + job.daily_at;
+	const minutes = Number(job.interval_minutes);
+	return "every " + (minutes >= 60 && minutes % 60 === 0 ? String(minutes / 60) + " hour" + (minutes === 60 ? "" : "s") : String(minutes) + " minute" + (minutes === 1 ? "" : "s")) + (job.exact_interval ? " · exact" : "");
+}
+function jobFilter(job) {
+	if (job.paused) return "paused";
+	if (job.last_uncertain_send_at > job.last_sent_at || job.status === "failing" || job.status === "rate-limited") return "unhealthy";
+	if (job.status === "healthy") return "healthy";
+	return "pending";
+}
+function jobStateText(job) {
+	if (job.paused) return "paused";
+	if (job.last_uncertain_send_at > job.last_sent_at || job.status === "failing" && /lost send confirmation after dispatch/i.test(job.status_message)) return "unconfirmed";
+	return job.status || "pending";
+}
+function sameJob(left, right) {
+	return left.name === right.name && left.created_order === right.created_order && left.prompt === right.prompt && JSON.stringify(left.images) === JSON.stringify(right.images) && left.status === right.status && left.status_message === right.status_message && left.paused === right.paused && left.run_at_epoch === right.run_at_epoch && left.pin_chat === right.pin_chat && left.daily_at === right.daily_at && left.interval_minutes === right.interval_minutes && left.exact_interval === right.exact_interval && left.source_revision === right.source_revision && left.next_due_at_epoch === right.next_due_at_epoch && left.last_sent_at === right.last_sent_at && left.last_uncertain_send_at === right.last_uncertain_send_at;
+}
+//#endregion
 //#region src/ui/JobsPageController.ts
 function createJobsPageController(initialProps) {
 	const tick = () => new Promise((resolve) => requestAnimationFrame(() => resolve()));
@@ -13927,9 +13940,6 @@ function createJobsPageController(initialProps) {
 	let queueError = y$2("");
 	let queueInFlight = false;
 	let queueRefreshPending = false;
-	function waitingJob(jobName) {
-		return queueSnapshot.value?.waiting.find((job) => job.name === jobName);
-	}
 	async function loadQueue() {
 		if (queueInFlight) {
 			queueRefreshPending = true;
@@ -14238,42 +14248,12 @@ function createJobsPageController(initialProps) {
 		event.preventDefault();
 		editorForm.value?.requestSubmit();
 	}
-	function formatDate(epoch) {
-		if (!epoch) return "—";
-		return (/* @__PURE__ */ new Date(epoch * 1e3)).toLocaleString([], {
-			year: "numeric",
-			month: "short",
-			day: "numeric",
-			hour: "numeric",
-			minute: "2-digit"
-		});
-	}
-	function scheduleText(job) {
-		if (job.run_at_epoch) return "once · " + formatDate(job.run_at_epoch);
-		if (job.daily_at) return "daily · " + job.daily_at;
-		const minutes = Number(job.interval_minutes);
-		return "every " + (minutes >= 60 && minutes % 60 === 0 ? String(minutes / 60) + " hour" + (minutes === 60 ? "" : "s") : String(minutes) + " minute" + (minutes === 1 ? "" : "s")) + (job.exact_interval ? " · exact" : "");
-	}
-	function jobFilter(job) {
-		if (job.paused) return "paused";
-		if (job.last_uncertain_send_at > job.last_sent_at || job.status === "failing" || job.status === "rate-limited") return "unhealthy";
-		if (job.status === "healthy") return "healthy";
-		return "pending";
-	}
 	function toggleFilter(filter) {
 		activeFilters.value = {
 			...activeFilters.value,
 			[filter]: !activeFilters.value[filter]
 		};
 		page.value = 1;
-	}
-	function jobStateText(job) {
-		if (job.paused) return "paused";
-		if (job.last_uncertain_send_at > job.last_sent_at || job.status === "failing" && /lost send confirmation after dispatch/i.test(job.status_message)) return "unconfirmed";
-		return job.status || "pending";
-	}
-	function sameJob(left, right) {
-		return left.name === right.name && left.created_order === right.created_order && left.prompt === right.prompt && JSON.stringify(left.images) === JSON.stringify(right.images) && left.status === right.status && left.status_message === right.status_message && left.paused === right.paused && left.run_at_epoch === right.run_at_epoch && left.pin_chat === right.pin_chat && left.daily_at === right.daily_at && left.interval_minutes === right.interval_minutes && left.exact_interval === right.exact_interval && left.source_revision === right.source_revision && left.next_due_at_epoch === right.next_due_at_epoch && left.last_sent_at === right.last_sent_at && left.last_uncertain_send_at === right.last_uncertain_send_at;
 	}
 	function applyJobs(nextJobs) {
 		const sortedJobs = sortJobs(nextJobs);
@@ -14596,7 +14576,6 @@ function createJobsPageController(initialProps) {
 		queueSnapshot,
 		queueError,
 		loadQueue,
-		waitingJob,
 		pendingDeliveries,
 		recoveryPauseSeconds,
 		filterOptions,
@@ -14645,10 +14624,7 @@ function createJobsPageController(initialProps) {
 		beginNew,
 		beginOnce,
 		onEditorKeydown,
-		formatDate,
-		scheduleText,
 		toggleFilter,
-		jobStateText,
 		changePage,
 		loadDeliveryHealth,
 		load,
@@ -15048,7 +15024,7 @@ function DeliveryDiagnostics({ model }) {
 					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("dt", { children: "Running" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("dd", { children: health.queue.running })] }),
 					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("dt", { children: "Retrying" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("dd", { children: health.queue.retrying })] }),
 					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("dt", { children: "Rate limited" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("dd", { children: health.queue.rate_limited })] }),
-					nextRetry !== void 0 && nextRetry !== 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("dt", { children: "Next queued retry" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("dd", { children: model.formatDate(nextRetry) })] }),
+					nextRetry !== void 0 && nextRetry !== 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("dt", { children: "Next queued retry" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("dd", { children: formatDate(nextRetry) })] }),
 					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("dt", { children: "Dead letters" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("dd", { children: health.queue.dead_lettered })] }),
 					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("dt", { children: "Unconfirmed sends" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("dd", { children: health.queue.outcome_unknown })] })
 				] }),
@@ -15093,7 +15069,7 @@ function DeliveryDiagnostics({ model }) {
 //#region src/ui/JobsTable.tsx
 function JobsTable({ model }) {
 	N$1();
-	const { jobs, filteredJobs, visibleJobs, formatDate, scheduleText, jobStateText, waitingJob, queueSnapshot, saving, command, edit, remove, pageSize, page, pageCount, changePage } = model;
+	const { jobs, filteredJobs, visibleJobs, queueSnapshot, saving, command, edit, remove, pageSize, page, pageCount, changePage } = model;
 	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 		role: "table",
 		"aria-label": "Scheduled jobs",
@@ -15131,7 +15107,7 @@ function JobsTable({ model }) {
 				children: jobs.value.length ? "No jobs match these filters." : "No scheduled jobs."
 			}),
 			visibleJobs.value.map((job) => {
-				const waiting = waitingJob(job.name);
+				const waiting = queueSnapshot.value?.waiting.find((item) => item.name === job.name);
 				return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 					role: "row",
 					className: "job-row",
@@ -16057,6 +16033,23 @@ function recoveryProgress(recovery, now) {
 	const checked = `Read-only recovery checked ${attempts} ${attempts === 1 ? "time" : "times"}.`;
 	if (recovery.next_attempt_at > now) return `${checked} Next eligible check in about ${Math.ceil((recovery.next_attempt_at - now) / 60)} min; account pacing may delay it.`;
 	return `${checked} Awaiting next available recovery slot.`;
+}
+function responseBadge(status) {
+	switch (status) {
+		case "completed": return "Final";
+		case "generating": return "Live";
+		case "interrupted": return "Interrupted";
+		case "unavailable": return "Unavailable";
+		case "outcome_unknown": return "Uncertain";
+		case "preflight_failed": return "Not sent";
+		case "dispatching": return "Sending";
+		case "accepted": return "Waiting";
+		case "queued": return "Queued";
+		case "prepared": return "Pending";
+	}
+}
+function exactConversationUrl(conversationId) {
+	return conversationId && /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(conversationId) ? "https://chatgpt.com/c/" + conversationId : null;
 }
 function partialResponseLabel(status) {
 	switch (status) {
@@ -18387,7 +18380,7 @@ function ToolCalls({ calls }) {
 //#region src/ui/ChatTranscript.tsx
 function ChatTranscript({ model, refs }) {
 	N$1();
-	const { selectedRunId, responseBadge, exactConversationUrl, recoveryPauseSeconds: pauseSeconds, recoveryPauseReason: pauseReason, recoveryBacklog: recoveryQueue, recoveryUnverified: unverifiedCaptures, recoveryReplyBacklog: replyQueue, expandedPrompts, detail, turns, turnsError, startingNewChatFromFailure: startingNewChat, detailError, switchingChat, loadDetail, startFailedReplyInNewChat, retryFailedInitialInNewChat, retryFailedTurn, copyText, togglePrompt, copyState } = model;
+	const { selectedRunId, recoveryPauseSeconds: pauseSeconds, recoveryPauseReason: pauseReason, recoveryBacklog: recoveryQueue, recoveryUnverified: unverifiedCaptures, recoveryReplyBacklog: replyQueue, expandedPrompts, detail, turns, turnsError, startingNewChatFromFailure: startingNewChat, detailError, switchingChat, loadDetail, startFailedReplyInNewChat, retryFailedInitialInNewChat, retryFailedTurn, copyText, togglePrompt, copyState } = model;
 	function copyLabel(id) {
 		if (copyState.value === id) return "Copied";
 		if (copyState.value === "error:" + id) return "Copy failed";

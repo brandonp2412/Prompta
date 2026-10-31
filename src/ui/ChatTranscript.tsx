@@ -8,6 +8,8 @@ import {
   formatStoredResponse,
   partialResponseLabel,
   recoveryProgress,
+  responseBadge,
+  exactConversationUrl,
   turnStatus,
 } from "./resultFormatting";
 
@@ -25,8 +27,6 @@ export default function ChatTranscript({
   useSignals();
   const {
     selectedRunId,
-    responseBadge,
-    exactConversationUrl,
     recoveryPauseSeconds: pauseSeconds,
     recoveryPauseReason: pauseReason,
     recoveryBacklog: recoveryQueue,

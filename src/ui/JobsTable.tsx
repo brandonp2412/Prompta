@@ -1,6 +1,7 @@
 import { useSignals } from "@preact/signals-react/runtime";
 import type { createJobsPageController } from "./JobsPageController";
 import { queueEtaExplanation, queueEtaText } from "./queueStatus";
+import { formatDate, jobStateText, scheduleText } from "./jobView";
 
 type Controller = ReturnType<typeof createJobsPageController>;
 
@@ -10,10 +11,6 @@ export default function JobsTable({ model }: { model: Controller }) {
     jobs,
     filteredJobs,
     visibleJobs,
-    formatDate,
-    scheduleText,
-    jobStateText,
-    waitingJob,
     queueSnapshot,
     saving,
     command,
@@ -45,7 +42,7 @@ export default function JobsTable({ model }: { model: Controller }) {
         )}
 
         {visibleJobs.value.map((job) => {
-          const waiting = waitingJob(job.name);
+          const waiting = queueSnapshot.value?.waiting.find((item) => item.name === job.name);
           return (
             <div key={job.name} role="row" className="job-row">
               <div role="cell" className="job-main">

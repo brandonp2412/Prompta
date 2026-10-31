@@ -1,6 +1,8 @@
 import { expect, test } from "bun:test";
 import {
   dateGroup,
+  exactConversationUrl,
+  responseBadge,
   formatStoredResponse,
   groupRuns,
   isFlattenedDomResponse,
@@ -74,9 +76,30 @@ test("restores archived table rows and surrounding prose without mutating stored
     "",
     "I recovered their exact prompts.",
     "",
-    "Stage", "", "\t", "", "Restored job", "", "", "", "",
-    "1", "", "\t", "", "Original game design and setup", "", "", "", "",
-    "2", "", "\t", "", "Hexagonal board and game engine", "",
+    "Stage",
+    "",
+    "\t",
+    "",
+    "Restored job",
+    "",
+    "",
+    "",
+    "",
+    "1",
+    "",
+    "\t",
+    "",
+    "Original game design and setup",
+    "",
+    "",
+    "",
+    "",
+    "2",
+    "",
+    "\t",
+    "",
+    "Hexagonal board and game engine",
+    "",
     "All eight have successful deliveries.",
   ].join("\n");
   const display = formatStoredResponse(archived, "dom");
@@ -121,4 +144,25 @@ test("legacy flattened DOM answers render densely without changing real Markdown
   expect(isFlattenedDomResponse(archived, "sse")).toBe(false);
   expect(isFlattenedDomResponse("## Status\n\n- Mobile\n- Desktop", "dom")).toBe(false);
   expect(isFlattenedDomResponse("A paragraph.\n\nAnother paragraph.", "dom")).toBe(false);
+});
+
+test("transcript badges map every local reply state", () => {
+  expect(responseBadge("completed")).toBe("Final");
+  expect(responseBadge("generating")).toBe("Live");
+  expect(responseBadge("interrupted")).toBe("Interrupted");
+  expect(responseBadge("unavailable")).toBe("Unavailable");
+  expect(responseBadge("outcome_unknown")).toBe("Uncertain");
+  expect(responseBadge("preflight_failed")).toBe("Not sent");
+  expect(responseBadge("dispatching")).toBe("Sending");
+  expect(responseBadge("accepted")).toBe("Waiting");
+  expect(responseBadge("queued")).toBe("Queued");
+  expect(responseBadge("prepared")).toBe("Pending");
+});
+
+test("transcript links require a verified conversation UUID", () => {
+  const id = "aaffb99c-d0b1-405b-8131-1b3aa0627c00";
+  expect(exactConversationUrl(id)).toBe("https://chatgpt.com/c/" + id);
+  expect(exactConversationUrl("not-a-conversation")).toBeNull();
+  expect(exactConversationUrl("../../../api")).toBeNull();
+  expect(exactConversationUrl(undefined)).toBeNull();
 });

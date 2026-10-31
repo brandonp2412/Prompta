@@ -1,5 +1,6 @@
 import { useSignals } from "@preact/signals-react/runtime";
 import type { createJobsPageController } from "./JobsPageController";
+import { formatDate } from "./jobView";
 
 type Controller = ReturnType<typeof createJobsPageController>;
 
@@ -101,7 +102,7 @@ export default function DeliveryDiagnostics({ model }: { model: Controller }) {
             {nextRetry !== undefined && nextRetry !== 0 && (
               <div>
                 <dt>Next queued retry</dt>
-                <dd>{model.formatDate(nextRetry)}</dd>
+                <dd>{formatDate(nextRetry)}</dd>
               </div>
             )}
             <div>

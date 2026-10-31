@@ -27,7 +27,6 @@ export default function ResultMarkdown({
     () => isFlattenedDomResponse(displaySource, captureSource),
     [displaySource, captureSource],
   );
-  // Tokens are rendered by React as text and elements. No untrusted HTML is injected.
   const tokens = useMemo(
     () => marked.lexer(displaySource, { gfm: true, breaks: false }),
     [displaySource],
