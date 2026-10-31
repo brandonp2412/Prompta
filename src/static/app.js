@@ -14938,11 +14938,318 @@ function JobEditor({ model, refs }) {
 	});
 }
 //#endregion
+//#region src/ui/DeliveryDiagnostics.tsx
+function DeliveryDiagnostics({ model }) {
+	N$1();
+	const health = model.deliveryHealth.value;
+	const error = model.deliveryHealthError.value;
+	const pause = model.recoveryPauseSeconds.value;
+	const nextRetry = health?.queue.next_retry_at_epoch;
+	const recoveryWaiting = Boolean(health && pause > 0 && (health.recovery.recoverable > 0 || health.recovery.recoverable_reply_captures > 0));
+	let label = "status unavailable";
+	if (!error && health?.ready === false) label = "needs attention";
+	else if (!error && health?.admission?.blocked) label = "waiting for capacity";
+	else if (!error && health) label = "online";
+	if (!health && !error) return null;
+	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("details", {
+		className: "delivery-diagnostics",
+		children: [
+			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("summary", { children: [
+				/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: error || health?.ready === false || health?.admission?.blocked ? "delivery-indicator degraded" : "delivery-indicator" }),
+				"Delivery ",
+				label,
+				health && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
+					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+						className: "delivery-count",
+						children: [model.pendingDeliveries.value, " pending"]
+					}),
+					health.queue.outcome_unknown > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+						className: "delivery-count",
+						children: [health.queue.outcome_unknown, " unconfirmed historically"]
+					}),
+					recoveryWaiting && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+						className: "delivery-count",
+						children: "Recovery paused"
+					})
+				] })
+			] }),
+			error && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", {
+				role: "alert",
+				children: [
+					error,
+					" ",
+					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+						type: "button",
+						onClick: () => void model.loadDeliveryHealth(),
+						children: "Retry"
+					})
+				]
+			}),
+			health && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
+				error && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { children: "Counts below are from the last successful check, not current service status." }),
+				health.issues.length ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+					role: "status",
+					children: health.issues.join(" · ")
+				}) : !error && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { children: "UI, scheduler, delivery worker and browser are responding." }),
+				health.admission?.blocked && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", {
+					role: "status",
+					children: [
+						"Dispatch paused:",
+						" ",
+						health.admission.reason || "Host resource admission is blocking new sends",
+						". Queued jobs are retained until capacity returns; no sends are retried after an uncertain outcome."
+					]
+				}),
+				/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("dl", { children: [
+					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("dt", { children: "Queued" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("dd", { children: health.queue.queued })] }),
+					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("dt", { children: "Running" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("dd", { children: health.queue.running })] }),
+					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("dt", { children: "Retrying" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("dd", { children: health.queue.retrying })] }),
+					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("dt", { children: "Rate limited" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("dd", { children: health.queue.rate_limited })] }),
+					nextRetry !== void 0 && nextRetry !== 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("dt", { children: "Next queued retry" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("dd", { children: model.formatDate(nextRetry) })] }),
+					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("dt", { children: "Dead letters" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("dd", { children: health.queue.dead_lettered })] }),
+					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("dt", { children: "Unconfirmed sends" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("dd", { children: health.queue.outcome_unknown })] })
+				] }),
+				/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("dl", { children: [
+					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("dt", { children: "Captures in progress" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("dd", { children: health.recovery.active_captures })] }),
+					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("dt", { children: "Stale capture leases" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("dd", { children: health.recovery.stale_capture_leases })] }),
+					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("dt", { children: "Chats eligible for read-only recovery" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("dd", { children: health.recovery.recoverable })] }),
+					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("dt", { children: "Due for recovery probe" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("dd", { children: health.recovery.ready_for_read_only_probe })] }),
+					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("dt", { children: "Unresolved follow-up captures" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("dd", { children: health.recovery.unresolved_reply_captures })] }),
+					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("dt", { children: "Follow-ups eligible for recovery" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("dd", { children: health.recovery.recoverable_reply_captures })] }),
+					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("dt", { children: "Due follow-up probes" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("dd", { children: health.recovery.due_reply_recovery_probes })] }),
+					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("dt", { children: "Missing verified chat identity" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("dd", { children: health.recovery.missing_verified_identity })] })
+				] }),
+				health.recovery.stale_capture_leases > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+					role: "status",
+					children: "A capture lease is overdue. The worker will reconcile it as interrupted before read-only recovery; the original send is never replayed."
+				}),
+				recoveryWaiting && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", {
+					role: "status",
+					children: [
+						"Read-only recovery is waiting for the account safety cooldown (about",
+						" ",
+						Math.ceil(pause / 60),
+						" min). No automatic resends will occur."
+					]
+				}),
+				!recoveryWaiting && health.recovery.global_pace_seconds > 0 && health.recovery.ready_for_read_only_probe > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", { children: [
+					"Read-only recovery is paced to one verified chat at a time; next probe in about",
+					" ",
+					Math.ceil(health.recovery.global_pace_seconds),
+					" seconds."
+				] }),
+				health.recovery.missing_verified_identity > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { children: "Chats without a verified conversation identity cannot be recovered automatically. Their local partial results remain available." }),
+				(health.queue.retrying > 0 || health.queue.rate_limited > 0) && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { children: "Rejected or pre-dispatch attempts retry automatically after their backoff." }),
+				health.queue.outcome_unknown > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { children: "Unconfirmed sends are not automatically retried. Review the exact saved chat before sending again." })
+			] })
+		]
+	});
+}
+//#endregion
+//#region src/ui/JobsTable.tsx
+function JobsTable({ model }) {
+	N$1();
+	const { jobs, filteredJobs, visibleJobs, formatDate, scheduleText, jobStateText, waitingJob, queueSnapshot, saving, command, edit, remove, pageSize, page, pageCount, changePage } = model;
+	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+		role: "table",
+		"aria-label": "Scheduled jobs",
+		className: "jobs-table",
+		children: [
+			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+				role: "row",
+				className: "jobs-table-head",
+				children: [
+					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+						role: "columnheader",
+						children: "Job"
+					}),
+					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+						role: "columnheader",
+						children: "Schedule"
+					}),
+					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+						role: "columnheader",
+						children: "Next run"
+					}),
+					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+						role: "columnheader",
+						children: "State"
+					}),
+					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+						role: "columnheader",
+						className: "actions-heading",
+						children: "Actions"
+					})
+				]
+			}),
+			filteredJobs.value.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+				className: "empty-row",
+				children: jobs.value.length ? "No jobs match these filters." : "No scheduled jobs."
+			}),
+			visibleJobs.value.map((job) => {
+				const waiting = waitingJob(job.name);
+				return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+					role: "row",
+					className: "job-row",
+					children: [
+						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+							role: "cell",
+							className: "job-main",
+							children: [
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+									className: "job-name",
+									children: job.name
+								}),
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+									title: job.prompt,
+									className: "job-prompt",
+									children: job.prompt
+								}),
+								job.images.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+									className: "job-image-count",
+									children: [
+										job.images.length,
+										" image",
+										job.images.length === 1 ? "" : "s"
+									]
+								}),
+								/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+									className: "job-submeta",
+									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: ["Last sent ", formatDate(job.last_sent_at)] }), job.source_revision && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+										title: job.source_revision,
+										children: ["rev ", job.source_revision.slice(0, 8)]
+									})]
+								})
+							]
+						}),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+							role: "cell",
+							className: "job-cell schedule-cell",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+								className: "cell-label",
+								children: "Schedule"
+							}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: scheduleText(job) })]
+						}),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+							role: "cell",
+							className: "job-cell",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+								className: "cell-label",
+								children: "Next run"
+							}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: job.paused ? "Paused" : formatDate(job.next_due_at_epoch) })]
+						}),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+							role: "cell",
+							className: "job-cell state-cell",
+							children: [
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+									className: "cell-label",
+									children: "State"
+								}),
+								/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+									className: job.status === "failing" ? "state-value error" : "state-value",
+									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "state-dot" }), jobStateText(job)]
+								}),
+								waiting && queueSnapshot.value && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+									className: "job-queue-eta",
+									role: "status",
+									title: queueEtaExplanation(queueSnapshot.value),
+									children: [
+										"Queue #",
+										waiting.position,
+										" of ",
+										queueSnapshot.value.waiting.length,
+										" · ",
+										queueEtaText(waiting)
+									]
+								}),
+								job.status_message && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+									className: "job-message",
+									children: job.status_message
+								})
+							]
+						}),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+							role: "cell",
+							className: "job-actions",
+							children: [
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+									type: "button",
+									disabled: saving.value,
+									title: job.daily_at || job.run_at_epoch ? "Launch a fresh chat without moving the fixed schedule" : "Launch a fresh chat and restart the interval countdown",
+									onClick: () => void command({
+										action: "fire_now",
+										name: job.name
+									}, "Queued one fresh chat for " + job.name + ".", {
+										prompt: job.prompt,
+										images: job.images.map((image) => image.ref),
+										scope: "jobs:fire:" + job.name + ":" + job.pin_chat
+									}),
+									className: "row-action",
+									children: "Fire now"
+								}),
+								!job.run_at_epoch && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+									type: "button",
+									disabled: saving.value,
+									onClick: () => edit(job),
+									className: "row-action",
+									children: "Edit"
+								}),
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+									type: "button",
+									disabled: saving.value,
+									onClick: () => void command({
+										action: job.paused ? "resume" : "pause",
+										name: job.name
+									}, (job.paused ? "Resumed " : "Paused ") + job.name + "."),
+									className: "row-action",
+									children: job.paused ? "Resume" : "Pause"
+								}),
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+									type: "button",
+									disabled: saving.value,
+									onClick: () => void remove(job),
+									className: "row-action danger-text",
+									children: "Remove"
+								})
+							]
+						})
+					]
+				}, job.name);
+			})
+		]
+	}), filteredJobs.value.length > pageSize && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("nav", {
+		"aria-label": "Job pages",
+		className: "pagination",
+		children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [
+			"Page ",
+			page.value,
+			" of ",
+			pageCount.value
+		] }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+			className: "pagination-actions",
+			children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+				type: "button",
+				disabled: page.value <= 1,
+				onClick: () => changePage(page.value - 1),
+				className: "toolbar-button",
+				children: "Previous"
+			}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+				type: "button",
+				disabled: page.value >= pageCount.value,
+				onClick: () => changePage(page.value + 1),
+				className: "toolbar-button",
+				children: "Next"
+			})]
+		})]
+	})] });
+}
+//#endregion
 //#region src/ui/JobsPage.tsx
 function JobsPage(props) {
 	const model = (0, import_react.useMemo)(() => createJobsPageController(props), []);
 	N$1();
-	const { deliveryHealth, deliveryHealthError, jobsLoadError, queueSnapshot, waitingJob, pendingDeliveries, recoveryPauseSeconds, filterOptions, pageSize, jobs, activeFilters, showRepeatingJobs, repeatingJobsCount, cadenceJobs, filteredJobs, filterCounts, page, pageCount, visibleJobs, allVisiblePaused, status, saving, editorOpen, beginNew, beginOnce, onEditorKeydown, formatDate, scheduleText, toggleFilter, jobStateText, changePage, loadDeliveryHealth, load, command, edit, remove, toggleVisible, clearAll } = model;
+	const { jobsLoadError, filterOptions, jobs, activeFilters, showRepeatingJobs, repeatingJobsCount, cadenceJobs, filterCounts, page, visibleJobs, allVisiblePaused, status, saving, editorOpen, beginNew, beginOnce, onEditorKeydown, toggleFilter, load, toggleVisible, clearAll } = model;
 	const refs = (0, import_react.useMemo)(() => ({
 		jobsTitle: (element) => {
 			if (model.jobsTitle.peek() !== (element ?? void 0)) model.jobsTitle.value = element ?? void 0;
@@ -14979,12 +15286,6 @@ function JobsPage(props) {
 			window.removeEventListener("keydown", onEditorKeydown);
 		};
 	}, [model]);
-	function deliveryLabel() {
-		if (deliveryHealthError.value) return "status unavailable";
-		if (deliveryHealth.value?.ready === false) return "needs attention";
-		if (deliveryHealth.value?.admission?.blocked) return "waiting for capacity";
-		return deliveryHealth.value ? "online" : "status unavailable";
-	}
 	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [!editorOpen.value ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", {
 		"aria-labelledby": "jobs-title",
 		className: "jobs-panel",
@@ -15085,124 +15386,32 @@ function JobsPage(props) {
 					]
 				})]
 			}),
-			jobsLoadError.value ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+			jobsLoadError.value && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 				role: "alert",
-				className: ["result-error recovery-error jobs-recovery-error"].filter(Boolean).join(" "),
+				className: "result-error recovery-error jobs-recovery-error",
 				children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: jobsLoadError.value }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 					type: "button",
 					onClick: () => void load(),
 					children: "Retry jobs"
 				})]
-			}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {}),
-			deliveryHealth.value || deliveryHealthError.value ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("details", {
-				className: "delivery-diagnostics",
-				children: [
-					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("summary", { children: [
-						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: ["delivery-indicator", Boolean(deliveryHealthError.value) || deliveryHealth.value?.ready === false || deliveryHealth.value?.admission?.blocked === true ? "degraded" : ""].filter(Boolean).join(" ") }),
-						"Delivery ",
-						deliveryLabel(),
-						deliveryHealth.value ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
-							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
-								className: "delivery-count",
-								children: [pendingDeliveries.value, " pending"]
-							}),
-							deliveryHealth.value.queue.outcome_unknown ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
-								className: "delivery-count",
-								children: [deliveryHealth.value.queue.outcome_unknown, " unconfirmed historically"]
-							}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {}),
-							recoveryPauseSeconds.value > 0 && (deliveryHealth.value.recovery.recoverable > 0 || deliveryHealth.value.recovery.recoverable_reply_captures > 0) ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-								className: "delivery-count",
-								children: "Recovery paused"
-							}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {})
-						] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {})
-					] }),
-					deliveryHealthError.value ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", {
-						role: "alert",
-						children: [
-							deliveryHealthError.value,
-							" ",
-							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-								type: "button",
-								onClick: () => void loadDeliveryHealth(),
-								children: "Retry"
-							})
-						]
-					}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {}),
-					deliveryHealth.value ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
-						deliveryHealthError.value ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { children: "Counts below are from the last successful check, not current service status." }) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {}),
-						deliveryHealth.value.issues.length ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
-							role: "status",
-							children: deliveryHealth.value.issues.join(" · ")
-						}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: !deliveryHealthError.value ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { children: "UI, scheduler, delivery worker and browser are responding." }) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {}) }),
-						deliveryHealth.value.admission?.blocked ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", {
-							role: "status",
-							children: [
-								"Dispatch paused:",
-								" ",
-								deliveryHealth.value.admission?.reason || "Host resource admission is blocking new sends",
-								". Queued jobs are retained until capacity returns; no sends are retried after an uncertain outcome."
-							]
-						}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {}),
-						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("dl", { children: [
-							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("dt", { children: "Queued" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("dd", { children: deliveryHealth.value.queue.queued })] }),
-							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("dt", { children: "Running" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("dd", { children: deliveryHealth.value.queue.running })] }),
-							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("dt", { children: "Retrying" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("dd", { children: deliveryHealth.value.queue.retrying })] }),
-							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("dt", { children: "Rate limited" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("dd", { children: deliveryHealth.value.queue.rate_limited })] }),
-							deliveryHealth.value.queue.next_retry_at_epoch ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("dt", { children: "Next queued retry" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("dd", { children: formatDate(deliveryHealth.value.queue.next_retry_at_epoch) })] }) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {}),
-							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("dt", { children: "Dead letters" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("dd", { children: deliveryHealth.value.queue.dead_lettered })] }),
-							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("dt", { children: "Unconfirmed sends" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("dd", { children: deliveryHealth.value.queue.outcome_unknown })] })
-						] }),
-						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("dl", { children: [
-							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("dt", { children: "Captures in progress" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("dd", { children: deliveryHealth.value.recovery.active_captures })] }),
-							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("dt", { children: "Stale capture leases" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("dd", { children: deliveryHealth.value.recovery.stale_capture_leases })] }),
-							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("dt", { children: "Chats eligible for read-only recovery" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("dd", { children: deliveryHealth.value.recovery.recoverable })] }),
-							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("dt", { children: "Due for recovery probe" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("dd", { children: deliveryHealth.value.recovery.ready_for_read_only_probe })] }),
-							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("dt", { children: "Unresolved follow-up captures" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("dd", { children: deliveryHealth.value.recovery.unresolved_reply_captures })] }),
-							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("dt", { children: "Follow-ups eligible for recovery" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("dd", { children: deliveryHealth.value.recovery.recoverable_reply_captures })] }),
-							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("dt", { children: "Due follow-up probes" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("dd", { children: deliveryHealth.value.recovery.due_reply_recovery_probes })] }),
-							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("dt", { children: "Missing verified chat identity" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("dd", { children: deliveryHealth.value.recovery.missing_verified_identity })] })
-						] }),
-						deliveryHealth.value.recovery.stale_capture_leases > 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
-							role: "status",
-							children: "A capture lease is overdue. The worker will reconcile it as interrupted before read-only recovery; the original send is never replayed."
-						}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {}),
-						recoveryPauseSeconds.value > 0 && (deliveryHealth.value.recovery.recoverable > 0 || deliveryHealth.value.recovery.recoverable_reply_captures > 0) ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", {
-							role: "status",
-							children: [
-								"Read-only recovery is waiting for the account safety cooldown (about",
-								" ",
-								Math.ceil(recoveryPauseSeconds.value / 60),
-								" min). No automatic resends will occur."
-							]
-						}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: deliveryHealth.value.recovery.global_pace_seconds > 0 && deliveryHealth.value.recovery.ready_for_read_only_probe > 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", { children: [
-							"Read-only recovery is paced to one verified chat at a time; next probe in about",
-							" ",
-							Math.ceil(deliveryHealth.value.recovery.global_pace_seconds),
-							" ",
-							"seconds."
-						] }) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {}) }),
-						deliveryHealth.value.recovery.missing_verified_identity > 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { children: "Chats without a verified conversation identity cannot be recovered automatically. Their local partial results remain available." }) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {}),
-						deliveryHealth.value.queue.retrying || deliveryHealth.value.queue.rate_limited ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { children: "Rejected or pre-dispatch attempts retry automatically after their backoff." }) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {}),
-						deliveryHealth.value.queue.outcome_unknown ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { children: "Unconfirmed sends are not automatically retried. Review the exact saved chat before sending again." }) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {})
-					] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {})
-				]
-			}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {}),
+			}),
+			/* @__PURE__ */ (0, import_jsx_runtime.jsx)(DeliveryDiagnostics, { model }),
 			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 				role: "group",
 				"aria-label": "Filter jobs",
 				className: "jobs-summary",
-				children: [filterOptions.map((option, __index) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_react.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+				children: [filterOptions.map((option) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
 					type: "button",
 					"aria-pressed": activeFilters.value[option.key],
 					title: option.title,
 					onClick: () => toggleFilter(option.key),
-					className: ["filter-chip", activeFilters.value[option.key] ? "chosen" : ""].filter(Boolean).join(" "),
+					className: activeFilters.value[option.key] ? "filter-chip chosen" : "filter-chip",
 					children: [
 						option.label,
 						" ",
 						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: filterCounts.value[option.key] })
 					]
-				}) }, option.key)), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+				}, option.key)), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
 					type: "button",
 					"aria-pressed": showRepeatingJobs.value,
 					title: "Include daily and interval-based repeating jobs",
@@ -15210,203 +15419,12 @@ function JobsPage(props) {
 						showRepeatingJobs.value = !showRepeatingJobs.value;
 						page.value = 1;
 					},
-					className: ["filter-chip", showRepeatingJobs.value ? "chosen" : ""].filter(Boolean).join(" "),
+					className: showRepeatingJobs.value ? "filter-chip chosen" : "filter-chip",
 					children: ["Repeating jobs ", /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: repeatingJobsCount.value })]
 				})]
 			}),
-			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-				role: "table",
-				"aria-label": "Scheduled jobs",
-				className: "jobs-table",
-				children: [
-					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-						role: "row",
-						className: "jobs-table-head",
-						children: [
-							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-								role: "columnheader",
-								children: "Job"
-							}),
-							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-								role: "columnheader",
-								children: "Schedule"
-							}),
-							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-								role: "columnheader",
-								children: "Next run"
-							}),
-							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-								role: "columnheader",
-								children: "State"
-							}),
-							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-								role: "columnheader",
-								className: "actions-heading",
-								children: "Actions"
-							})
-						]
-					}),
-					filteredJobs.value.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-						className: "empty-row",
-						children: jobs.value.length ? "No jobs match these filters." : "No scheduled jobs."
-					}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {}),
-					visibleJobs.value.map((job, __index) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_react.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-						role: "row",
-						className: "job-row",
-						children: [
-							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-								role: "cell",
-								className: "job-main",
-								children: [
-									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-										className: "job-name",
-										children: job.name
-									}),
-									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-										title: job.prompt,
-										className: "job-prompt",
-										children: job.prompt
-									}),
-									job.images?.length ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-										className: "job-image-count",
-										children: [
-											job.images.length,
-											" image",
-											job.images.length === 1 ? "" : "s"
-										]
-									}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {}),
-									/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-										className: "job-submeta",
-										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: ["Last sent ", formatDate(job.last_sent_at)] }), job.source_revision ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
-											title: job.source_revision,
-											children: ["rev ", job.source_revision.slice(0, 8)]
-										}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {})]
-									})
-								]
-							}),
-							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-								role: "cell",
-								className: "job-cell schedule-cell",
-								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-									className: "cell-label",
-									children: "Schedule"
-								}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: scheduleText(job) })]
-							}),
-							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-								role: "cell",
-								className: "job-cell",
-								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-									className: "cell-label",
-									children: "Next run"
-								}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: job.paused ? "Paused" : formatDate(job.next_due_at_epoch) })]
-							}),
-							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-								role: "cell",
-								className: "job-cell state-cell",
-								children: [
-									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-										className: "cell-label",
-										children: "State"
-									}),
-									/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
-										className: ["state-value", job.status === "failing" ? "error" : ""].filter(Boolean).join(" "),
-										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "state-dot" }), jobStateText(job)]
-									}),
-									waitingJob(job.name) && queueSnapshot.value ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
-										className: "job-queue-eta",
-										role: "status",
-										title: queueEtaExplanation(queueSnapshot.value),
-										children: [
-											"Queue #",
-											waitingJob(job.name).position,
-											" of",
-											" ",
-											queueSnapshot.value.waiting.length,
-											" · ",
-											queueEtaText(waitingJob(job.name))
-										]
-									}) : null,
-									job.status_message ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-										className: "job-message",
-										children: job.status_message
-									}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {})
-								]
-							}),
-							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-								role: "cell",
-								className: "job-actions",
-								children: [
-									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-										type: "button",
-										disabled: saving.value,
-										title: job.daily_at || job.run_at_epoch ? "Launch a fresh chat without moving the fixed schedule" : "Launch a fresh chat and restart the interval countdown",
-										onClick: () => void command({
-											action: "fire_now",
-											name: job.name
-										}, "Queued one fresh chat for " + job.name + ".", {
-											prompt: job.prompt,
-											images: job.images.map((image) => image.ref),
-											scope: "jobs:fire:" + job.name + ":" + job.pin_chat
-										}),
-										className: "row-action",
-										children: "Fire now"
-									}),
-									!job.run_at_epoch ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-										type: "button",
-										disabled: saving.value,
-										onClick: () => edit(job),
-										className: "row-action",
-										children: "Edit"
-									}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {}),
-									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-										type: "button",
-										disabled: saving.value,
-										onClick: () => void command({
-											action: job.paused ? "resume" : "pause",
-											name: job.name
-										}, (job.paused ? "Resumed " : "Paused ") + job.name + "."),
-										className: "row-action",
-										children: job.paused ? "Resume" : "Pause"
-									}),
-									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-										type: "button",
-										disabled: saving.value,
-										onClick: () => void remove(job),
-										className: "row-action danger-text",
-										children: "Remove"
-									})
-								]
-							})
-						]
-					}) }, job.name))
-				]
-			}),
-			filteredJobs.value.length > pageSize ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("nav", {
-				"aria-label": "Job pages",
-				className: "pagination",
-				children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [
-					"Page ",
-					page.value,
-					" of ",
-					pageCount.value
-				] }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-					className: "pagination-actions",
-					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-						type: "button",
-						disabled: page.value <= 1,
-						onClick: () => changePage(page.value - 1),
-						className: "toolbar-button",
-						children: "Previous"
-					}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-						type: "button",
-						disabled: page.value >= pageCount.value,
-						onClick: () => changePage(page.value + 1),
-						className: "toolbar-button",
-						children: "Next"
-					})]
-				})]
-			}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {}),
-			jobs.value.length ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("footer", {
+			/* @__PURE__ */ (0, import_jsx_runtime.jsx)(JobsTable, { model }),
+			jobs.value.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("footer", {
 				className: "jobs-footer",
 				children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 					type: "button",
@@ -15415,7 +15433,7 @@ function JobsPage(props) {
 					className: "row-action danger-text",
 					children: "Clear all jobs"
 				})
-			}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {})
+			})
 		]
 	}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {}), editorOpen.value && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(JobEditor, {
 		model,
