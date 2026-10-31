@@ -8,6 +8,8 @@ from unittest.mock import patch
 
 from web_results_support import post_json, server
 
+from prompta.strict_types import string_object_dict
+
 PNG = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZ0AAAAASUVORK5CYII="
 )
@@ -24,9 +26,10 @@ def test_accepted_receipt_can_be_replayed_without_reopening_image(tmp_path: Path
             },
         )
         assert status == 200
-        image = uploaded["image"]
-        assert isinstance(image, dict)
+        image = string_object_dict(uploaded["image"])
+        assert image is not None
         ref = image["ref"]
+        assert isinstance(ref, str)
         payload = {
             "request_id": "e" * 32,
             "prompt": "Describe this image",
@@ -60,9 +63,10 @@ def test_new_chat_with_missing_image_is_definitely_rejected(tmp_path: Path) -> N
             },
         )
         assert status == 200
-        image = uploaded["image"]
-        assert isinstance(image, dict)
+        image = string_object_dict(uploaded["image"])
+        assert image is not None
         ref = image["ref"]
+        assert isinstance(ref, str)
         with patch.object(app.images, "path", side_effect=ValueError("Image no longer exists")):
             status, response = post_json(
                 port,

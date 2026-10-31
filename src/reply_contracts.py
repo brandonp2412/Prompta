@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import os
 import re
 import time
@@ -11,14 +10,6 @@ from pathlib import Path
 from typing import Literal
 
 from sqlalchemy import (
-    Boolean,
-    Column,
-    Float,
-    Index,
-    MetaData,
-    String,
-    Table,
-    Text,
     case,
     func,
     literal,
@@ -27,10 +18,13 @@ from sqlalchemy import (
     update,
 )
 from sqlalchemy.dialects.sqlite import insert
+from sqlalchemy.sql.elements import ColumnElement
 
+from .reply_read_state import ReplyReadState
+from .reply_tables import replies
 from .response_capture import CaptureResult
 from .response_store import ResponseStore
-from .response_tables import history_recovery_attempts, local_chat_reads, results
+from .response_tables import history_recovery_attempts, results
 from .tool_call_store import deserialize_tool_calls, merge_tool_calls
 from .web_models import ReplyRequest
 
@@ -38,26 +32,6 @@ ReplyStatus = Literal[
     "queued", "prepared", "preflight_failed", "dispatching", "outcome_unknown", "accepted",
     "generating", "completed", "interrupted",
 ]
-_SCHEMA = MetaData()
-replies = Table(
-    "manual_reply_turns", _SCHEMA,
-    Column("reply_id", String, primary_key=True),
-    Column("send_id", String, nullable=False),
-    Column("conversation_id", String, nullable=False),
-    Column("parent_id", String, nullable=False),
-    Column("user_text", Text, nullable=False),
-    Column("assistant_text", Text, nullable=False, default=""),
-    Column("tool_calls_json", Text, nullable=False, default="[]"),
-    Column("message_id", String, nullable=False, default=""),
-    Column("response_parent_id", String, nullable=False, default=""),
-    Column("status", String, nullable=False),
-    Column("queued_by_user", Boolean, nullable=False, server_default="0"),
-    Column("lease_owner", String, nullable=False, default=""),
-    Column("lease_deadline", Float, nullable=False, default=0),
-    Column("created_at", Float, nullable=False),
-    Column("updated_at", Float, nullable=False),
-)
-Index("manual_reply_turns_branch", replies.c.send_id, replies.c.created_at)
 
 
 @dataclass(frozen=True)
@@ -77,7 +51,33 @@ class ReplyConflict(ValueError):
     """An intent is stale, ambiguous or reuses an idempotency key."""
 
 
-class ManualReplyStore:
+def _recovery_conditions() -> tuple[
+    tuple[ColumnElement[bool], ...], tuple[ColumnElement[bool], ...]
+]:
+    outstanding = (
+        replies.c.status.in_(("outcome_unknown", "interrupted")),
+        replies.c.lease_owner == "",
+    )
+    prior = replies.alias("verified_predecessor")
+    verified_parent = select(prior.c.reply_id).where(
+        prior.c.send_id == replies.c.send_id,
+        prior.c.conversation_id == replies.c.conversation_id,
+        prior.c.message_id == replies.c.parent_id,
+        prior.c.reply_id != replies.c.reply_id,
+        prior.c.message_id != "",
+        prior.c.status.in_(("completed", "interrupted")),
+    ).exists()
+    verified = (
+        *outstanding,
+        replies.c.conversation_id != "",
+        replies.c.conversation_id == results.c.conversation_id,
+        results.c.status.in_(("completed", "interrupted", "unavailable")),
+        or_(replies.c.parent_id == results.c.message_id, verified_parent),
+    )
+    return outstanding, verified
+
+
+class ManualReplyStore(ReplyReadState):
     """The caller must explicitly claim a prepared intent before attempting any send."""
 
     def __init__(self, path: Path) -> None:
@@ -570,32 +570,13 @@ class ManualReplyStore:
         """Count unresolved explicit replies without exposing their text or branch IDs."""
         at = time.time() if now is None else now
         attempts = history_recovery_attempts.alias("reply_metric_attempts")
-        predecessor = replies.alias("reply_metric_predecessor")
-        prior_verified = select(predecessor.c.reply_id).where(
-            predecessor.c.send_id == replies.c.send_id,
-            predecessor.c.conversation_id == replies.c.conversation_id,
-            predecessor.c.message_id == replies.c.parent_id,
-            predecessor.c.reply_id != replies.c.reply_id,
-            predecessor.c.message_id != "",
-            predecessor.c.status.in_(("completed", "interrupted")),
-        ).exists()
         joined = replies.join(results, replies.c.send_id == results.c.send_id).outerjoin(
             attempts, attempts.c.send_id == literal("reply:") + replies.c.reply_id,
         )
-        unresolved = (
-            replies.c.status.in_(("outcome_unknown", "interrupted")),
-            replies.c.lease_owner == "",
-        )
-        verified = (
-            *unresolved,
-            replies.c.conversation_id != "",
-            replies.c.conversation_id == results.c.conversation_id,
-            results.c.status.in_(("completed", "interrupted", "unavailable")),
-            or_(replies.c.parent_id == results.c.message_id, prior_verified),
-        )
+        outstanding, verified = _recovery_conditions()
         with self.engine.connect() as connection:
             total = connection.execute(select(func.count()).select_from(replies).where(
-                *unresolved
+                *outstanding
             )).scalar_one()
             recoverable = connection.execute(select(func.count()).select_from(joined).where(
                 *verified
@@ -613,15 +594,7 @@ class ManualReplyStore:
         """Only verified Prompta-owned parent chains are eligible."""
         at = time.time() if now is None else now
         attempts = history_recovery_attempts.alias("reply_recovery")
-        predecessor = replies.alias("verified_predecessor")
-        prior_reply_verified = select(predecessor.c.reply_id).where(
-            predecessor.c.send_id == replies.c.send_id,
-            predecessor.c.conversation_id == replies.c.conversation_id,
-            predecessor.c.message_id == replies.c.parent_id,
-            predecessor.c.reply_id != replies.c.reply_id,
-            predecessor.c.message_id != "",
-            predecessor.c.status.in_(("completed", "interrupted")),
-        ).exists()
+        _, verified = _recovery_conditions()
         joined = replies.join(results, replies.c.send_id == results.c.send_id).outerjoin(
             attempts, attempts.c.send_id == literal("reply:") + replies.c.reply_id,
         )
@@ -631,12 +604,7 @@ class ManualReplyStore:
                 replies.c.user_text, results.c.user_text.label("original_prompt"),
                 func.coalesce(attempts.c.attempt_count, 0).label("attempt_count"),
             ).select_from(joined).where(
-                replies.c.status.in_(("outcome_unknown", "interrupted")),
-                replies.c.lease_owner == "",
-                replies.c.conversation_id != "",
-                or_(replies.c.parent_id == results.c.message_id, prior_reply_verified),
-                replies.c.conversation_id == results.c.conversation_id,
-                results.c.status.in_(("completed", "interrupted", "unavailable")),
+                *verified,
                 func.coalesce(attempts.c.next_attempt_at, 0) <= at,
             ).order_by(
                 func.coalesce(attempts.c.next_attempt_at, 0), replies.c.created_at.desc(),
@@ -705,120 +673,6 @@ class ManualReplyStore:
                 status="completed" if complete else row["status"], updated_at=at,
             ))
         return changed.rowcount == 1
-
-    def annotate_response_markers(self, summaries: list[dict[str, object]]) -> None:
-        """Annotate only saved completed answers, never job/capture metadata activity."""
-        send_ids = [str(item["send_id"]) for item in summaries]
-        if not send_ids:
-            return
-        markers: dict[str, tuple[str, float]] = {send_id: ("", 0.0) for send_id in send_ids}
-        with self.engine.connect() as connection:
-            originals = connection.execute(select(
-                results.c.send_id, results.c.assistant_text, results.c.status,
-                results.c.finished_at,
-            ).where(results.c.send_id.in_(send_ids))).all()
-            for send_id, answer, status, finished_at in originals:
-                if status == "completed" and answer:
-                    marker = hashlib.sha256(
-                        f"initial\0{send_id}\0{answer}".encode()
-                    ).hexdigest()
-                    markers[str(send_id)] = (marker, float(finished_at))
-            completed_replies = connection.execute(select(
-                replies.c.send_id, replies.c.reply_id, replies.c.assistant_text,
-                replies.c.updated_at,
-            ).where(
-                replies.c.send_id.in_(send_ids),
-                replies.c.status == "completed", replies.c.assistant_text != "",
-            ).order_by(replies.c.created_at, replies.c.reply_id)).all()
-            for send_id, reply_id, answer, updated_at in completed_replies:
-                marker = hashlib.sha256(
-                    f"manual\0{reply_id}\0{answer}".encode()
-                ).hexdigest()
-                markers[str(send_id)] = (marker, float(updated_at))
-            attention_ids = set(connection.execute(select(replies.c.send_id).where(
-                replies.c.send_id.in_(send_ids),
-                replies.c.status.in_((
-                    "preflight_failed", "outcome_unknown", "interrupted", "unavailable",
-                )),
-            ).distinct()).scalars())
-        for item in summaries:
-            send_id = str(item["send_id"])
-            revision, at = markers[send_id]
-            item["last_reply_revision"] = revision
-            item["last_reply_at"] = at
-            item["needs_attention"] = (
-                item["status"] in ("interrupted", "unavailable") or send_id in attention_ids
-            )
-
-    def mark_all_local_read(self) -> int:
-        """Read all currently completed local answers, including off-page runs.
-
-        Take a single SQLite write snapshot so a concurrent new reply cannot be
-        accidentally acknowledged without its exact completed revision.
-        """
-        at = time.time()
-        with self.engine.begin() as connection:
-            connection.exec_driver_sql("BEGIN IMMEDIATE")
-            markers: dict[str, str] = {}
-            originals = connection.execute(
-                select(
-                    results.c.send_id,
-                    results.c.assistant_text,
-                ).where(
-                    results.c.status == "completed",
-                    results.c.assistant_text != "",
-                )
-            ).all()
-            for send_id, answer in originals:
-                markers[str(send_id)] = hashlib.sha256(
-                    f"initial\0{send_id}\0{answer}".encode()
-                ).hexdigest()
-            completed_replies = connection.execute(
-                select(
-                    replies.c.send_id,
-                    replies.c.reply_id,
-                    replies.c.assistant_text,
-                )
-                .where(
-                    replies.c.status == "completed",
-                    replies.c.assistant_text != "",
-                )
-                .order_by(
-                    replies.c.created_at,
-                    replies.c.reply_id,
-                )
-            ).all()
-            for send_id, reply_id, answer in completed_replies:
-                markers[str(send_id)] = hashlib.sha256(
-                    f"manual\0{reply_id}\0{answer}".encode()
-                ).hexdigest()
-            existing = dict(
-                connection.execute(
-                    select(
-                        local_chat_reads.c.send_id,
-                        local_chat_reads.c.seen_revision,
-                    )
-                ).all()
-            )
-            changed = {
-                send_id: revision
-                for send_id, revision in markers.items()
-                if existing.get(send_id) != revision
-            }
-            for send_id, revision in changed.items():
-                connection.execute(
-                    insert(local_chat_reads)
-                    .values(
-                        send_id=send_id,
-                        seen_revision=revision,
-                        read_at=at,
-                    )
-                    .on_conflict_do_update(
-                        index_elements=["send_id"],
-                        set_={"seen_revision": revision, "read_at": at},
-                    )
-                )
-        return len(changed)
 
     def turns(self, send_id: str) -> list[dict[str, object]] | None:
         original = self.responses.get(send_id)
