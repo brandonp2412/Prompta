@@ -47,6 +47,7 @@ _LEASE_RENEW_RETRY_SECONDS = 2.0
 _MAX_REJECTED_ATTEMPTS = 5
 _RETRY_BASE_SECONDS = 2.0
 _RETRY_CAP_SECONDS = 300.0
+_LEASE_SWEEP_INTERVAL_SECONDS = 15.0
 
 
 def _retry_delay(attempt: int) -> float:
@@ -396,12 +397,20 @@ def run(
         daemon=True,
     )
     recovery_thread.start()
+    last_lease_sweep = float("-inf")
 
     try:
         while True:
             try:
                 health.beat("delivery_worker")
                 notify_watchdog()
+
+                # A resource-pressure pause can bypass claim_next indefinitely.
+                # Classify expired in-flight sends without retrying their mutations.
+                current = time.monotonic()
+                if current - last_lease_sweep >= _LEASE_SWEEP_INTERVAL_SECONDS:
+                    queue.expire_leases()
+                    last_lease_sweep = current
 
                 hours_allowed, _reason, _retry_after = WorkingHours.load().admission()
                 allowed, reason, retry_after = admission(manual=not hours_allowed)

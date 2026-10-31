@@ -299,6 +299,51 @@ def test_admission_reads_fail_closed_when_runtime_database_is_locked(tmp_path: P
     assert runtime.read_backoff_status()[0] == 0
 
 
+def test_worker_quarantines_expired_send_during_resource_pause(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    from prompta import delivery_worker
+
+    queue = DeliveryQueueStore(tmp_path / "ui-send-jobs.sqlite3")
+    queue.upsert({
+        "send_id": "expired-running",
+        "message": "Safe test payload",
+        "client_id": "manual:expired",
+        "created_at": 10.0,
+    })
+    assert queue.claim_next("old-owner", now=100.0, lease_seconds=10.0)
+
+    class FakeSender:
+        results = queue.results
+
+        def _new_driver(self) -> None:
+            return None
+
+    class ClosedHours:
+        def admission(self) -> tuple[bool, str, float]:
+            return True, "", 0.0
+
+    monkeypatch.setattr(delivery_worker, "DeliveryQueueStore", lambda _path: queue)
+    monkeypatch.setattr(delivery_worker, "BrowserDeliverySender", lambda *args, **kwargs: FakeSender())
+    monkeypatch.setattr(delivery_worker, "DeliveryAdmission",
+                        lambda _runtime: lambda *, manual: (False, "RAM below threshold", 1.0))
+    monkeypatch.setattr(delivery_worker.WorkingHours, "load", lambda: ClosedHours())
+    monkeypatch.setattr(delivery_worker, "run_history_recovery", lambda *args, **kwargs: None)
+    monkeypatch.setattr(delivery_worker, "notify_watchdog", lambda: None)
+
+    def stop_instead_of_sleep(_seconds: float) -> None:
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(delivery_worker.time, "sleep", stop_instead_of_sleep)
+    delivery_worker.run(state_path=tmp_path / "runtime.sqlite3")
+
+    receipt = queue.get("expired-running")
+    result = queue.results.get("expired-running")
+    assert receipt is not None and receipt["status"] == "outcome_unknown"
+    assert result is not None and result["status"] == "unavailable"
+    assert queue.claim_next("new-owner", now=epoch_time.time(), lease_seconds=30.0) is None
+
+
 def test_worker_keeps_running_after_transient_sqlite_lock(tmp_path: Path, monkeypatch) -> None:
     from prompta import delivery_worker
 
@@ -317,8 +362,14 @@ def test_worker_keeps_running_after_transient_sqlite_lock(tmp_path: Path, monkey
                 raise _locked_error()
 
     class EmptyQueue:
+        sweeps = 0
+
         def __init__(self, path: Path) -> None:
             self.path = path
+
+        def expire_leases(self) -> int:
+            type(self).sweeps += 1
+            return 0
 
         def claim_next(self, *args, **kwargs):
             return None
@@ -352,6 +403,7 @@ def test_worker_keeps_running_after_transient_sqlite_lock(tmp_path: Path, monkey
     delivery_worker.run(state_path=tmp_path / "runtime.sqlite3")
     assert health.beats == 2
     assert sleeps == 2
+    assert EmptyQueue.sweeps == 1
 
 
 def test_send_429_retries_only_its_own_delivery_without_read_throttling(

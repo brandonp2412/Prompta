@@ -9,6 +9,7 @@ import {
   partialResponseLabel,
   safeHref,
   statusLabel,
+  turnStatus,
   type RunSummary,
 } from "../src/ui/resultFormatting";
 
@@ -45,6 +46,14 @@ test("partial response labels distinguish saved text from final content", () => 
   expect(partialResponseLabel("outcome_unknown")).toContain("no automatic resend");
   expect(partialResponseLabel("generating")).toContain("still generating");
   expect(partialResponseLabel("completed")).toBe("Completed");
+});
+
+test("preflight failure does not incorrectly blame browser verification", () => {
+  expect(turnStatus("preflight_failed")).toBe(
+    "Not sent · preflight check failed. Tap Send to retry.",
+  );
+  expect(turnStatus("prepared")).toBe("Pending");
+  expect(turnStatus("outcome_unknown")).toContain("no automatic retry");
 });
 
 test("markdown hyperlinks cannot execute script schemes", () => {

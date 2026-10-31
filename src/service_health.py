@@ -23,7 +23,9 @@ SERVICE_STALE_AFTER_SECONDS = {
     "manual_reply_worker": 20.0,
     "browser": 30.0,
 }
-ACTIVE_DELIVERY_ACTIVITY_MAX_AGE_SECONDS = 125.0
+# Dispatch can take 120 seconds, followed by 60 seconds for durable handoff.
+# Do not falsely mark a worker stale during this bounded browser operation.
+ACTIVE_DELIVERY_ACTIVITY_MAX_AGE_SECONDS = 195.0
 
 
 def build_service_health_snapshot(

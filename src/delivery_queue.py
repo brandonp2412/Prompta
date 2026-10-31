@@ -58,6 +58,44 @@ class DeliveryQueueStore:
             )
 
     @staticmethod
+    def _expire_leases(connection: Connection, at: float) -> list[str]:
+        # Once a send has been attempted, lease expiry cannot authorize replay.
+        # This update is atomic with claim_next for multi-worker safety.
+        expired_ids = connection.execute(
+            update(job_deliveries)
+            .where(
+                job_deliveries.c.status == "running",
+                job_deliveries.c.lease_expires_at <= at,
+            )
+            .values(
+                status="outcome_unknown",
+                error=_EXPIRED_LEASE_ERROR,
+                last_error=_EXPIRED_LEASE_ERROR,
+                updated_at=at,
+                finished_at=at,
+                retry_at=0,
+                lease_owner="",
+                lease_acquired_at=0,
+                lease_expires_at=0,
+            )
+            .returning(job_deliveries.c.send_id)
+        ).scalars().all()
+        return [str(send_id) for send_id in expired_ids]
+
+    def expire_leases(self, *, now: float | None = None) -> int:
+        """Quarantine expired sends even while dispatch admission is blocked.
+
+        Maintenance performs no send, retry or claim, so an unknown outcome
+        remains quarantined until separately verified by a human.
+        """
+        at = time.time() if now is None else float(now)
+        with self.engine.begin() as connection:
+            expired_ids = self._expire_leases(connection, at)
+        for send_id in expired_ids:
+            self._mark_result_unavailable(send_id)
+        return len(expired_ids)
+
+    @staticmethod
     def record_from_row(row: Mapping[str, object]) -> dict[str, object]:
         return {
             "send_id": str(row["send_id"]),
@@ -358,25 +396,7 @@ class DeliveryQueueStore:
         with self.engine.begin() as connection:
             # An expired running lease may already have submitted to ChatGPT.
             # Quarantine it atomically before choosing another queued delivery.
-            expired_ids = connection.execute(
-                update(job_deliveries)
-                .where(
-                    job_deliveries.c.status == "running",
-                    job_deliveries.c.lease_expires_at <= at,
-                )
-                .values(
-                    status="outcome_unknown",
-                    error=_EXPIRED_LEASE_ERROR,
-                    last_error=_EXPIRED_LEASE_ERROR,
-                    updated_at=at,
-                    finished_at=at,
-                    retry_at=0,
-                    lease_owner="",
-                    lease_acquired_at=0,
-                    lease_expires_at=0,
-                )
-                .returning(job_deliveries.c.send_id)
-            ).scalars().all()
+            expired_ids = self._expire_leases(connection, at)
             claimable = or_(
                 (job_deliveries.c.status == "queued") & (job_deliveries.c.retry_at <= at),
                 job_deliveries.c.status.in_(RETRY_DELIVERY_STATUSES)

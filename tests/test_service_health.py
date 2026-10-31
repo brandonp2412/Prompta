@@ -38,12 +38,15 @@ def test_bounded_delivery_activity_is_not_reported_stale(tmp_path) -> None:
     assert store.begin_activity("delivery_worker", "dispatch:opaque", now=200.0)
 
     during_delivery = store.snapshot(now=250.0)["delivery_worker"]
-    after_delivery_deadline = store.snapshot(now=326.0)["delivery_worker"]
+    near_handoff_deadline = store.snapshot(now=380.0)["delivery_worker"]
+    after_delivery_deadline = store.snapshot(now=396.0)["delivery_worker"]
 
     assert during_delivery["heartbeat_age_seconds"] == 50.0
     assert during_delivery["activity_age_seconds"] == 50.0
     assert during_delivery["active"] is True
     assert during_delivery["stale"] is False
+    assert near_handoff_deadline["active"] is True
+    assert near_handoff_deadline["stale"] is False
     assert after_delivery_deadline["active"] is False
     assert after_delivery_deadline["stale"] is True
 

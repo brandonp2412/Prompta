@@ -58,6 +58,42 @@ def test_expired_delivery_lease_is_quarantined_and_renewal_extends_it(tmp_path: 
     assert store.claim_next("worker-c", now=117.0, lease_seconds=10.0) is None
 
 
+def test_expired_leases_are_quarantined_without_any_new_claim(tmp_path: Path) -> None:
+    """Even during admission backoff, an expired send must not stay running."""
+    store = DeliveryQueueStore(tmp_path / "delivery.sqlite3")
+    store.upsert(_queued_record("expired", client_id="manual:expired"))
+    store.upsert(_queued_record("active", client_id="manual:active"))
+    assert store.claim_next("worker-a", now=100.0, lease_seconds=10.0) is not None
+    assert store.claim_next("worker-b", now=100.0, lease_seconds=30.0) is not None
+
+    assert store.expire_leases(now=110.0) == 1
+    assert store.expire_leases(now=110.0) == 0
+
+    expired = store.get("expired")
+    active = store.get("active")
+    assert expired is not None and expired["status"] == "outcome_unknown"
+    assert expired["lease_owner"] == ""
+    assert expired["finished_at"] == 110.0
+    assert active is not None and active["status"] == "running"
+    assert store.renew_lease("active", "worker-b", now=111.0, lease_seconds=30.0)
+    assert store.claim_next("worker-c", now=111.0, lease_seconds=30.0) is None
+
+
+def test_expired_lease_sweep_preserves_accepted_response(tmp_path: Path) -> None:
+    store = DeliveryQueueStore(tmp_path / "delivery.sqlite3")
+    store.upsert(_queued_record())
+    assert store.claim_next("worker-a", now=100.0, lease_seconds=10.0) is not None
+    assert store.results.accept("send-1", "capture-owner", deadline=500.0, now=101.0)
+
+    assert store.expire_leases(now=110.0) == 1
+    accepted = store.results.get("send-1")
+    assert accepted is not None
+    assert accepted["status"] == "accepted"
+    assert accepted["accepted_at"] == 101.0
+    delivery = store.get("send-1")
+    assert delivery is not None and delivery["status"] == "outcome_unknown"
+
+
 def test_health_metrics_cover_pending_and_last_success(tmp_path: Path) -> None:
     store = DeliveryQueueStore(tmp_path / "delivery.sqlite3")
     store.upsert(_queued_record())

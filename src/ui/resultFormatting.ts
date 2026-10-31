@@ -75,7 +75,7 @@ export function turnStatus(status: LocalTurn["status"]): string {
     case "prepared":
       return "Pending";
     case "preflight_failed":
-      return "Not sent · browser verification failed. Tap Send to retry.";
+      return "Not sent · preflight check failed. Tap Send to retry.";
     case "dispatching":
       return "Sending…";
     case "outcome_unknown":
