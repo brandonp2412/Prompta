@@ -6,6 +6,7 @@ import {
   isFlattenedDomResponse,
   nzTime,
   plainPreview,
+  partialResponseLabel,
   safeHref,
   statusLabel,
   type RunSummary,
@@ -36,6 +37,14 @@ test("sidebar groups actual runs without global history", () => {
   ]);
   expect(statusLabel("generating")).toBe("Generating");
   expect(statusLabel("interrupted")).toBe("Interrupted");
+});
+
+test("partial response labels distinguish saved text from final content", () => {
+  expect(partialResponseLabel("interrupted")).toContain("Saved partial answer");
+  expect(partialResponseLabel("interrupted")).toContain("read-only recovery");
+  expect(partialResponseLabel("outcome_unknown")).toContain("no automatic resend");
+  expect(partialResponseLabel("generating")).toContain("still generating");
+  expect(partialResponseLabel("completed")).toBe("Completed");
 });
 
 test("markdown hyperlinks cannot execute script schemes", () => {

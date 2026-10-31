@@ -55,6 +55,21 @@ export type LocalTurn = {
   updated_at: number;
 };
 
+export function partialResponseLabel(status: LocalTurn["status"]): string {
+  switch (status) {
+    case "generating":
+      return "Live partial response · still generating";
+    case "interrupted":
+      return "Saved partial answer · capture interrupted; read-only recovery may complete it";
+    case "unavailable":
+      return "Saved partial answer · capture unavailable";
+    case "outcome_unknown":
+      return "Saved partial answer · send outcome uncertain; no automatic resend";
+    default:
+      return turnStatus(status);
+  }
+}
+
 export function turnStatus(status: LocalTurn["status"]): string {
   switch (status) {
     case "prepared":

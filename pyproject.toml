@@ -85,6 +85,7 @@ strict-generic-narrowing = true
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+pythonpath = ["."]
 
 [tool.uv]
 config-settings = { editable_mode = "strict" }

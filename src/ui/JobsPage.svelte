@@ -30,12 +30,16 @@
   };
 
   type DeliveryHealth = {
+    admission?: { blocked: boolean; kind: string; reason: string };
     recovery: {
       active_captures: number;
       stale_capture_leases: number;
       recoverable: number;
       ready_for_read_only_probe: number;
       missing_verified_identity: number;
+      unresolved_reply_captures: number;
+      recoverable_reply_captures: number;
+      due_reply_recovery_probes: number;
       security_pause_seconds: number;
       global_pace_seconds: number;
       account_read_backoff_seconds: number;
@@ -776,14 +780,14 @@
   {#if deliveryHealth || deliveryHealthError}
     <details class="delivery-diagnostics">
       <summary>
-        <span class:degraded={Boolean(deliveryHealthError) || deliveryHealth?.ready === false} class="delivery-indicator"></span>
-        Delivery {deliveryHealthError ? "status unavailable" : deliveryHealth?.ready === false ? "needs attention" : deliveryHealth ? "online" : "status unavailable"}
+        <span class:degraded={Boolean(deliveryHealthError) || deliveryHealth?.ready === false || deliveryHealth?.admission?.blocked === true} class="delivery-indicator"></span>
+        Delivery {deliveryHealthError ? "status unavailable" : deliveryHealth?.ready === false ? "needs attention" : deliveryHealth?.admission?.blocked ? "waiting for capacity" : deliveryHealth ? "online" : "status unavailable"}
         {#if deliveryHealth}
           <span class="delivery-count">{pendingDeliveries} pending</span>
           {#if deliveryHealth.queue.outcome_unknown}
             <span class="delivery-count">{deliveryHealth.queue.outcome_unknown} unconfirmed historically</span>
           {/if}
-          {#if recoveryPauseSeconds > 0 && deliveryHealth.recovery.recoverable > 0}
+          {#if recoveryPauseSeconds > 0 && (deliveryHealth.recovery.recoverable > 0 || deliveryHealth.recovery.recoverable_reply_captures > 0)}
             <span class="delivery-count">Recovery paused</span>
           {/if}
         {/if}
@@ -799,6 +803,9 @@
           <p role="status">{deliveryHealth.issues.join(" · ")}</p>
         {:else if !deliveryHealthError}
           <p>UI, scheduler, delivery worker and browser are responding.</p>
+        {/if}
+        {#if deliveryHealth.admission?.blocked}
+          <p role="status">Dispatch paused: {deliveryHealth.admission?.reason || "Host resource admission is blocking new sends"}. Queued jobs are retained until capacity returns; no sends are retried after an uncertain outcome.</p>
         {/if}
         <dl>
           <div><dt>Queued</dt><dd>{deliveryHealth.queue.queued}</dd></div>
@@ -816,12 +823,15 @@
           <div><dt>Stale capture leases</dt><dd>{deliveryHealth.recovery.stale_capture_leases}</dd></div>
           <div><dt>Chats eligible for read-only recovery</dt><dd>{deliveryHealth.recovery.recoverable}</dd></div>
           <div><dt>Due for recovery probe</dt><dd>{deliveryHealth.recovery.ready_for_read_only_probe}</dd></div>
+          <div><dt>Unresolved follow-up captures</dt><dd>{deliveryHealth.recovery.unresolved_reply_captures}</dd></div>
+          <div><dt>Follow-ups eligible for recovery</dt><dd>{deliveryHealth.recovery.recoverable_reply_captures}</dd></div>
+          <div><dt>Due follow-up probes</dt><dd>{deliveryHealth.recovery.due_reply_recovery_probes}</dd></div>
           <div><dt>Missing verified chat identity</dt><dd>{deliveryHealth.recovery.missing_verified_identity}</dd></div>
         </dl>
         {#if deliveryHealth.recovery.stale_capture_leases > 0}
           <p role="status">A capture lease is overdue. The worker will reconcile it as interrupted before read-only recovery; the original send is never replayed.</p>
         {/if}
-        {#if recoveryPauseSeconds > 0 && deliveryHealth.recovery.recoverable > 0}
+        {#if recoveryPauseSeconds > 0 && (deliveryHealth.recovery.recoverable > 0 || deliveryHealth.recovery.recoverable_reply_captures > 0)}
           <p role="status">Read-only recovery is waiting for the account safety cooldown (about {Math.ceil(recoveryPauseSeconds / 60)} min). No automatic resends will occur.</p>
         {:else if deliveryHealth.recovery.global_pace_seconds > 0 && deliveryHealth.recovery.ready_for_read_only_probe > 0}
           <p>Read-only recovery is paced to one verified chat at a time; next probe in about {Math.ceil(deliveryHealth.recovery.global_pace_seconds)} seconds.</p>

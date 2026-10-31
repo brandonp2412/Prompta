@@ -1,4 +1,4 @@
-// Read only the two user turns and assistant units belonging to their exact branch.
+// Read only the target user turn and assistant units belonging to its exact branch.
 // Never infer a reply from another chat, and never expose hidden thinking or tool bodies.
 const scanExactReplyTurn = (conversation, originalPrompt, replyText, parent, allowEarlierTurns = false) => {
   const empty = { verified: false, ambiguous: false, message_id: "", branch_message_id: "",
@@ -36,8 +36,8 @@ const scanExactReplyTurn = (conversation, originalPrompt, replyText, parent, all
   };
   const previousUser = users.at(-2);
   const replyUser = users.at(-1);
-  if ((!allowEarlierTurns && (!normalize(originalPrompt) ||
-      !userText(users[0]).startsWith(normalize(originalPrompt)))) ||
+  if ((!allowEarlierTurns && !normalize(originalPrompt)) ||
+      (normalize(originalPrompt) && !userText(users[0]).startsWith(normalize(originalPrompt))) ||
       !normalize(replyText) || userText(replyUser) !== normalize(replyText)) {
     return { ...empty, ambiguous: true };
   }
@@ -90,7 +90,7 @@ const scanExactReplyTurn = (conversation, originalPrompt, replyText, parent, all
   );
   const copyReady = [...main.querySelectorAll(
     'button[data-testid="copy-turn-action-button"], button[aria-label="Copy"]'
-  )].some((button) => visible(button) && after(users[1].node, button));
+  )].some((button) => visible(button) && after(replyUser.node, button));
   const streaming = later.some(({ node }) =>
     !!node.querySelector('[data-is-streaming="true"], .result-streaming')
   );

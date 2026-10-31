@@ -18,7 +18,7 @@
   import { acknowledgeFreshQueueRequest, findFreshQueueReceiptStatus, freshQueueRequest } from "./freshQueueReceipt";
   import { exactReplyReceiptState, findExactReplyReceiptState, type ExactReplyPayload } from "./exactReplyReceipt";
   import {
-    chatMessageTime, formatStoredResponse, statusLabel, turnStatus,
+    chatMessageTime, formatStoredResponse, partialResponseLabel, statusLabel, turnStatus,
     type LocalTurn, type ResultStatus, type RunDetail, type RunSummary,
   } from "./resultFormatting";
 
@@ -1221,7 +1221,7 @@
               {#if turn.tool_calls?.length}<ToolCalls calls={turn.tool_calls} />{/if}
               {#if turn.assistant_text}
                 <ResultMarkdown source={turn.assistant_text} captureSource={index === 0 ? detail.source : ""} />
-                {#if turn.status !== "completed"}<p class="partial-note">{turn.status === "generating" ? "Partial response · " : ""}{turnStatus(turn.status)}</p>{/if}
+                {#if turn.status !== "completed"}<p class="partial-note">{partialResponseLabel(turn.status)}</p>{/if}
                 <div class="response-actions">
                   <button class="copy-message" type="button" aria-label={"Copy assistant reply " + (index + 1)} onclick={() => copyText(formatStoredResponse(turn.assistant_text, index === 0 ? detail?.source ?? "" : ""), turn.reply_id || selectedRunId || "")}>
                     {copyState === (turn.reply_id || detail.send_id) ? "Copied" : copyState === "error:" + (turn.reply_id || detail.send_id) ? "Copy failed" : "Copy"}
