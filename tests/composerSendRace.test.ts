@@ -120,3 +120,34 @@ test("returning to a chat with a newer draft survives its earlier acknowledgment
     restore();
   }
 });
+
+test("identically retyped draft survives an old send receipt after revisiting a chat", async () => {
+  const restore = withComposerEnvironment();
+  const keyA = "prompta.reply-draft.v1.race-identical-A";
+  const pending = deferred<{ ok: boolean; message: string }>();
+  rememberComposerDraft(keyA, "Same words");
+  const props = (chatId: string) => ({
+    mode: "reply" as const,
+    chatId,
+    onSend: () => pending.promise,
+    onNewChat: () => {},
+  });
+  const model = createChatComposerController(props("race-identical-A"));
+  const dispose = model.mount();
+  try {
+    const sending = model.submit();
+    model.syncProps(props("race-identical-B"));
+    model.syncProps(props("race-identical-A"));
+    // Replacing a draft with identical words is still a newer user edit.
+    rememberComposerDraft(keyA, "Same words");
+    pending.resolve({ ok: true, message: "" });
+    await sending;
+    expect(model.draft.value).toBe("Same words");
+    expect(readComposerDraft(keyA)).toBe("Same words");
+    expect(model.sending.value).toBe(false);
+  } finally {
+    dispose();
+    clearComposerDraft(keyA);
+    restore();
+  }
+});

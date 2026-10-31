@@ -15293,12 +15293,20 @@ function JobsPage(props) {
 //#endregion
 //#region src/ui/composerDraftMemory.ts
 var drafts = /* @__PURE__ */ new Map();
+var editRevisions = /* @__PURE__ */ new Map();
+function edited(key) {
+	editRevisions.set(key, (editRevisions.get(key) ?? 0) + 1);
+}
+function composerEditRevision(key) {
+	return editRevisions.get(key) ?? 0;
+}
 var images = /* @__PURE__ */ new Map();
 function readComposerDraft(key) {
 	return key ? drafts.get(key) : void 0;
 }
 function rememberComposerDraft(key, value) {
 	if (!key) return;
+	edited(key);
 	drafts.delete(key);
 	drafts.set(key, value.slice(0, 32e3));
 	if (drafts.size > 48) {
@@ -15307,6 +15315,7 @@ function rememberComposerDraft(key, value) {
 	}
 }
 function clearComposerDraft(key) {
+	edited(key);
 	drafts.delete(key);
 }
 function readComposerImages(key) {
@@ -15314,6 +15323,7 @@ function readComposerImages(key) {
 }
 function rememberComposerImages(key, value) {
 	if (!key) return;
+	edited(key);
 	images.delete(key);
 	if (value.length) images.set(key, value.slice(0, 4));
 	if (images.size > 48) {
@@ -15322,6 +15332,7 @@ function rememberComposerImages(key, value) {
 	}
 }
 function clearComposerImages(key) {
+	edited(key);
 	images.delete(key);
 }
 //#endregion
@@ -15511,13 +15522,14 @@ function createChatComposerController(initialProps) {
 		const generation = ++submissionGeneration;
 		const submitted = draft.value;
 		const submittedImages = images.value.map((image) => image.ref);
+		const submittedEditRevision = composerEditRevision(submittedKey);
 		sending.value = true;
 		feedback.value = "";
 		try {
 			const result = await (useFallback && onFallbackSend.value ? onFallbackSend.value : onSend.value)(submitted, submittedImages);
 			const current = generation === submissionGeneration && draftStorageKey.value === submittedKey;
 			if (result.ok && !current) {
-				if (draftStorageKey.value !== submittedKey && readComposerDraft(submittedKey) === submitted && readComposerImages(submittedKey).length === submittedImages.length && readComposerImages(submittedKey).every((image, index) => image.ref === submittedImages[index])) {
+				if (draftStorageKey.value !== submittedKey && readComposerDraft(submittedKey) === submitted && composerEditRevision(submittedKey) === submittedEditRevision && readComposerImages(submittedKey).length === submittedImages.length && readComposerImages(submittedKey).every((image, index) => image.ref === submittedImages[index])) {
 					clearComposerImages(submittedKey);
 					clearComposerDraft(submittedKey);
 					try {

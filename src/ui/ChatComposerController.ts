@@ -4,6 +4,7 @@ import { untracked as untrack } from "@preact/signals-core";
 import {
   clearComposerDraft,
   clearComposerImages,
+  composerEditRevision,
   readComposerDraft,
   readComposerImages,
   rememberComposerDraft,
@@ -292,6 +293,7 @@ export function createChatComposerController(initialProps: Props) {
     const generation = ++submissionGeneration;
     const submitted = draft.value;
     const submittedImages = images.value.map((image) => image.ref);
+    const submittedEditRevision = composerEditRevision(submittedKey);
     sending.value = true;
     feedback.value = "";
     try {
@@ -305,6 +307,7 @@ export function createChatComposerController(initialProps: Props) {
         if (
           draftStorageKey.value !== submittedKey &&
           readComposerDraft(submittedKey) === submitted &&
+          composerEditRevision(submittedKey) === submittedEditRevision &&
           readComposerImages(submittedKey).length === submittedImages.length &&
           readComposerImages(submittedKey).every(
             (image, index) => image.ref === submittedImages[index],
