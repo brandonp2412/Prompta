@@ -12069,6 +12069,7 @@ function notify(topic) {
 	for (const listener of listeners[topic]) listener();
 }
 function refreshBoth() {
+	if (observedOffline) return;
 	notify("jobs");
 	notify("chats");
 }
@@ -12084,7 +12085,7 @@ function setPollingInterval(milliseconds) {
 	fallbackTimer = window.setInterval(refreshBoth, milliseconds);
 }
 function scheduleReconnect() {
-	if (reconnectTimer !== void 0 || !hasSubscribers()) return;
+	if (observedOffline || reconnectTimer !== void 0 || !hasSubscribers()) return;
 	const delay = Math.min(maxReconnectDelayMs, reconnectDelayMs * 2 ** reconnectAttempts);
 	reconnectAttempts = Math.min(reconnectAttempts + 1, 4);
 	reconnectTimer = window.setTimeout(() => {
@@ -12174,6 +12175,8 @@ function visibleAgain() {
 }
 function offline() {
 	observedOffline = true;
+	window.clearTimeout(reconnectTimer);
+	reconnectTimer = void 0;
 	connectionLost();
 }
 function onlineAgain() {
@@ -12260,10 +12263,16 @@ var emptyQueueSnapshot = {
 	estimate_samples: 0,
 	waiting: []
 };
+function nonNegativeInteger(value) {
+	return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+}
+function positiveInteger(value) {
+	return nonNegativeInteger(value) && value > 0;
+}
 function isQueueSnapshot(value) {
 	if (!value || typeof value !== "object") return false;
-	if (!("waiting" in value) || !Array.isArray(value.waiting) || !("occupied_slots" in value) || typeof value.occupied_slots !== "number" || !Number.isFinite(value.occupied_slots) || !("max_workers" in value) || value.max_workers !== null && typeof value.max_workers !== "number" || !("estimated_run_seconds" in value) || typeof value.estimated_run_seconds !== "number" || !("estimate_samples" in value) || typeof value.estimate_samples !== "number") return false;
-	return value.waiting.every((job) => job !== null && typeof job === "object" && "name" in job && typeof job.name === "string" && "position" in job && typeof job.position === "number" && "reason" in job && (job.reason === "global" || job.reason === "stage") && "occupied" in job && typeof job.occupied === "number" && "limit" in job && typeof job.limit === "number" && "eta_seconds" in job && typeof job.eta_seconds === "number");
+	if (!("waiting" in value) || !Array.isArray(value.waiting) || !("occupied_slots" in value) || !nonNegativeInteger(value.occupied_slots) || !("max_workers" in value) || value.max_workers !== null && !positiveInteger(value.max_workers) || !("estimated_run_seconds" in value) || typeof value.estimated_run_seconds !== "number" || !Number.isFinite(value.estimated_run_seconds) || value.estimated_run_seconds < 0 || !("estimate_samples" in value) || !nonNegativeInteger(value.estimate_samples)) return false;
+	return value.waiting.every((job) => job !== null && typeof job === "object" && "name" in job && typeof job.name === "string" && job.name.length > 0 && "position" in job && positiveInteger(job.position) && "reason" in job && (job.reason === "global" || job.reason === "stage") && "occupied" in job && nonNegativeInteger(job.occupied) && "limit" in job && positiveInteger(job.limit) && "eta_seconds" in job && typeof job.eta_seconds === "number" && Number.isFinite(job.eta_seconds) && job.eta_seconds >= 0);
 }
 function queueEtaText(waiting) {
 	if (!Number.isFinite(waiting.eta_seconds) || waiting.eta_seconds < 0) return "ETA unavailable";
@@ -15657,10 +15666,11 @@ function createChatComposerController(initialProps) {
 				if (generation !== uploadGeneration || key !== draftStorageKey.value) return;
 				if (!response.ok) throw new Error(await localRejectionDetail(response, "Image upload failed."));
 				const result = await response.json();
-				if (!result.image?.ref || !result.image.url.startsWith("./api/images/")) throw new Error("Image upload receipt was invalid.");
-				if (!images.value.some((image) => image.ref === result.image?.ref)) {
-					images.value = [...images.value, result.image];
-					batchRefs.push(result.image.ref);
+				const image = result && typeof result === "object" && "image" in result ? result.image : null;
+				if (!validImage(image)) throw new Error("Image upload receipt was invalid.");
+				if (!images.value.some((item) => item.ref === image.ref)) {
+					images.value = [...images.value, image];
+					batchRefs.push(image.ref);
 					rememberComposerImages(key, images.value);
 				}
 			}

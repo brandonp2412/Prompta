@@ -16,7 +16,7 @@ export type ComposerImageRef = { ref: string; name: string; url: string };
 const images = new Map<string, ComposerImageRef[]>();
 const imageStoragePrefix = "prompta.composer-images.v1.";
 
-function validImage(value: unknown): value is ComposerImageRef {
+export function validImage(value: unknown): value is ComposerImageRef {
   if (!value || typeof value !== "object") return false;
   if (
     !("ref" in value) ||

@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
+import sqlite3
 from pathlib import Path
 
 from prompta.live_events import LocalEventSignals
 from prompta.persistence import account_state, create_database
 
 
-def test_live_revisions_continue_when_a_database_stat_fails(
-    tmp_path: Path, monkeypatch,
+def test_live_revisions_preserve_last_known_state_during_stat_failure(
+    tmp_path: Path,
+    monkeypatch,
 ) -> None:
     jobs = tmp_path / "jobs.sqlite3"
     state = tmp_path / "runtime.sqlite3"
@@ -19,6 +21,7 @@ def test_live_revisions_continue_when_a_database_stat_fails(
 
     signals = LocalEventSignals(jobs, state)
     baseline = signals.snapshot()
+    assert baseline.jobs[2] != (0, 0, 0)
     stat = Path.stat
 
     def intermittent(path: Path, *, follow_symlinks: bool = True):

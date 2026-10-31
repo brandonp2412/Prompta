@@ -9,6 +9,7 @@ import {
   readComposerImages,
   rememberComposerDraft,
   rememberComposerImages,
+  validImage,
 } from "./composerDraftMemory";
 import type { ComposerImageRef } from "./composerDraftMemory";
 import { localPost, localRejectionDetail, localUploadTimeoutMs } from "./localMutation";
@@ -196,14 +197,13 @@ export function createChatComposerController(initialProps: Props) {
         if (generation !== uploadGeneration || key !== draftStorageKey.value) return;
         if (!response.ok)
           throw new Error(await localRejectionDetail(response, "Image upload failed."));
-        const result = (await response.json()) as { image?: ImageRef };
-        if (!result.image?.ref || !result.image.url.startsWith("./api/images/")) {
-          throw new Error("Image upload receipt was invalid.");
-        }
-        // A content-addressed image may have been selected more than once.
-        if (!images.value.some((image) => image.ref === result.image?.ref)) {
-          images.value = [...images.value, result.image];
-          batchRefs.push(result.image.ref);
+        const result: unknown = await response.json();
+        const image =
+          result && typeof result === "object" && "image" in result ? result.image : null;
+        if (!validImage(image)) throw new Error("Image upload receipt was invalid.");
+        if (!images.value.some((item) => item.ref === image.ref)) {
+          images.value = [...images.value, image];
+          batchRefs.push(image.ref);
           rememberComposerImages(key, images.value);
         }
       }
