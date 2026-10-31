@@ -1271,8 +1271,7 @@
         onNewChat={createChat}
         restoreDraft={detail?.send_id === selectedRunId && turns.at(-1)?.status === "preflight_failed" ? turns.at(-1)?.user_text ?? "" : ""}
         retryablePreflight={detail?.send_id === selectedRunId && turns.at(-1)?.status === "preflight_failed"}
-        sendDisabled={detail?.send_id !== selectedRunId || Boolean(replyBlockedReason) || recoveringReply}
-        sendHint={recoveringReply ? "Verifying the exact saved ChatGPT branch…" : replyBlockedReason} />
+        sendDisabled={detail?.send_id !== selectedRunId || Boolean(replyBlockedReason) || recoveringReply} />
     {/if}
   </div>
 </section>

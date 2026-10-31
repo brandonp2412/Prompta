@@ -1035,8 +1035,6 @@ button:disabled { cursor: default; opacity: 0.45; }
 .composer-preview button { position: absolute; right: 3px; top: 3px; width: 24px; height: 24px; border: 0; border-radius: 50%; background: #171717de; color: white; }
 .composer-feedback, .composer-disclaimer { color: #969696; font-size: .69rem; text-align: center; line-height: 1.4; margin: 6px 0 0; }
 .composer-error { color: #f2a3a3; }
-.composer-status { min-height: 1.05rem; color: #b4a78d; font-size: .72rem; line-height: 1.45; text-align: center; margin: 7px 0 0; overflow-wrap: anywhere; }
-.composer-status.has-feedback { color: #aaa; }
 .composer-fallback { display: block; margin: 7px auto 0; padding: 7px 12px; border: 1px solid #716752; border-radius: 999px; background: #302b24; color: #e7d6b5; font: inherit; font-size: .76rem; cursor: pointer; }
 .composer-fallback:hover { background: #3d3428; }
 .composer-fallback:disabled { opacity: .5; cursor: default; }

@@ -5352,7 +5352,7 @@ var root_7$3 = /* @__PURE__ */ from_html(`<p>Counts below are from the last succ
 var root_8$3 = /* @__PURE__ */ from_html(`<p role="status"> </p>`);
 var root_9$3 = /* @__PURE__ */ from_html(`<p>UI, scheduler, delivery worker and browser are responding.</p>`);
 var root_10$3 = /* @__PURE__ */ from_html(`<div><dt>Next queued retry</dt><dd> </dd></div>`);
-var root_11$3 = /* @__PURE__ */ from_html(`<p role="status">A capture lease is overdue. The worker will reconcile it as interrupted before read-only recovery; the original send is never replayed.</p>`);
+var root_11$2 = /* @__PURE__ */ from_html(`<p role="status">A capture lease is overdue. The worker will reconcile it as interrupted before read-only recovery; the original send is never replayed.</p>`);
 var root_12$2 = /* @__PURE__ */ from_html(`<p> </p>`);
 var root_13$2 = /* @__PURE__ */ from_html(`<p>Chats without a verified conversation identity cannot be recovered automatically. Their local partial results remain available.</p>`);
 var root_14$2 = /* @__PURE__ */ from_html(`<p>Rejected or pre-dispatch attempts retry automatically after their backoff.</p>`);
@@ -6184,7 +6184,7 @@ function JobsPage($$anchor, $$props) {
 				reset(dl_1);
 				var node_12 = sibling(dl_1, 2);
 				var consequent_10 = ($$anchor) => {
-					append($$anchor, root_11$3());
+					append($$anchor, root_11$2());
 				};
 				if_block(node_12, ($$render) => {
 					if (get(deliveryHealth).recovery.stale_capture_leases > 0) $$render(consequent_10);
@@ -6746,13 +6746,12 @@ var root_4$3 = /* @__PURE__ */ from_html(`<button class="composer-send composer-
 var root_5$3 = /* @__PURE__ */ from_svg(`<svg class="composer-send-spinner" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 3a9 9 0 1 1-9 9"></path></svg>`);
 var root_6$3 = /* @__PURE__ */ from_svg(`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5m-6 6 6-6 6 6"></path></svg>`);
 var root_7$2 = /* @__PURE__ */ from_html(`<button class="composer-send" type="submit"><!></button>`);
-var root_8$2 = /* @__PURE__ */ from_html(`<p role="status"> </p>`);
-var root_9$2 = /* @__PURE__ */ from_html(`<p class="composer-feedback" role="status"> </p>`);
-var root_10$2 = /* @__PURE__ */ from_html(`<button type="button" class="composer-fallback">Continue in new chat</button>`);
-var root_11$2 = /* @__PURE__ */ from_html(`<form><div class="chat-composer"><!> <textarea rows="1" maxlength="32000" placeholder="Message Prompta…"></textarea> <div class="composer-actions"><div class="composer-attach"><!> <!></div> <!></div></div> <!> <!></form>`);
+var root_8$2 = /* @__PURE__ */ from_html(`<p class="composer-feedback" role="status"> </p>`);
+var root_9$2 = /* @__PURE__ */ from_html(`<button type="button" class="composer-fallback">Continue in new chat</button>`);
+var root_10$2 = /* @__PURE__ */ from_html(`<form><div class="chat-composer"><!> <textarea rows="1" maxlength="32000" placeholder="Message Prompta…"></textarea> <div class="composer-actions"><div class="composer-attach"><!> <!></div> <!></div></div> <!> <!></form>`);
 function ChatComposer($$anchor, $$props) {
 	push($$props, true);
-	let disabled = prop($$props, "disabled", 3, false), sendDisabled = prop($$props, "sendDisabled", 3, false), sendHint = prop($$props, "sendHint", 3, ""), restoreDraft = prop($$props, "restoreDraft", 3, ""), retryablePreflight = prop($$props, "retryablePreflight", 3, false);
+	let disabled = prop($$props, "disabled", 3, false), sendDisabled = prop($$props, "sendDisabled", 3, false), restoreDraft = prop($$props, "restoreDraft", 3, ""), retryablePreflight = prop($$props, "retryablePreflight", 3, false);
 	let draft = /* @__PURE__ */ state("");
 	let restoredDraft = /* @__PURE__ */ state("");
 	let restoredPreflight = /* @__PURE__ */ state(false);
@@ -6972,7 +6971,7 @@ function ChatComposer($$anchor, $$props) {
 		set(dragging, false);
 		addFiles(Array.from(event.dataTransfer?.files || []));
 	}
-	var form = root_11$2();
+	var form = root_10$2();
 	let classes;
 	var div = child(form);
 	var node = child(div);
@@ -7075,33 +7074,22 @@ function ChatComposer($$anchor, $$props) {
 	var node_5 = sibling(div, 2);
 	var consequent_5 = ($$anchor) => {
 		var p = root_8$2();
-		let classes_1;
 		var text_1 = only_child(p, true);
-		template_effect(($0) => {
-			classes_1 = set_class(p, 1, "composer-status", null, classes_1, { "has-feedback": $0 });
-			set_text(text_1, get(feedback) || sendHint() || "\xA0");
-		}, [() => Boolean(get(feedback))]);
+		template_effect(() => set_text(text_1, get(feedback)));
 		append($$anchor, p);
 	};
-	var consequent_6 = ($$anchor) => {
-		var p_1 = root_9$2();
-		var text_2 = only_child(p_1, true);
-		template_effect(() => set_text(text_2, get(feedback)));
-		append($$anchor, p_1);
-	};
 	if_block(node_5, ($$render) => {
-		if ($$props.mode === "reply") $$render(consequent_5);
-		else if (get(feedback)) $$render(consequent_6, 1);
+		if (get(feedback)) $$render(consequent_5);
 	});
 	var node_6 = sibling(node_5, 2);
-	var consequent_7 = ($$anchor) => {
-		var button_4 = root_10$2();
+	var consequent_6 = ($$anchor) => {
+		var button_4 = root_9$2();
 		template_effect(() => button_4.disabled = get(sending));
 		delegated("click", button_4, () => void submit(true));
 		append($$anchor, button_4);
 	};
 	if_block(node_6, ($$render) => {
-		if (get(fallbackAvailable) && $$props.onFallbackSend && get(hasDraft)) $$render(consequent_7);
+		if (get(fallbackAvailable) && $$props.onFallbackSend && get(hasDraft)) $$render(consequent_6);
 	});
 	reset(form);
 	template_effect(() => {
@@ -11047,7 +11035,6 @@ function ChatsPage($$anchor, $$props) {
 			let $0 = /* @__PURE__ */ user_derived(() => get(detail)?.send_id === $$props.selectedRunId && get(turns).at(-1)?.status === "preflight_failed" ? get(turns).at(-1)?.user_text ?? "" : "");
 			let $1 = /* @__PURE__ */ user_derived(() => get(detail)?.send_id === $$props.selectedRunId && get(turns).at(-1)?.status === "preflight_failed");
 			let $2 = /* @__PURE__ */ user_derived(() => get(detail)?.send_id !== $$props.selectedRunId || Boolean(get(replyBlockedReason)) || get(recoveringReply));
-			let $3 = /* @__PURE__ */ user_derived(() => get(recoveringReply) ? "Verifying the exact saved ChatGPT branch…" : get(replyBlockedReason));
 			ChatComposer(node_34, {
 				mode: "reply",
 				get chatId() {
@@ -11064,9 +11051,6 @@ function ChatsPage($$anchor, $$props) {
 				},
 				get sendDisabled() {
 					return get($2);
-				},
-				get sendHint() {
-					return get($3);
 				}
 			});
 		}

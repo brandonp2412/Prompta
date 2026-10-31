@@ -7,7 +7,7 @@
   type ImageRef = ComposerImageRef;
   type SendResult = { ok: boolean; message: string; ambiguous?: boolean; fallbackAvailable?: boolean };
 
-  let { mode, chatId, onSend, onFallbackSend, onNewChat, disabled = false, sendDisabled = false, sendHint = "", restoreDraft = "", retryablePreflight = false }: {
+  let { mode, chatId, onSend, onFallbackSend, onNewChat, disabled = false, sendDisabled = false, restoreDraft = "", retryablePreflight = false }: {
     mode: "fresh" | "reply";
     chatId?: string;
     onSend: (text: string, images: string[]) => Promise<SendResult>;
@@ -15,7 +15,6 @@
     onNewChat: () => void;
     disabled?: boolean;
     sendDisabled?: boolean;
-    sendHint?: string;
     restoreDraft?: string;
     retryablePreflight?: boolean;
   } = $props();
@@ -317,9 +316,7 @@
       {/if}
     </div>
   </div>
-  {#if mode === "reply"}
-    <p class="composer-status" class:has-feedback={Boolean(feedback)} role="status">{feedback || sendHint || "\u00a0"}</p>
-  {:else if feedback}
+  {#if feedback}
     <p class="composer-feedback" role="status">{feedback}</p>
   {/if}
   {#if fallbackAvailable && onFallbackSend && hasDraft}
