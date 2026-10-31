@@ -7,6 +7,7 @@
   --text-muted: #b5b5b5;
   --text-quiet: #a5a5a5;
   --surface-border: #454545;
+  --chat-surface: #212121;
   --gutter: clamp(14px, 2.1vw, 30px);
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   background: #111;
@@ -813,7 +814,7 @@ button:disabled { cursor: default; opacity: 0.45; }
 .chats-pagination { padding: 10px 11px; font-size: .68rem; }
 .chats-pagination button { padding: 6px 7px; }
 .sidebar-footnote { color: #646464; padding: 12px 17px 17px; font-size: .7rem; }
-.chats-detail { background: #212121; }
+.chats-detail { background: var(--chat-surface); }
 .workspace-header {
   position: sticky; top: 0; z-index: 4; min-height: 59px;
   display: flex; align-items: center; gap: 16px; flex: none;
@@ -1004,7 +1005,7 @@ button:disabled { cursor: default; opacity: 0.45; }
 .chat-transcript-shell { position: relative; flex: 1; min-width: 0; min-height: 0; }
 .chat-transcript-scroll { position: absolute; inset: 0; width: 100%; height: 100%; overflow: auto; overscroll-behavior: contain; scrollbar-color: #454545 transparent; scrollbar-gutter: stable; }
 .chat-transcript-scroll.chat-switch-hidden { visibility: hidden; }
-.chat-switch-cover { position: absolute; inset: 0; z-index: 1; overflow: hidden; background: #212121; }
+.chat-switch-cover { position: absolute; inset: 0; z-index: 1; overflow: hidden; background: var(--chat-surface); }
 .chat-switch-skeleton { width: min(100%, 850px); margin: 0 auto; padding: 36px 44px; display: grid; gap: 17px; }
 .chat-switch-line { height: 14px; max-width: 100%; border-radius: 7px; background: #303030; }
 .chat-switch-line.short { width: 18%; height: 10px; background: #393939; }

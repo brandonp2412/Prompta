@@ -41,6 +41,10 @@ def test_chat_switch_keeps_transcript_and_composer_shell_stable(
             page.goto(f"http://127.0.0.1:{port}/?view=chats&run=cls-alpha")
             expect(page.locator(".chat-detail-content")).to_be_visible()
             expect(page.locator(".chat-composer-wrap")).to_be_visible()
+            surface = page.locator(".chats-detail").evaluate(
+                "node => getComputedStyle(node).backgroundColor"
+            )
+            assert surface == "rgb(33, 33, 33)"
             page.evaluate("""() => {
                 window.__geometry = () => {
                     const rect = (selector) => {
@@ -74,12 +78,18 @@ def test_chat_switch_keeps_transcript_and_composer_shell_stable(
             page.locator(".chats-list .chat-row").filter(has_text="CLS Beta").click()
             expect(page.locator(".workspace-header strong")).to_contain_text("CLS Beta")
             expect(page.locator(".chat-switch-cover")).to_be_visible()
+            assert page.locator(".chat-switch-cover").evaluate(
+                "node => getComputedStyle(node).backgroundColor"
+            ) == surface
             assert page.locator(".chat-transcript-scroll").evaluate(
                 "(node) => getComputedStyle(node).visibility"
             ) == "hidden"
             during = page.evaluate("window.__geometry()", isolated_context=False)
             expect(page.locator(".chat-switch-cover")).to_have_count(0, timeout=10000)
             expect(page.locator(".chat-detail-content")).to_contain_text("CLS Beta")
+            assert page.locator(".chats-detail").evaluate(
+                "node => getComputedStyle(node).backgroundColor"
+            ) == surface
             after = page.evaluate("window.__geometry()", isolated_context=False)
             for name in ("header", "shell", "composer"):
                 for metric in ("x", "y", "width", "height"):

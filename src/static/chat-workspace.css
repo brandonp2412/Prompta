@@ -385,7 +385,6 @@
   background: #2b2b2b;
   color: #e8e8e8;
 }
-.chats-detail:has(.chat-transcript-shell) { background: #080808; }
 .assistant-group .code-snippet {
   background: #303030;
   border: 0;
