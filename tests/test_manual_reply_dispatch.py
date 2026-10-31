@@ -333,6 +333,71 @@ def test_accepted_post_with_exact_dom_final_completes_without_sse_body(
     assert fake.calls == 1
 
 
+class AmbiguousThenCompleteDriver(DomOnlyDriver):
+    def __init__(self) -> None:
+        super().__init__()
+        self.observations = 0
+
+    async def wait_capture_update(self, *, timeout: float) -> CaptureResult:
+        del timeout
+        self.observations += 1
+        if self.observations == 1:
+            return CaptureResult("dom", "unknown", "", None, None, None)
+        return CaptureResult(
+            "dom", "complete", "Recovered final after ambiguous hydration",
+            CONVERSATION, "a" * 32, None, "new:assistant",
+        )
+
+
+def test_transient_ambiguous_dom_does_not_interrupt_accepted_reply(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store, state = completed_store(tmp_path)
+    fake = AmbiguousThenCompleteDriver()
+    monkeypatch.setattr(dispatch, "PlaywrightDriver", lambda **_kwargs: fake)
+    monkeypatch.setattr(dispatch, "BrowserDeliverySender", FakeSender)
+    service = dispatch.ManualReplyDispatcher(store, state)
+    intent = ReplyIntent(REPLY_ID, CONVERSATION, PARENT, "Synthetic explicit reply")
+    assert service.submit("send-1", intent)["status"] == "prepared"
+    until = time.monotonic() + 3.0
+    while time.monotonic() < until and REPLY_ID in service._active:
+        time.sleep(0.02)
+    turns = store.turns("send-1")
+    assert turns is not None
+    assert fake.calls == 1
+    assert fake.observations >= 2
+    assert turns[-1]["status"] == "completed"
+    assert turns[-1]["assistant_text"] == "Recovered final after ambiguous hydration"
+
+
+class AmbiguousWrongRouteDriver(AmbiguousThenCompleteDriver):
+    async def eval(self, script: str) -> object:
+        if script.strip() == "location.pathname":
+            return "/c/unrelated"
+        return await super().eval(script)
+
+
+def test_ambiguous_dom_after_leaving_owned_branch_interrupts_safely(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store, state = completed_store(tmp_path)
+    fake = AmbiguousWrongRouteDriver()
+    monkeypatch.setattr(dispatch, "PlaywrightDriver", lambda **_kwargs: fake)
+    monkeypatch.setattr(dispatch, "BrowserDeliverySender", FakeSender)
+    service = dispatch.ManualReplyDispatcher(store, state)
+    intent = ReplyIntent(REPLY_ID, CONVERSATION, PARENT, "Synthetic explicit reply")
+    assert service.submit("send-1", intent)["status"] == "prepared"
+    until = time.monotonic() + 3.0
+    while time.monotonic() < until and REPLY_ID in service._active:
+        time.sleep(0.02)
+    turns = store.turns("send-1")
+    assert turns is not None
+    assert fake.calls == 1
+    assert fake.observations == 1
+    assert turns[-1]["status"] == "interrupted"
+    assert not turns[-1]["assistant_text"]
+
+
 class MissedPostDriver(FakeDriver):
     def __init__(self, *, verified: bool) -> None:
         super().__init__()

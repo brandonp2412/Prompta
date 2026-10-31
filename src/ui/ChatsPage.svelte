@@ -16,6 +16,7 @@
     pendingQueuedFollowupRequest,
   } from "./pendingExactReply";
   import { acknowledgeFreshQueueRequest, findFreshQueueReceiptStatus, freshQueueRequest } from "./freshQueueReceipt";
+  import { exactReplyReceiptState, findExactReplyReceiptState, type ExactReplyPayload } from "./exactReplyReceipt";
   import {
     chatMessageTime, formatStoredResponse, statusLabel, turnStatus,
     type LocalTurn, type ResultStatus, type RunDetail, type RunSummary,
@@ -57,6 +58,11 @@
       case "queued": return "Queued";
       case "prepared": return "Draft";
     }
+  }
+
+  function exactConversationUrl(conversationId: string | undefined): string | null {
+    return conversationId && /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(conversationId)
+      ? "https://chatgpt.com/c/" + conversationId : null;
   }
 
   type WaitingJob = { name: string; position: number; reason: "global" | "stage"; occupied: number; limit: number };
@@ -751,34 +757,59 @@
     }, request);
   }
 
-  async function sendExactReply(sendId: string, payload: {
-    reply_id: string; conversation_id: string; parent_id: string; text: string;
-  }, request?: { replyId: string; fingerprint: string }) {
-    try {
-      const response = await localPost("./api/results/" + encodeURIComponent(sendId) + "/reply-send", payload);
-      if (!response.ok) {
-        const problem = response.status < 500
-          ? await response.json().catch(() => null) as { error?: string } | null : null;
-        return {
-          ok: false, ambiguous: response.status >= 500,
-          message: response.status >= 500
-            ? "Reply outcome could not be confirmed. Check local turns; do not resubmit blindly."
-            : problem?.error || "Reply was not queued. Check the account-wide send gap and saved branch.",
-        };
-      }
-      const receipt = await response.json() as { turn?: { status?: string } };
-      if (receipt.turn?.status === "outcome_unknown") {
-        if (selectedRunId === sendId) await loadDetail(sendId);
-        return { ok: false, message: "The prior send is uncertain. Press Send to attempt branch recovery or continue in a new chat." };
-      }
+  async function sendExactReply(
+    sendId: string, payload: ExactReplyPayload,
+    request?: { replyId: string; fingerprint: string; reused?: boolean },
+  ) {
+    const accepted = async () => {
       if (request) acknowledgeExactReplyRequest(request.fingerprint, request.replyId);
       if (selectedRunId === sendId) await loadDetail(sendId);
       return { ok: true, message: "" };
-    } catch {
-      return {
-        ok: false, ambiguous: true,
-        message: "Reply acknowledgment was lost. Check local turns; no automatic retry.",
+    };
+    const uncertain = () => ({
+      ok: false, ambiguous: true,
+      message: "This exact reply may have been submitted. Its saved ID was preserved; inspect local turns before another attempt.",
+    });
+    const reconcile = async () => {
+      const state = await findExactReplyReceiptState(sendId, payload);
+      if (state === "accepted") return accepted();
+      if (state === "uncertain") return uncertain();
+      if (state === "invalid") return {
+        ok: false, message: "Saved reply identity conflicts with the server. Nothing was resent.",
       };
+      return null;
+    };
+    // A page reload or lost POST receipt must not need another POST when
+    // local SQLite already proves the original exact reply was accepted.
+    if (request?.reused) {
+      const existing = await reconcile();
+      if (existing) return existing;
+    }
+    try {
+      const response = await localPost("./api/results/" + encodeURIComponent(sendId) + "/reply-send", payload);
+      if (!response.ok) {
+        if (response.status >= 500) return await reconcile() ?? uncertain();
+        const problem = await response.json().catch(() => null) as { error?: string } | null;
+        return {
+          ok: false,
+          message: problem?.error || "Reply was not queued. Check the saved branch and try again.",
+        };
+      }
+      const receipt: unknown = await response.json();
+      const turn = receipt && typeof receipt === "object" && "turn" in receipt
+        ? receipt.turn : null;
+      const state = exactReplyReceiptState(turn, payload, sendId);
+      if (state === "accepted") return accepted();
+      if (state === "uncertain") return uncertain();
+      if (state === "not_sent") return {
+        ok: false, message: "The reply was not authorized for dispatch. Press Send again to retry preflight.",
+      };
+      return await reconcile() ?? {
+        ok: false, ambiguous: true,
+        message: "The reply receipt did not match its saved identity. Nothing was resent.",
+      };
+    } catch {
+      return await reconcile() ?? uncertain();
     }
   }
 
@@ -1201,6 +1232,14 @@
                 {#if turn.status === "preflight_failed" && turn.reply_id && turn.conversation_id && turn.parent_id}
                   <button class="row-action" type="button" onclick={() => void retryFailedTurn(turn)}>Retry this follow-up</button>
                 {/if}
+              {/if}
+              {#if ["interrupted", "unavailable", "outcome_unknown"].includes(turn.status) && exactConversationUrl(turn.conversation_id || detail.conversation_id)}
+                <div class="chat-recovery-guidance">
+                  <span>Recovery checks are read-only. No automatic resend.</span>
+                  <a href={exactConversationUrl(turn.conversation_id || detail.conversation_id) ?? undefined} target="_blank" rel="noopener noreferrer">
+                    Open exact chat in ChatGPT
+                  </a>
+                </div>
               {/if}
             </div>
           {/each}

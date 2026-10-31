@@ -53,7 +53,7 @@ timezone = "Pacific/Auckland"
 The start time is inclusive and the end time is exclusive. Overnight windows are supported.
 Scheduled jobs remain durable while delivery is blocked and resume when the window opens.
 Explicit `once` and UI **Fire now** sends bypass the working-hours window, but still obey
-account backoff, resource constraints, and the global send gap. Firing an interval job
+account backoff and resource constraints. There is no artificial global dispatch gap. Firing an interval job
 restarts its countdown from the manual trigger time, replacing any pending scheduled
 send that has not started. Already-running sends cannot be interrupted. Fixed-time
 daily and one-time schedules are unchanged. An ad-hoc `once` prompt has no schedule

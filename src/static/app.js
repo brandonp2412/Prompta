@@ -1,4 +1,4 @@
-//#region ../../prompta/node_modules/svelte/src/internal/shared/utils.js
+//#region node_modules/svelte/src/internal/shared/utils.js
 var is_array = Array.isArray;
 var index_of = Array.prototype.indexOf;
 var includes = Array.prototype.includes;
@@ -71,7 +71,7 @@ var STALE_REACTION = new class StaleReactionError extends Error {
 }();
 var IS_XHTML = !!globalThis.document?.contentType && /* @__PURE__ */ globalThis.document.contentType.includes("xml");
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/constants.js
+//#region node_modules/svelte/src/constants.js
 var HYDRATION_ERROR = {};
 var UNINITIALIZED = Symbol("uninitialized");
 var NAMESPACE_HTML = "http://www.w3.org/1999/xhtml";
@@ -101,7 +101,7 @@ function svelte_boundary_reset_noop() {
 	console.warn(`https://svelte.dev/e/svelte_boundary_reset_noop`);
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/hydration.js
+//#region node_modules/svelte/src/internal/client/dom/hydration.js
 /** @import { TemplateNode } from '#client' */
 /**
 * Use this variable to guard everything related to hydration code so it can be treeshaken out
@@ -180,7 +180,7 @@ function read_hydration_instruction(node) {
 	return node.data;
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/reactivity/equality.js
+//#region node_modules/svelte/src/internal/client/reactivity/equality.js
 /** @import { Equals } from '#client' */
 /** @type {Equals} */
 function equals(value) {
@@ -207,7 +207,7 @@ function lifecycle_outside_component(name) {
 	throw new Error(`https://svelte.dev/e/lifecycle_outside_component`);
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/errors.js
+//#region node_modules/svelte/src/internal/client/errors.js
 /**
 * Cannot create a `$derived(...)` with an `await` expression outside of an effect tree
 * @returns {never}
@@ -292,13 +292,13 @@ function svelte_boundary_reset_onerror() {
 	throw new Error(`https://svelte.dev/e/svelte_boundary_reset_onerror`);
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/flags/index.js
+//#region node_modules/svelte/src/internal/flags/index.js
 /** True if experimental.async=true */
 var async_mode_flag = false;
 /** True if we're not certain that we only have Svelte 5 code in the compilation */
 var legacy_mode_flag = false;
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/context.js
+//#region node_modules/svelte/src/internal/client/context.js
 /** @import { ComponentContext, DevStackEntry, Effect } from '#client' */
 /** @type {ComponentContext | null} */
 var component_context = null;
@@ -358,7 +358,7 @@ function is_runes() {
 	return !legacy_mode_flag || component_context !== null && component_context.l === null;
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/task.js
+//#region node_modules/svelte/src/internal/client/dom/task.js
 /** @type {Array<() => void>} */
 var micro_tasks = [];
 function run_micro_tasks() {
@@ -385,7 +385,7 @@ function flush_tasks() {
 	while (micro_tasks.length > 0) run_micro_tasks();
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/reactivity/status.js
+//#region node_modules/svelte/src/internal/client/reactivity/status.js
 /** @import { Derived, Signal } from '#client' */
 var STATUS_MASK = ~(DIRTY | MAYBE_DIRTY | CLEAN);
 /**
@@ -404,7 +404,7 @@ function update_derived_status(derived) {
 	else set_signal_status(derived, MAYBE_DIRTY);
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/reactivity/utils.js
+//#region node_modules/svelte/src/internal/client/reactivity/utils.js
 /** @import { Effect } from '#client' */
 /**
 * @param {Effect} effect
@@ -417,7 +417,7 @@ function defer_effect(effect, dirty_effects, maybe_dirty_effects) {
 	set_signal_status(effect, CLEAN);
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/elements/misc.js
+//#region node_modules/svelte/src/internal/client/dom/elements/misc.js
 /**
 * The child of a textarea actually corresponds to the defaultValue property, so we need
 * to remove it upon hydration to avoid a bug when someone resets the form value.
@@ -440,7 +440,7 @@ function add_form_reset_listener() {
 	}
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/elements/bindings/shared.js
+//#region node_modules/svelte/src/internal/client/dom/elements/bindings/shared.js
 /**
 * @template T
 * @param {() => T} fn
@@ -478,7 +478,7 @@ function listen_to_event_and_reset_event(element, event, handler, on_reset = han
 	add_form_reset_listener();
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/reactivity/async.js
+//#region node_modules/svelte/src/internal/client/reactivity/async.js
 /** @import { Blocker, Effect, Source, Value } from '#client' */
 /**
 * @param {Blocker[]} blockers
@@ -766,7 +766,7 @@ function unfreeze_derived_effects(derived) {
 	for (const e of derived.effects) if (e.teardown && e.fn !== null) update_effect(e);
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/reactivity/batch.js
+//#region node_modules/svelte/src/internal/client/reactivity/batch.js
 /** @import { Fork } from 'svelte' */
 /** @import { Derived, Effect, Reaction, Source, Value } from '#client' */
 /** @type {Batch | null} */
@@ -1531,7 +1531,7 @@ function reset_all(effect) {
 	}
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/reactivity/sources.js
+//#region node_modules/svelte/src/internal/client/reactivity/sources.js
 /** @import { Derived, Effect, Source, Value } from '#client' */
 /** @type {Set<Effect>} */
 var eager_effects = /* @__PURE__ */ new Set();
@@ -1862,7 +1862,7 @@ function is(a, b) {
 	return Object.is(get_proxied_value(a), get_proxied_value(b));
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/operations.js
+//#region node_modules/svelte/src/internal/client/dom/operations.js
 /** @import { Effect, TemplateNode } from '#client' */
 /** @type {Window} */
 var $window;
@@ -2090,7 +2090,7 @@ function invoke_error_boundary(error, effect) {
 	throw error;
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/reactivity/effects.js
+//#region node_modules/svelte/src/internal/client/reactivity/effects.js
 /** @import { Blocker, ComponentContext, ComponentContextLegacy, Derived, Effect, TemplateNode, TransitionManager } from '#client' */
 /**
 * @param {'$effect' | '$effect.pre' | '$inspect'} rune
@@ -2482,14 +2482,14 @@ function move_effect(effect, fragment) {
 	}
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/legacy.js
+//#region node_modules/svelte/src/internal/client/legacy.js
 /**
 * @type {Set<Value> | null}
 * @deprecated
 */
 var captured_signals = null;
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/runtime.js
+//#region node_modules/svelte/src/internal/client/runtime.js
 /** @import { Derived, Effect, Reaction, Source, Value } from '#client' */
 /**
 * True if updating in an effect context that is reactive (i.e. not branch/root effects)
@@ -2872,7 +2872,7 @@ function is_passive_event(name) {
 	return PASSIVE_EVENTS.includes(name);
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/elements/events.js
+//#region node_modules/svelte/src/internal/client/dom/elements/events.js
 /**
 * Used on elements, as a map of event type -> event handler,
 * and on events themselves to track which element handled an event
@@ -3023,7 +3023,7 @@ function handle_event_propagation(event) {
 	}
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/reconciler.js
+//#region node_modules/svelte/src/internal/client/dom/reconciler.js
 var policy = globalThis?.window?.trustedTypes && /* @__PURE__ */ globalThis.window.trustedTypes.createPolicy("svelte-trusted-html", {
 /** @param {string} html */
 createHTML: (html) => {
@@ -3042,7 +3042,7 @@ function create_fragment_from_html(html) {
 	return elem.content;
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/template.js
+//#region node_modules/svelte/src/internal/client/dom/template.js
 /** @import { Effect, EffectNodes, TemplateNode } from '#client' */
 /** @import { TemplateStructure } from './types' */
 /**
@@ -3188,7 +3188,7 @@ function append(anchor, dom) {
 	anchor.before(dom);
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/reactivity/create-subscriber.js
+//#region node_modules/svelte/src/reactivity/create-subscriber.js
 /**
 * Returns a `subscribe` function that integrates external event-based systems with Svelte's reactivity.
 * It's particularly useful for integrating with web APIs like `MediaQuery`, `IntersectionObserver`, or `WebSocket`.
@@ -3261,7 +3261,7 @@ function createSubscriber(start) {
 	};
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/blocks/boundary.js
+//#region node_modules/svelte/src/internal/client/dom/blocks/boundary.js
 /** @import { Effect, Source, TemplateNode, } from '#client' */
 /**
 * @typedef {{
@@ -3736,7 +3736,7 @@ function _mount(Component, { target, anchor, props = {}, events, context, intro 
 */
 var mounted_components = /* @__PURE__ */ new WeakMap();
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/blocks/branches.js
+//#region node_modules/svelte/src/internal/client/dom/blocks/branches.js
 /** @import { Effect, TemplateNode } from '#client' */
 /**
 * @typedef {{ effect: Effect, fragment: DocumentFragment }} Branch
@@ -3884,7 +3884,7 @@ var BranchManager = class {
 	}
 };
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/blocks/if.js
+//#region node_modules/svelte/src/internal/client/dom/blocks/if.js
 /** @import { TemplateNode } from '#client' */
 /**
 * @param {TemplateNode} node
@@ -3930,7 +3930,7 @@ function if_block(node, fn, elseif = false) {
 	}, flags);
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/blocks/each.js
+//#region node_modules/svelte/src/internal/client/dom/blocks/each.js
 /** @import { EachItem, EachOutroGroup, EachState, Effect, EffectNodes, MaybeSource, Source, TemplateNode, TransitionManager, Value } from '#client' */
 /** @import { Batch } from '../../reactivity/batch.js'; */
 /**
@@ -4347,7 +4347,7 @@ function link(state, prev, next) {
 	else next.prev = prev;
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/blocks/svelte-head.js
+//#region node_modules/svelte/src/internal/client/dom/blocks/svelte-head.js
 /** @import { TemplateNode } from '#client' */
 /**
 * @param {string} hash
@@ -4393,7 +4393,7 @@ function head(hash, render_fn) {
 	}
 }
 //#endregion
-//#region ../../prompta/node_modules/clsx/dist/clsx.mjs
+//#region node_modules/clsx/dist/clsx.mjs
 function r(e) {
 	var t, f, n = "";
 	if ("string" == typeof e || "number" == typeof e) n += e;
@@ -4408,7 +4408,7 @@ function clsx$1() {
 	return n;
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/shared/attributes.js
+//#region node_modules/svelte/src/internal/shared/attributes.js
 /**
 * Small wrapper around clsx to preserve Svelte's (weird) handling of falsy values.
 * TODO Svelte 6 revisit this, and likely turn all falsy values into the empty string (what clsx also does)
@@ -4527,7 +4527,7 @@ function to_style(value, styles) {
 	return value == null ? null : String(value);
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/elements/class.js
+//#region node_modules/svelte/src/internal/client/dom/elements/class.js
 /**
 * @param {Element} dom
 * @param {boolean | number} is_html
@@ -4554,7 +4554,7 @@ function set_class(dom, is_html, value, hash, prev_classes, next_classes) {
 	return next_classes;
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/elements/style.js
+//#region node_modules/svelte/src/internal/client/dom/elements/style.js
 /**
 * @param {Element & ElementCSSInlineStyle} dom
 * @param {Record<string, any>} prev
@@ -4594,7 +4594,7 @@ function set_style(dom, value, prev_styles, next_styles) {
 	return next_styles;
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/elements/bindings/select.js
+//#region node_modules/svelte/src/internal/client/dom/elements/bindings/select.js
 /**
 * Sets the `selected` attribute on an option so form reset can restore it.
 * @param {HTMLOptionElement} option
@@ -4734,7 +4734,7 @@ function is_selectedcontent_mutation(entry) {
 	return false;
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/elements/attributes.js
+//#region node_modules/svelte/src/internal/client/dom/elements/attributes.js
 /** @import { Blocker, Effect } from '#client' */
 var IS_CUSTOM_ELEMENT = Symbol("is custom element");
 var IS_HTML = Symbol("is html");
@@ -4816,7 +4816,7 @@ function get_setters(element) {
 	return setters;
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/elements/bindings/input.js
+//#region node_modules/svelte/src/internal/client/dom/elements/bindings/input.js
 /** @import { Batch } from '../../../reactivity/batch.js' */
 /**
 * @param {HTMLInputElement} input
@@ -4895,7 +4895,7 @@ function to_number(value) {
 	return value === "" ? null : +value;
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/dom/elements/bindings/this.js
+//#region node_modules/svelte/src/internal/client/dom/elements/bindings/this.js
 /** @import { ComponentContext, Effect } from '#client' */
 /**
 * @param {any} bound_value
@@ -4947,7 +4947,7 @@ function bind_this(element_or_component = mark_as_component(), update, get_value
 	return element_or_component;
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/reactivity/store.js
+//#region node_modules/svelte/src/internal/client/reactivity/store.js
 /**
 * Whether or not the prop currently being read is a store binding, as in
 * `<Child bind:x={$y} />`. If it is, we treat the prop as mutable even in
@@ -4972,7 +4972,7 @@ function capture_store_binding(fn) {
 	}
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/client/reactivity/props.js
+//#region node_modules/svelte/src/internal/client/reactivity/props.js
 /** @import { Derived, Effect, Source } from './types.js' */
 /**
 * This function is responsible for synchronizing a possibly bound prop with the inner component state.
@@ -5100,7 +5100,7 @@ function init_update_callbacks(context) {
 	};
 }
 //#endregion
-//#region ../../prompta/node_modules/svelte/src/internal/disclose-version.js
+//#region node_modules/svelte/src/internal/disclose-version.js
 if (typeof window !== "undefined") ((window.__svelte ??= {}).v ??= /* @__PURE__ */ new Set()).add("5");
 //#endregion
 //#region src/ui/jobSorting.ts
@@ -5376,7 +5376,7 @@ var root_31$1 = /* @__PURE__ */ from_html(`<label><span>At (local time)</span> <
 var root_32$1 = /* @__PURE__ */ from_html(`<label class="checkbox-row"><input type="checkbox"/> <span>Exact interval</span></label>`);
 var root_33$1 = /* @__PURE__ */ from_html(`<label class="checkbox-row"><input type="checkbox"/> <span>Pin chat</span></label>`);
 var root_34$1 = /* @__PURE__ */ from_html(`<div class="job-image-preview"><img/> <span> </span> <button type="button">×</button></div>`);
-var root_35 = /* @__PURE__ */ from_html(`<div class="job-image-previews"></div>`);
+var root_35$1 = /* @__PURE__ */ from_html(`<div class="job-image-previews"></div>`);
 var root_36 = /* @__PURE__ */ from_html(`<span>Discard unsaved changes?</span> <button class="toolbar-button" type="button">Keep editing</button> <button class="toolbar-button danger-text" type="button">Discard</button>`, 1);
 var root_37 = /* @__PURE__ */ from_html(`<span class="editor-error"> </span>`);
 var root_38 = /* @__PURE__ */ from_html(`<span class="editor-error">This job already exists. Choose another name.</span>`);
@@ -6587,7 +6587,7 @@ function JobsPage($$anchor, $$props) {
 		reset(div_34);
 		var node_32 = sibling(div_34, 2);
 		var consequent_34 = ($$anchor) => {
-			var div_35 = root_35();
+			var div_35 = root_35$1();
 			each(div_35, 21, () => get(images), (image) => image.ref, ($$anchor, image) => {
 				var div_36 = root_34$1();
 				var img = child(div_36);
@@ -7134,7 +7134,7 @@ delegate([
 	"change"
 ]);
 //#endregion
-//#region ../../prompta/node_modules/marked/lib/marked.esm.js
+//#region node_modules/marked/lib/marked.esm.js
 /**
 * marked v16.4.2 - a markdown parser
 * Copyright (c) 2018-2025, MarkedJS. (MIT License)
@@ -9342,7 +9342,21 @@ function ToolCalls($$anchor, $$props) {
 //#region src/ui/turnRecovery.ts
 function recoverVisibleTurns(stored, previous, original, sameRun) {
 	if (stored?.length) return stored;
-	if (stored === null && sameRun && previous.length) return previous;
+	if (stored === null && sameRun && previous.length) {
+		const first = previous[0];
+		if (first.reply_id || original.updated_at < first.updated_at) return previous;
+		if (first.status === "completed" && original.status !== "completed") return previous;
+		const toolCalls = original.tool_calls?.length ? original.tool_calls : first.tool_calls;
+		const merged = {
+			...first,
+			...original,
+			...toolCalls ? { tool_calls: toolCalls } : {},
+			assistant_text: original.assistant_text.length >= first.assistant_text.length ? original.assistant_text : first.assistant_text,
+			status: original.status
+		};
+		if (merged.updated_at === first.updated_at && merged.status === first.status && merged.assistant_text === first.assistant_text && merged.tool_calls === first.tool_calls) return previous;
+		return [merged, ...previous.slice(1)];
+	}
 	return [original];
 }
 //#endregion
@@ -9461,6 +9475,34 @@ function acknowledgeQueuedFollowupRequest(sendId, fingerprint, replyId) {
 	} catch {}
 }
 //#endregion
+//#region src/ui/exactReplyReceipt.ts
+function exactReplyReceiptState(turn, expected, sendId) {
+	if (!turn || typeof turn !== "object") return "invalid";
+	if (!("reply_id" in turn) || turn.reply_id !== expected.reply_id || !("send_id" in turn) || turn.send_id !== sendId || !("conversation_id" in turn) || turn.conversation_id !== expected.conversation_id || !("parent_id" in turn) || turn.parent_id !== expected.parent_id || !("user_text" in turn) || turn.user_text !== expected.text || !("status" in turn) || typeof turn.status !== "string") return "invalid";
+	if (turn.status === "outcome_unknown") return "uncertain";
+	if (turn.status === "preflight_failed") return "not_sent";
+	if (turn.status === "prepared") return "queued_by_user" in turn && turn.queued_by_user === true ? "accepted" : "not_sent";
+	return [
+		"dispatching",
+		"accepted",
+		"generating",
+		"completed",
+		"interrupted"
+	].includes(turn.status) ? "accepted" : "invalid";
+}
+async function findExactReplyReceiptState(sendId, expected) {
+	try {
+		const response = await localGet("./api/results/" + encodeURIComponent(sendId) + "/turns");
+		if (!response.ok) return null;
+		const body = await response.json();
+		if (!body || typeof body !== "object" || !("turns" in body) || !Array.isArray(body.turns)) return null;
+		const found = body.turns.find((turn) => turn !== null && typeof turn === "object" && "reply_id" in turn && turn.reply_id === expected.reply_id);
+		return found === void 0 ? null : exactReplyReceiptState(found, expected, sendId);
+	} catch {
+		return null;
+	}
+}
+//#endregion
 //#region src/ui/ChatsPage.svelte
 var root$1 = /* @__PURE__ */ from_html(`<span class="unread-indicator" title="Unread reply"><span class="sr-only">Unread reply</span></span>`);
 var root_1$1 = /* @__PURE__ */ from_html(`<div><button type="button" class="chat-row"><span class="chat-row-top"><!> <strong> </strong> <span><span class="sr-only"> </span></span></span></button> <button type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 3h6l-1 6 3 3v2H7v-2l3-3-1-6ZM12 14v7"></path></svg></button></div>`);
@@ -9490,13 +9532,14 @@ var root_24 = /* @__PURE__ */ from_html(`<p class="partial-note"> </p>`);
 var root_25 = /* @__PURE__ */ from_html(`<!> <!> <div class="response-actions"><button class="copy-message" type="button"> </button></div>`, 1);
 var root_26 = /* @__PURE__ */ from_html(`<button class="row-action" type="button">Retry this follow-up</button>`);
 var root_27 = /* @__PURE__ */ from_html(`<p class="no-response"> </p> <!>`, 1);
-var root_28 = /* @__PURE__ */ from_html(`<div class="message-group user-group"><div class="message-role"><span class="sr-only">You <!></span> <time class="message-timestamp"> </time></div> <div class="prompt-bubble"><div> </div> <!></div> <!></div> <div><!> <!> <!></div>`, 1);
-var root_29 = /* @__PURE__ */ from_html(`<div class="chat-detail-content"><!> <!></div>`);
-var root_30 = /* @__PURE__ */ from_html(`<div class="result-error recovery-error"><span> </span> <button type="button">Retry chat</button></div>`);
-var root_31 = /* @__PURE__ */ from_html(`<div class="chat-switch-skeleton" aria-hidden="true"><div class="chat-switch-line short"></div> <div class="chat-switch-line prompt"></div> <div class="chat-switch-line medium"></div> <div class="chat-switch-line answer"></div> <div class="chat-switch-line answer last"></div></div> <span class="sr-only">Loading selected chat…</span>`, 1);
-var root_32 = /* @__PURE__ */ from_html(`<div class="chat-switch-cover" role="status"><!></div>`);
-var root_33 = /* @__PURE__ */ from_html(`<!> <div class="chat-transcript-shell"><div><!> <!></div> <!></div> <!>`, 1);
-var root_34 = /* @__PURE__ */ from_html(`<section aria-label="Prompta local chats and jobs"><button type="button" class="drawer-backdrop" aria-label="Close chat sidebar"></button> <aside class="chats-sidebar" aria-label="Local chat sidebar"><div class="sidebar-brand"><div><strong>Prompta</strong></div> <button class="sidebar-close" type="button" aria-label="Close sidebar">×</button></div> <nav class="sidebar-actions" aria-label="Main navigation"><button type="button" aria-label="Jobs" title="Jobs"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="3"></rect><path d="M8 9h8M8 13h8M8 17h5"></path></svg> <span class="action-label">Jobs</span></button> <button class="sidebar-primary" type="button" aria-label="New chat" title="New chat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7M16 4l4 4M9 15l3.5-.7L21 5.8a2.1 2.1 0 0 0-3-3l-8.5 8.5L9 15Z"></path></svg> <span class="action-label">New</span></button> <button type="button" aria-label="Search chats" title="Search chats" aria-controls="chat-filters"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"></circle><path d="m16 16 5 5"></path></svg> <span class="action-label">Search</span> <!></button></nav> <div class="sidebar-read-actions"><button type="button" class="mark-all-read" aria-label="Mark all local chats as read" title="Mark all local chats as read"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m2 12 4 4L16 6M9 12l4 4L23 6"></path></svg> </button></div> <!> <!> <!> <!> <!> <div class="chats-list"><!> <!> <!></div></aside> <div class="chats-detail"><div class="workspace-header"><!> <strong> </strong></div> <!></div></section>`);
+var root_28 = /* @__PURE__ */ from_html(`<div class="chat-recovery-guidance"><span>Recovery checks are read-only. No automatic resend.</span> <a target="_blank" rel="noopener noreferrer">Open exact chat in ChatGPT</a></div>`);
+var root_29 = /* @__PURE__ */ from_html(`<div class="message-group user-group"><div class="message-role"><span class="sr-only">You <!></span> <time class="message-timestamp"> </time></div> <div class="prompt-bubble"><div> </div> <!></div> <!></div> <div><!> <!> <!> <!></div>`, 1);
+var root_30 = /* @__PURE__ */ from_html(`<div class="chat-detail-content"><!> <!></div>`);
+var root_31 = /* @__PURE__ */ from_html(`<div class="result-error recovery-error"><span> </span> <button type="button">Retry chat</button></div>`);
+var root_32 = /* @__PURE__ */ from_html(`<div class="chat-switch-skeleton" aria-hidden="true"><div class="chat-switch-line short"></div> <div class="chat-switch-line prompt"></div> <div class="chat-switch-line medium"></div> <div class="chat-switch-line answer"></div> <div class="chat-switch-line answer last"></div></div> <span class="sr-only">Loading selected chat…</span>`, 1);
+var root_33 = /* @__PURE__ */ from_html(`<div class="chat-switch-cover" role="status"><!></div>`);
+var root_34 = /* @__PURE__ */ from_html(`<!> <div class="chat-transcript-shell"><div><!> <!></div> <!></div> <!>`, 1);
+var root_35 = /* @__PURE__ */ from_html(`<section aria-label="Prompta local chats and jobs"><button type="button" class="drawer-backdrop" aria-label="Close chat sidebar"></button> <aside class="chats-sidebar" aria-label="Local chat sidebar"><div class="sidebar-brand"><div><strong>Prompta</strong></div> <button class="sidebar-close" type="button" aria-label="Close sidebar">×</button></div> <nav class="sidebar-actions" aria-label="Main navigation"><button type="button" aria-label="Jobs" title="Jobs"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="3"></rect><path d="M8 9h8M8 13h8M8 17h5"></path></svg> <span class="action-label">Jobs</span></button> <button class="sidebar-primary" type="button" aria-label="New chat" title="New chat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7M16 4l4 4M9 15l3.5-.7L21 5.8a2.1 2.1 0 0 0-3-3l-8.5 8.5L9 15Z"></path></svg> <span class="action-label">New</span></button> <button type="button" aria-label="Search chats" title="Search chats" aria-controls="chat-filters"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"></circle><path d="m16 16 5 5"></path></svg> <span class="action-label">Search</span> <!></button></nav> <div class="sidebar-read-actions"><button type="button" class="mark-all-read" aria-label="Mark all local chats as read" title="Mark all local chats as read"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m2 12 4 4L16 6M9 12l4 4L23 6"></path></svg> </button></div> <!> <!> <!> <!> <!> <div class="chats-list"><!> <!> <!></div></aside> <div class="chats-detail"><div class="workspace-header"><!> <strong> </strong></div> <!></div></section>`);
 function ChatsPage($$anchor, $$props) {
 	push($$props, true);
 	const chatItem = ($$anchor, item = noop) => {
@@ -9596,6 +9639,9 @@ function ChatsPage($$anchor, $$props) {
 			case "queued": return "Queued";
 			case "prepared": return "Draft";
 		}
+	}
+	function exactConversationUrl(conversationId) {
+		return conversationId && /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(conversationId) ? "https://chatgpt.com/c/" + conversationId : null;
 	}
 	let queueSnapshot = /* @__PURE__ */ state(proxy({
 		max_workers: null,
@@ -10251,35 +10297,57 @@ function ChatsPage($$anchor, $$props) {
 		}, request);
 	}
 	async function sendExactReply(sendId, payload, request) {
-		try {
-			const response = await localPost("./api/results/" + encodeURIComponent(sendId) + "/reply-send", payload);
-			if (!response.ok) {
-				const problem = response.status < 500 ? await response.json().catch(() => null) : null;
-				return {
-					ok: false,
-					ambiguous: response.status >= 500,
-					message: response.status >= 500 ? "Reply outcome could not be confirmed. Check local turns; do not resubmit blindly." : problem?.error || "Reply was not queued. Check the account-wide send gap and saved branch."
-				};
-			}
-			if ((await response.json()).turn?.status === "outcome_unknown") {
-				if ($$props.selectedRunId === sendId) await loadDetail(sendId);
-				return {
-					ok: false,
-					message: "The prior send is uncertain. Press Send to attempt branch recovery or continue in a new chat."
-				};
-			}
+		const accepted = async () => {
 			if (request) acknowledgeExactReplyRequest(request.fingerprint, request.replyId);
 			if ($$props.selectedRunId === sendId) await loadDetail(sendId);
 			return {
 				ok: true,
 				message: ""
 			};
-		} catch {
-			return {
+		};
+		const uncertain = () => ({
+			ok: false,
+			ambiguous: true,
+			message: "This exact reply may have been submitted. Its saved ID was preserved; inspect local turns before another attempt."
+		});
+		const reconcile = async () => {
+			const state = await findExactReplyReceiptState(sendId, payload);
+			if (state === "accepted") return accepted();
+			if (state === "uncertain") return uncertain();
+			if (state === "invalid") return {
+				ok: false,
+				message: "Saved reply identity conflicts with the server. Nothing was resent."
+			};
+			return null;
+		};
+		if (request?.reused) {
+			const existing = await reconcile();
+			if (existing) return existing;
+		}
+		try {
+			const response = await localPost("./api/results/" + encodeURIComponent(sendId) + "/reply-send", payload);
+			if (!response.ok) {
+				if (response.status >= 500) return await reconcile() ?? uncertain();
+				return {
+					ok: false,
+					message: (await response.json().catch(() => null))?.error || "Reply was not queued. Check the saved branch and try again."
+				};
+			}
+			const receipt = await response.json();
+			const state = exactReplyReceiptState(receipt && typeof receipt === "object" && "turn" in receipt ? receipt.turn : null, payload, sendId);
+			if (state === "accepted") return accepted();
+			if (state === "uncertain") return uncertain();
+			if (state === "not_sent") return {
+				ok: false,
+				message: "The reply was not authorized for dispatch. Press Send again to retry preflight."
+			};
+			return await reconcile() ?? {
 				ok: false,
 				ambiguous: true,
-				message: "Reply acknowledgment was lost. Check local turns; no automatic retry."
+				message: "The reply receipt did not match its saved identity. Nothing was resent."
 			};
+		} catch {
+			return await reconcile() ?? uncertain();
 		}
 	}
 	async function retryFailedTurn(turn) {
@@ -10463,7 +10531,7 @@ function ChatsPage($$anchor, $$props) {
 			clearTimeout(searchTimer);
 		};
 	});
-	var section = root_34();
+	var section = root_35();
 	event("keydown", $window, escapeDrawer);
 	event("touchstart", $window, startSwipe, void 0, true);
 	event("touchend", $window, finishSwipe);
@@ -10711,7 +10779,7 @@ function ChatsPage($$anchor, $$props) {
 		append($$anchor, div_14);
 	};
 	var alternate_5 = ($$anchor) => {
-		var fragment_6 = root_33();
+		var fragment_6 = root_34();
 		var node_17 = first_child(fragment_6);
 		var consequent_15 = ($$anchor) => {
 			var div_15 = root_8();
@@ -10744,8 +10812,8 @@ function ChatsPage($$anchor, $$props) {
 			if (get(detailError)) $$render(consequent_16);
 		});
 		var node_19 = sibling(node_18, 2);
-		var consequent_26 = ($$anchor) => {
-			var div_19 = root_29();
+		var consequent_27 = ($$anchor) => {
+			var div_19 = root_30();
 			var node_20 = child(div_19);
 			var consequent_17 = ($$anchor) => {
 				var div_20 = root_19();
@@ -10761,7 +10829,7 @@ function ChatsPage($$anchor, $$props) {
 				if (get(turnsError)) $$render(consequent_17);
 			});
 			each(sibling(node_20, 2), 19, () => get(turns), (turn) => turn.reply_id || get(detail).send_id, ($$anchor, turn, index) => {
-				var fragment_7 = root_28();
+				var fragment_7 = root_29();
 				var div_21 = first_child(fragment_7);
 				var div_22 = child(div_21);
 				var span_17 = child(div_22);
@@ -10903,6 +10971,22 @@ function ChatsPage($$anchor, $$props) {
 					if (get(turn).assistant_text) $$render(consequent_24);
 					else $$render(alternate_3, -1);
 				});
+				var node_31 = sibling(node_27, 2);
+				var consequent_26 = ($$anchor) => {
+					var div_29 = root_28();
+					var a_2 = sibling(child(div_29), 2);
+					reset(div_29);
+					template_effect(($0) => set_attribute(a_2, "href", $0), [() => exactConversationUrl(get(turn).conversation_id || get(detail).conversation_id) ?? void 0]);
+					append($$anchor, div_29);
+				};
+				var d_1 = /* @__PURE__ */ user_derived(() => [
+					"interrupted",
+					"unavailable",
+					"outcome_unknown"
+				].includes(get(turn).status) && exactConversationUrl(get(turn).conversation_id || get(detail).conversation_id));
+				if_block(node_31, ($$render) => {
+					if (get(d_1)) $$render(consequent_26);
+				});
 				reset(div_26);
 				template_effect(($0, $1) => {
 					set_attribute(time, "datetime", $0);
@@ -10918,48 +11002,48 @@ function ChatsPage($$anchor, $$props) {
 			append($$anchor, div_19);
 		};
 		if_block(node_19, ($$render) => {
-			if (get(detail)) $$render(consequent_26);
+			if (get(detail)) $$render(consequent_27);
 		});
 		reset(div_17);
 		bind_this(div_17, ($$value) => set(scrollPane, $$value), () => get(scrollPane));
-		var node_31 = sibling(div_17, 2);
-		var consequent_28 = ($$anchor) => {
-			var div_29 = root_32();
-			var node_32 = child(div_29);
-			var consequent_27 = ($$anchor) => {
-				var div_30 = root_30();
-				var span_19 = child(div_30);
+		var node_32 = sibling(div_17, 2);
+		var consequent_29 = ($$anchor) => {
+			var div_30 = root_33();
+			var node_33 = child(div_30);
+			var consequent_28 = ($$anchor) => {
+				var div_31 = root_31();
+				var span_19 = child(div_31);
 				var text_29 = only_child(span_19, true);
 				var button_22 = sibling(span_19, 2);
-				reset(div_30);
+				reset(div_31);
 				template_effect(() => set_text(text_29, get(detailError)));
 				delegated("click", button_22, () => $$props.selectedRunId && void loadDetail($$props.selectedRunId));
-				append($$anchor, div_30);
+				append($$anchor, div_31);
 			};
 			var alternate_4 = ($$anchor) => {
-				var fragment_12 = root_31();
+				var fragment_12 = root_32();
 				next(2);
 				append($$anchor, fragment_12);
 			};
-			if_block(node_32, ($$render) => {
-				if (get(detailError)) $$render(consequent_27);
+			if_block(node_33, ($$render) => {
+				if (get(detailError)) $$render(consequent_28);
 				else $$render(alternate_4, -1);
 			});
-			reset(div_29);
-			template_effect(() => set_attribute(div_29, "aria-label", get(detailError) ? "Chat unavailable" : "Loading selected chat"));
-			append($$anchor, div_29);
+			reset(div_30);
+			template_effect(() => set_attribute(div_30, "aria-label", get(detailError) ? "Chat unavailable" : "Loading selected chat"));
+			append($$anchor, div_30);
 		};
-		if_block(node_31, ($$render) => {
-			if (get(switchingChat)) $$render(consequent_28);
+		if_block(node_32, ($$render) => {
+			if (get(switchingChat)) $$render(consequent_29);
 		});
 		reset(div_16);
-		var node_33 = sibling(div_16, 2);
+		var node_34 = sibling(div_16, 2);
 		{
 			let $0 = /* @__PURE__ */ user_derived(() => get(detail)?.send_id === $$props.selectedRunId && get(turns).at(-1)?.status === "preflight_failed" ? get(turns).at(-1)?.user_text ?? "" : "");
 			let $1 = /* @__PURE__ */ user_derived(() => get(detail)?.send_id === $$props.selectedRunId && get(turns).at(-1)?.status === "preflight_failed");
 			let $2 = /* @__PURE__ */ user_derived(() => get(detail)?.send_id !== $$props.selectedRunId || Boolean(get(replyBlockedReason)) || get(recoveringReply));
 			let $3 = /* @__PURE__ */ user_derived(() => get(recoveringReply) ? "Verifying the exact saved ChatGPT branch…" : get(replyBlockedReason));
-			ChatComposer(node_33, {
+			ChatComposer(node_34, {
 				mode: "reply",
 				get chatId() {
 					return $$props.selectedRunId;

@@ -404,11 +404,16 @@ class ManualReplyDispatcher:
                             deadline - asyncio.get_running_loop().time(),
                         )
                     )
+                    # Ambiguous DOM observers are common during hydration.
+                    # Stop only if the owned page actually left its exact
+                    # saved branch; otherwise wait for identity-bound evidence.
                     if (
                         update is not None
                         and update.source == "dom"
                         and update.status == "unknown"
                         and not update.message_id
+                        and await driver.eval(load_browser_script("location_pathname.js"))
+                        != "/c/" + conversation_id
                     ):
                         break
                     if (

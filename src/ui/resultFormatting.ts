@@ -26,6 +26,7 @@ export type RunDetail = RunSummary & {
   assistant_text: string;
   tool_calls?: CapturedToolCall[];
   source: string;
+  conversation_id?: string;
   accepted_at: number;
   images: { name: string; url: string }[];
 };
