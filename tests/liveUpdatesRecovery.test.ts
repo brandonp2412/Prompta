@@ -160,12 +160,38 @@ test("network return immediately repairs an offline stream without duplicate lis
       expect(instances.length).toBe(2);
       expect(instances[0]?.closed).toBe(true);
       instances[0]?.emit("sync");
-      expect(updates).toBe(3); // One refresh on loss, one on reconnection.
+      expect(updates).toBe(2); // Skip futile local reads while explicitly offline.
       instances[1]?.emit("open");
       instances[1]?.emit("sync");
-      expect(updates).toBe(4);
+      expect(updates).toBe(3);
       fireWindow("online");
       expect(instances.length).toBe(2); // No repeated reconnect after recovery.
+    } finally {
+      off();
+    }
+  });
+});
+
+test("offline mode cancels reconnect attempts and resumes once online", () => {
+  withFakeStream(({ instances, timers, fireWindow, fire }) => {
+    let updates = 0;
+    const off = subscribeLiveUpdates("chats", () => {
+      updates += 1;
+    });
+    try {
+      instances[0]?.emit("sync");
+      if (instances[0]) instances[0].readyState = 2;
+      instances[0]?.emit("error");
+      expect([...timers.values()].some((timer) => timer.ms === 2000)).toBe(true);
+      fireWindow("offline");
+      expect([...timers.values()].some((timer) => timer.ms === 2000)).toBe(false);
+      expect(updates).toBe(2);
+      fire(10000);
+      expect(instances).toHaveLength(1);
+      fireWindow("online");
+      expect(instances).toHaveLength(2);
+      expect(instances[0]?.closed).toBe(true);
+      expect(updates).toBe(3);
     } finally {
       off();
     }

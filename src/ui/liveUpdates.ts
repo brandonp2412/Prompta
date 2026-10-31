@@ -32,6 +32,7 @@ function notify(topic: Topic) {
 }
 
 function refreshBoth() {
+  if (observedOffline) return;
   notify("jobs");
   notify("chats");
 }
@@ -50,7 +51,7 @@ function setPollingInterval(milliseconds: number) {
 }
 
 function scheduleReconnect() {
-  if (reconnectTimer !== undefined || !hasSubscribers()) return;
+  if (observedOffline || reconnectTimer !== undefined || !hasSubscribers()) return;
   const delay = Math.min(maxReconnectDelayMs, reconnectDelayMs * 2 ** reconnectAttempts);
   reconnectAttempts = Math.min(reconnectAttempts + 1, 4);
   reconnectTimer = window.setTimeout(() => {
@@ -157,6 +158,8 @@ function visibleAgain() {
 
 function offline() {
   observedOffline = true;
+  window.clearTimeout(reconnectTimer);
+  reconnectTimer = undefined;
   connectionLost();
 }
 

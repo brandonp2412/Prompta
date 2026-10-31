@@ -40,14 +40,23 @@ def register_chat_routes(app: FastAPI, local: WebServices) -> None:
     @app.post("/api/chats", status_code=202)
     def fresh_chat(payload: FreshChatRequest) -> dict[str, object]:
         refs = image_refs(payload.images)
-        for ref in refs:
-            local.images.path(ref)
-        accepted = local.queue.enqueue_manual(
-            payload.prompt.strip(),
-            images=refs,
-            request_id=payload.request_id,
-            pin_local_default=True,
-        )
+        # A lost HTTP acknowledgement can be retried after its image file is
+        # unavailable. The immutable queued receipt is still authoritative.
+        if local.queue.get(f"manual-{payload.request_id}") is None:
+            for ref in refs:
+                try:
+                    local.images.path(ref)
+                except ValueError as exc:
+                    raise HTTPException(422, "Image unavailable. Reattach it before sending.") from exc
+        try:
+            accepted = local.queue.enqueue_manual(
+                payload.prompt.strip(),
+                images=refs,
+                request_id=payload.request_id,
+                pin_local_default=True,
+            )
+        except ValueError as exc:
+            raise HTTPException(409, "Fresh chat request ID conflicts with an earlier payload.") from exc
         return {"ok": True, "send_id": accepted["send_id"], "status": accepted["status"]}
 
     @app.post("/api/images")

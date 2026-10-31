@@ -23,38 +23,51 @@ export const emptyQueueSnapshot: QueueSnapshot = {
   waiting: [],
 };
 
+function nonNegativeInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+}
+
+function positiveInteger(value: unknown): value is number {
+  return nonNegativeInteger(value) && value > 0;
+}
+
 export function isQueueSnapshot(value: unknown): value is QueueSnapshot {
   if (!value || typeof value !== "object") return false;
   if (
     !("waiting" in value) ||
     !Array.isArray(value.waiting) ||
     !("occupied_slots" in value) ||
-    typeof value.occupied_slots !== "number" ||
-    !Number.isFinite(value.occupied_slots) ||
+    !nonNegativeInteger(value.occupied_slots) ||
     !("max_workers" in value) ||
-    (value.max_workers !== null && typeof value.max_workers !== "number") ||
+    (value.max_workers !== null && !positiveInteger(value.max_workers)) ||
     !("estimated_run_seconds" in value) ||
     typeof value.estimated_run_seconds !== "number" ||
+    !Number.isFinite(value.estimated_run_seconds) ||
+    value.estimated_run_seconds < 0 ||
     !("estimate_samples" in value) ||
-    typeof value.estimate_samples !== "number"
+    !nonNegativeInteger(value.estimate_samples)
   )
     return false;
+
   return value.waiting.every(
     (job: unknown) =>
       job !== null &&
       typeof job === "object" &&
       "name" in job &&
       typeof job.name === "string" &&
+      job.name.length > 0 &&
       "position" in job &&
-      typeof job.position === "number" &&
+      positiveInteger(job.position) &&
       "reason" in job &&
       (job.reason === "global" || job.reason === "stage") &&
       "occupied" in job &&
-      typeof job.occupied === "number" &&
+      nonNegativeInteger(job.occupied) &&
       "limit" in job &&
-      typeof job.limit === "number" &&
+      positiveInteger(job.limit) &&
       "eta_seconds" in job &&
-      typeof job.eta_seconds === "number",
+      typeof job.eta_seconds === "number" &&
+      Number.isFinite(job.eta_seconds) &&
+      job.eta_seconds >= 0,
   );
 }
 
