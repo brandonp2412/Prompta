@@ -137,7 +137,7 @@ async def test_patchright_driver_selects_main_world_for_passive_callbacks(tmp_pa
 
 
 @pytest.mark.asyncio
-async def test_native_completed_sse_persists_only_bounded_tool_metadata(tmp_path: Path) -> None:
+async def test_native_completed_sse_persists_bounded_redacted_tool_details(tmp_path: Path) -> None:
     driver = PatchrightDriver(profile=tmp_path)
     driver._connected = True
     driver.context = "owned-fresh-tab"
@@ -175,7 +175,7 @@ async def test_native_completed_sse_persists_only_bounded_tool_metadata(tmp_path
     result = driver.captured_assistant_response(capture)
     assert result is not None and result.status == "complete"
     assert result.tool_calls[0]["action"] == "search"
-    assert result.tool_calls[0]["arguments"] == ""
+    assert "PRIVATE_QUERY" in str(result.tool_calls[0]["arguments"])
     assert result.tool_calls[0]["result"] == ""
-    assert "PRIVATE" not in str(result.tool_calls)
+    assert "PRIVATE_SECRET" not in str(result.tool_calls)
     await driver.close()

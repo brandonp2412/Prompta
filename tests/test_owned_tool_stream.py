@@ -28,7 +28,7 @@ def encoded(chunk: bytes) -> str:
 
 
 @pytest.mark.asyncio
-async def test_streamed_tool_call_and_result_across_owned_posts_persist_without_payload(
+async def test_streamed_tool_call_and_result_across_owned_posts_persist_redacted_payload(
     tmp_path: Path,
 ) -> None:
     session = Mock(spec=CDPSession)
@@ -65,7 +65,7 @@ async def test_streamed_tool_call_and_result_across_owned_posts_persist_without_
     stream.on_data({"requestId": "post-1", "data": encoded(payload[:34])})
     stream.on_data({"requestId": "post-1", "data": encoded(payload[34:])})
     assert updates[-1].tool_calls[0]["status"] == "running"
-    assert "PRIVATE_SEARCH" not in str(updates)
+    assert "PRIVATE_SEARCH" in str(updates)
     assert "PRIVATE_SECRET" not in str(updates)
     stream.on_finished({"requestId": "post-1"})
 
@@ -80,7 +80,7 @@ async def test_streamed_tool_call_and_result_across_owned_posts_persist_without_
     stream.on_data({"requestId": "post-2", "data": encoded(frame(result))})
     assert len(updates[-1].tool_calls) == 1
     assert updates[-1].tool_calls[0]["status"] == "completed"
-    assert "PRIVATE_RESULT" not in str(updates)
+    assert "PRIVATE_RESULT" in str(updates)
 
     store = ResponseStore(tmp_path / "results.sqlite3")
     store.ensure_queued("owned", "Tool canary", now=1)
@@ -91,7 +91,8 @@ async def test_streamed_tool_call_and_result_across_owned_posts_persist_without_
     assert record["tool_calls"] == list(updates[-1].tool_calls)
     assert record["assistant_text"] == ""
     assert record["status"] == "accepted"
-    assert "PRIVATE" not in str(record["tool_calls"])
+    assert "PRIVATE_SECRET" not in str(record["tool_calls"])
+    assert "PRIVATE_RESULT" in str(record["tool_calls"])
     await stream.stop()
 
 

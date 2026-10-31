@@ -40,6 +40,8 @@ def test_touch_swipes_open_and_close_sidebar_without_network_mutation(tmp_path: 
             )
             page.goto(f"http://127.0.0.1:{port}/?view=chats&run=swipe-alpha")
             expect(page.get_by_role("button", name="Open chat sidebar")).to_be_visible()
+            expect(page.locator(".workspace-header strong")).to_have_text("Swipe Test")
+            assert page.title().startswith("Prompta · Swipe Test · ")
             page.wait_for_timeout(100)
             expect(page.locator(".chats-layout.drawer-open")).to_have_count(0)
             cdp = page.context.new_cdp_session(page)
@@ -55,6 +57,13 @@ def test_touch_swipes_open_and_close_sidebar_without_network_mutation(tmp_path: 
 
             swipe((20, 80, 150, 230))
             expect(page.locator(".chats-layout.drawer-open")).to_be_visible()
+            page.get_by_label("Chat options", exact=True).click()
+            menu = page.locator(".sidebar-options-menu")
+            expect(menu).to_be_visible()
+            bounds = menu.bounding_box()
+            assert bounds is not None and bounds["x"] >= 0
+            page.get_by_role("button", name="Mark all local chats as read").click()
+            expect(page.locator(".sidebar-options")).not_to_have_attribute("open", "")
             swipe((230, 180, 100, 20))
             expect(page.locator(".chats-layout.drawer-open")).to_have_count(0)
             assert posts == []

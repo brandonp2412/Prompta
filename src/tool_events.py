@@ -97,7 +97,7 @@ def normalize_dom_tool_calls(value: object) -> tuple[dict[str, object], ...]:
 def summarize_stream_tool_calls(
     calls: tuple[dict[str, object], ...],
 ) -> tuple[dict[str, object], ...]:
-    """Only bounded invocation metadata may cross the durable storage boundary."""
+    """Keep bounded, redacted invocation inputs and outputs for the activity viewer."""
     summaries: list[dict[str, object]] = []
     for call in calls[:_MAX_TOOLS]:
         identifier = _text(call.get("id"))[:100]
@@ -113,7 +113,9 @@ def summarize_stream_tool_calls(
             "action": re.sub(r"https?://\S+|\b[\w.+-]+@[\w.-]+\.[a-z]{2,}\b",
                              "[redacted]", action, flags=re.I),
             "status": status if status in ("running", "completed", "error", "observed") else "observed",
-            "arguments": "", "result": "", "error": "",
+            "arguments": _display(call.get("arguments")),
+            "result": _display(call.get("result")),
+            "error": _display(call.get("error"), 2000),
         })
     return tuple(summaries)
 

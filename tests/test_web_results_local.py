@@ -74,9 +74,8 @@ def test_attention_filter_marks_interrupted_chats_in_react_sidebar(
             try:
                 page = browser.new_page(viewport={"width": width, "height": height})
                 page.goto(f"http://127.0.0.1:{port}/?view=chats")
-                shortcut = page.locator(".chat-attention-shortcut")
-                expect(shortcut).to_have_attribute("aria-label", "Needs attention 1 chat")
-                shortcut.click()
+                page.get_by_role("button", name="Search chats", exact=True).click()
+                page.locator(".chats-controls select").select_option("needs_attention")
                 expect(page.locator(".chats-controls select")).to_have_value("needs_attention")
                 expect(page.locator(".chat-entry")).to_have_count(1)
                 expect(page.locator(".chat-entry")).to_contain_text("Needs attention")

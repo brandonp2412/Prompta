@@ -92,7 +92,7 @@ async def test_cdp_observes_tool_before_owned_post_finishes() -> None:
                 assert observed, "No tool event before the SSE response ended"
                 assert observed[-1].tool_calls[0]["action"] == "search"
                 assert observed[-1].tool_calls[0]["status"] == "running"
-                assert "PRIVATE_LOCAL" not in str(observed)
+                assert "PRIVATE_LOCAL" in str(observed)
             finally:
                 release.set()
                 if stream is not None:

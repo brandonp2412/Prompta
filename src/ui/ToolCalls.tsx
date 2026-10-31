@@ -26,6 +26,13 @@ function status(call: CapturedToolCall): string {
 
 export default function ToolCalls({ calls }: { calls: CapturedToolCall[] }) {
   if (!calls.length) return null;
+  const groups = new Map<string, CapturedToolCall[]>();
+  for (const call of calls) {
+    const key = JSON.stringify([call.connector, call.action]);
+    const group = groups.get(key);
+    if (group) group.push(call);
+    else groups.set(key, [call]);
+  }
   const failures = calls.filter((call) => call.status === "error" || call.error).length;
   return (
     <section className="tool-timeline" aria-label="Tool activity">
@@ -53,45 +60,59 @@ export default function ToolCalls({ calls }: { calls: CapturedToolCall[] }) {
         {failures > 0 && <span className="tool-failure-count">{failures} failed</span>}
       </div>
       <div className="tool-call-list">
-        {calls.map((call, index) => (
-          <div
-            key={call.id || index}
-            className={
-              "tool-call" +
-              (status(call) === "Failed" ? " failed" : "") +
-              (status(call) === "Running" ? " running" : "")
-            }
-          >
-            <div className="tool-call-summary">
-              <span className="tool-call-mark" aria-hidden="true">
-                {statusMark[status(call)]}
-              </span>
-              <span className="tool-call-name">{title(call)}</span>
-              <span className="tool-call-status">{status(call)}</span>
-            </div>
-            {(call.arguments || call.result || call.error) && (
-              <div className="tool-call-body">
-                {call.arguments && (
-                  <section>
-                    <h4>Input</h4>
-                    <pre>{call.arguments}</pre>
-                  </section>
+        {Array.from(groups, ([key, group]) => (
+          <details className="tool-type-group" key={key}>
+            <summary>
+              {title(group[0])} · {group.length} {group.length === 1 ? "call" : "calls"}
+              {group.some((call) => status(call) === "Running") && " · Running"}
+              {group.some((call) => status(call) === "Failed") && " · Failed"}
+            </summary>
+            {group.map((call, index) => (
+              <details
+                key={call.id || index}
+                className={
+                  "tool-call" +
+                  (status(call) === "Failed" ? " failed" : "") +
+                  (status(call) === "Running" ? " running" : "")
+                }
+              >
+                <summary className="tool-call-summary">
+                  <span className="tool-call-mark" aria-hidden="true">
+                    {statusMark[status(call)]}
+                  </span>
+                  <span className="tool-call-name">{title(call)}</span>
+                  <span className="tool-call-status">{status(call)}</span>
+                </summary>
+                {(call.arguments || call.result || call.error) && (
+                  <div className="tool-call-body">
+                    {call.arguments && (
+                      <section>
+                        <h4>Input / code</h4>
+                        <pre>{call.arguments}</pre>
+                      </section>
+                    )}
+                    {call.result && (
+                      <section>
+                        <h4>Output</h4>
+                        <pre>{call.result}</pre>
+                      </section>
+                    )}
+                    {call.error && (
+                      <section>
+                        <h4>Error</h4>
+                        <pre>{call.error}</pre>
+                      </section>
+                    )}
+                  </div>
                 )}
-                {call.result && (
-                  <section>
-                    <h4>Output</h4>
-                    <pre>{call.result}</pre>
-                  </section>
+                {!call.arguments && !call.result && !call.error && (
+                  <div className="tool-call-body">
+                    <p>Only the tool label was available for this call.</p>
+                  </div>
                 )}
-                {call.error && (
-                  <section>
-                    <h4>Error</h4>
-                    <pre>{call.error}</pre>
-                  </section>
-                )}
-              </div>
-            )}
-          </div>
+              </details>
+            ))}
+          </details>
         ))}
       </div>
     </section>

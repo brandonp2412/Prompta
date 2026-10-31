@@ -29,10 +29,6 @@ export default function App({ serverName }: { serverName: string }) {
     };
   }, []);
 
-  useEffect(() => {
-    document.title = `Prompta · ${route.view === "chats" ? "Chats" : "Jobs"} · ${serverName}`;
-  }, [route.view, serverName]);
-
   function navigate(nextView: View, run: string | null = null) {
     const url = new URL(window.location.href);
     for (const name of ["new", "edit", "run", "draft"]) url.searchParams.delete(name);
@@ -65,6 +61,7 @@ export default function App({ serverName }: { serverName: string }) {
         </div>
       )}
       <ChatsPage
+        serverName={serverName}
         view={route.view}
         selectedRunId={route.selectedRunId}
         newChatOpen={route.newChatOpen}

@@ -12910,8 +12910,9 @@ function createChatsPageController(initialProps) {
 	const unpinned = O(() => items.value.filter((item) => !pinnedIds.value.includes(item.send_id)).sort(newestFirst));
 	const switchingChat = O(() => view.value === "chats" && !!selectedRunId.value && (detail.value?.send_id !== selectedRunId.value || pendingRevealFor.value === selectedRunId.value));
 	const selectedChatTitle = O(() => {
-		if (detail.value?.send_id === selectedRunId.value) return detail.value.title || detail.value.job_name || "Chats";
-		return [...items.value, ...pinnedItems.value].find((item) => item.send_id === selectedRunId.value)?.title || "Chats";
+		if (detail.value?.send_id === selectedRunId.value) return detail.value.title || detail.value.job_name || detail.value.user_text.split("\n")[0].slice(0, 100) || "Untitled chat";
+		const summary = [...items.value, ...pinnedItems.value].find((item) => item.send_id === selectedRunId.value);
+		return summary?.title || summary?.job_name || (selectedRunId.value ? "Loading chat…" : "Chats");
 	});
 	function loadPreferences() {
 		try {
@@ -16453,7 +16454,11 @@ function ChatsSidebar({ model, refs }) {
 								className: "sidebar-options-menu",
 								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
 									type: "button",
-									onClick: markAllRead,
+									onClick: (event) => {
+										const menu = event.currentTarget.closest("details");
+										if (menu) menu.open = false;
+										markAllRead();
+									},
 									disabled: markingAllRead.value,
 									"aria-label": "Mark all local chats as read",
 									className: "mark-all-read",
@@ -18411,6 +18416,13 @@ function status(call) {
 }
 function ToolCalls({ calls }) {
 	if (!calls.length) return null;
+	const groups = /* @__PURE__ */ new Map();
+	for (const call of calls) {
+		const key = JSON.stringify([call.connector, call.action]);
+		const group = groups.get(key);
+		if (group) group.push(call);
+		else groups.set(key, [call]);
+	}
 	const failures = calls.filter((call) => call.status === "error" || call.error).length;
 	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", {
 		className: "tool-timeline",
@@ -18474,34 +18486,52 @@ function ToolCalls({ calls }) {
 			]
 		}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 			className: "tool-call-list",
-			children: calls.map((call, index) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-				className: "tool-call" + (status(call) === "Failed" ? " failed" : "") + (status(call) === "Running" ? " running" : ""),
-				children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-					className: "tool-call-summary",
+			children: Array.from(groups, ([key, group]) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("details", {
+				className: "tool-type-group",
+				children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("summary", { children: [
+					title(group[0]),
+					" · ",
+					group.length,
+					" ",
+					group.length === 1 ? "call" : "calls",
+					group.some((call) => status(call) === "Running") && " · Running",
+					group.some((call) => status(call) === "Failed") && " · Failed"
+				] }), group.map((call, index) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("details", {
+					className: "tool-call" + (status(call) === "Failed" ? " failed" : "") + (status(call) === "Running" ? " running" : ""),
 					children: [
-						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-							className: "tool-call-mark",
-							"aria-hidden": "true",
-							children: statusMark[status(call)]
+						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("summary", {
+							className: "tool-call-summary",
+							children: [
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+									className: "tool-call-mark",
+									"aria-hidden": "true",
+									children: statusMark[status(call)]
+								}),
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+									className: "tool-call-name",
+									children: title(call)
+								}),
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+									className: "tool-call-status",
+									children: status(call)
+								})
+							]
 						}),
-						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-							className: "tool-call-name",
-							children: title(call)
+						(call.arguments || call.result || call.error) && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+							className: "tool-call-body",
+							children: [
+								call.arguments && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h4", { children: "Input / code" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("pre", { children: call.arguments })] }),
+								call.result && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h4", { children: "Output" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("pre", { children: call.result })] }),
+								call.error && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h4", { children: "Error" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("pre", { children: call.error })] })
+							]
 						}),
-						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-							className: "tool-call-status",
-							children: status(call)
+						!call.arguments && !call.result && !call.error && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+							className: "tool-call-body",
+							children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { children: "Only the tool label was available for this call." })
 						})
 					]
-				}), (call.arguments || call.result || call.error) && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-					className: "tool-call-body",
-					children: [
-						call.arguments && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h4", { children: "Input" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("pre", { children: call.arguments })] }),
-						call.result && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h4", { children: "Output" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("pre", { children: call.result })] }),
-						call.error && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h4", { children: "Error" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("pre", { children: call.error })] })
-					]
-				})]
-			}, call.id || index))
+				}, call.id || index))]
+			}, key))
 		})]
 	});
 }
@@ -18752,7 +18782,11 @@ function ChatsPage(props) {
 		}
 		shareTimer.current = setTimeout(() => setShareNotice(""), 2500);
 	}
-	const { view, selectedRunId, newChatOpen, readError, drawerOpen, drawerProgress, visibleDrawerProgress, filtersOpen, detail, turns, recoveringReply, jobsWorkspace, replyBlockedReason, selectedChatTitle, retryReadSync, sendFresh, freshContinuationPrompt, originalImageRefs, sendReply, cancelSwipe, startSwipe, finishSwipe, createChat, escapeDrawer } = model;
+	const { view, selectedRunId, newChatOpen, readError, drawerOpen, filtersOpen, detail, turns, recoveringReply, jobsWorkspace, replyBlockedReason, selectedChatTitle, retryReadSync, sendFresh, freshContinuationPrompt, originalImageRefs, sendReply, cancelSwipe, startSwipe, finishSwipe, createChat, escapeDrawer } = model;
+	const pageTitle = view.value === "jobs" ? "Jobs" : selectedChatTitle.value;
+	(0, import_react.useEffect)(() => {
+		document.title = `Prompta · ${pageTitle} · ${props.serverName}`;
+	}, [pageTitle, props.serverName]);
 	const refs = (0, import_react.useMemo)(() => ({
 		sidebarPane: (element) => {
 			if (model.sidebarPane.peek() !== (element ?? void 0)) model.sidebarPane.value = element ?? void 0;
@@ -18795,18 +18829,8 @@ function ChatsPage(props) {
 		className: "share-toast",
 		role: "status",
 		children: shareNotice
-	}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", {
-		"aria-label": "Prompta local chats and jobs",
-		className: [
-			"chats-layout",
-			drawerOpen.value ? "drawer-open" : "",
-			drawerProgress.value !== null ? "drawer-interacting" : "",
-			view.value === "chats" && !selectedRunId.value && !newChatOpen.value ? "show-list" : ""
-		].filter(Boolean).join(" "),
-		style: {
-			"--drawer-offset": `${(visibleDrawerProgress.value - 1) * 100}%`,
-			"--drawer-opacity": visibleDrawerProgress.value * .6
-		},
+	}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(DrawerLayout, {
+		model,
 		children: [
 			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 				type: "button",
@@ -18900,6 +18924,24 @@ function ChatsPage(props) {
 		]
 	})] });
 }
+function DrawerLayout({ model, children }) {
+	N$1();
+	const progress = model.visibleDrawerProgress.value;
+	return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("section", {
+		"aria-label": "Prompta local chats and jobs",
+		className: [
+			"chats-layout",
+			model.drawerOpen.value ? "drawer-open" : "",
+			model.drawerProgress.value !== null ? "drawer-interacting" : "",
+			model.view.value === "chats" && !model.selectedRunId.value && !model.newChatOpen.value ? "show-list" : ""
+		].filter(Boolean).join(" "),
+		style: {
+			"--drawer-offset": `${(progress - 1) * 100}%`,
+			"--drawer-opacity": progress * .6
+		},
+		children
+	});
+}
 //#endregion
 //#region src/ui/App.tsx
 function currentRoute() {
@@ -18924,9 +18966,6 @@ function App({ serverName }) {
 			window.removeEventListener("popstate", syncRoute);
 		};
 	}, []);
-	(0, import_react.useEffect)(() => {
-		document.title = `Prompta · ${route.view === "chats" ? "Chats" : "Jobs"} · ${serverName}`;
-	}, [route.view, serverName]);
 	function navigate(nextView, run = null) {
 		const url = new URL(window.location.href);
 		for (const name of [
@@ -18963,6 +19002,7 @@ function App({ serverName }) {
 				children: "Refresh now"
 			})]
 		}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ChatsPage, {
+			serverName,
 			view: route.view,
 			selectedRunId: route.selectedRunId,
 			newChatOpen: route.newChatOpen,

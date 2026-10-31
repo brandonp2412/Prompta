@@ -6,7 +6,7 @@ import JobsPage from "./JobsPage";
 import ChatComposer from "./ChatComposer";
 import ChatsSidebar from "./ChatsSidebar";
 import ChatTranscript from "./ChatTranscript";
-export default function ChatsPage(props: Props) {
+export default function ChatsPage(props: Props & { serverName: string }) {
   const model = useMemo(() => createChatsPageController(props), []);
   useSignals();
   const [shareNotice, setShareNotice] = useState("");
@@ -31,8 +31,6 @@ export default function ChatsPage(props: Props) {
     newChatOpen,
     readError,
     drawerOpen,
-    drawerProgress,
-    visibleDrawerProgress,
     filtersOpen,
     detail,
     turns,
@@ -51,6 +49,10 @@ export default function ChatsPage(props: Props) {
     createChat,
     escapeDrawer,
   } = model;
+  const pageTitle = view.value === "jobs" ? "Jobs" : selectedChatTitle.value;
+  useEffect(() => {
+    document.title = `Prompta · ${pageTitle} · ${props.serverName}`;
+  }, [pageTitle, props.serverName]);
   const refs = useMemo(
     () => ({
       sidebarPane: (element: HTMLElement | null) => {
@@ -104,23 +106,7 @@ export default function ChatsPage(props: Props) {
           {shareNotice}
         </div>
       )}
-      <section
-        aria-label="Prompta local chats and jobs"
-        className={[
-          "chats-layout",
-          drawerOpen.value ? "drawer-open" : "",
-          drawerProgress.value !== null ? "drawer-interacting" : "",
-          view.value === "chats" && !selectedRunId.value && !newChatOpen.value ? "show-list" : "",
-        ]
-          .filter(Boolean)
-          .join(" ")}
-        style={
-          {
-            "--drawer-offset": `${(visibleDrawerProgress.value - 1) * 100}%`,
-            "--drawer-opacity": visibleDrawerProgress.value * 0.6,
-          } as React.CSSProperties
-        }
-      >
+      <DrawerLayout model={model}>
         <button
           type="button"
           aria-label="Close chat sidebar"
@@ -250,7 +236,41 @@ export default function ChatsPage(props: Props) {
             <></>
           )}
         </div>
-      </section>
+      </DrawerLayout>
     </>
+  );
+}
+
+function DrawerLayout({
+  model,
+  children,
+}: {
+  model: ReturnType<typeof createChatsPageController>;
+  children: React.ReactNode;
+}) {
+  useSignals();
+  const progress = model.visibleDrawerProgress.value;
+  return (
+    <section
+      aria-label="Prompta local chats and jobs"
+      className={[
+        "chats-layout",
+        model.drawerOpen.value ? "drawer-open" : "",
+        model.drawerProgress.value !== null ? "drawer-interacting" : "",
+        model.view.value === "chats" && !model.selectedRunId.value && !model.newChatOpen.value
+          ? "show-list"
+          : "",
+      ]
+        .filter(Boolean)
+        .join(" ")}
+      style={
+        {
+          "--drawer-offset": `${(progress - 1) * 100}%`,
+          "--drawer-opacity": progress * 0.6,
+        } as React.CSSProperties
+      }
+    >
+      {children}
+    </section>
   );
 }

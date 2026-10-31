@@ -197,11 +197,16 @@ export function createChatsPageController(initialProps: Props) {
   );
   const selectedChatTitle = computed(() => {
     if (detail.value?.send_id === selectedRunId.value)
-      return detail.value.title || detail.value.job_name || "Chats";
+      return (
+        detail.value.title ||
+        detail.value.job_name ||
+        detail.value.user_text.split("\n")[0].slice(0, 100) ||
+        "Untitled chat"
+      );
     const summary = [...items.value, ...pinnedItems.value].find(
       (item) => item.send_id === selectedRunId.value,
     );
-    return summary?.title || "Chats";
+    return summary?.title || summary?.job_name || (selectedRunId.value ? "Loading chat…" : "Chats");
   });
 
   function loadPreferences() {

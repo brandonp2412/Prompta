@@ -83,7 +83,11 @@ export default function ChatsSidebar({
             <div className="sidebar-options-menu">
               <button
                 type="button"
-                onClick={markAllRead}
+                onClick={(event) => {
+                  const menu = event.currentTarget.closest("details");
+                  if (menu) menu.open = false;
+                  void markAllRead();
+                }}
                 disabled={markingAllRead.value}
                 aria-label="Mark all local chats as read"
                 className="mark-all-read"
