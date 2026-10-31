@@ -2,6 +2,7 @@ import type React from "react";
 import { signal, computed, effect, batch } from "@preact/signals-react";
 import { untracked as untrack } from "@preact/signals-core";
 import { subscribeLiveUpdates } from "./liveUpdates";
+import { emptyQueueSnapshot, type QueueSnapshot } from "./queueStatus";
 import { recoverVisibleTurns } from "./turnRecovery";
 import { nextResultPageOffset, reconcileResultPage } from "./resultListRefresh";
 import { localGet, localReadTimeoutMs } from "./localRead";
@@ -94,19 +95,7 @@ export function createChatsPageController(initialProps: Props) {
       : null;
   }
 
-  type WaitingJob = {
-    name: string;
-    position: number;
-    reason: "global" | "stage";
-    occupied: number;
-    limit: number;
-  };
-  type QueueSnapshot = {
-    max_workers: number | null;
-    occupied_slots: number;
-    waiting: WaitingJob[];
-  };
-  let queueSnapshot = signal<QueueSnapshot>({ max_workers: null, occupied_slots: 0, waiting: [] });
+  let queueSnapshot = signal<QueueSnapshot>(emptyQueueSnapshot);
   let queueError = signal("");
   let queueGeneration = 0;
   let queueInFlight = false;

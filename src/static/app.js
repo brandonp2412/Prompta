@@ -21,7 +21,7 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 	enumerable: true
 }) : target, mod));
 //#endregion
-//#region node_modules/scheduler/cjs/scheduler.production.js
+//#region ../../prompta/node_modules/scheduler/cjs/scheduler.production.js
 /**
 * @license React
 * scheduler.production.js
@@ -276,12 +276,12 @@ var require_scheduler_production = /* @__PURE__ */ __commonJSMin(((exports) => {
 	};
 }));
 //#endregion
-//#region node_modules/scheduler/index.js
+//#region ../../prompta/node_modules/scheduler/index.js
 var require_scheduler = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_scheduler_production();
 }));
 //#endregion
-//#region node_modules/react/cjs/react.production.js
+//#region ../../prompta/node_modules/react/cjs/react.production.js
 /**
 * @license React
 * react.production.js
@@ -668,12 +668,12 @@ var require_react_production = /* @__PURE__ */ __commonJSMin(((exports) => {
 	exports.version = "19.3.1";
 }));
 //#endregion
-//#region node_modules/react/index.js
+//#region ../../prompta/node_modules/react/index.js
 var require_react = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_react_production();
 }));
 //#endregion
-//#region node_modules/react-dom/cjs/react-dom.production.js
+//#region ../../prompta/node_modules/react-dom/cjs/react-dom.production.js
 /**
 * @license React
 * react-dom.production.js
@@ -826,7 +826,7 @@ var require_react_dom_production = /* @__PURE__ */ __commonJSMin(((exports) => {
 	exports.version = "19.3.1";
 }));
 //#endregion
-//#region node_modules/react-dom/index.js
+//#region ../../prompta/node_modules/react-dom/index.js
 var require_react_dom = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	function checkDCE() {
 		if (typeof __REACT_DEVTOOLS_GLOBAL_HOOK__ === "undefined" || typeof __REACT_DEVTOOLS_GLOBAL_HOOK__.checkDCE !== "function") return;
@@ -840,7 +840,7 @@ var require_react_dom = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_react_dom_production();
 }));
 //#endregion
-//#region node_modules/react-dom/cjs/react-dom-client.production.js
+//#region ../../prompta/node_modules/react-dom/cjs/react-dom-client.production.js
 /**
 * @license React
 * react-dom-client.production.js
@@ -11415,7 +11415,7 @@ var require_react_dom_client_production = /* @__PURE__ */ __commonJSMin(((export
 	};
 }));
 //#endregion
-//#region node_modules/react-dom/client.js
+//#region ../../prompta/node_modules/react-dom/client.js
 var require_client = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	function checkDCE() {
 		if (typeof __REACT_DEVTOOLS_GLOBAL_HOOK__ === "undefined" || typeof __REACT_DEVTOOLS_GLOBAL_HOOK__.checkDCE !== "function") return;
@@ -11429,7 +11429,7 @@ var require_client = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_react_dom_client_production();
 }));
 //#endregion
-//#region node_modules/@preact/signals-core/dist/signals-core.module.js
+//#region ../../prompta/node_modules/@preact/signals-core/dist/signals-core.module.js
 var import_react = /* @__PURE__ */ __toESM(require_react());
 var import_client = require_client();
 var i$1 = Symbol.for("preact-signals");
@@ -11841,7 +11841,7 @@ function x$2(i, t) {
 	return n;
 }
 //#endregion
-//#region node_modules/use-sync-external-store/cjs/use-sync-external-store-shim.production.js
+//#region ../../prompta/node_modules/use-sync-external-store/cjs/use-sync-external-store-shim.production.js
 /**
 * @license React
 * use-sync-external-store-shim.production.js
@@ -11901,7 +11901,7 @@ var require_use_sync_external_store_shim_production = /* @__PURE__ */ __commonJS
 	exports.useSyncExternalStore = void 0 !== React.useSyncExternalStore ? React.useSyncExternalStore : shim;
 }));
 //#endregion
-//#region node_modules/@preact/signals-react/runtime/dist/runtime.module.js
+//#region ../../prompta/node_modules/@preact/signals-react/runtime/dist/runtime.module.js
 var import_shim = (/* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_use_sync_external_store_shim_production();
 })))();
@@ -12247,6 +12247,25 @@ function subscribeLiveStatus(listener) {
 		statusListeners.delete(listener);
 		if (!hasSubscribers()) stop();
 	};
+}
+//#endregion
+//#region src/ui/queueStatus.ts
+var emptyQueueSnapshot = {
+	max_workers: null,
+	occupied_slots: 0,
+	estimated_run_seconds: 600,
+	estimate_samples: 0,
+	waiting: []
+};
+function queueEtaText(waiting) {
+	const minutes = Math.max(1, Math.ceil(waiting.eta_seconds / 60));
+	if (minutes < 60) return "ETA ~" + minutes + " min";
+	const hours = Math.floor(minutes / 60);
+	const remainder = minutes % 60;
+	return "ETA ~" + hours + "h" + (remainder ? " " + remainder + "m" : "");
+}
+function queueEtaExplanation(snapshot) {
+	return snapshot.estimate_samples >= 3 ? "Approximate time to start, based on recent completed jobs. Rate limits and long-running jobs can shift it." : "Initial approximate time to start while recent job-duration data accumulates. Rate limits can shift it.";
 }
 //#endregion
 //#region src/ui/turnRecovery.ts
@@ -12655,11 +12674,7 @@ function createChatsPageController(initialProps) {
 	function exactConversationUrl(conversationId) {
 		return conversationId && /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(conversationId) ? "https://chatgpt.com/c/" + conversationId : null;
 	}
-	let queueSnapshot = y$2({
-		max_workers: null,
-		occupied_slots: 0,
-		waiting: []
-	});
+	let queueSnapshot = y$2(emptyQueueSnapshot);
 	let queueError = y$2("");
 	let queueGeneration = 0;
 	let queueInFlight = false;
@@ -13849,6 +13864,19 @@ function createJobsPageController(initialProps) {
 	let deliveryHealth = y$2(null);
 	let deliveryHealthError = y$2("");
 	let jobsLoadError = y$2("");
+	let queueSnapshot = y$2(null);
+	function waitingJob(jobName) {
+		return queueSnapshot.value?.waiting.find((job) => job.name === jobName);
+	}
+	async function loadQueue() {
+		try {
+			const response = await localGet("./api/queue-status");
+			if (!response.ok) throw new Error("Queue status unavailable");
+			queueSnapshot.value = await response.json();
+		} catch {
+			queueSnapshot.value = null;
+		}
+	}
 	const pendingDeliveries = O(() => deliveryHealth.value ? deliveryHealth.value.queue.queued + deliveryHealth.value.queue.running + deliveryHealth.value.queue.retrying + deliveryHealth.value.queue.rate_limited : 0);
 	const recoveryPauseSeconds = O(() => deliveryHealth.value ? Math.max(deliveryHealth.value.recovery.account_read_backoff_seconds, deliveryHealth.value.recovery.security_pause_seconds) : 0);
 	const filterOptions = [
@@ -14453,13 +14481,18 @@ function createJobsPageController(initialProps) {
 		window.visualViewport?.addEventListener("resize", onViewportResize);
 		load().then(syncEditorFromUrl);
 		loadDeliveryHealth();
+		loadQueue();
 		const healthTimer = setInterval(() => {
-			if (document.visibilityState === "visible") loadDeliveryHealth();
-		}, 3e4);
+			if (document.visibilityState === "visible") {
+				loadDeliveryHealth();
+				loadQueue();
+			}
+		}, 15e3);
 		window.addEventListener("popstate", syncEditorFromUrl);
 		const unsubscribe = subscribeLiveUpdates("jobs", () => {
 			load({ quiet: true });
 			loadDeliveryHealth();
+			loadQueue();
 		});
 		return () => {
 			clearInterval(healthTimer);
@@ -14488,6 +14521,8 @@ function createJobsPageController(initialProps) {
 		deliveryHealth,
 		deliveryHealthError,
 		jobsLoadError,
+		queueSnapshot,
+		waitingJob,
 		pendingDeliveries,
 		recoveryPauseSeconds,
 		filterOptions,
@@ -14587,7 +14622,7 @@ function createJobsPageController(initialProps) {
 	};
 }
 //#endregion
-//#region node_modules/react/cjs/react-jsx-runtime.production.js
+//#region ../../prompta/node_modules/react/cjs/react-jsx-runtime.production.js
 /**
 * @license React
 * react-jsx-runtime.production.js
@@ -14629,7 +14664,7 @@ var import_jsx_runtime = (/* @__PURE__ */ __commonJSMin(((exports, module) => {
 function JobsPage(props) {
 	const model = (0, import_react.useMemo)(() => createJobsPageController(props), []);
 	N$1();
-	const { deliveryHealth, deliveryHealthError, jobsLoadError, pendingDeliveries, recoveryPauseSeconds, filterOptions, pageSize, jobs, activeFilters, showRepeatingJobs, repeatingJobsCount, cadenceJobs, filteredJobs, filterCounts, page, pageCount, visibleJobs, allVisiblePaused, status, saving, editing, name, prompt, images, uploadingImage, imageInput, schedule, interval, onceDelay, pinChat, dailyAt, exact, editorOpen, editorError, confirmDiscard, dirty, runOnce, duplicateName, keepFocusedPromptVisible, requestClose, discardEditor, beginNew, beginOnce, onEditorKeydown, formatDate, scheduleText, toggleFilter, jobStateText, changePage, loadDeliveryHealth, load, command, addImages, submit, edit, remove, toggleVisible, clearAll } = model;
+	const { deliveryHealth, deliveryHealthError, jobsLoadError, queueSnapshot, waitingJob, pendingDeliveries, recoveryPauseSeconds, filterOptions, pageSize, jobs, activeFilters, showRepeatingJobs, repeatingJobsCount, cadenceJobs, filteredJobs, filterCounts, page, pageCount, visibleJobs, allVisiblePaused, status, saving, editing, name, prompt, images, uploadingImage, imageInput, schedule, interval, onceDelay, pinChat, dailyAt, exact, editorOpen, editorError, confirmDiscard, dirty, runOnce, duplicateName, keepFocusedPromptVisible, requestClose, discardEditor, beginNew, beginOnce, onEditorKeydown, formatDate, scheduleText, toggleFilter, jobStateText, changePage, loadDeliveryHealth, load, command, addImages, submit, edit, remove, toggleVisible, clearAll } = model;
 	const refs = (0, import_react.useMemo)(() => ({
 		jobsTitle: (element) => {
 			if (model.jobsTitle.peek() !== (element ?? void 0)) model.jobsTitle.value = element ?? void 0;
@@ -14994,6 +15029,20 @@ function JobsPage(props) {
 										className: ["state-value", job.status === "failing" ? "error" : ""].filter(Boolean).join(" "),
 										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: ["state-dot"].filter(Boolean).join(" ") }), jobStateText(job)]
 									}),
+									waitingJob(job.name) && queueSnapshot.value ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+										className: "job-queue-eta",
+										role: "status",
+										title: queueEtaExplanation(queueSnapshot.value),
+										children: [
+											"Queue #",
+											waitingJob(job.name).position,
+											" of",
+											" ",
+											queueSnapshot.value.waiting.length,
+											" · ",
+											queueEtaText(waitingJob(job.name))
+										]
+									}) : null,
 									job.status_message ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
 										className: ["job-message"].filter(Boolean).join(" "),
 										children: job.status_message
@@ -15866,7 +15915,7 @@ function ChatComposer(props) {
 	}) });
 }
 //#endregion
-//#region node_modules/marked/lib/marked.esm.js
+//#region ../../prompta/node_modules/marked/lib/marked.esm.js
 /**
 * marked v16.4.2 - a markdown parser
 * Copyright (c) 2018-2025, MarkedJS. (MIT License)
@@ -18158,12 +18207,20 @@ function ChatsPage(props) {
 										className: ["chat-row-top"].filter(Boolean).join(" "),
 										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("strong", { children: waiting.name }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
 											className: ["queue-position"].filter(Boolean).join(" "),
-											children: ["#", waiting.position]
+											children: [
+												"#",
+												waiting.position,
+												" of ",
+												queueSnapshot.value.waiting.length
+											]
 										})]
 									}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
 										className: ["queue-subtitle"].filter(Boolean).join(" "),
+										title: queueEtaExplanation(queueSnapshot.value),
 										children: [
-											"Queued · ",
+											queueEtaText(waiting),
+											" ·",
+											" ",
 											waiting.reason === "stage" ? "stage" : "global",
 											" limit (",
 											waiting.occupied,

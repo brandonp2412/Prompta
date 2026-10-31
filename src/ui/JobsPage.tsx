@@ -1,6 +1,7 @@
 import React, { useEffect, useLayoutEffect, useMemo } from "react";
 import { useSignals } from "@preact/signals-react/runtime";
 import { createJobsPageController, type Props } from "./JobsPageController";
+import { queueEtaExplanation, queueEtaText } from "./queueStatus";
 
 export default function JobsPage(props: Props) {
   const model = useMemo(() => createJobsPageController(props), []);
@@ -9,6 +10,8 @@ export default function JobsPage(props: Props) {
     deliveryHealth,
     deliveryHealthError,
     jobsLoadError,
+    queueSnapshot,
+    waitingJob,
     pendingDeliveries,
     recoveryPauseSeconds,
     filterOptions,
@@ -622,6 +625,18 @@ export default function JobsPage(props: Props) {
                         <span className={["state-dot"].filter(Boolean).join(" ")}></span>
                         {jobStateText(job)}
                       </span>
+                      {waitingJob(job.name) && queueSnapshot.value ? (
+                        <span
+                          className="job-queue-eta"
+                          role="status"
+                          title={queueEtaExplanation(queueSnapshot.value)}
+                        >
+                          Queue #{waitingJob(job.name)!.position} of{" "}
+                          {queueSnapshot.value.waiting.length}
+                          {" · "}
+                          {queueEtaText(waitingJob(job.name)!)}
+                        </span>
+                      ) : null}
                       {job.status_message ? (
                         <>
                           <span className={["job-message"].filter(Boolean).join(" ")}>

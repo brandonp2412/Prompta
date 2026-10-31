@@ -268,9 +268,7 @@ night_limit = {night_limit}
         ("2026-07-01T22:30:00", 3),  # NZST winter clock
     ],
 )
-def test_stage_capacity_uses_auckland_wall_clock(
-    tmp_path: Path, local: str, capacity: int
-) -> None:
+def test_stage_capacity_uses_auckland_wall_clock(tmp_path: Path, local: str, capacity: int) -> None:
     settings = StageConcurrencySettings.load(_stage_config(tmp_path))
     assert settings.limit_at(_nz_epoch(local)) == capacity
 
@@ -479,7 +477,9 @@ def test_stage_prefix_cap_applies_to_future_cli_jobs_without_mutex_group(
     assert len(producer.queue.records()) == 4
 
 
-def test_concurrency_queue_snapshot_tracks_due_chats_without_dispatching_them(tmp_path: Path) -> None:
+def test_concurrency_queue_snapshot_tracks_due_chats_without_dispatching_them(
+    tmp_path: Path,
+) -> None:
     state = tmp_path / "runtime.sqlite3"
     queue_path = tmp_path / "ui-send-jobs.sqlite3"
     config_path = tmp_path / "config.toml"
@@ -494,10 +494,34 @@ def test_concurrency_queue_snapshot_tracks_due_chats_without_dispatching_them(tm
     expected = {
         "max_workers": 1,
         "occupied_slots": 1,
-        "waiting": [{"name": "second", "position": 1, "reason": "global", "occupied": 1, "limit": 1}, {"name": "third", "position": 2, "reason": "global", "occupied": 1, "limit": 1}],
+        "estimated_run_seconds": 600,
+        "estimate_samples": 0,
+        "waiting": [
+            {
+                "name": "second",
+                "position": 1,
+                "reason": "global",
+                "occupied": 1,
+                "limit": 1,
+                "eta_seconds": 600,
+            },
+            {
+                "name": "third",
+                "position": 2,
+                "reason": "global",
+                "occupied": 1,
+                "limit": 1,
+                "eta_seconds": 1200,
+            },
+        ],
     }
     assert producer.concurrency_queue_snapshot(now=1001.0) == expected
-    assert DurableSchedulerProducer(state, state, queue_path, config_path).concurrency_queue_snapshot(now=1001.0) == expected
+    assert (
+        DurableSchedulerProducer(state, state, queue_path, config_path).concurrency_queue_snapshot(
+            now=1001.0
+        )
+        == expected
+    )
     assert len(producer.queue.records()) == 1
     assert "Private prompt" not in str(expected)
 
@@ -507,7 +531,14 @@ def test_concurrency_queue_snapshot_tracks_due_chats_without_dispatching_them(tm
     assert producer.concurrency_queue_snapshot(now=1003.0)["waiting"] == []
     assert producer.tick(now=1003.0) >= 1
     assert producer.concurrency_queue_snapshot(now=1004.0)["waiting"] == [
-        {"name": "third", "position": 1, "reason": "global", "occupied": 1, "limit": 1}
+        {
+            "name": "third",
+            "position": 1,
+            "reason": "global",
+            "occupied": 1,
+            "limit": 1,
+            "eta_seconds": 600,
+        }
     ]
     assert len(producer.queue.records()) == 2
 
@@ -524,16 +555,28 @@ def test_concurrency_queue_snapshot_includes_daytime_stage_limit(tmp_path: Path)
     now = datetime(2026, 10, 29, 12, 0, tzinfo=ZoneInfo("Pacific/Auckland")).timestamp()
     for name in ("stage-first", "stage-second", "unrestricted"):
         add_job(state, name, f"Private prompt {name}", 60, exact_interval=True)
-    producer = DurableSchedulerProducer(state, state, tmp_path / "ui-send-jobs.sqlite3", config_path)
+    producer = DurableSchedulerProducer(
+        state, state, tmp_path / "ui-send-jobs.sqlite3", config_path
+    )
     for name in ("stage-first", "stage-second", "unrestricted"):
         producer.runtime.update_job_state(name, {"initial_due_at_epoch": now})
 
     assert producer.tick(now=now) == 2
     snapshot = producer.concurrency_queue_snapshot(now=now + 1)
     assert snapshot == {
-        "max_workers": 3, "occupied_slots": 2,
-        "waiting": [{
-            "name": "stage-second", "position": 1, "reason": "stage", "occupied": 1, "limit": 1,
-        }],
+        "max_workers": 3,
+        "occupied_slots": 2,
+        "estimated_run_seconds": 600,
+        "estimate_samples": 0,
+        "waiting": [
+            {
+                "name": "stage-second",
+                "position": 1,
+                "reason": "stage",
+                "occupied": 1,
+                "limit": 1,
+                "eta_seconds": 600,
+            }
+        ],
     }
     assert len(producer.queue.records()) == 2

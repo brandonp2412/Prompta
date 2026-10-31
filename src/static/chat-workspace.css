@@ -71,6 +71,7 @@
 .queue-waiting .chat-row-top { align-items: center; }
 .queue-position { flex: 0 0 auto; font-size: 12px; font-weight: 700; color: var(--accent, #84b6ff); }
 .queue-subtitle { display: block; margin-top: 3px; font-size: 12px; opacity: .7; text-align: left; }
+.job-queue-eta { display: block; margin-top: 4px; font-size: .8rem; color: var(--accent, #84b6ff); overflow-wrap: anywhere; }
 /* Captured tool activity: compact by default, details available on demand. */
 .tool-timeline { margin: 5px 0 18px; width: min(100%, 760px); color: #d9d9d9; font-size: .86rem; }
 .tool-timeline summary { cursor: pointer; list-style: none; }

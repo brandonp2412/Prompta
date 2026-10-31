@@ -1510,9 +1510,25 @@ def test_queue_status_api_is_private_read_only_and_exposes_worker_wait_order(
         assert payload == {
             "max_workers": 1,
             "occupied_slots": 1,
+            "estimated_run_seconds": 600,
+            "estimate_samples": 0,
             "waiting": [
-                {"name": "beta", "position": 1, "reason": "global", "occupied": 1, "limit": 1},
-                {"name": "gamma", "position": 2, "reason": "global", "occupied": 1, "limit": 1},
+                {
+                    "name": "beta",
+                    "position": 1,
+                    "reason": "global",
+                    "occupied": 1,
+                    "limit": 1,
+                    "eta_seconds": 600,
+                },
+                {
+                    "name": "gamma",
+                    "position": 2,
+                    "reason": "global",
+                    "occupied": 1,
+                    "limit": 1,
+                    "eta_seconds": 1200,
+                },
             ],
         }
         assert "Secret prompt" not in str(payload)
@@ -1538,7 +1554,13 @@ def test_waiting_chats_render_and_advance_on_desktop_and_mobile(tmp_path: Path) 
                 executable_path=chromium_path, headless=True, args=["--no-sandbox"]
             )
             try:
-                for width, height in ((1440, 900), (390, 844), (320, 700)):
+                for width, height in (
+                    (1440, 900),
+                    (360, 800),
+                    (390, 844),
+                    (412, 915),
+                    (320, 700),
+                ):
                     context = browser.new_context(viewport={"width": width, "height": height})
                     page = context.new_page()
                     requests: list[tuple[str, str]] = []
@@ -1548,9 +1570,11 @@ def test_waiting_chats_render_and_advance_on_desktop_and_mobile(tmp_path: Path) 
                     rows = page.locator(".queue-waiting")
                     expect(rows).to_have_count(2)
                     expect(rows.nth(0)).to_contain_text("beta")
-                    expect(rows.nth(0)).to_contain_text("#1")
+                    expect(rows.nth(0)).to_contain_text("#1 of 2")
+                    expect(rows.nth(0)).to_contain_text("ETA ~10 min")
                     expect(rows.nth(1)).to_contain_text("gamma")
-                    expect(rows.nth(1)).to_contain_text("#2")
+                    expect(rows.nth(1)).to_contain_text("#2 of 2")
+                    expect(rows.nth(1)).to_contain_text("ETA ~20 min")
                     top = rows.nth(0).locator(".chat-row-top").bounding_box()
                     subtitle = rows.nth(0).locator(".queue-subtitle").bounding_box()
                     assert top is not None and subtitle is not None
@@ -1562,6 +1586,11 @@ def test_waiting_chats_render_and_advance_on_desktop_and_mobile(tmp_path: Path) 
                     if width == 1440:
                         rows.first.locator("button").click()
                         expect(page.locator(".jobs-workspace")).to_be_visible()
+                        expect(
+                            page.locator(".jobs-workspace .job-row")
+                            .filter(has_text="beta")
+                            .locator(".job-queue-eta")
+                        ).to_contain_text("Queue #1 of 2 · ETA ~10 min")
                         assert all(method == "GET" for method, _ in requests)
                     context.close()
                 context = browser.new_context(viewport={"width": 1440, "height": 900})
@@ -1576,7 +1605,8 @@ def test_waiting_chats_render_and_advance_on_desktop_and_mobile(tmp_path: Path) 
                 # SSE invalidates the local queue snapshot without a navigation or refresh.
                 expect(rows).to_have_count(1)
                 expect(rows.first).to_contain_text("gamma")
-                expect(rows.first).to_contain_text("#1")
+                expect(rows.first).to_contain_text("#1 of 1")
+                expect(rows.first).to_contain_text("ETA ~10 min")
                 expect(
                     page.locator(".chat-entry:not(.queue-waiting)").filter(has_text="beta")
                 ).to_have_count(1)
