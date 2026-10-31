@@ -32,31 +32,42 @@
   )].filter(visible);
   if (!assistants.length) return { ...empty, verified: true };
   const assistant = assistants[0];
+  const beforeNextUser = (node) => !users[1] || Boolean(
+    node.compareDocumentPosition(users[1]) & Node.DOCUMENT_POSITION_FOLLOWING);
+  if (!beforeNextUser(assistant)) return { ...empty, verified: true };
   const identity = assistant.getAttribute("data-message-id") ||
     assistant.getAttribute("data-chatgpt-search-unit-key") || assistant.getAttribute("data-content-search-unit-key") || "";
   if (!identity) return { ...empty, ambiguous: true };
+  const firstGroup = identity.match(/^(fallback-turn-\d+):\d+:assistant$/)?.[1];
+  const answerUnits = firstGroup ? assistants.filter((node) => {
+    const key = node.getAttribute("data-chatgpt-search-unit-key") || node.getAttribute("data-content-search-unit-key") || "";
+    return beforeNextUser(node) && key.match(/^(fallback-turn-\d+):\d+:assistant$/)?.[1] === firstGroup;
+  }) : [assistant];
   const markdownSelector = '.markdown, [data-markdown-text-style="assistant-message"]';
-  const roots = [...assistant.querySelectorAll(markdownSelector)].filter((root) =>
-    !root.parentElement?.closest(markdownSelector) && visible(root)
-  );
+  const segments = answerUnits.map((node) => [...node.querySelectorAll(markdownSelector)]
+    .filter((root) => !root.parentElement?.closest(markdownSelector) && visible(root))
+    .map(markdownFromRoot).filter(Boolean).join("\n\n").trim());
   // The main turn may contain tools and thoughts; only extract final-answer markdown.
-  const text = roots.map(markdownFromRoot).filter(Boolean)
+  const text = segments.filter(Boolean)
     .join("\n\n").trim().slice(0, 2 * 1024 * 1024);
-  const turn = assistant.closest('[data-testid^="conversation-turn-"], article, [data-turn-key]') || assistant;
+  const turns = answerUnits.map((node) =>
+    node.closest('[data-testid^="conversation-turn-"], article, [data-turn-key]') || node);
   // Only visible tool headings in this verified turn, never tool bodies or reasoning.
-  const tool_calls = toolCallsFromTurns([turn], visible, markdownSelector);
-  const copyReady = [...turn.querySelectorAll(
+  const tool_calls = toolCallsFromTurns(turns, visible, markdownSelector);
+  const copyReady = turns.some((turn) => [...turn.querySelectorAll(
     'button[data-testid="copy-turn-action-button"], button[aria-label="Copy"]'
-  )].some(visible);
-  const streaming = !!turn.querySelector('[data-is-streaming="true"], .result-streaming');
+  )].some(visible));
+  const streaming = turns.some((turn) => !!turn.querySelector('[data-is-streaming="true"], .result-streaming'));
   const generating = [...document.querySelectorAll(
     'button[data-testid="stop-button"], button[aria-label="Stop generating"], button[aria-label="Stop streaming"]'
   )].some(visible);
   const uuid = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i;
-  const legacy = assistant.getAttribute("data-message-id") || "";
+  const lastTextIndex = segments.findLastIndex(Boolean);
+  const finalAnswer = lastTextIndex < 0 ? assistant : answerUnits[lastTextIndex];
+  const legacy = finalAnswer.getAttribute("data-message-id") || "";
   let branch = uuid.test(legacy) ? legacy.toLowerCase() : "";
   if (!branch) {
-    const raw = assistant.getAttribute("data-chatgpt-search-message-ids") || assistant.getAttribute("data-content-search-message-ids") || "";
+    const raw = finalAnswer.getAttribute("data-chatgpt-search-message-ids") || finalAnswer.getAttribute("data-content-search-message-ids") || "";
     try {
       const ids = raw.trim().startsWith("[") ? JSON.parse(raw) : raw.trim().split(/\s+/);
       if (Array.isArray(ids) && ids.length && ids.every((id) => typeof id === "string" && uuid.test(id))) {
