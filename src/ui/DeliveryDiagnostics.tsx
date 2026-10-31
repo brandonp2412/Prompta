@@ -64,20 +64,12 @@ export default function DeliveryDiagnostics({ model }: { model: Controller }) {
       )}
       {health && (
         <>
-          {error && (
-            <p>Counts below are from the last successful check, not current service status.</p>
-          )}
-          {health.issues.length ? (
-            <p role="status">{health.issues.join(" · ")}</p>
-          ) : (
-            !error && <p>UI, scheduler, delivery worker and browser are responding.</p>
-          )}
+          {error && <p>Showing last known status.</p>}
+          {health.issues.length > 0 && <p role="status">{health.issues.join(" · ")}</p>}
           {health.admission?.blocked && (
             <p role="status">
               Dispatch paused:{" "}
-              {health.admission.reason || "Host resource admission is blocking new sends"}. Queued
-              jobs are retained until capacity returns; no sends are retried after an uncertain
-              outcome.
+              {health.admission.reason || "Host resource admission is blocking new sends"}.
             </p>
           )}
           <dl>
@@ -151,38 +143,21 @@ export default function DeliveryDiagnostics({ model }: { model: Controller }) {
             </div>
           </dl>
           {health.recovery.stale_capture_leases > 0 && (
-            <p role="status">
-              A capture lease is overdue. The worker will reconcile it as interrupted before
-              read-only recovery; the original send is never replayed.
-            </p>
+            <p role="status">Capture overdue; recovery pending.</p>
           )}
           {recoveryWaiting && (
-            <p role="status">
-              Read-only recovery is waiting for the account safety cooldown (about{" "}
-              {Math.ceil(pause / 60)} min). No automatic resends will occur.
-            </p>
+            <p role="status">Recovery paused · {Math.ceil(pause / 60)} min remaining.</p>
           )}
           {!recoveryWaiting && pace > 0 && health.recovery.ready_for_read_only_probe > 0 && (
-            <p>
-              Read-only recovery is paced to one verified chat at a time; next probe in about{" "}
-              {Math.ceil(pace)} seconds.
-            </p>
+            <p>Next recovery check in {Math.ceil(pace)} seconds.</p>
           )}
           {health.recovery.missing_verified_identity > 0 && (
-            <p>
-              Chats without a verified conversation identity cannot be recovered automatically.
-              Their local partial results remain available.
-            </p>
+            <p>Automatic recovery unavailable for chats without a verified ID.</p>
           )}
           {(health.queue.retrying > 0 || health.queue.rate_limited > 0) && (
-            <p>Rejected or pre-dispatch attempts retry automatically after their backoff.</p>
+            <p>Retries scheduled automatically.</p>
           )}
-          {health.queue.outcome_unknown > 0 && (
-            <p>
-              Unconfirmed sends are not automatically retried. Review the exact saved chat before
-              sending again.
-            </p>
-          )}
+          {health.queue.outcome_unknown > 0 && <p>Check unconfirmed sends before sending again.</p>}
         </>
       )}
     </details>

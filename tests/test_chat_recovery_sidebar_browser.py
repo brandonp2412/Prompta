@@ -1,4 +1,4 @@
-"""The chat rail reports recoverable backlog without navigating ChatGPT."""
+"""Recovery bookkeeping stays out of the chat rail."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from web_results_support import completed_run, server
 
 
 @pytest.mark.parametrize("width,height", [(320, 700), (360, 800), (390, 844), (412, 915), (844, 390), (1440, 900)])
-def test_sidebar_explains_recovery_backlog_and_read_cooldown(
+def test_sidebar_omits_recovery_backlog_and_read_cooldown(
     tmp_path: Path, width: int, height: int,
 ) -> None:
     executable = os.environ.get("PROMPTA_TEST_CHROMIUM", "")
@@ -42,17 +42,13 @@ def test_sidebar_explains_recovery_backlog_and_read_cooldown(
         )
         page.goto(f"http://127.0.0.1:{port}/?view=chats")
         summary = page.locator(".chat-recovery-summary")
-        expect(summary).to_be_visible()
+        expect(summary).to_have_count(0)
         assert page.get_by_role("button", name="Mark all local chats as read").evaluate(
             """node => {
                 const r = node.getBoundingClientRect();
                 return node.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2));
             }"""
         )
-        expect(summary).to_contain_text("7 original captures eligible")
-        expect(summary).to_contain_text("3 follow-ups unresolved")
-        expect(summary).to_contain_text("1 need manual review (no verified chat ID)")
-        expect(summary).to_contain_text("waiting ~20 min")
         expect(page.get_by_role("button", name="Mark all local chats as read")).to_be_visible()
         expect(page.get_by_role("button", name="Needs attention 8 chats")).to_have_count(0)
         expect(page.locator(".sidebar-utility-row")).to_have_count(0)

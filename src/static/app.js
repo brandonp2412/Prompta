@@ -15102,18 +15102,18 @@ function DeliveryDiagnostics({ model }) {
 				]
 			}),
 			health && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
-				error && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { children: "Counts below are from the last successful check, not current service status." }),
-				health.issues.length ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+				error && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { children: "Showing last known status." }),
+				health.issues.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
 					role: "status",
 					children: health.issues.join(" · ")
-				}) : !error && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { children: "UI, scheduler, delivery worker and browser are responding." }),
+				}),
 				health.admission?.blocked && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", {
 					role: "status",
 					children: [
 						"Dispatch paused:",
 						" ",
 						health.admission.reason || "Host resource admission is blocking new sends",
-						". Queued jobs are retained until capacity returns; no sends are retried after an uncertain outcome."
+						"."
 					]
 				}),
 				/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("dl", { children: [
@@ -15138,26 +15138,24 @@ function DeliveryDiagnostics({ model }) {
 				] }),
 				health.recovery.stale_capture_leases > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
 					role: "status",
-					children: "A capture lease is overdue. The worker will reconcile it as interrupted before read-only recovery; the original send is never replayed."
+					children: "Capture overdue; recovery pending."
 				}),
 				recoveryWaiting && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", {
 					role: "status",
 					children: [
-						"Read-only recovery is waiting for the account safety cooldown (about",
-						" ",
+						"Recovery paused · ",
 						Math.ceil(pause / 60),
-						" min). No automatic resends will occur."
+						" min remaining."
 					]
 				}),
 				!recoveryWaiting && pace > 0 && health.recovery.ready_for_read_only_probe > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", { children: [
-					"Read-only recovery is paced to one verified chat at a time; next probe in about",
-					" ",
+					"Next recovery check in ",
 					Math.ceil(pace),
 					" seconds."
 				] }),
-				health.recovery.missing_verified_identity > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { children: "Chats without a verified conversation identity cannot be recovered automatically. Their local partial results remain available." }),
-				(health.queue.retrying > 0 || health.queue.rate_limited > 0) && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { children: "Rejected or pre-dispatch attempts retry automatically after their backoff." }),
-				health.queue.outcome_unknown > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { children: "Unconfirmed sends are not automatically retried. Review the exact saved chat before sending again." })
+				health.recovery.missing_verified_identity > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { children: "Automatic recovery unavailable for chats without a verified ID." }),
+				(health.queue.retrying > 0 || health.queue.rate_limited > 0) && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { children: "Retries scheduled automatically." }),
+				health.queue.outcome_unknown > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { children: "Check unconfirmed sends before sending again." })
 			] })
 		]
 	});
@@ -15409,26 +15407,16 @@ function JobsPage(props) {
 		children: [
 			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 				className: "jobs-toolbar",
-				children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+				children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 					className: "jobs-heading",
-					children: [
-						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
-							className: "jobs-eyebrow",
-							children: "AUTOMATIONS"
-						}),
-						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-							className: "toolbar-title",
-							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h1", {
-								id: "jobs-title",
-								ref: refs.jobsTitle,
-								children: "Jobs"
-							}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: jobs.value.length })]
-						}),
-						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
-							className: "jobs-description",
-							children: "Your prompts, on schedule."
-						})
-					]
+					children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+						className: "toolbar-title",
+						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h1", {
+							id: "jobs-title",
+							ref: refs.jobsTitle,
+							children: "Jobs"
+						}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: jobs.value.length })]
+					})
 				}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 					className: "toolbar-actions",
 					children: [
@@ -16143,12 +16131,6 @@ function ChatComposer(props) {
 }
 //#endregion
 //#region src/ui/resultFormatting.ts
-function recoveryProgress(recovery, now) {
-	if (!recovery || !recovery.eligible) return null;
-	if (recovery.attempt_count === 0) return "First check pending";
-	if (recovery.next_attempt_at > now) return `next check ~${Math.ceil((recovery.next_attempt_at - now) / 60)} min`;
-	return "Next check queued";
-}
 function responseBadge(status) {
 	switch (status) {
 		case "completed": return "Final";
@@ -16411,13 +16393,12 @@ function ChatRow({ item, model }) {
 //#region src/ui/ChatsSidebar.tsx
 function ChatsSidebar({ model, refs }) {
 	N$1();
-	const { retryPins, view, selectedRunId, statuses, queueSnapshot, queueError, items, pinError, readError, markingAllRead, attentionChats, recoveryBacklog, recoveryUnverified, recoveryReplyBacklog, recoveryPauseSeconds, drawerOpen, filtersOpen, search, statusFilter, loadingList, listError, morePageFailed, pinned, visibleWaiting, unpinned, retryReadSync, markAllRead, loadQueue, maybeLoadMore, loadList, loadMore, applyFilter, searchChanged, clearSearch, toggleSearch, showJobs, createChat } = model;
+	const { retryPins, view, selectedRunId, statuses, queueSnapshot, queueError, items, pinError, readError, markingAllRead, drawerOpen, filtersOpen, search, statusFilter, loadingList, listError, morePageFailed, pinned, visibleWaiting, unpinned, retryReadSync, markAllRead, loadQueue, maybeLoadMore, loadList, loadMore, applyFilter, searchChanged, clearSearch, toggleSearch, showJobs, createChat } = model;
 	function emptyChatsLabel() {
 		if (listError.value) return "Chat list temporarily unavailable";
 		if (search.value || statusFilter.value) return "No matching chats";
 		return "No chats";
 	}
-	const attentionCount = attentionChats.value ?? 0;
 	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("aside", {
 		"aria-label": "Local chat sidebar",
 		ref: refs.sidebarPane,
@@ -16539,17 +16520,6 @@ function ChatsSidebar({ model, refs }) {
 						className: "sidebar-close",
 						children: "×"
 					})
-				]
-			}),
-			attentionCount > 0 && ((recoveryBacklog.value ?? 0) > 0 || (recoveryReplyBacklog.value ?? 0) > 0 || (recoveryUnverified.value ?? 0) > 0) && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", {
-				className: "chat-recovery-summary",
-				children: [
-					"Recovery: ",
-					recoveryBacklog.value ?? 0,
-					" original captures eligible",
-					(recoveryReplyBacklog.value ?? 0) > 0 && ` · ${recoveryReplyBacklog.value} follow-ups unresolved`,
-					(recoveryUnverified.value ?? 0) > 0 && ` · ${recoveryUnverified.value} need manual review (no verified chat ID)`,
-					recoveryPauseSeconds.value > 0 && ` · waiting ~${Math.ceil(recoveryPauseSeconds.value / 60)} min`
 				]
 			}),
 			filtersOpen.value ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
@@ -20042,7 +20012,7 @@ function ToolCalls({ calls }) {
 //#region src/ui/ChatTranscript.tsx
 function ChatTranscript({ model, refs }) {
 	N$1();
-	const { selectedRunId, recoveryPauseSeconds: pauseSeconds, recoveryBacklog: recoveryQueue, recoveryUnverified: unverifiedCaptures, recoveryReplyBacklog: replyQueue, expandedPrompts, detail, turns, turnsError, startingNewChatFromFailure: startingNewChat, detailError, switchingChat, loadDetail, startFailedReplyInNewChat, continueUnverifiedInNewChat, retryFailedTurn, copyText, togglePrompt, copyState } = model;
+	const { selectedRunId, expandedPrompts, detail, turns, turnsError, startingNewChatFromFailure: startingNewChat, detailError, switchingChat, loadDetail, startFailedReplyInNewChat, continueUnverifiedInNewChat, retryFailedTurn, copyText, togglePrompt, copyState } = model;
 	(0, import_react.useLayoutEffect)(() => {
 		model.revealSelectedChat();
 	}, [
@@ -20213,25 +20183,14 @@ function ChatTranscript({ model, refs }) {
 							"interrupted",
 							"unavailable",
 							"outcome_unknown"
-						].includes(turn.status) && exactConversationUrl(turn.conversation_id || detail.value.conversation_id) ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+						].includes(turn.status) && exactConversationUrl(turn.conversation_id || detail.value.conversation_id) ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 							className: "chat-recovery-guidance",
-							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", {
-								role: "status",
-								children: [
-									"Read-only recovery",
-									recoveryQueue.value !== null && recoveryQueue.value > 0 ? ` · ${recoveryQueue.value} originals pending` : "",
-									replyQueue.value !== null && replyQueue.value > 0 ? `, ${replyQueue.value} replies` : "",
-									unverifiedCaptures.value !== null && unverifiedCaptures.value > 0 ? ` · ${unverifiedCaptures.value} unverified` : "",
-									index === 0 && detail.value?.recovery?.eligible ? ` · ${recoveryProgress(detail.value.recovery, Date.now() / 1e3) ?? ""}` : "",
-									pauseSeconds.value > 0 ? ` · paused ~${Math.ceil(pauseSeconds.value / 60)} min` : "",
-									". No automatic resend."
-								]
-							}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("a", {
+							children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("a", {
 								href: exactConversationUrl(turn.conversation_id || detail.value.conversation_id) ?? void 0,
 								target: "_blank",
 								rel: "noopener noreferrer",
 								children: "Open exact chat in ChatGPT"
-							})]
+							})
 						}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {})
 					]
 				})] }, turn.reply_id || detail.value.send_id))]

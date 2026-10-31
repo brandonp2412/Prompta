@@ -62,7 +62,7 @@ def test_jobs_table_sorts_next_run_before_pagination(
             page.goto(f"http://127.0.0.1:{port}/?view=jobs", wait_until="domcontentloaded")
             first_page = [f"Job-{index:02}" for index in range(11, 1, -1)]
             expect(page.locator(".job-row")).to_have_count(10)
-            expect(page.locator(".jobs-description")).to_have_text("Your prompts, on schedule.")
+            expect(page.locator(".jobs-description")).to_have_count(0)
             expect(page.locator(".schedule-cell").first).to_be_visible()
             assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
             assert page.locator(".job-row .job-name").all_text_contents() == first_page

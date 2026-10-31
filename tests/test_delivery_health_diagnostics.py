@@ -170,7 +170,7 @@ def test_jobs_shows_real_readiness_and_uncertain_queue_metrics(
             expect(page.get_by_text("Chats eligible for read-only recovery")).to_be_visible()
             expect(page.get_by_text("Unresolved follow-up captures")).to_be_visible()
             expect(page.get_by_text("Follow-ups eligible for recovery")).to_be_visible()
-            expect(page.get_by_text("Read-only recovery is waiting", exact=False)).to_be_visible()
+            expect(page.get_by_text("Recovery paused ·", exact=False)).to_be_visible()
             assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
             browser.close()
 
@@ -198,6 +198,6 @@ def test_global_probe_pacing_is_not_mislabeled_as_account_cooldown(tmp_path: Pat
             summary = page.locator(".delivery-diagnostics summary")
             expect(summary).not_to_contain_text("Recovery paused")
             summary.click()
-            expect(page.get_by_text("Read-only recovery is paced", exact=False)).to_be_visible()
+            expect(page.get_by_text("Next recovery check in", exact=False)).to_be_visible()
             assert page.evaluate("document.documentElement.scrollWidth <= innerWidth + 1")
             browser.close()

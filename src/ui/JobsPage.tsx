@@ -88,14 +88,12 @@ export default function JobsPage(props: Props) {
           <section aria-labelledby="jobs-title" className="jobs-panel">
             <div className="jobs-toolbar">
               <div className="jobs-heading">
-                <p className="jobs-eyebrow">AUTOMATIONS</p>
                 <div className="toolbar-title">
                   <h1 id="jobs-title" ref={refs.jobsTitle}>
                     Jobs
                   </h1>
                   <span>{jobs.value.length}</span>
                 </div>
-                <p className="jobs-description">Your prompts, on schedule.</p>
               </div>
 
               <div className="toolbar-actions">

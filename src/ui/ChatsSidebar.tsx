@@ -30,11 +30,6 @@ export default function ChatsSidebar({
     pinError,
     readError,
     markingAllRead,
-    attentionChats,
-    recoveryBacklog,
-    recoveryUnverified,
-    recoveryReplyBacklog,
-    recoveryPauseSeconds,
     drawerOpen,
     filtersOpen,
     search,
@@ -64,8 +59,6 @@ export default function ChatsSidebar({
     if (search.value || statusFilter.value) return "No matching chats";
     return "No chats";
   }
-
-  const attentionCount = attentionChats.value ?? 0;
 
   return (
     <aside aria-label="Local chat sidebar" ref={refs.sidebarPane} className="chats-sidebar">
@@ -179,21 +172,6 @@ export default function ChatsSidebar({
           ×
         </button>
       </div>
-      {attentionCount > 0 &&
-        ((recoveryBacklog.value ?? 0) > 0 ||
-          (recoveryReplyBacklog.value ?? 0) > 0 ||
-          (recoveryUnverified.value ?? 0) > 0) && (
-          <p className="chat-recovery-summary">
-            Recovery: {recoveryBacklog.value ?? 0} original captures eligible
-            {(recoveryReplyBacklog.value ?? 0) > 0 &&
-              ` · ${recoveryReplyBacklog.value} follow-ups unresolved`}
-            {(recoveryUnverified.value ?? 0) > 0 &&
-              ` · ${recoveryUnverified.value} need manual review (no verified chat ID)`}
-            {recoveryPauseSeconds.value > 0 &&
-              ` · waiting ~${Math.ceil(recoveryPauseSeconds.value / 60)} min`}
-          </p>
-        )}
-
       {filtersOpen.value ? (
         <>
           <div id="chat-filters" className="chats-controls">

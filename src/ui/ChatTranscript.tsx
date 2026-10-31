@@ -7,7 +7,6 @@ import {
   chatMessageTime,
   formatStoredResponse,
   partialResponseLabel,
-  recoveryProgress,
   responseBadge,
   exactConversationUrl,
   turnStatus,
@@ -27,10 +26,6 @@ export default function ChatTranscript({
   useSignals();
   const {
     selectedRunId,
-    recoveryPauseSeconds: pauseSeconds,
-    recoveryBacklog: recoveryQueue,
-    recoveryUnverified: unverifiedCaptures,
-    recoveryReplyBacklog: replyQueue,
     expandedPrompts,
     detail,
     turns,
@@ -327,25 +322,6 @@ export default function ChatTranscript({
                     exactConversationUrl(turn.conversation_id || detail.value!.conversation_id) ? (
                       <>
                         <div className="chat-recovery-guidance">
-                          <p role="status">
-                            Read-only recovery
-                            {recoveryQueue.value !== null && recoveryQueue.value > 0
-                              ? ` · ${recoveryQueue.value} originals pending`
-                              : ""}
-                            {replyQueue.value !== null && replyQueue.value > 0
-                              ? `, ${replyQueue.value} replies`
-                              : ""}
-                            {unverifiedCaptures.value !== null && unverifiedCaptures.value > 0
-                              ? ` · ${unverifiedCaptures.value} unverified`
-                              : ""}
-                            {index === 0 && detail.value?.recovery?.eligible
-                              ? ` · ${recoveryProgress(detail.value.recovery, Date.now() / 1000) ?? ""}`
-                              : ""}
-                            {pauseSeconds.value > 0
-                              ? ` · paused ~${Math.ceil(pauseSeconds.value / 60)} min`
-                              : ""}
-                            . No automatic resend.
-                          </p>
                           <a
                             href={
                               exactConversationUrl(

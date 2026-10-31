@@ -1,11 +1,9 @@
 /* Jobs workspace: scoped to preserve the chat and editor layouts. */
 .jobs-panel { padding-top: 26px; }
 .jobs-panel .jobs-toolbar { padding: 0 0 24px; gap: 24px; border: 0; align-items: center; }
-.jobs-eyebrow { margin: 0 0 8px; font-size: .65rem; font-weight: 650; letter-spacing: .16em; color: #929292; }
 .jobs-panel .toolbar-title { align-items: center; }
 .jobs-panel .toolbar-title h1 { font-size: 1.9rem; line-height: 1.15; letter-spacing: -.045em; }
 .jobs-panel .toolbar-title > span { padding: 3px 8px; border: 1px solid #383838; border-radius: 7px; color: #bdbdbd; font-variant-numeric: tabular-nums; }
-.jobs-description { margin: 9px 0 0; color: #999; font-size: .84rem; }
 .jobs-panel .toolbar-actions { flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
 .jobs-panel .toolbar-actions > button { min-height: 40px; border-radius: 9px; }
 .jobs-panel .toolbar-actions .primary-button { padding-inline: 18px; }

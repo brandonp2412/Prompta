@@ -1,4 +1,4 @@
-"""Recovery UI explains the persisted read cooldown without contacting ChatGPT."""
+"""Recovery bookkeeping stays out of chats without contacting ChatGPT."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from prompta.response_store import ResponseStore
 
 
 @pytest.mark.parametrize("width,height", [(1440, 900), (390, 844)])
-def test_interrupted_chat_shows_read_backoff_without_reopening_chatgpt(
+def test_interrupted_chat_omits_backlog_without_reopening_chatgpt(
     tmp_path: Path,
     width: int,
     height: int,
@@ -58,10 +58,7 @@ def test_interrupted_chat_shows_read_backoff_without_reopening_chatgpt(
         )
         page.goto(f"http://127.0.0.1:{port}/?view=chats&run=cooldown")
         summary = page.locator(".chat-recovery-guidance p")
-        expect(summary).to_have_count(1)
-        expect(summary).to_contain_text("42 originals pending, 6 replies")
-        expect(summary).to_contain_text("paused ~10 min")
-        expect(summary).to_contain_text("No automatic resend")
+        expect(summary).to_have_count(0)
         expect(page.get_by_text("Recovery backlog:")).to_have_count(0)
         expect(page.get_by_role("link", name="Open exact chat in ChatGPT")).to_be_visible()
         assert remote == []
