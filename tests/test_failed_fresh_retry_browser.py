@@ -1,4 +1,5 @@
 """Browser proof that a failed initial chat can only be resent by an explicit action."""
+
 from __future__ import annotations
 
 import os
@@ -6,7 +7,7 @@ import time
 from pathlib import Path
 
 import pytest
-from playwright.sync_api import expect, sync_playwright
+from patchright.sync_api import expect, sync_playwright
 from test_web_results import server
 
 
@@ -14,12 +15,16 @@ from test_web_results import server
 def serve_current_worktree_assets(monkeypatch: pytest.MonkeyPatch) -> None:
     import prompta.web as web_module
 
-    monkeypatch.setattr(web_module, "_STATIC_ROOT", Path(__file__).resolve().parents[1] / "src/static")
+    monkeypatch.setattr(
+        web_module, "_STATIC_ROOT", Path(__file__).resolve().parents[1] / "src/static"
+    )
 
 
 @pytest.mark.parametrize("width,height", [(390, 844), (1440, 900)])
 def test_failed_initial_chat_explicit_retry_uses_new_id(
-    tmp_path: Path, width: int, height: int,
+    tmp_path: Path,
+    width: int,
+    height: int,
 ) -> None:
     chromium = Path(os.environ.get("PROMPTA_TEST_CHROMIUM", "/usr/bin/chromium"))
     if not chromium.is_file():
@@ -35,16 +40,20 @@ def test_failed_initial_chat_explicit_retry_uses_new_id(
 
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch(
-                executable_path=str(chromium), headless=True, args=["--no-sandbox"],
+                executable_path=str(chromium),
+                headless=True,
+                args=["--no-sandbox"],
             )
             try:
                 page = browser.new_page(viewport={"width": width, "height": height})
                 sent_posts: list[str] = []
                 page.on(
                     "request",
-                    lambda request: sent_posts.append(request.post_data or "")
-                    if request.url.endswith("/api/chats") and request.method == "POST"
-                    else None,
+                    lambda request: (
+                        sent_posts.append(request.post_data or "")
+                        if request.url.endswith("/api/chats") and request.method == "POST"
+                        else None
+                    ),
                 )
                 page.goto(f"http://127.0.0.1:{port}/?view=chats&run={original_id}")
                 retry = page.get_by_role("button", name="Retry original prompt in new chat")
@@ -53,8 +62,9 @@ def test_failed_initial_chat_explicit_retry_uses_new_id(
                 assert not sent_posts
 
                 with page.expect_response(
-                    lambda response: response.url.endswith("/api/chats")
-                    and response.request.method == "POST",
+                    lambda response: (
+                        response.url.endswith("/api/chats") and response.request.method == "POST"
+                    ),
                 ) as receipt:
                     retry.click()
                 assert receipt.value.status == 202
