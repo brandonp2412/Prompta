@@ -27,6 +27,8 @@ export default function ChatsPage(props: Props) {
     exactConversationUrl,
     queueSnapshot,
     queueError,
+    recoveryPauseSeconds,
+    recoveryPauseReason,
     items,
     pinnedIds,
     pinsReady,
@@ -960,6 +962,13 @@ export default function ChatsPage(props: Props) {
                                             <span>
                                               Recovery checks are read-only. No automatic resend.
                                             </span>
+                                            {recoveryPauseSeconds.value > 0 && (
+                                              <span role="status">
+                                                Recovery is waiting about{" "}
+                                                {Math.ceil(recoveryPauseSeconds.value / 60)} min (
+                                                {recoveryPauseReason.value}).
+                                              </span>
+                                            )}
                                             <a
                                               href={
                                                 exactConversationUrl(

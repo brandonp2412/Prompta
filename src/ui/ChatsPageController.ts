@@ -5,7 +5,7 @@ import { subscribeLiveUpdates } from "./liveUpdates";
 import { recoverVisibleTurns } from "./turnRecovery";
 import { nextResultPageOffset, reconcileResultPage } from "./resultListRefresh";
 import { localGet, localReadTimeoutMs } from "./localRead";
-import { localPost } from "./localMutation";
+import { localPost, localRejectionDetail } from "./localMutation";
 import {
   acknowledgeExactReplyRequest,
   acknowledgeQueuedFollowupRequest,
@@ -20,6 +20,8 @@ import {
 import {
   exactReplyReceiptState,
   findExactReplyReceiptState,
+  findQueuedFollowupReceiptState,
+  queuedFollowupReceiptState,
   type ExactReplyPayload,
 } from "./exactReplyReceipt";
 import {
@@ -82,7 +84,7 @@ export function createChatsPageController(initialProps: Props) {
       case "queued":
         return "Queued";
       case "prepared":
-        return "Draft";
+        return "Pending";
     }
   }
 
@@ -111,6 +113,11 @@ export function createChatsPageController(initialProps: Props) {
   let queueRefreshPending = false;
   let queuePollTimer: ReturnType<typeof setInterval> | undefined;
   let detailPollTimer: ReturnType<typeof setInterval> | undefined;
+  let recoveryHealthTimer: ReturnType<typeof setInterval> | undefined;
+  let recoveryHealthInFlight = false;
+  let lastRecoveryHealthAt = 0;
+  const recoveryPauseSeconds = signal(0);
+  const recoveryPauseReason = signal("");
   let items = signal<RunSummary[]>([]);
   let pinnedItems = signal<RunSummary[]>([]);
   let pinnedIds = signal<string[]>([]);
@@ -521,6 +528,43 @@ export function createChatsPageController(initialProps: Props) {
     }
   }
 
+  async function loadRecoveryPause() {
+    if (recoveryHealthInFlight || Date.now() - lastRecoveryHealthAt < 25_000) return;
+    recoveryHealthInFlight = true;
+    lastRecoveryHealthAt = Date.now();
+    try {
+      // Only local operational health: never contact ChatGPT for a status label.
+      const response = await localGet("./api/health");
+      if (!response.ok) return;
+      const body = (await response.json()) as {
+        recovery?: {
+          account_read_backoff_seconds?: number;
+          security_pause_seconds?: number;
+          global_pace_seconds?: number;
+        };
+      };
+      const delays = [
+        {
+          seconds: body.recovery?.account_read_backoff_seconds ?? 0,
+          reason: "account read cooldown",
+        },
+        { seconds: body.recovery?.security_pause_seconds ?? 0, reason: "security cooldown" },
+        { seconds: body.recovery?.global_pace_seconds ?? 0, reason: "read-only probe pacing" },
+      ];
+      if (delays.every(({ seconds }) => Number.isFinite(seconds) && seconds >= 0)) {
+        const longest = delays.reduce((selected, current) =>
+          current.seconds > selected.seconds ? current : selected,
+        );
+        recoveryPauseSeconds.value = Math.ceil(longest.seconds);
+        recoveryPauseReason.value = longest.reason;
+      }
+    } catch {
+      // Keep the last confirmed value; this is informational, not a send gate.
+    } finally {
+      recoveryHealthInFlight = false;
+    }
+  }
+
   function resultsParams(offset: number) {
     const params = new URLSearchParams({ limit: String(pageSize), offset: String(offset) });
     if (search.value.trim()) params.set("q", search.value.trim());
@@ -538,6 +582,8 @@ export function createChatsPageController(initialProps: Props) {
     if (
       loadingList.value ||
       loadingMore.value ||
+      Boolean(listError.value) ||
+      morePageFailed.value ||
       nextOffset.value >= total.value ||
       !listPane.value
     )
@@ -556,12 +602,8 @@ export function createChatsPageController(initialProps: Props) {
     const generation = ++listGeneration;
     listInFlight = true;
     loadingMore.value = false; // A fresh first-page response supersedes an in-flight append.
-    if (reset) {
-      items.value = [];
-      total.value = 0;
-      nextOffset.value = 0;
-      if (listPane.value) listPane.value.scrollTop = 0;
-    }
+    // A search/filter fetch can fail or time out. Keep the last confirmed rail
+    // and its scroll position until the new result page is actually available.
     loadingList.value = items.value.length === 0;
     try {
       const response = await localGet("./api/results?" + resultsParams(0));
@@ -572,7 +614,10 @@ export function createChatsPageController(initialProps: Props) {
         ? body.items
         : reconcileResultPage(items.value, body.items, body.total, pageSize, statusFilter.value);
       total.value = body.total;
-      nextOffset.value = Math.min(body.total, Math.max(nextOffset.value, body.items.length));
+      nextOffset.value = reset
+        ? Math.min(body.total, body.items.length)
+        : Math.min(body.total, Math.max(nextOffset.value, body.items.length));
+      if (reset && listPane.value) listPane.value.scrollTop = 0;
       listError.value = "";
       morePageFailed.value = false;
     } catch {
@@ -721,6 +766,12 @@ export function createChatsPageController(initialProps: Props) {
             scrollPane.value.scrollTop = scrollPane.value.scrollHeight;
         }
       }
+      if (
+        turns.value.some((turn) =>
+          ["interrupted", "unavailable", "outcome_unknown"].includes(turn.status),
+        )
+      )
+        void loadRecoveryPause();
     } catch {
       if (generation === detailGeneration) detailError.value = "This run is unavailable locally.";
     } finally {
@@ -809,7 +860,13 @@ export function createChatsPageController(initialProps: Props) {
           return accepted(body.send_id, body.status);
         }
       } else if (response.status < 500) {
-        return { ok: false, message: "The fresh chat was rejected. Review the prompt or images." };
+        return {
+          ok: false,
+          message: await localRejectionDetail(
+            response,
+            "The fresh chat was rejected. Review the prompt or images.",
+          ),
+        };
       }
     } catch {
       // The request may already exist. Check local SQLite before reporting loss.
@@ -921,41 +978,74 @@ export function createChatsPageController(initialProps: Props) {
         ),
       };
     }
+    const accepted = async () => {
+      acknowledgeQueuedFollowupRequest(sendId, request.fingerprint, request.replyId);
+      if (selectedRunId.value === sendId) await loadDetail(sendId);
+      return { ok: true, message: "" };
+    };
+    const uncertain = () => ({
+      ok: false,
+      ambiguous: true,
+      message:
+        "This follow-up's send outcome is uncertain. Its saved ID is preserved; no additional send was attempted.",
+    });
+    const reconcile = async () => {
+      const state = await findQueuedFollowupReceiptState(sendId, request.replyId, text);
+      if (state === "accepted") return accepted();
+      if (state === "uncertain") return uncertain();
+      if (state === "invalid") {
+        return {
+          ok: false,
+          message: "The saved follow-up ID conflicts with its local receipt. Nothing was resent.",
+        };
+      }
+      return null;
+    };
+    // A lost HTTP response or reload may have left the queue intent in SQLite.
+    // A local GET must settle that receipt before another explicit POST.
+    if (request.reused) {
+      const existing = await reconcile();
+      if (existing) return existing;
+    }
     try {
       const response = await localPost(
         "./api/results/" + encodeURIComponent(sendId) + "/reply-queue",
         { reply_id: request.replyId, text },
       );
       if (!response.ok) {
-        const problem =
-          response.status < 500
-            ? ((await response.json().catch(() => null)) as { error?: string } | null)
-            : null;
+        const existing = await reconcile();
+        if (existing) return existing;
         return {
           ok: false,
           ambiguous: response.status >= 500,
           message:
-            problem?.error ||
-            "Follow-up queue receipt is uncertain. Retry with the saved draft to reconcile.",
+            response.status < 500
+              ? await localRejectionDetail(
+                  response,
+                  "The follow-up was rejected. Its saved request ID was preserved.",
+                )
+              : "Follow-up queue receipt is uncertain. Retry with the saved draft to reconcile.",
         };
       }
-      const receipt = (await response.json()) as { turn?: { reply_id?: string } };
-      if (receipt.turn?.reply_id !== request.replyId) {
-        return {
+      const receipt = (await response.json()) as { turn?: unknown };
+      const state = queuedFollowupReceiptState(receipt.turn, sendId, request.replyId, text);
+      if (state === "accepted") return accepted();
+      if (state === "uncertain") return uncertain();
+      return (
+        (await reconcile()) ?? {
           ok: false,
           ambiguous: true,
           message: "Follow-up receipt did not match. The saved ID will be reused on retry.",
-        };
-      }
-      acknowledgeQueuedFollowupRequest(sendId, request.fingerprint, request.replyId);
-      if (selectedRunId.value === sendId) await loadDetail(sendId);
-      return { ok: true, message: "" };
+        }
+      );
     } catch {
-      return {
-        ok: false,
-        ambiguous: true,
-        message: "Queue receipt was lost. The draft is saved; press Send to reconcile.",
-      };
+      return (
+        (await reconcile()) ?? {
+          ok: false,
+          ambiguous: true,
+          message: "Queue receipt was lost. The draft is saved; press Send to reconcile.",
+        }
+      );
     }
   }
 
@@ -1083,10 +1173,12 @@ export function createChatsPageController(initialProps: Props) {
       );
       if (!response.ok) {
         if (response.status >= 500) return (await reconcile()) ?? uncertain();
-        const problem = (await response.json().catch(() => null)) as { error?: string } | null;
         return {
           ok: false,
-          message: problem?.error || "Reply was not queued. Check the saved branch and try again.",
+          message: await localRejectionDetail(
+            response,
+            "Reply was not queued. Check the saved branch and try again.",
+          ),
         };
       }
       const receipt: unknown = await response.json();
@@ -1319,6 +1411,15 @@ export function createChatsPageController(initialProps: Props) {
     }, 15000);
     // Poll only Prompta's local turn record while an explicit reply is active.
     // This never opens ChatGPT or submits another message.
+    recoveryHealthTimer = setInterval(() => {
+      if (
+        document.visibilityState === "visible" &&
+        turns.value.some((turn) =>
+          ["interrupted", "unavailable", "outcome_unknown"].includes(turn.status),
+        )
+      )
+        void loadRecoveryPause();
+    }, 30_000);
     detailPollTimer = setInterval(() => {
       if (document.visibilityState !== "visible" || view.value !== "chats" || !selectedRunId.value)
         return;
@@ -1345,6 +1446,7 @@ export function createChatsPageController(initialProps: Props) {
       window.removeEventListener("touchmove", moveSwipe);
       clearInterval(queuePollTimer);
       clearInterval(detailPollTimer);
+      clearInterval(recoveryHealthTimer);
       clearTimeout(liveRefreshTimer);
       clearTimeout(searchTimer);
     };
@@ -1385,6 +1487,8 @@ export function createChatsPageController(initialProps: Props) {
     exactConversationUrl,
     queueSnapshot,
     queueError,
+    recoveryPauseSeconds,
+    recoveryPauseReason,
     queueGeneration,
     queueInFlight,
     queueRefreshPending,

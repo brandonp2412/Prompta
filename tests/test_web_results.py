@@ -94,7 +94,10 @@ def completed_run(app: LiveServer, send_id: str, name: str, now: float) -> None:
 def test_default_route_opens_chats_and_jobs_remains_linkable(tmp_path: Path) -> None:
     with server(tmp_path) as (_app, port):
         with sync_playwright() as playwright:
-            browser = playwright.chromium.launch(headless=True, executable_path=os.environ.get("PROMPTA_TEST_CHROMIUM", "/usr/bin/chromium"))
+            browser = playwright.chromium.launch(
+                headless=True,
+                executable_path=os.environ.get("PROMPTA_TEST_CHROMIUM", "/usr/bin/chromium"),
+            )
             try:
                 page = browser.new_page(viewport={"width": 1440, "height": 900})
                 page.goto(f"http://127.0.0.1:{port}/")
@@ -900,7 +903,7 @@ def test_chats_ui_desktop_mobile_and_no_chatgpt_requests(tmp_path: Path) -> None
                 page.locator(".chat-row").first.wait_for()
                 assert page.locator(".chat-row").count() == 4
                 page.locator(".chat-row").filter(has_text="Daily review").click()
-                assert page.locator(".result-markdown pre code").first.inner_text() == "print(1)"
+                expect(page.locator(".result-markdown pre code").first).to_have_text("print(1)")
                 expect(page.locator(".prompt-message")).to_have_count(2)
                 assert page.locator(".prompt-message").all_inner_texts() == [
                     "Prompt for Daily review",
@@ -1238,7 +1241,8 @@ def test_explicit_reply_intent_contract_is_local_and_not_dispatched(
 
 
 def test_explicit_reply_is_durably_handed_to_worker_not_ui(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A UI restart cannot own or duplicate a user-authorized reply."""
     from prompta.reply_contracts import ReplyIntent
@@ -1252,10 +1256,19 @@ def test_explicit_reply_is_durably_handed_to_worker_not_ui(
     with server(tmp_path) as (app, port):
         app.results.ensure_queued("known", "Original", now=100)
         assert app.results.accept("known", "test-owner", deadline=300, now=101)
-        assert app.results.write("known", "test-owner", CaptureResult(
-            "sse", "complete", "Original answer", "conversation-1234567890",
-            "assistant-1234567890", "user-1234567890123",
-        ), now=102)
+        assert app.results.write(
+            "known",
+            "test-owner",
+            CaptureResult(
+                "sse",
+                "complete",
+                "Original answer",
+                "conversation-1234567890",
+                "assistant-1234567890",
+                "user-1234567890123",
+            ),
+            now=102,
+        )
         intent = ReplyIntent.parse(payload)
         assert app.replies.prepare("known", intent)["status"] == "prepared"
         assert app.replies.next_queued_intent() is None
@@ -1363,7 +1376,9 @@ def test_unread_badges_follow_completed_answers_not_metadata(tmp_path: Path) -> 
                 assert app.replies.prepare("answered", intent, now=600)
                 page.reload(wait_until="networkidle")
                 expect(answered.locator(".unread-indicator")).to_have_count(0)
-                assert app.replies.claim(intent.reply_id, owner, deadline=time.time() + 3600, now=601)
+                assert app.replies.claim(
+                    intent.reply_id, owner, deadline=time.time() + 3600, now=601
+                )
                 assert app.replies.accepted(
                     intent.reply_id,
                     owner,
