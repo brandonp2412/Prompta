@@ -526,7 +526,12 @@ def test_fresh_chat_immediately_enters_sidebar_without_horizontal_scroll(
             "clientHeight:node.clientHeight, scrollHeight:node.scrollHeight})",
         )
         assert dimensions["scrollWidth"] <= dimensions["clientWidth"] + 1
-        assert dimensions["scrollHeight"] > dimensions["clientHeight"]
+        # The pinned new chat can appear before the first local results page.
+        # Wait for the rest of the chat rail instead of asserting on a race.
+        page.wait_for_function(
+            "() => { const rail = document.querySelector('.chats-list'); "
+            "return rail && rail.scrollHeight > rail.clientHeight; }",
+        )
         page.locator(".chats-list").evaluate("node => node.scrollTop = 300")
         assert page.locator(".chats-list").evaluate("node => node.scrollTop") > 0
         assert page.get_by_text("Local Prompta runs only").count() == 0

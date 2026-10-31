@@ -10308,7 +10308,7 @@ function ChatsPage($$anchor, $$props) {
 		const uncertain = () => ({
 			ok: false,
 			ambiguous: true,
-			message: "This exact reply may have been submitted. Its saved ID was preserved; inspect local turns before another attempt."
+			message: "Reply outcome could not be confirmed. Its saved ID was preserved; inspect local turns before another attempt."
 		});
 		const reconcile = async () => {
 			const state = await findExactReplyReceiptState(sendId, payload);
@@ -10726,7 +10726,7 @@ function ChatsPage($$anchor, $$props) {
 		append($$anchor, fragment_3);
 	};
 	if_block(node_11, ($$render) => {
-		if (get(loadingList) && !get(items).length) $$render(consequent_9);
+		if (get(loadingList) && !get(items).length && !get(pinned).length) $$render(consequent_9);
 		else if (!get(items).length && !get(pinned).length && !get(visibleWaiting).length) $$render(consequent_10, 1);
 		else $$render(alternate, -1);
 	});

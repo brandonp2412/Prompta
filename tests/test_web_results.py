@@ -1147,7 +1147,12 @@ def test_mobile_jobs_editor_navigation_and_touch_targets(tmp_path: Path) -> None
                 page.get_by_role("button", name="Cancel").click()
                 page.get_by_role("button", name="Discard", exact=True).click()
                 expect(page.locator(".job-row")).to_have_count(10)
-                assert abs(pane.evaluate("(element) => element.scrollTop") - before_scroll) < 10
+                # Scroll restoration runs in requestAnimationFrame after the list remounts.
+                page.wait_for_function(
+                    "expected => { const pane = document.querySelector('.jobs-workspace'); "
+                    "return pane && Math.abs(pane.scrollTop - expected) < 10; }",
+                    arg=before_scroll,
+                )
                 page.get_by_role("button", name="Open chat sidebar").click()
                 close_box = page.locator(".sidebar-close").bounding_box()
                 assert close_box and close_box["width"] >= 44

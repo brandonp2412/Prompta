@@ -768,7 +768,7 @@
     };
     const uncertain = () => ({
       ok: false, ambiguous: true,
-      message: "This exact reply may have been submitted. Its saved ID was preserved; inspect local turns before another attempt.",
+      message: "Reply outcome could not be confirmed. Its saved ID was preserved; inspect local turns before another attempt.",
     });
     const reconcile = async () => {
       const state = await findExactReplyReceiptState(sendId, payload);
@@ -1135,7 +1135,7 @@
       {#if pinned.length}
         {#each pinned as item (item.send_id)}{@render chatItem(item)}{/each}
       {/if}
-      {#if loadingList && !items.length}
+      {#if loadingList && !items.length && !pinned.length}
         <p class="chats-empty">Loading chats…</p>
       {:else if !items.length && !pinned.length && !visibleWaiting.length}
         <p class="chats-empty">{listError ? "Chat list temporarily unavailable" : search || statusFilter ? "No matching chats" : "No chats"}</p>
