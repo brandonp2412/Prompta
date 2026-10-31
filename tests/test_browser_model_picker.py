@@ -585,8 +585,8 @@ async def test_model_selection_verifies_click_before_reporting_success(
     page = Page(option)
     driver = PlaywrightDriver(profile=tmp_path / "profile")
     monkeypatch.setattr(driver, "_page", lambda _context=None: page)
-    monkeypatch.setattr("prompta.playwright_driver._MODEL_SELECTION_VERIFY_ATTEMPTS", 1)
-    monkeypatch.setattr("prompta.playwright_driver._MODEL_SELECTION_VERIFY_INTERVAL_SECONDS", 0.0)
+    monkeypatch.setattr("prompta.model_picker._MODEL_SELECTION_VERIFY_ATTEMPTS", 1)
+    monkeypatch.setattr("prompta.model_picker._MODEL_SELECTION_VERIFY_INTERVAL_SECONDS", 0.0)
 
     selector_calls = 0
 

@@ -9,7 +9,6 @@ from _browser_fakes import FakeDriver
 from _browser_fakes import offline_approval_default as offline_approval_default
 
 import prompta.delivery_browser as delivery_browser
-import prompta.playwright_driver as playwright_driver
 from prompta.delivery_browser import (
     BrowserDeliverySender,
     DeliveryBackendUnavailableError,
@@ -464,7 +463,7 @@ async def test_model_picker_bounds_and_names_slow_option_discovery(
         await asyncio.Event().wait()
 
     monkeypatch.setattr(driver, "_first_usable", slow_scan)
-    monkeypatch.setattr(playwright_driver, "_MODEL_PICKER_STEP_TIMEOUT_SECONDS", 0.01)
+    monkeypatch.setattr("prompta.model_picker._MODEL_PICKER_STEP_TIMEOUT_SECONDS", 0.01)
 
     with pytest.raises(TimeoutError):
         await driver.select_effort_model("GPT-5.6 Sol")
