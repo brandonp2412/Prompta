@@ -135,7 +135,7 @@ def test_composer_queues_followup_while_first_answer_is_pending(
         with page.expect_response(lambda response: response.url.endswith("/reply-queue")):
             composer.press("Enter")
         expect(page.get_by_text("Another queued instruction")).to_be_visible()
-        assert page.locator(".message-group.user-group").count() == 3
+        expect(page.locator(".message-group.user-group")).to_have_count(3)
         page.reload()
         expect(page.locator(".message-group.user-group")).to_have_count(3)
         expect(page.get_by_role("textbox", name="Message for current chat")).to_be_enabled()
