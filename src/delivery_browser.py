@@ -478,7 +478,7 @@ class BrowserDeliverySender:
                     # acceptance check. Bind only this live capture lease.
                     try:
                         path = await asyncio.wait_for(
-                            driver.eval(load_browser_script("location_pathname.js")),
+                            driver.eval("location.pathname"),
                             timeout=min(
                                 5.0,
                                 max(0.01, deadline - asyncio.get_running_loop().time()),
@@ -666,7 +666,7 @@ class BrowserDeliverySender:
                 initial_path = str(
                     await _timed_stage(
                         "fresh_chat_route_check",
-                        driver.eval(load_browser_script("location_pathname.js")),
+                        driver.eval("location.pathname"),
                         timeout=5.0,
                     )
                     or ""
@@ -682,7 +682,7 @@ class BrowserDeliverySender:
                 baseline_path = str(
                     await _timed_stage(
                         "baseline_route_check",
-                        driver.eval(load_browser_script("location_pathname.js")),
+                        driver.eval("location.pathname"),
                         timeout=5.0,
                     )
                     or ""
@@ -742,7 +742,7 @@ class BrowserDeliverySender:
                 predispatch_path = str(
                     await _timed_stage(
                         "predispatch_route_check",
-                        driver.eval(load_browser_script("location_pathname.js")),
+                        driver.eval("location.pathname"),
                         timeout=5.0,
                     )
                     or ""
@@ -824,7 +824,7 @@ class BrowserDeliverySender:
                         path = str(
                             await _timed_stage(
                                 "send_confirmation_route",
-                                driver.eval(load_browser_script("location_pathname.js")),
+                                driver.eval("location.pathname"),
                                 timeout=5.0,
                             )
                             or ""
@@ -1022,7 +1022,7 @@ class BrowserDeliverySender:
                     try:
                         path = await _timed_stage(
                             "capture_conversation_route",
-                            driver.eval(load_browser_script("location_pathname.js")),
+                            driver.eval("location.pathname"),
                             timeout=5.0,
                         )
                         if self.results.bind_conversation_route(send_id, capture_owner, path):
@@ -1068,7 +1068,7 @@ class BrowserDeliverySender:
             if send_id and context:
                 try:
                     await asyncio.wait_for(
-                        driver.eval(load_browser_script("passive_response_stop.js"), main_world=True),
+                        driver.eval("(() => { window.__promptaPassiveResponseObserver?.stop?.(); return true; })()", main_world=True),
                         timeout=1.0,
                     )
                 except Exception:

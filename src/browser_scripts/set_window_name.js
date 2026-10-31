@@ -1,1 +1,0 @@
-(value) => { window.name = value; }
