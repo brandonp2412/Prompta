@@ -337,7 +337,16 @@ def test_idle_sse_sends_named_ping_visible_to_eventsource(tmp_path: Path) -> Non
             client.request("GET", "/api/events")
             stream = client.getresponse()
             assert next_event(stream)[0] == "sync"
-            topic, data, _ = next_event(stream)
-            assert (topic, data) == ("ping", "keepalive")
+            deadline = time.monotonic() + 19
+            while time.monotonic() < deadline:
+                topic, data, _ = next_event(stream)
+                if topic == "ping":
+                    assert data == "keepalive"
+                    break
+                # Maintenance may commit a real local change while waiting for
+                # the heartbeat; that event is not a failed ping.
+                assert topic in {"jobs", "chats"} and data == "refresh"
+            else:
+                raise AssertionError("SSE heartbeat did not arrive")
         finally:
             client.close()
