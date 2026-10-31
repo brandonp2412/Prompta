@@ -5,6 +5,7 @@ import JobsPage from "./JobsPage";
 import ChatComposer from "./ChatComposer";
 import ResultMarkdown from "./ResultMarkdown";
 import ToolCalls from "./ToolCalls";
+import { queueEtaExplanation, queueEtaText } from "./queueStatus";
 import {
   statusLabel,
   chatMessageTime,
@@ -502,11 +503,15 @@ export default function ChatsPage(props: Props) {
                         <span className={["chat-row-top"].filter(Boolean).join(" ")}>
                           <strong>{waiting.name}</strong>
                           <span className={["queue-position"].filter(Boolean).join(" ")}>
-                            #{waiting.position}
+                            #{waiting.position} of {queueSnapshot.value.waiting.length}
                           </span>
                         </span>
-                        <span className={["queue-subtitle"].filter(Boolean).join(" ")}>
-                          Queued · {waiting.reason === "stage" ? "stage" : "global"} limit (
+                        <span
+                          className={["queue-subtitle"].filter(Boolean).join(" ")}
+                          title={queueEtaExplanation(queueSnapshot.value)}
+                        >
+                          {queueEtaText(waiting)} ·{" "}
+                          {waiting.reason === "stage" ? "stage" : "global"} limit (
                           {waiting.occupied}/{waiting.limit})
                         </span>
                       </button>
