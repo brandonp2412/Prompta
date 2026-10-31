@@ -6,8 +6,9 @@ from pathlib import Path
 
 from prompta.reply_contracts import ManualReplyStore, ReplyIntent
 from prompta.response_capture import CaptureResult, normalize_dom_snapshot, parse_sse_body
-from prompta.response_store import ResponseStore, merge_tool_calls
+from prompta.response_store import ResponseStore
 from prompta.strict_types import string_object_dict
+from prompta.tool_call_store import merge_tool_calls
 
 
 def event(message: Mapping[str, object]) -> str:

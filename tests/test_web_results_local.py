@@ -290,7 +290,7 @@ def test_local_read_receipts_persist_and_reject_stale_revisions(tmp_path: Path) 
 def test_mark_all_local_chats_read_uses_completed_revisions_across_pages(tmp_path: Path) -> None:
     from sqlalchemy import select, update
 
-    from prompta.response_store import local_chat_reads, results
+    from prompta.response_tables import local_chat_reads, results
 
     with server(tmp_path) as (app, port):
         for index in range(31):

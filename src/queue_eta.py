@@ -9,7 +9,7 @@ from statistics import median
 from sqlalchemy import select
 
 from .delivery_queue import DeliveryQueueStore
-from .response_store import results
+from .response_tables import results
 from .strict_types import float_value
 
 _FALLBACK_RUN_SECONDS = 600

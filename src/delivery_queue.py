@@ -23,7 +23,7 @@ from .delivery_state import (
 from .image_store import image_refs
 from .persistence import create_database, job_deliveries
 from .response_store import ResponseStore
-from .response_store import results as response_records
+from .response_tables import results as response_records
 from .strict_types import float_value, int_value
 
 logger = logging.getLogger(__name__)

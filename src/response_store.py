@@ -2,39 +2,27 @@
 
 from __future__ import annotations
 
-import json
 import os
 import time
 from pathlib import Path
 from typing import Literal, TypedDict
 from uuid import UUID
 
-from sqlalchemy import (
-    Column,
-    Float,
-    Index,
-    Integer,
-    MetaData,
-    String,
-    Table,
-    Text,
-    column,
-    create_engine,
-    delete,
-    func,
-    or_,
-    select,
-    table,
-    update,
-)
+from sqlalchemy import create_engine, delete, func, or_, select, update
 from sqlalchemy.dialects.sqlite import insert
-from sqlalchemy.engine import Engine
+from sqlalchemy.engine import Engine, RowMapping
 from sqlalchemy.pool import NullPool
 
 from .response_capture import CaptureResult, conversation_id_from_path
+from .response_tables import (
+    _attention_filter,
+    history_recovery_attempts,
+    local_chat_pins,
+    local_chat_reads,
+    results,
+)
 from .schema_migrations import upgrade_database
-
-ResultStatus = Literal["queued", "accepted", "generating", "completed", "interrupted", "unavailable"]
+from .tool_call_store import deserialize_tool_calls, merge_tool_calls
 
 
 class ResultsPage(TypedDict):
@@ -45,128 +33,6 @@ class ResultsPage(TypedDict):
 
 
 _MAX_TEXT = 2 * 1024 * 1024
-_SCHEMA = MetaData()
-results = Table(
-    "job_responses", _SCHEMA,
-    Column("send_id", String, primary_key=True),
-    Column("job_name", String, nullable=False, default=""),
-    Column("user_text", Text, nullable=False),
-    Column("assistant_text", Text, nullable=False, default=""),
-    Column("tool_calls_json", Text, nullable=False, default="[]"),
-    Column("status", String, nullable=False, default="queued"),
-    Column("source", String, nullable=False, default=""),
-    Column("conversation_id", String, nullable=False, default=""),
-    Column("message_id", String, nullable=False, default=""),
-    Column("parent_id", String, nullable=False, default=""),
-    Column("created_at", Float, nullable=False),
-    Column("accepted_at", Float, nullable=False, default=0),
-    Column("updated_at", Float, nullable=False),
-    Column("finished_at", Float, nullable=False, default=0),
-    Column("capture_owner", String, nullable=False, default=""),
-    Column("capture_deadline", Float, nullable=False, default=0),
-)
-Index("job_responses_active", results.c.status, results.c.capture_deadline)
-_reply_attention = table("manual_reply_turns", column("send_id"), column("status"))
-_attention_filter = or_(
-    results.c.status.in_(("interrupted", "unavailable")),
-    select(_reply_attention.c.send_id).where(
-        _reply_attention.c.send_id == results.c.send_id,
-        _reply_attention.c.status.in_((
-            "preflight_failed", "outcome_unknown", "interrupted", "unavailable",
-        )),
-    ).exists(),
-)
-local_chat_pins = Table(
-    "local_chat_pins", _SCHEMA,
-    Column("send_id", String, primary_key=True),
-    Column("pinned_at", Float, nullable=False),
-)
-local_chat_reads = Table(
-    "local_chat_reads", _SCHEMA,
-    Column("send_id", String, primary_key=True),
-    Column("seen_revision", String(64), nullable=False),
-    Column("read_at", Float, nullable=False),
-)
-history_recovery_attempts = Table(
-    "history_recovery_attempts", _SCHEMA,
-    Column("send_id", String, primary_key=True),
-    Column("attempt_count", Integer, nullable=False, default=0),
-    Column("next_attempt_at", Float, nullable=False, default=0),
-    Column("last_attempt_at", Float, nullable=False, default=0),
-)
-
-
-def serialize_tool_calls(calls: tuple[dict[str, object], ...]) -> str:
-    """Persist bounded display data only; never source SSE frames or thoughts."""
-    selected: list[dict[str, object]] = []
-    for call in calls[:128]:
-        candidate = json.dumps([*selected, call], ensure_ascii=False)
-        if len(candidate) > 512_000:
-            break
-        selected.append(call)
-    return json.dumps(selected, ensure_ascii=False)
-
-
-def deserialize_tool_calls(value: object) -> list[dict[str, object]]:
-    if not isinstance(value, str):
-        return []
-    try:
-        parsed: object = json.loads(value)
-    except (TypeError, ValueError):
-        return []
-    if not isinstance(parsed, list):
-        return []
-    return [{key: child for key, child in item.items() if isinstance(key, str)}
-            for item in parsed[:128] if isinstance(item, dict)]
-
-
-def merge_tool_calls(previous: object, incoming: tuple[dict[str, object], ...]) -> str:
-    """Merge successive owned SSE snapshots by invocation ID without dropping earlier calls."""
-    if not incoming:
-        return previous if isinstance(previous, str) else "[]"
-    merged = deserialize_tool_calls(previous)
-    # Replace only corresponding DOM headings. One structured invocation must
-    # not erase other visible calls (e.g. a subsequent connector POST).
-
-    def is_dom(call: dict[str, object]) -> bool:
-        return str(call.get("id", "")).startswith("dom-tool-")
-
-    def same_activity(dom: dict[str, object], stream: dict[str, object]) -> bool:
-        label = str(dom.get("action", "")).casefold().removeprefix("used ").strip()
-        names = (str(stream.get(field, "")).casefold().strip() for field in ("connector", "action"))
-        return label == "tool activity" or label in names
-
-    stream_calls = [call for call in (*merged, *incoming) if not is_dom(call)]
-    upgraded: list[dict[str, object]] = []
-    upgraded_ids: set[str] = set()
-    for call in merged:
-        if is_dom(call):
-            call = next((stream for stream in stream_calls if same_activity(call, stream)), call)
-        identifier = str(call.get("id"))
-        if identifier not in upgraded_ids:
-            upgraded.append(call)
-            upgraded_ids.add(identifier)
-    merged = upgraded
-    incoming = tuple(call for call in incoming if not (
-        is_dom(call) and any(same_activity(call, stream) for stream in stream_calls)
-    ))
-    by_id = {str(call.get("id")): i for i, call in enumerate(merged)}
-    for call in incoming:
-        identifier = str(call.get("id"))
-        if identifier in by_id:
-            index = by_id[identifier]
-            old = merged[index]
-            refreshed = {**old, **call}
-            for field in ("arguments", "result", "error"):
-                if not call.get(field) and field in old:
-                    refreshed[field] = old[field]
-            if old.get("status") in ("completed", "error") and call.get("status") == "running":
-                refreshed["status"] = old["status"]
-            merged[index] = refreshed
-        elif len(merged) < 128:
-            by_id[identifier] = len(merged)
-            merged.append(call)
-    return serialize_tool_calls(tuple(merged))
 
 
 def _alive(owner: str) -> bool:
@@ -181,6 +47,30 @@ def _alive(owner: str) -> bool:
     except PermissionError:
         return True
     return True
+
+
+_SUMMARY_COLUMNS = (
+    results.c.send_id,
+    results.c.job_name,
+    func.substr(results.c.user_text, 1, 180).label("user_preview"),
+    func.substr(results.c.assistant_text, 1, 180).label("assistant_preview"),
+    results.c.status,
+    results.c.created_at,
+    results.c.updated_at,
+    results.c.finished_at,
+)
+
+
+def _summary(row: RowMapping) -> dict[str, object]:
+    prompt = str(row["user_preview"])
+    answer = str(row["assistant_preview"])
+    title = str(row["job_name"]) or (prompt.splitlines()[0][:100] if prompt else "")
+    return {
+        "send_id": row["send_id"], "job_name": row["job_name"], "title": title,
+        "status": row["status"], "preview": (answer or prompt)[:180],
+        "has_response": bool(answer), "created_at": row["created_at"],
+        "updated_at": row["updated_at"], "finished_at": row["finished_at"],
+    }
 
 
 class ResponseStore:
@@ -549,30 +439,13 @@ class ResponseStore:
         """Compact local-only sidebar summaries, including runs outside the visible page."""
         with self.engine.connect() as connection:
             rows = connection.execute(
-                select(
-                    results.c.send_id, results.c.job_name,
-                    func.substr(results.c.user_text, 1, 180).label("user_preview"),
-                    func.substr(results.c.assistant_text, 1, 180).label("assistant_preview"),
-                    results.c.status, results.c.created_at, results.c.updated_at,
-                    results.c.finished_at,
-                )
+                select(*_SUMMARY_COLUMNS)
                 .select_from(local_chat_pins.join(
                     results, local_chat_pins.c.send_id == results.c.send_id
                 ))
                 .order_by(local_chat_pins.c.pinned_at.desc(), local_chat_pins.c.send_id.desc())
             ).mappings().all()
-        items: list[dict[str, object]] = []
-        for row in rows:
-            prompt = str(row["user_preview"])
-            answer = str(row["assistant_preview"])
-            title = str(row["job_name"]) or (prompt.splitlines()[0][:100] if prompt else "")
-            items.append({
-                "send_id": row["send_id"], "job_name": row["job_name"], "title": title,
-                "status": row["status"], "preview": (answer or prompt)[:180],
-                "has_response": bool(answer), "created_at": row["created_at"],
-                "updated_at": row["updated_at"], "finished_at": row["finished_at"],
-            })
-        return items
+        return [_summary(row) for row in rows]
 
     def recovery_metrics(self, *, now: float | None = None) -> dict[str, int]:
         """Expose aggregate local capture/recovery state without reading chat text."""
@@ -827,26 +700,11 @@ class ResponseStore:
         with self.engine.connect() as connection:
             count = connection.execute(select(func.count()).select_from(results).where(*criteria)).scalar_one()
             rows = connection.execute(
-                select(results.c.send_id, results.c.job_name,
-                       func.substr(results.c.user_text, 1, 180).label("user_preview"),
-                       func.substr(results.c.assistant_text, 1, 180).label("assistant_preview"),
-                       results.c.status, results.c.created_at, results.c.updated_at,
-                       results.c.finished_at)
+                select(*_SUMMARY_COLUMNS)
                 .where(*criteria).order_by(results.c.created_at.desc(), results.c.send_id.desc())
                 .limit(limit).offset(offset)
             ).mappings().all()
-        items: list[dict[str, object]] = []
-        for row in rows:
-            prompt = str(row["user_preview"])
-            answer = str(row["assistant_preview"])
-            title = str(row["job_name"]) or (prompt.splitlines()[0][:100] if prompt else "")
-            items.append({
-                "send_id": row["send_id"], "job_name": row["job_name"], "title": title,
-                "status": row["status"], "preview": (answer or prompt)[:180],
-                "has_response": bool(answer), "created_at": row["created_at"],
-                "updated_at": row["updated_at"], "finished_at": row["finished_at"],
-            })
-        return {"items": items, "total": count, "limit": limit, "offset": offset}
+        return {"items": [_summary(row) for row in rows], "total": count, "limit": limit, "offset": offset}
 
     def detail(self, send_id: str) -> dict[str, object] | None:
         if not send_id or len(send_id) > 200:
