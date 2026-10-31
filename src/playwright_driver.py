@@ -239,6 +239,15 @@ class PlaywrightDriver(ModelPickerMixin):
             return False
         return True
 
+    @property
+    def approval_tab_active(self) -> bool:
+        if not self.is_connected or self.context not in self._owned_contexts:
+            return False
+        if self.context not in self._owned_target_ids:
+            return False
+        page = self._pages[self.context]
+        return urlsplit(page.url).hostname == "chatgpt.com" and page.url.startswith("https://")
+
     @staticmethod
     def _is_chatgpt_url(url: str) -> bool:
         parsed = urlsplit(url)
@@ -1013,7 +1022,9 @@ class PlaywrightDriver(ModelPickerMixin):
             raise
 
     async def click_stuck_connector_approval(self) -> object:
-        return await trusted_approval_retry(self._page())
+        if not self.approval_tab_active:
+            return {"status": "idle"}
+        return await trusted_approval_retry(self._page(), active=lambda: self.approval_tab_active)
 
     @staticmethod
     def _navigation_response_is_security_challenge(response: Response | None) -> bool:

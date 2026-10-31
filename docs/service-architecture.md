@@ -7,7 +7,6 @@
 | `prompta-delivery-worker` | Fresh-chat dispatch, passive capture, historical recovery |
 | `prompta-manual-reply-worker` | Explicit replies to verified branches and their captures |
 | `prompta-browser` | Authenticated Chromium/CDP session |
-| `prompta-connector-approval-watch` | Opt-in connector permission supervision |
 | `prompta-browser-watchdog.timer` | Independent cleanup of idle owned tabs |
 
 `prompta.target` groups the application services.
@@ -30,6 +29,8 @@ streaming, including chunked uploads.
 ## Runs and replies
 
 The scheduler queues due jobs. The delivery worker opens a fresh ChatGPT tab, confirms prompt acceptance, and captures the final response from that tab's conversation POST or semantic DOM changes. Captures run independently and require explicit completion evidence. Verified response changes refresh the tab's activity clock; the watchdog reaps owned tabs after 45 minutes of inactivity.
+
+When enabled, connector approvals are supervised only inside a Prompta-launched tab while its delivery/capture watcher owns it. No independent service may inspect the account sidebar or other conversation tabs to grant permissions.
 
 Clicking Send durably queues a reply to the stored conversation and parent. The worker verifies the exact branch, recovering its latest parent when needed. Failed verification preserves the draft for another attempt or an explicit **Continue in new chat** action. A Send on a run lacking a conversation ID creates a fresh chat with its saved transcript and available original images.
 

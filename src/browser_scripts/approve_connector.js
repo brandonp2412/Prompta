@@ -1,4 +1,11 @@
 (async () => {
+  const events = { detected: 0, persistent_selected: 0, allow_clicked: 0, dismissed: 0 };
+  const report = status => ({ status, ...events });
+  // A page marker alone does not confer ownership; the caller also verifies
+  // its registered tab and active watch lease before every evaluation.
+  if (!/^(?:prompta-delivery:|prompta:reply:)\d+:[^:]+:[a-f0-9-]+$/i.test(window.name)) {
+    return report('idle');
+  }
   const visible = el => el.isConnected && el.getClientRects().length > 0 &&
     getComputedStyle(el).visibility !== 'hidden';
   const normalize = value => (value || '').replace(/\s+/g, ' ').trim().toLowerCase();
@@ -25,16 +32,19 @@
     return false;
   };
   const approve = async (button, checkbox) => {
-    if (!enabled(button) || (checkbox && !enabled(checkbox))) return false;
+    if (!enabled(button) || (checkbox && !enabled(checkbox))) return report('idle');
     const previous = state.get(button) || { attempts: 0, at: -Infinity };
+    if (!previous.seen) events.detected++;
+    previous.seen = true;
+    state.set(button, previous);
     // ChatGPT can display controls before their event handlers hydrate.
     // Never permanently blacklist a still-visible permission after two misses.
     const retryAfter = Math.min(30000, 3000 * (2 ** Math.min(previous.attempts - 1, 4)));
     const checkboxChecked = checkbox &&
       (checkbox.checked || checkbox.getAttribute('aria-checked') === 'true');
     if (!(previous.checkboxPending && checkboxChecked) &&
-        performance.now() - previous.at < retryAfter) return false;
-    const next = { attempts: previous.attempts + 1, at: performance.now(), checkboxPending: false };
+        performance.now() - previous.at < retryAfter) return report('idle');
+    const next = { attempts: previous.attempts + 1, at: performance.now(), checkboxPending: false, seen: true };
     state.set(button, next);
     document.querySelectorAll(`[${candidateAttribute}]`).forEach(el =>
       el.removeAttribute(candidateAttribute));
@@ -42,16 +52,21 @@
       next.checkboxPending = true;
       checkbox.setAttribute(candidateAttribute, 'checkbox');
       checkbox.click();
-      if (!(checkbox.checked || checkbox.getAttribute('aria-checked') === 'true')) return 'stuck';
+      if (!(checkbox.checked || checkbox.getAttribute('aria-checked') === 'true')) return report('stuck');
+      events.persistent_selected++;
     }
     next.checkboxPending = false;
     button.setAttribute(candidateAttribute, 'button');
+    events.allow_clicked++;
     button.click();
     for (let i = 0; i < 5; i++) {
       await new Promise(resolve => setTimeout(resolve, 100));
-      if (!visible(button)) return true;
+      if (!visible(button)) {
+        events.dismissed++;
+        return report('dismissed');
+      }
     }
-    return 'stuck';
+    return report('stuck');
   };
   for (const button of controls(document)) {
     if (!isAlways(button) || !enabled(button)) continue;
@@ -90,5 +105,5 @@
       }
     }
   }
-  return false;
+  return report('idle');
 })()

@@ -101,6 +101,12 @@ class TrustedApprovalDriver(Protocol):
 
 
 @runtime_checkable
+class OwnedApprovalDriver(Protocol):
+    @property
+    def approval_tab_active(self) -> bool: ...
+
+
+@runtime_checkable
 class VerifiedActivityDriver(Protocol):
     def record_verified_activity(self) -> bool: ...
 
@@ -395,7 +401,11 @@ class BrowserDeliverySender:
             deadline=deadline or asyncio.get_running_loop().time() + _CONNECTOR_APPROVAL_SECONDS,
             source="live",
             poll_interval_seconds=0.2,
-            active=lambda: driver.is_connected,
+            active=lambda: (
+                self.connector_approval
+                and isinstance(driver, OwnedApprovalDriver)
+                and driver.approval_tab_active
+            ),
             trusted_retry=(
                 driver.click_stuck_connector_approval
                 if isinstance(driver, TrustedApprovalDriver) else None

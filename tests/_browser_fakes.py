@@ -33,6 +33,10 @@ class FakeDriver:
     async def connect(self) -> None:
         self.is_connected = True
 
+    @property
+    def approval_tab_active(self) -> bool:
+        return self.is_connected and bool(self.context) and not self.closed
+
     async def new_tab(self) -> str:
         self.context = "fresh-tab"
         return self.context
@@ -58,7 +62,7 @@ class FakeDriver:
     async def send_confirmation_state(self) -> dict[str, object]:
         return {"composer_text": self.composer, "send_in_progress": False}
 
-    async def eval(self, _script: str, *, main_world: bool = False) -> str | bool:
+    async def eval(self, _script: str, *, main_world: bool = False) -> object:
         return "/"
 
     async def clear_composer(self) -> None:

@@ -66,4 +66,8 @@ def test_target_starts_only_jobs_stack() -> None:
         assert unit in target
     assert "prompta-conversation-worker.service" not in target
     assert "prompta.service" not in target
+    assert "prompta-connector-approval-watch.service" not in target
+    assert not Path("systemd/prompta-connector-approval-watch.service").exists()
+    assert not Path("src/connector_approval_watch.py").exists()
+    assert not Path("src/browser_scripts/find_unread_chats.js").exists()
     assert "WantedBy=default.target" in target

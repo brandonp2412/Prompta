@@ -34,15 +34,15 @@ async def test_connector_grace_approves_multiple_dialogs_before_timeout(
         checks = 0
         approvals = 0
 
-        async def eval(self, _script: str, *, main_world: bool = False) -> str | bool:
+        async def eval(self, _script: str, *, main_world: bool = False) -> object:
             if "always allow" in _script:
                 assert accepted.is_set()
                 assert not self.closed_contexts
                 self.checks += 1
                 if self.approvals < 2:
                     self.approvals += 1
-                    return True
-                return False
+                    return {"status": "dismissed", "detected": 1, "allow_clicked": 1, "dismissed": 1}
+                return {"status": "idle"}
             return "/"
 
     driver = PermissionDriver()

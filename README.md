@@ -27,6 +27,20 @@ systemctl --user daemon-reload
 systemctl --user enable --now prompta.target prompta-browser-watchdog.timer prompta-manual-reply-worker.service
 ```
 
+For installations upgraded from the former independent connector approval watcher,
+keep that service stopped while removing its installed unit. This does not affect
+approvals in Prompta-owned delivery tabs:
+
+```bash
+systemctl --user disable --now prompta-connector-approval-watch.service
+rm -f ~/.config/systemd/user/prompta-connector-approval-watch.service
+systemctl --user daemon-reload
+systemctl --user is-active prompta-connector-approval-watch.service
+```
+
+The final check must report `inactive` or `unknown` (not `active`). Do not start,
+unmask, or recreate the removed watcher.
+
 Open `http://127.0.0.1:8765` for Jobs and Chats.
 
 ## ChatGPT login
