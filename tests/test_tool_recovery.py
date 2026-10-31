@@ -4,10 +4,12 @@ from dataclasses import replace
 from pathlib import Path
 
 import pytest
+from fastapi.testclient import TestClient
 
 from prompta.response_capture import CaptureResult
 from prompta.response_store import ResponseStore
 from prompta.tool_recovery import recover_completed_tool_summaries
+from prompta.web import WebServices, create_app
 
 
 def completed_store(tmp_path: Path) -> ResponseStore:
@@ -67,3 +69,26 @@ def test_recovery_cannot_write_to_an_active_capture(tmp_path: Path) -> None:
     store.ensure_queued("run", "Original prompt", now=1)
     assert store.accept("run", "100:owner", deadline=100, now=2)
     assert not recover_completed_tool_summaries(store, "run", recovered_capture(), now=3)
+
+
+def test_fastapi_exposes_recovered_tools_and_signals_a_local_chat_change(tmp_path: Path) -> None:
+    services = WebServices(state_path=tmp_path / "runtime.sqlite3", jobs_path=tmp_path / "jobs.sqlite3")
+    store = services.results
+    store.ensure_queued("run", "Original prompt", now=1)
+    assert store.accept("run", "100:owner", deadline=100, now=2)
+    assert store.write("run", "100:owner", CaptureResult(
+        "sse", "complete", "Original answer", "chat", "answer", "parent",
+    ), now=3)
+    with TestClient(create_app(services=services)) as client:
+        assert client.get("/api/results/run").json()["tool_calls"] == []
+        before = services.live_events.snapshot()
+        capture = recovered_capture()
+        assert recover_completed_tool_summaries(store, "run", capture, now=10)
+        assert services.live_events.snapshot().chats != before.chats
+        response = client.get("/api/results/run")
+        assert response.status_code == 200
+        assert response.json()["tool_calls"] == list(capture.tool_calls)
+        turns = client.get("/api/results/run/turns")
+        assert turns.status_code == 200
+        assert turns.json()["turns"][0]["tool_calls"] == list(capture.tool_calls)
+        assert turns.json()["turns"][0]["assistant_text"] == "Original answer"
