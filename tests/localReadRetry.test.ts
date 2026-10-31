@@ -23,6 +23,43 @@ test("transient local gateway GET failures get exactly one retry", async () => {
   }
 });
 
+test("a rejected transport GET retries once without replaying mutations", async () => {
+  const original = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = (async () => {
+    calls += 1;
+    if (calls === 1) throw new TypeError("Network connection closed");
+    return new Response("recovered", { status: 200 });
+  }) as typeof fetch;
+  try {
+    const response = await localGet("./api/results");
+    expect(response.status).toBe(200);
+    expect(calls).toBe(2);
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+test("a transport failure near the total deadline is not retried", async () => {
+  const original = globalThis.fetch;
+  const originalNow = Date.now;
+  let now = 100;
+  let calls = 0;
+  Date.now = () => now;
+  globalThis.fetch = (async () => {
+    calls += 1;
+    now += localReadTimeoutMs - 100;
+    throw new TypeError("Offline");
+  }) as typeof fetch;
+  try {
+    await expect(localGet("./api/results")).rejects.toThrow("Offline");
+    expect(calls).toBe(1);
+  } finally {
+    globalThis.fetch = original;
+    Date.now = originalNow;
+  }
+});
+
 test("client errors and application errors are never replayed", async () => {
   const original = globalThis.fetch;
   let calls = 0;

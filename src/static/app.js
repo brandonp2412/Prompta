@@ -12276,21 +12276,32 @@ var transientGatewayStatuses = /* @__PURE__ */ new Set([
 	504
 ]);
 var transientRetryDelayMs = 250;
+var firstAttemptTimeoutMs = 6e3;
 async function localGet(url) {
 	const startedAt = Date.now();
-	const first = await fetch(url, {
+	const request = (timeoutMs) => fetch(url, {
 		cache: "no-store",
-		signal: AbortSignal.timeout(localReadTimeoutMs)
+		signal: AbortSignal.timeout(timeoutMs)
 	});
-	if (!transientGatewayStatuses.has(first.status)) return first;
-	if (12e3 - (Date.now() - startedAt) <= transientRetryDelayMs) return first;
+	let response;
+	let failure;
+	try {
+		response = await request(firstAttemptTimeoutMs);
+	} catch (error) {
+		failure = error;
+	}
+	if (response && !transientGatewayStatuses.has(response.status)) return response;
+	if (12e3 - (Date.now() - startedAt) <= transientRetryDelayMs) {
+		if (response) return response;
+		throw failure;
+	}
 	await new Promise((resolve) => setTimeout(resolve, transientRetryDelayMs));
 	const remaining = localReadTimeoutMs - (Date.now() - startedAt);
-	if (remaining <= 0) return first;
-	return fetch(url, {
-		cache: "no-store",
-		signal: AbortSignal.timeout(remaining)
-	});
+	if (remaining <= 0) {
+		if (response) return response;
+		throw failure;
+	}
+	return request(remaining);
 }
 //#endregion
 //#region src/ui/localMutation.ts
@@ -15336,6 +15347,7 @@ function createChatComposerController(initialProps) {
 	let uploadGeneration = 0;
 	let uploadAbort = null;
 	let sending = y$2(false);
+	let submissionGeneration = 0;
 	let feedback = y$2("");
 	let fallbackAvailable = y$2(false);
 	let dragging = y$2(false);
@@ -15351,6 +15363,7 @@ function createChatComposerController(initialProps) {
 		f$1(() => {
 			if (key === hydratedKey) return;
 			hydratedKey = key;
+			submissionGeneration += 1;
 			uploadGeneration += 1;
 			uploadAbort?.abort();
 			uploadAbort = null;
@@ -15495,38 +15508,52 @@ function createChatComposerController(initialProps) {
 	async function submit(useFallback = false) {
 		if (!canSend.value || useFallback && (!fallbackAvailable.value || !onFallbackSend.value)) return;
 		const submittedKey = draftStorageKey.value;
+		const generation = ++submissionGeneration;
+		const submitted = draft.value;
+		const submittedImages = images.value.map((image) => image.ref);
 		sending.value = true;
 		feedback.value = "";
 		try {
-			const submitted = draft.value;
-			const result = await (useFallback && onFallbackSend.value ? onFallbackSend.value : onSend.value)(submitted, images.value.map((image) => image.ref));
+			const result = await (useFallback && onFallbackSend.value ? onFallbackSend.value : onSend.value)(submitted, submittedImages);
+			const current = generation === submissionGeneration && draftStorageKey.value === submittedKey;
+			if (result.ok && !current) {
+				if (draftStorageKey.value !== submittedKey && readComposerDraft(submittedKey) === submitted && readComposerImages(submittedKey).length === submittedImages.length && readComposerImages(submittedKey).every((image, index) => image.ref === submittedImages[index])) {
+					clearComposerImages(submittedKey);
+					clearComposerDraft(submittedKey);
+					try {
+						if (localStorage.getItem(submittedKey) === submitted) localStorage.removeItem(submittedKey);
+					} catch {}
+				}
+				return;
+			}
+			if (!current) return;
 			if (result.ok) {
+				if (draft.value !== submitted) {
+					feedback.value = "Message accepted. Your newer draft was kept.";
+					return;
+				}
 				clearComposerImages(submittedKey);
 				clearComposerDraft(submittedKey);
 				try {
-					if (submittedKey) localStorage.removeItem(submittedKey);
+					if (submittedKey && localStorage.getItem(submittedKey) === submitted) localStorage.removeItem(submittedKey);
 				} catch {}
-				if (draftStorageKey.value !== submittedKey) {
-					requestAnimationFrame(() => fitTextarea(true));
-					return;
-				}
 				draft.value = "";
 				images.value = [];
 				feedback.value = result.message;
 				hasLocalDraft.value = false;
 				fallbackAvailable.value = false;
 				requestAnimationFrame(() => fitTextarea(true));
-			} else if (draftStorageKey.value === submittedKey) {
+			} else {
 				feedback.value = result.message;
 				fallbackAvailable.value = Boolean(result.fallbackAvailable);
 			}
 		} catch (error) {
-			if (draftStorageKey.value === submittedKey) {
+			if (generation === submissionGeneration && draftStorageKey.value === submittedKey) {
 				const message = error instanceof Error ? error.message : "";
 				feedback.value = message.startsWith("Unresolved chat receipts") || message.startsWith("Unresolved reply receipts") || message.startsWith("Unresolved chat requests") || message.startsWith("Unresolved reply receipts are at capacity") ? message : "Send confirmation was lost. The draft is saved; press Send again to reconcile this request.";
 			}
 		} finally {
-			if (draftStorageKey.value === submittedKey) sending.value = false;
+			if (generation === submissionGeneration && draftStorageKey.value === submittedKey) sending.value = false;
 		}
 	}
 	function keydown(event) {

@@ -52,6 +52,9 @@ export function createChatComposerController(initialProps: Props) {
   let uploadGeneration = 0;
   let uploadAbort: AbortController | null = null;
   let sending = signal(false);
+  // A late acknowledgment belongs to the composer selection that submitted it.
+  // Switching away and back must not erase a newer draft or unlock another send.
+  let submissionGeneration = 0;
   let feedback = signal("");
   let fallbackAvailable = signal(false);
   let dragging = signal(false);
@@ -84,6 +87,7 @@ export function createChatComposerController(initialProps: Props) {
       untrack(() => {
         if (key === hydratedKey) return;
         hydratedKey = key;
+        submissionGeneration += 1;
         // An upload started for an old chat must never attach its late receipt
         // to the composer after a route/mode change.
         uploadGeneration += 1;
@@ -285,28 +289,53 @@ export function createChatComposerController(initialProps: Props) {
     if (!canSend.value || (useFallback && (!fallbackAvailable.value || !onFallbackSend.value)))
       return;
     const submittedKey = draftStorageKey.value;
+    const generation = ++submissionGeneration;
+    const submitted = draft.value;
+    const submittedImages = images.value.map((image) => image.ref);
     sending.value = true;
     feedback.value = "";
     try {
-      const submitted = draft.value;
       const send = useFallback && onFallbackSend.value ? onFallbackSend.value : onSend.value;
-      const result = await send(
-        submitted,
-        images.value.map((image) => image.ref),
-      );
+      const result = await send(submitted, submittedImages);
+      const current = generation === submissionGeneration && draftStorageKey.value === submittedKey;
+      if (result.ok && !current) {
+        // A successful fresh send normally navigates to its new chat before
+        // the promise resolves. Clear only an unchanged draft from the old
+        // selection; never touch the newly selected composer.
+        if (
+          draftStorageKey.value !== submittedKey &&
+          readComposerDraft(submittedKey) === submitted &&
+          readComposerImages(submittedKey).length === submittedImages.length &&
+          readComposerImages(submittedKey).every(
+            (image, index) => image.ref === submittedImages[index],
+          )
+        ) {
+          clearComposerImages(submittedKey);
+          clearComposerDraft(submittedKey);
+          try {
+            if (localStorage.getItem(submittedKey) === submitted)
+              localStorage.removeItem(submittedKey);
+          } catch {
+            /* Storage may be unavailable. */
+          }
+        }
+        return;
+      }
+      if (!current) return;
       if (result.ok) {
-        // Fresh-send acceptance can switch routes before this promise resolves.
-        // Clear only the submitted key, never the newly selected chat's draft.
+        // The textarea is read-only during this send; a newer edit or route
+        // navigation wins if a state transition happened while waiting.
+        if (draft.value !== submitted) {
+          feedback.value = "Message accepted. Your newer draft was kept.";
+          return;
+        }
         clearComposerImages(submittedKey);
         clearComposerDraft(submittedKey);
         try {
-          if (submittedKey) localStorage.removeItem(submittedKey);
+          if (submittedKey && localStorage.getItem(submittedKey) === submitted)
+            localStorage.removeItem(submittedKey);
         } catch {
           /* Storage may be unavailable. */
-        }
-        if (draftStorageKey.value !== submittedKey) {
-          requestAnimationFrame(() => fitTextarea(true));
-          return;
         }
         draft.value = "";
         images.value = [];
@@ -314,12 +343,12 @@ export function createChatComposerController(initialProps: Props) {
         hasLocalDraft.value = false;
         fallbackAvailable.value = false;
         requestAnimationFrame(() => fitTextarea(true));
-      } else if (draftStorageKey.value === submittedKey) {
+      } else {
         feedback.value = result.message;
         fallbackAvailable.value = Boolean(result.fallbackAvailable);
       }
     } catch (error) {
-      if (draftStorageKey.value === submittedKey) {
+      if (generation === submissionGeneration && draftStorageKey.value === submittedKey) {
         // Receipt-ledger validation fails before any HTTP send. Explain that
         // the saved IDs need recovery instead of calling it a lost acknowledgment.
         const message = error instanceof Error ? error.message : "";
@@ -332,7 +361,8 @@ export function createChatComposerController(initialProps: Props) {
             : "Send confirmation was lost. The draft is saved; press Send again to reconcile this request.";
       }
     } finally {
-      if (draftStorageKey.value === submittedKey) sending.value = false;
+      if (generation === submissionGeneration && draftStorageKey.value === submittedKey)
+        sending.value = false;
     }
   }
 

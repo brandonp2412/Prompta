@@ -288,17 +288,35 @@ class ResponseStore:
             prior = str(row["assistant_text"])
             tool_json = merge_tool_calls(row["tool_calls_json"], capture.tool_calls)
             if not text:
-                if tool_json == row["tool_calls_json"]:
+                # Tool-only snapshots can carry the first verified branch IDs.
+                # Persist them even if the tools did not change; otherwise a
+                # later interrupted capture cannot be recovered by exact chat.
+                identities_unchanged = all(
+                    not candidate or row[name] == candidate
+                    for name, candidate in (
+                        ("conversation_id", capture.conversation_id),
+                        ("message_id", capture.message_id),
+                        ("parent_id", capture.parent_id),
+                    )
+                )
+                if tool_json == row["tool_calls_json"] and identities_unchanged:
                     return True
                 changed = connection.execute(update(results).where(
                     results.c.send_id == send_id,
                     results.c.capture_owner == owner,
                     results.c.status.in_(("accepted", "generating")),
                     results.c.capture_deadline > at,
-                ).values(tool_calls_json=tool_json, updated_at=at))
+                ).values(
+                    tool_calls_json=tool_json,
+                    conversation_id=capture.conversation_id or row["conversation_id"],
+                    message_id=capture.message_id or row["message_id"],
+                    parent_id=capture.parent_id or row["parent_id"],
+                    updated_at=at,
+                ))
                 return changed.rowcount == 1
-            # A shorter partial observer snapshot cannot erase a longer answer.
-            if not complete and len(text) < len(prior):
+            # Even a verified final DOM frame can transiently be shorter
+            # during hydration. Completion evidence must not erase saved text.
+            if len(text) < len(prior):
                 text = prior
             if (
                 not complete
@@ -704,8 +722,8 @@ class ResponseStore:
             complete = capture.status == "complete" and bool(capture.text)
             # The fallback must never erase a longer already-stored partial answer.
             text = capture.text[:_MAX_TEXT]
-            if not complete and len(text) < len(str(row["assistant_text"])):
-                if not capture.tool_calls:
+            if len(text) < len(str(row["assistant_text"])):
+                if not complete and not capture.tool_calls:
                     return False
                 text = str(row["assistant_text"])
             changed = connection.execute(update(results).where(
