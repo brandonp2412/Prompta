@@ -26,7 +26,7 @@ const root = visible({ get innerText() { return responseText; }, parentElement: 
 const toolCard = visible({
   parentElement: null, closest: () => null, matches: () => true,
   getAttribute: (name) => ({
-    'aria-label': 'Used Nox Python', 'data-state': 'completed',
+    'aria-label': 'Used test connector', 'data-state': 'completed',
   })[name] || '',
   querySelector: () => null,
 });
@@ -64,7 +64,7 @@ assert.equal(result.verified, true);
 assert.equal(result.text, responseText);
 assert.equal(result.complete, true);
 assert.equal(result.tool_calls.length, 1);
-assert.equal(result.tool_calls[0].action, 'Used Nox Python');
+assert.equal(result.tool_calls[0].action, 'Used test connector');
 assert.equal(result.pathname, "/c/" + id);
 assert.equal(result.branch_message_id, "87654321-4321-4321-8321-123456789abc");
 

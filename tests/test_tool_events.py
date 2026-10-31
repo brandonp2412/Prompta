@@ -35,7 +35,7 @@ def test_dom_tool_summaries_are_bounded_redacted_and_survive_interrupted_recover
         "message_id": "assistant-unit", "pathname": f"/c/{conversation}",
         "text": "", "complete": False,
         "tool_calls": [
-            {"action": "Used Nox Python for https://private.example/path", "status": "completed", "result": "private"},
+            {"action": "Used test connector for https://private.example/path", "status": "completed", "result": "private"},
             {"action": "Thinking about private task", "status": "running"},
         ],
     }
@@ -44,7 +44,7 @@ def test_dom_tool_summaries_are_bounded_redacted_and_survive_interrupted_recover
     assert len(partial.tool_calls) == 1
     assert "private.example" not in str(partial.tool_calls)
     assert "private" not in str(partial.tool_calls)
-    assert partial.tool_calls[0]["action"] == "Used Nox Python for [redacted]"
+    assert partial.tool_calls[0]["action"] == "Used test connector for [redacted]"
     store = ResponseStore(tmp_path / "chat-results.sqlite3")
     store.ensure_queued("manual-tools", "Original prompt", now=10)
     assert store.accept("manual-tools", "123:owner", deadline=100, now=11)

@@ -20402,6 +20402,7 @@ function ChatTranscript({ model, refs }) {
 		detail.value,
 		turns.value
 	]);
+	const conversationUrl = exactConversationUrl(turns.value.findLast((turn) => exactConversationUrl(turn.conversation_id))?.conversation_id || detail.value?.conversation_id);
 	function copyLabel(id) {
 		if (copyState.value === id) return "Copied";
 		if (copyState.value === "error:" + id) return "Copy failed";
@@ -20424,158 +20425,170 @@ function ChatTranscript({ model, refs }) {
 				})]
 			}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {}), detail.value ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 				className: "chat-detail-content",
-				children: [turnsError.value ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-					role: "alert",
-					className: "result-error recovery-error",
-					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: turnsError.value }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-						type: "button",
-						onClick: () => selectedRunId.value && void loadDetail(selectedRunId.value),
-						children: "Retry replies"
-					})]
-				}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {}), turns.value.map((turn, index) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_react.Fragment, { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-					className: "message-group user-group",
-					children: [
-						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-							className: "message-role",
-							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
-								className: "sr-only",
-								children: ["You ", index === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: "· Job prompt" }) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: ["· Reply ", index] })]
-							}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("time", {
-								dateTime: (/* @__PURE__ */ new Date((turn.created_at || detail.value.created_at) * 1e3)).toISOString(),
-								className: "message-timestamp",
-								children: chatMessageTime(turn.created_at || detail.value.created_at)
-							})]
-						}),
-						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-							className: "prompt-bubble",
-							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-								className: ["prompt-message", turn.user_text.length > 280 && !expandedPrompts.value[(detail.value?.send_id ?? "") + ":" + index] ? "collapsed" : ""].filter(Boolean).join(" "),
-								children: turn.user_text
-							}), turn.user_text.length > 280 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
-								type: "button",
-								"aria-expanded": Boolean(expandedPrompts.value[(detail.value?.send_id ?? "") + ":" + index]),
-								onClick: (event) => void togglePrompt((detail.value?.send_id ?? "") + ":" + index, event),
-								className: "prompt-expand",
-								children: [expandedPrompts.value[(detail.value?.send_id ?? "") + ":" + index] ? "Show less" : "Show full prompt", /* @__PURE__ */ (0, import_jsx_runtime.jsx)("svg", {
-									viewBox: "0 0 24 24",
-									fill: "none",
-									stroke: "currentColor",
-									strokeWidth: "2",
-									strokeLinecap: "round",
-									"aria-hidden": "true",
-									className: ["", expandedPrompts.value[(detail.value?.send_id ?? "") + ":" + index] ? "rotated" : ""].filter(Boolean).join(" "),
-									children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: "m6 9 6 6 6-6" })
-								})]
-							}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {})]
-						}),
-						index === 0 && detail.value.images?.length ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-							"aria-label": "Attached images",
-							className: "chat-attachments",
-							children: detail.value.images.map((attachment, __index) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_react.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("a", {
-								href: attachment.url,
-								target: "_blank",
-								rel: "noopener noreferrer",
-								title: attachment.name,
-								children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("img", {
-									src: attachment.url,
-									alt: attachment.name,
-									loading: "lazy"
-								})
-							}) }, attachment.url))
-						}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {})
-					]
-				}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-					"aria-label": "Assistant response " + (index + 1),
-					className: ["message-group assistant-group response-" + turn.status].filter(Boolean).join(" "),
-					children: [
-						turn.status !== "completed" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-							className: "message-role response-header",
-							children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-								role: "status",
-								className: "response-state",
-								children: responseBadge(turn.status)
-							})
-						}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {}),
-						turn.tool_calls?.length ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ToolCalls, { calls: turn.tool_calls }) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {}),
-						turn.assistant_text ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
-							/* @__PURE__ */ (0, import_jsx_runtime.jsx)(ResultMarkdown, {
-								source: turn.assistant_text,
-								captureSource: index === 0 ? detail.value.source : ""
-							}),
-							turn.status !== "completed" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
-								className: "partial-note",
-								children: partialResponseLabel(turn.status)
-							}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {}),
-							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-								className: "response-actions",
-								children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-									type: "button",
-									"aria-label": "Copy assistant reply " + (index + 1),
-									onClick: () => copyText(formatStoredResponse(turn.assistant_text, index === 0 ? detail.value?.source ?? "" : ""), turn.reply_id || selectedRunId.value || ""),
-									className: "copy-message",
-									children: copyLabel(turn.reply_id || detail.value.send_id)
-								})
-							})
-						] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
-							className: "no-response",
-							children: index > 0 && turn.status === "queued" ? "Follow-up queued · waiting for the preceding response" : turnStatus(turn.status)
-						}), turn.status === "preflight_failed" && turn.reply_id && turn.conversation_id && turn.parent_id ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+				children: [
+					turnsError.value ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+						role: "alert",
+						className: "result-error recovery-error",
+						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: turnsError.value }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 							type: "button",
-							onClick: () => void retryFailedTurn(turn),
-							className: "row-action",
-							children: "Retry unsent reply"
-						}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {})] }),
-						index === turns.value.length - 1 && turns.value.some((saved) => saved.assistant_text.trim()) && [
-							"preflight_failed",
-							"interrupted",
-							"unavailable",
-							"outcome_unknown"
-						].includes(turn.status) && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-							className: "chat-recovery-guidance",
-							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-								className: "row-action",
+							onClick: () => selectedRunId.value && void loadDetail(selectedRunId.value),
+							children: "Retry replies"
+						})]
+					}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {}),
+					turns.value.map((turn, index) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_react.Fragment, { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+						className: "message-group user-group",
+						children: [
+							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								className: "message-role",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+									className: "sr-only",
+									children: ["You ", index === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: "· Job prompt" }) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: ["· Reply ", index] })]
+								}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("time", {
+									dateTime: (/* @__PURE__ */ new Date((turn.created_at || detail.value.created_at) * 1e3)).toISOString(),
+									className: "message-timestamp",
+									children: chatMessageTime(turn.created_at || detail.value.created_at)
+								})]
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								className: "prompt-bubble",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+									className: ["prompt-message", turn.user_text.length > 280 && !expandedPrompts.value[(detail.value?.send_id ?? "") + ":" + index] ? "collapsed" : ""].filter(Boolean).join(" "),
+									children: turn.user_text
+								}), turn.user_text.length > 280 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+									type: "button",
+									"aria-expanded": Boolean(expandedPrompts.value[(detail.value?.send_id ?? "") + ":" + index]),
+									onClick: (event) => void togglePrompt((detail.value?.send_id ?? "") + ":" + index, event),
+									className: "prompt-expand",
+									children: [expandedPrompts.value[(detail.value?.send_id ?? "") + ":" + index] ? "Show less" : "Show full prompt", /* @__PURE__ */ (0, import_jsx_runtime.jsx)("svg", {
+										viewBox: "0 0 24 24",
+										fill: "none",
+										stroke: "currentColor",
+										strokeWidth: "2",
+										strokeLinecap: "round",
+										"aria-hidden": "true",
+										className: ["", expandedPrompts.value[(detail.value?.send_id ?? "") + ":" + index] ? "rotated" : ""].filter(Boolean).join(" "),
+										children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: "m6 9 6 6 6-6" })
+									})]
+								}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {})]
+							}),
+							index === 0 && detail.value.images?.length ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+								"aria-label": "Attached images",
+								className: "chat-attachments",
+								children: detail.value.images.map((attachment, __index) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_react.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("a", {
+									href: attachment.url,
+									target: "_blank",
+									rel: "noopener noreferrer",
+									title: attachment.name,
+									children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("img", {
+										src: attachment.url,
+										alt: attachment.name,
+										loading: "lazy"
+									})
+								}) }, attachment.url))
+							}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {})
+						]
+					}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+						"aria-label": "Assistant response " + (index + 1),
+						className: ["message-group assistant-group response-" + turn.status].filter(Boolean).join(" "),
+						children: [
+							turn.status !== "completed" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+								className: "message-role response-header",
+								children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+									role: "status",
+									className: "response-state",
+									children: responseBadge(turn.status)
+								})
+							}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {}),
+							turn.tool_calls?.length ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ToolCalls, { calls: turn.tool_calls }) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {}),
+							turn.assistant_text ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)(ResultMarkdown, {
+									source: turn.assistant_text,
+									captureSource: index === 0 ? detail.value.source : ""
+								}),
+								turn.status !== "completed" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+									className: "partial-note",
+									children: partialResponseLabel(turn.status)
+								}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {}),
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+									className: "response-actions",
+									children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+										type: "button",
+										"aria-label": "Copy assistant reply " + (index + 1),
+										onClick: () => copyText(formatStoredResponse(turn.assistant_text, index === 0 ? detail.value?.source ?? "" : ""), turn.reply_id || selectedRunId.value || ""),
+										className: "copy-message",
+										children: copyLabel(turn.reply_id || detail.value.send_id)
+									})
+								})
+							] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+								className: "no-response",
+								children: index > 0 && turn.status === "queued" ? "Follow-up queued · waiting for the preceding response" : turnStatus(turn.status)
+							}), turn.status === "preflight_failed" && turn.reply_id && turn.conversation_id && turn.parent_id ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 								type: "button",
-								disabled: startingNewChat.value,
-								"aria-busy": startingNewChat.value,
-								onClick: () => void startFailedReplyInNewChat(turn),
-								children: "Continue in new chat"
-							}), turn.status === "outcome_unknown" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "The original reply may still have been delivered." })]
-						}),
-						index === 0 && [
-							"interrupted",
-							"unavailable",
-							"outcome_unknown"
-						].includes(turn.status) && !detail.value?.conversation_id && !turn.conversation_id && !turn.assistant_text.trim() && Boolean(turn.user_text.trim()) && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-							className: "chat-recovery-guidance",
-							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+								onClick: () => void retryFailedTurn(turn),
 								className: "row-action",
-								type: "button",
-								disabled: startingNewChat.value,
-								"aria-busy": startingNewChat.value,
-								onClick: () => void continueUnverifiedInNewChat(),
-								children: "Continue in new chat"
-							}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { children: "Original send unverified; continuing starts a separate request." })]
-						}),
-						index === 0 && ["interrupted", "unavailable"].includes(turn.status) && detail.value?.recovery?.eligible === false && (Boolean(turn.assistant_text.trim()) || !turn.user_text.trim()) && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-							className: "chat-recovery-guidance",
-							role: "status",
-							children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { children: "No verified ChatGPT chat for read-only recovery." })
-						}),
-						[
-							"interrupted",
-							"unavailable",
-							"outcome_unknown"
-						].includes(turn.status) && exactConversationUrl(turn.conversation_id || detail.value.conversation_id) ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-							className: "chat-recovery-guidance",
-							children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("a", {
-								href: exactConversationUrl(turn.conversation_id || detail.value.conversation_id) ?? void 0,
-								target: "_blank",
-								rel: "noopener noreferrer",
-								children: "Open exact chat in ChatGPT"
-							})
-						}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {})
-					]
-				})] }, turn.reply_id || detail.value.send_id))]
+								children: "Retry unsent reply"
+							}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {})] }),
+							index === turns.value.length - 1 && turns.value.some((saved) => saved.assistant_text.trim()) && [
+								"preflight_failed",
+								"interrupted",
+								"unavailable",
+								"outcome_unknown"
+							].includes(turn.status) && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								className: "chat-recovery-guidance",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+									className: "row-action",
+									type: "button",
+									disabled: startingNewChat.value,
+									"aria-busy": startingNewChat.value,
+									onClick: () => void startFailedReplyInNewChat(turn),
+									children: "Continue in new chat"
+								}), turn.status === "outcome_unknown" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "The original reply may still have been delivered." })]
+							}),
+							index === 0 && [
+								"interrupted",
+								"unavailable",
+								"outcome_unknown"
+							].includes(turn.status) && !detail.value?.conversation_id && !turn.conversation_id && !turn.assistant_text.trim() && Boolean(turn.user_text.trim()) && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								className: "chat-recovery-guidance",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+									className: "row-action",
+									type: "button",
+									disabled: startingNewChat.value,
+									"aria-busy": startingNewChat.value,
+									onClick: () => void continueUnverifiedInNewChat(),
+									children: "Continue in new chat"
+								}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { children: "Original send unverified; continuing starts a separate request." })]
+							}),
+							index === 0 && ["interrupted", "unavailable"].includes(turn.status) && detail.value?.recovery?.eligible === false && (Boolean(turn.assistant_text.trim()) || !turn.user_text.trim()) && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+								className: "chat-recovery-guidance",
+								role: "status",
+								children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { children: "No verified ChatGPT chat for read-only recovery." })
+							}),
+							[
+								"interrupted",
+								"unavailable",
+								"outcome_unknown"
+							].includes(turn.status) && exactConversationUrl(turn.conversation_id || detail.value.conversation_id) ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+								className: "chat-recovery-guidance",
+								children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("a", {
+									href: exactConversationUrl(turn.conversation_id || detail.value.conversation_id) ?? void 0,
+									target: "_blank",
+									rel: "noopener noreferrer",
+									children: "Open exact chat in ChatGPT"
+								})
+							}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {})
+						]
+					})] }, turn.reply_id || detail.value.send_id)),
+					conversationUrl && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+						className: "chat-recovery-guidance",
+						children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("a", {
+							href: conversationUrl,
+							target: "_blank",
+							rel: "noopener noreferrer",
+							children: "Open in ChatGPT"
+						})
+					})
+				]
 			}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {})]
 		}), switchingChat.value ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 			role: "status",

@@ -23,7 +23,7 @@ HTML = f"""<html><body><main>
 <article><div data-message-author-role="user">Follow up</div></article>
 <article><div data-message-author-role="assistant" data-message-id="{ANSWER}">
  <div class="markdown"><p>Recovered follow-up</p><ul><li>Alpha</li><li>Beta</li></ul></div></div>
- <button data-testid="tool-call-entry" aria-label="Used Nox Python" data-state="completed">Tool</button>
+ <button data-testid="tool-call-entry" aria-label="Used test connector" data-state="completed">Tool</button>
  <button data-testid="copy-turn-action-button">Copy</button></article>
 </main></body></html>"""
 
@@ -65,7 +65,7 @@ def test_reply_history_probe_real_chromium_dom() -> None:
                 assert result["branch_message_id"] == ANSWER
                 assert result["text"] == "Recovered follow-up\n\n- Alpha\n- Beta"
                 assert result["tool_calls"] == [
-                    {"action": "Used Nox Python", "status": "completed"}
+                    {"action": "Used test connector", "status": "completed"}
                 ]
                 await (
                     page.locator('[data-message-author-role="user"]')

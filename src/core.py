@@ -37,7 +37,7 @@ DEFAULT_JOBS_PATH = DEFAULT_RUNTIME_PATH
 DEFAULT_STATE_PATH = DEFAULT_RUNTIME_PATH
 PROMPTA_HOST_ENV = "PROMPTA_HOST"
 PROMPTA_REMOTE_CLI_ENV = "PROMPTA_REMOTE_CLI"
-DEFAULT_REMOTE_CLI = "/home/brandon/.local/bin/prompta"
+DEFAULT_REMOTE_CLI = str(Path.home() / ".local/bin/prompta")
 HOST_CONFIG_PATH = Path.home() / ".config" / "prompta" / "host"
 
 

@@ -18,7 +18,7 @@ VIEWPORTS = [(360, 800), (390, 844), (412, 915), (320, 700), (844, 390), (1440, 
 
 @pytest.fixture(autouse=True)
 def serve_worktree_assets(monkeypatch: pytest.MonkeyPatch) -> None:
-    # The shared Nox virtualenv has an editable install pointing at main; browser
+    # The shared test host virtualenv has an editable install pointing at main; browser
     # regression tests must serve the freshly built UI in this worktree instead.
     import prompta.web as web_module
 

@@ -1,4 +1,4 @@
-"""One-shot guarded rollout of live connector approval supervision on Nox.
+"""One-shot guarded rollout of live connector approval supervision on test host.
 
 Used when a deployment lands while delivery captures or manual replies are active.
 Do not restart their processes until all leased in-flight work has drained.

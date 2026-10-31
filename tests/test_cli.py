@@ -34,8 +34,8 @@ def test_remote_cli_dispatches_to_configured_host(monkeypatch) -> None:
         calls.append((argv, check))
         return Result()
 
-    monkeypatch.setenv("PROMPTA_HOST", "nox")
-    monkeypatch.setattr(core.socket, "gethostname", lambda: "glass")
+    monkeypatch.setenv("PROMPTA_HOST", "remote-node")
+    monkeypatch.setattr(core.socket, "gethostname", lambda: "local-node")
     monkeypatch.setattr(core.subprocess, "run", fake_run)
     monkeypatch.setattr(
         sys,
@@ -59,12 +59,12 @@ def test_remote_cli_dispatches_to_configured_host(monkeypatch) -> None:
 
     assert len(calls) == 1
     ssh_argv, check = calls[0]
-    assert ssh_argv[:2] == ["ssh", "nox"]
+    assert ssh_argv[:2] == ["ssh", "remote-node"]
     assert check is False
     assert shlex.split(ssh_argv[2]) == [
         "env",
         "PROMPTA_HOST=local",
-        "/home/brandon/.local/bin/prompta",
+        core.DEFAULT_REMOTE_CLI,
         "add",
         "audit",
         "Run the audit with 'quotes' and\na newline",
@@ -75,15 +75,15 @@ def test_remote_cli_dispatches_to_configured_host(monkeypatch) -> None:
 
 def test_host_config_is_used_when_env_is_unset(tmp_path: Path, monkeypatch) -> None:
     host_file = tmp_path / "host"
-    host_file.write_text("nox\n", encoding="utf-8")
+    host_file.write_text("remote-node\n", encoding="utf-8")
     monkeypatch.delenv("PROMPTA_HOST", raising=False)
     monkeypatch.setattr(core, "HOST_CONFIG_PATH", host_file)
 
-    assert core._configured_host() == "nox"
+    assert core._configured_host() == "remote-node"
 
 
 def test_explicit_runtime_paths_stay_local(monkeypatch) -> None:
-    monkeypatch.setenv("PROMPTA_HOST", "nox")
+    monkeypatch.setenv("PROMPTA_HOST", "remote-node")
     assert core._dispatch_remote(["list", "--jobs-file", "/tmp/jobs.sqlite3"]) is None
     assert core._dispatch_remote(["list", "--state", "/tmp/state.sqlite3"]) is None
 

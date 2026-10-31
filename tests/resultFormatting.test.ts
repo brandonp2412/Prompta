@@ -72,7 +72,7 @@ test("list previews remove markdown syntax without interpreting it", () => {
 
 test("restores archived table rows and surrounding prose without mutating stored text", () => {
   const archived = [
-    "Restored all 8 Stone & Banner jobs in Prompta on Nox.",
+    "Restored all 8 Stone & Banner jobs in Prompta on test host.",
     "",
     "I recovered their exact prompts.",
     "",
