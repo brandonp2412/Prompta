@@ -78,6 +78,16 @@ export function createChatComposerController(initialProps: Props) {
       !uploading.value &&
       hasDraft.value,
   );
+  const canFallback = computed(
+    () =>
+      mode.value === "reply" &&
+      !disabled.value &&
+      !sending.value &&
+      !uploading.value &&
+      hasDraft.value &&
+      fallbackAvailable.value &&
+      !!onFallbackSend.value,
+  );
 
   function resizeTextarea() {
     fitTextarea();
@@ -217,8 +227,7 @@ export function createChatComposerController(initialProps: Props) {
   }
 
   async function submit(useFallback = false) {
-    if (!canSend.value || (useFallback && (!fallbackAvailable.value || !onFallbackSend.value)))
-      return;
+    if (useFallback ? !canFallback.value : !canSend.value) return;
     const submittedKey = draftStorageKey.value;
     const generation = ++submissionGeneration;
     const submitted = draft.value;
@@ -431,6 +440,7 @@ export function createChatComposerController(initialProps: Props) {
     canAttach,
     hasDraft,
     canSend,
+    canFallback,
     draftChanged,
     addFiles,
     submit,

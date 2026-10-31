@@ -8,6 +8,7 @@ export default function DeliveryDiagnostics({ model }: { model: Controller }) {
   const health = model.deliveryHealth.value;
   const error = model.deliveryHealthError.value;
   const pause = model.recoveryPauseSeconds.value;
+  const attention = health?.recovery.attention_chats ?? 0;
   const nextRetry = health?.queue.next_retry_at_epoch;
   const recoveryWaiting = Boolean(
     health &&
@@ -18,6 +19,7 @@ export default function DeliveryDiagnostics({ model }: { model: Controller }) {
   let label = "status unavailable";
   if (!error && health?.ready === false) label = "needs attention";
   else if (!error && health?.admission?.blocked) label = "waiting for capacity";
+  else if (!error && attention > 0) label = "online · review needed";
   else if (!error && health) label = "online";
 
   if (!health && !error) return null;
@@ -27,7 +29,7 @@ export default function DeliveryDiagnostics({ model }: { model: Controller }) {
       <summary>
         <span
           className={
-            error || health?.ready === false || health?.admission?.blocked
+            error || health?.ready === false || health?.admission?.blocked || attention > 0
               ? "delivery-indicator degraded"
               : "delivery-indicator"
           }
@@ -36,6 +38,11 @@ export default function DeliveryDiagnostics({ model }: { model: Controller }) {
         {health && (
           <>
             <span className="delivery-count">{model.pendingDeliveries.value} pending</span>
+            {attention > 0 && (
+              <span className="delivery-count">
+                {attention} {attention === 1 ? "chat needs" : "chats need"} review
+              </span>
+            )}
             {health.queue.outcome_unknown > 0 && (
               <span className="delivery-count">
                 {health.queue.outcome_unknown} unconfirmed historically
@@ -135,6 +142,10 @@ export default function DeliveryDiagnostics({ model }: { model: Controller }) {
             <div>
               <dt>Missing verified chat identity</dt>
               <dd>{health.recovery.missing_verified_identity}</dd>
+            </div>
+            <div>
+              <dt>Chats needing attention</dt>
+              <dd>{attention}</dd>
             </div>
           </dl>
           {health.recovery.stale_capture_leases > 0 && (
