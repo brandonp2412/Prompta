@@ -23,11 +23,12 @@ def _chromium() -> str:
 
 
 @pytest.mark.parametrize("width,height", [(1440, 900), (390, 844)])
-def test_readable_unwritable_storage_never_changes_unconfirmed_fresh_request_id(
+def test_unwritable_receipt_store_blocks_fresh_send_without_duplicate(
     tmp_path: Path,
     width: int,
     height: int,
 ) -> None:
+    """No HTTP send may start unless its stable request ID can be saved."""
     with server(tmp_path) as (app, port), sync_playwright() as playwright:
         browser = playwright.chromium.launch(executable_path=_chromium(), headless=True)
         page = browser.new_page(viewport={"width": width, "height": height})
@@ -42,34 +43,27 @@ def test_readable_unwritable_storage_never_changes_unconfirmed_fresh_request_id(
         })()""")
         posts: list[str] = []
 
-        def lose_first_receipt(route: Route) -> None:
-            body = json.loads(route.request.post_data or "{}")
-            posts.append(str(body["request_id"]))
-            if len(posts) == 1:
-                accepted = route.fetch()
-                assert accepted.status == 202
-                route.fulfill(status=503, body="Synthetic lost acknowledgement")
-            else:
-                route.continue_()
+        def observe_send(route: Route) -> None:
+            posts.append(str(json.loads(route.request.post_data or "{}").get("request_id")))
+            route.continue_()
 
         page.route("**/api/events", lambda route: route.abort())
-        page.route("**/api/chats", lose_first_receipt)
-        page.route("**/api/chats/requests/*", lambda route: route.fulfill(status=503))
+        page.route("**/api/chats", observe_send)
         page.goto(f"http://127.0.0.1:{port}/?view=chats&draft=new")
-        page.get_by_role("textbox", name="Message for new chat").fill(
-            "Synthetic blocked-storage receipt"
-        )
+        composer = page.get_by_role("textbox", name="Message for new chat")
+        composer.fill("Synthetic blocked-storage receipt")
         button = page.get_by_role("button", name="Send fresh chat")
-        button.click()
-        expect(page.get_by_text("Queue receipt is uncertain.", exact=False)).to_be_visible()
-        assert len(app.queue.records()) == 1
-        assert page.evaluate("localStorage.getItem('prompta.pending-fresh-requests.v1')") is None
 
-        button.click()
-        page.wait_for_url("**/?view=chats&run=manual-*")
-        assert len(posts) == 2
-        assert posts[0] == posts[1], "Same-page retries must reuse the original request ID"
-        assert len(app.queue.records()) == 1, "One explicit chat may have only one queue record"
+        for _ in range(2):
+            button.click()
+            expect(
+                page.get_by_text("Unresolved chat receipts cannot be saved", exact=False)
+            ).to_be_visible()
+            expect(composer).to_have_value("Synthetic blocked-storage receipt")
+            assert posts == [], "Unsafe storage must block the HTTP send entirely"
+            assert app.queue.records() == []
+            assert page.evaluate("localStorage.getItem('prompta.pending-fresh-requests.v1')") is None
+
         browser.close()
 
 

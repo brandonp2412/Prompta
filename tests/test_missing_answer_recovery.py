@@ -73,6 +73,7 @@ def test_missing_answer_recovery_dispatcher_uses_only_the_saved_branch(
     import prompta.manual_reply_dispatch as dispatch
 
     seen: list[str] = []
+    probe_results = iter([None, None, PARENT])
 
     store = ManualReplyStore(tmp_path / "recovery.db")
 
@@ -111,11 +112,14 @@ def test_missing_answer_recovery_dispatcher_uses_only_the_saved_branch(
         async def wait_for_composer(self) -> None:
             seen.append("composer")
 
-        async def eval(self, script: str) -> str:
+        async def eval(self, script: str) -> str | None:
             assert "Original prompt" in script
             assert "__ORIGINAL_PROMPT__" not in script
             seen.append("read-only-probe")
-            return PARENT
+            return next(probe_results)
+
+        def history_rate_limited(self) -> bool:
+            return False
 
         async def close_context(self, context: str) -> None:
             assert context == "owned"
@@ -132,4 +136,7 @@ def test_missing_answer_recovery_dispatcher_uses_only_the_saved_branch(
     dispatcher = dispatch.ManualReplyDispatcher(store, tmp_path / "isolated-test-state")
     result = asyncio.run(dispatcher._recover_exact_parent("saved-run"))
     assert result == {"message_id": PARENT}
-    assert seen == ["connect", "exact-tab", "composer", "read-only-probe", "saved", "closed-tab", "closed"]
+    assert seen == [
+        "connect", "exact-tab", "composer", "read-only-probe", "read-only-probe",
+        "read-only-probe", "saved", "closed-tab", "closed",
+    ]

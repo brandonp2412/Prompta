@@ -4,6 +4,7 @@ import asyncio
 from pathlib import Path
 
 import pytest
+from patchright.async_api import Error as PlaywrightError
 
 import prompta.history_recovery as history_recovery
 from prompta.delivery_worker import DeliveryAdmission
@@ -175,8 +176,9 @@ def test_transient_ambiguous_dom_does_not_discard_same_tab_recovery(
     assert row is not None and row["status"] == "completed"
 
 
+@pytest.mark.parametrize("transient", [TimeoutError, PlaywrightError])
 def test_transient_dom_and_probe_timeouts_retry_same_owned_tab(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, transient: type[Exception],
 ) -> None:
     store = ResponseStore(tmp_path / "chat-results.sqlite3")
     _expired(store)
@@ -190,13 +192,13 @@ def test_transient_dom_and_probe_timeouts_retry_same_owned_tab(
         async def dom_state(self) -> dict[str, object]:
             self.dom_reads += 1
             if self.dom_reads == 1:
-                raise TimeoutError("Transient DOM wait")
+                raise transient("Transient DOM wait")
             return await super().dom_state()
 
         async def eval(self, expression: str, *, main_world: bool = False) -> object:
             self.probes += 1
             if self.probes == 1:
-                raise TimeoutError("Transient evaluation")
+                raise transient("Transient evaluation")
             return await super().eval(expression)
 
     async def no_delay(_delay: float) -> None:
@@ -397,6 +399,22 @@ def test_conversation_http_429_stops_recovery_and_persists_backoff(tmp_path: Pat
     assert restarted.read_backoff_remaining() > 0
     row = store.get("manual-1")
     assert row is not None and row["status"] == "interrupted"
+    assert driver.visited == ["connect", "https://chatgpt.com/c/" + CONVERSATION]
+
+
+def test_browser_context_error_after_429_still_persists_read_backoff(tmp_path: Path) -> None:
+    store = ResponseStore(tmp_path / "chat-results.sqlite3")
+    _expired(store)
+
+    class InterruptedRead(FakeHistoryDriver):
+        async def dom_state(self) -> dict[str, object]:
+            raise PlaywrightError("Execution context was destroyed")
+
+    driver = InterruptedRead(http_limited=True)
+    runtime = SchedulerRuntime(tmp_path / "runtime.sqlite3", tmp_path / "jobs.json")
+    assert not HistoryRecovery(store, runtime, lambda: driver).recover_once(now=150)
+    assert driver.closed
+    assert runtime.read_backoff_remaining() >= 299
     assert driver.visited == ["connect", "https://chatgpt.com/c/" + CONVERSATION]
 
 

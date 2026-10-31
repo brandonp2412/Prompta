@@ -21,7 +21,7 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 	enumerable: true
 }) : target, mod));
 //#endregion
-//#region node_modules/scheduler/cjs/scheduler.production.js
+//#region ../../prompta/node_modules/scheduler/cjs/scheduler.production.js
 /**
 * @license React
 * scheduler.production.js
@@ -276,12 +276,12 @@ var require_scheduler_production = /* @__PURE__ */ __commonJSMin(((exports) => {
 	};
 }));
 //#endregion
-//#region node_modules/scheduler/index.js
+//#region ../../prompta/node_modules/scheduler/index.js
 var require_scheduler = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_scheduler_production();
 }));
 //#endregion
-//#region node_modules/react/cjs/react.production.js
+//#region ../../prompta/node_modules/react/cjs/react.production.js
 /**
 * @license React
 * react.production.js
@@ -668,12 +668,12 @@ var require_react_production = /* @__PURE__ */ __commonJSMin(((exports) => {
 	exports.version = "19.3.1";
 }));
 //#endregion
-//#region node_modules/react/index.js
+//#region ../../prompta/node_modules/react/index.js
 var require_react = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_react_production();
 }));
 //#endregion
-//#region node_modules/react-dom/cjs/react-dom.production.js
+//#region ../../prompta/node_modules/react-dom/cjs/react-dom.production.js
 /**
 * @license React
 * react-dom.production.js
@@ -826,7 +826,7 @@ var require_react_dom_production = /* @__PURE__ */ __commonJSMin(((exports) => {
 	exports.version = "19.3.1";
 }));
 //#endregion
-//#region node_modules/react-dom/index.js
+//#region ../../prompta/node_modules/react-dom/index.js
 var require_react_dom = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	function checkDCE() {
 		if (typeof __REACT_DEVTOOLS_GLOBAL_HOOK__ === "undefined" || typeof __REACT_DEVTOOLS_GLOBAL_HOOK__.checkDCE !== "function") return;
@@ -840,7 +840,7 @@ var require_react_dom = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_react_dom_production();
 }));
 //#endregion
-//#region node_modules/react-dom/cjs/react-dom-client.production.js
+//#region ../../prompta/node_modules/react-dom/cjs/react-dom-client.production.js
 /**
 * @license React
 * react-dom-client.production.js
@@ -11415,7 +11415,7 @@ var require_react_dom_client_production = /* @__PURE__ */ __commonJSMin(((export
 	};
 }));
 //#endregion
-//#region node_modules/react-dom/client.js
+//#region ../../prompta/node_modules/react-dom/client.js
 var require_client = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	function checkDCE() {
 		if (typeof __REACT_DEVTOOLS_GLOBAL_HOOK__ === "undefined" || typeof __REACT_DEVTOOLS_GLOBAL_HOOK__.checkDCE !== "function") return;
@@ -11429,7 +11429,7 @@ var require_client = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_react_dom_client_production();
 }));
 //#endregion
-//#region node_modules/@preact/signals-core/dist/signals-core.module.js
+//#region ../../prompta/node_modules/@preact/signals-core/dist/signals-core.module.js
 var import_react = /* @__PURE__ */ __toESM(require_react());
 var import_client = require_client();
 var i$1 = Symbol.for("preact-signals");
@@ -11841,7 +11841,7 @@ function x$2(i, t) {
 	return n;
 }
 //#endregion
-//#region node_modules/use-sync-external-store/cjs/use-sync-external-store-shim.production.js
+//#region ../../prompta/node_modules/use-sync-external-store/cjs/use-sync-external-store-shim.production.js
 /**
 * @license React
 * use-sync-external-store-shim.production.js
@@ -11901,7 +11901,7 @@ var require_use_sync_external_store_shim_production = /* @__PURE__ */ __commonJS
 	exports.useSyncExternalStore = void 0 !== React.useSyncExternalStore ? React.useSyncExternalStore : shim;
 }));
 //#endregion
-//#region node_modules/@preact/signals-react/runtime/dist/runtime.module.js
+//#region ../../prompta/node_modules/@preact/signals-react/runtime/dist/runtime.module.js
 var import_shim = (/* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_use_sync_external_store_shim_production();
 })))();
@@ -13639,6 +13639,14 @@ function createChatsPageController(initialProps) {
 		clearTimeout(searchTimer);
 		searchTimer = setTimeout(applyFilter, 300);
 	}
+	function clearSearch() {
+		clearTimeout(searchTimer);
+		if (search.value) {
+			search.value = "";
+			applyFilter();
+		}
+		searchInput.value?.focus();
+	}
 	async function toggleSearch() {
 		filtersOpen.value = !filtersOpen.value;
 		if (filtersOpen.value) {
@@ -13882,6 +13890,7 @@ function createChatsPageController(initialProps) {
 		copyText,
 		applyFilter,
 		searchChanged,
+		clearSearch,
 		toggleSearch,
 		cancelSwipe,
 		startSwipe,
@@ -14657,7 +14666,7 @@ function createJobsPageController(initialProps) {
 	};
 }
 //#endregion
-//#region node_modules/react/cjs/react-jsx-runtime.production.js
+//#region ../../prompta/node_modules/react/cjs/react-jsx-runtime.production.js
 /**
 * @license React
 * react-jsx-runtime.production.js
@@ -16309,7 +16318,7 @@ function ChatRow({ item, model }) {
 //#region src/ui/ChatsSidebar.tsx
 function ChatsSidebar({ model, refs }) {
 	N$1();
-	const { retryPins, view, selectedRunId, statuses, queueSnapshot, queueError, items, pinError, readError, markingAllRead, attentionChats, recoveryBacklog, recoveryReplyBacklog, recoveryPauseSeconds, drawerOpen, filtersOpen, search, statusFilter, loadingList, listError, morePageFailed, pinned, visibleWaiting, unpinned, retryReadSync, markAllRead, loadQueue, maybeLoadMore, loadList, loadMore, applyFilter, searchChanged, toggleSearch, showJobs, createChat } = model;
+	const { retryPins, view, selectedRunId, statuses, queueSnapshot, queueError, items, pinError, readError, markingAllRead, attentionChats, recoveryBacklog, recoveryUnverified, recoveryReplyBacklog, recoveryPauseSeconds, drawerOpen, filtersOpen, search, statusFilter, loadingList, listError, morePageFailed, pinned, visibleWaiting, unpinned, retryReadSync, markAllRead, loadQueue, maybeLoadMore, loadList, loadMore, applyFilter, searchChanged, clearSearch, toggleSearch, showJobs, createChat } = model;
 	function emptyChatsLabel() {
 		if (listError.value) return "Chat list temporarily unavailable";
 		if (search.value || statusFilter.value) return "No matching chats";
@@ -16453,33 +16462,44 @@ function ChatsSidebar({ model, refs }) {
 					attentionCount === 1 ? "chat" : "chats"
 				] })]
 			}),
-			attentionCount > 0 && ((recoveryBacklog.value ?? 0) > 0 || (recoveryReplyBacklog.value ?? 0) > 0) && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", {
+			attentionCount > 0 && ((recoveryBacklog.value ?? 0) > 0 || (recoveryReplyBacklog.value ?? 0) > 0 || (recoveryUnverified.value ?? 0) > 0) && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", {
 				className: "chat-recovery-summary",
 				children: [
 					"Recovery: ",
 					recoveryBacklog.value ?? 0,
 					" original captures eligible",
 					(recoveryReplyBacklog.value ?? 0) > 0 && ` · ${recoveryReplyBacklog.value} follow-ups unresolved`,
+					(recoveryUnverified.value ?? 0) > 0 && ` · ${recoveryUnverified.value} need manual review (no verified chat ID)`,
 					recoveryPauseSeconds.value > 0 && ` · waiting ~${Math.ceil(recoveryPauseSeconds.value / 60)} min`
 				]
 			}),
 			filtersOpen.value ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 				id: "chat-filters",
 				className: "chats-controls",
-				children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
-					className: "search-label",
-					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-						className: "sr-only",
-						children: "Search job results"
-					}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
-						type: "search",
-						placeholder: "Search chats",
-						ref: refs.searchInput,
-						onInput: searchChanged,
-						value: search.value,
-						onChange: (event) => {
-							search.value = event.currentTarget.value;
-						}
+				children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+					className: "search-field",
+					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
+						className: "search-label",
+						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+							className: "sr-only",
+							children: "Search chats"
+						}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+							type: "search",
+							placeholder: "Search chats",
+							ref: refs.searchInput,
+							onInput: searchChanged,
+							value: search.value,
+							onChange: (event) => {
+								search.value = event.currentTarget.value;
+							}
+						})]
+					}), search.value && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+						type: "button",
+						"aria-label": "Clear chat search",
+						title: "Clear search",
+						className: "chat-search-clear",
+						onClick: clearSearch,
+						children: "×"
 					})]
 				}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
 					className: "sr-only",
@@ -16596,7 +16616,7 @@ function ChatsSidebar({ model, refs }) {
 	});
 }
 //#endregion
-//#region node_modules/marked/lib/marked.esm.js
+//#region ../../prompta/node_modules/marked/lib/marked.esm.js
 /**
 * marked v16.4.2 - a markdown parser
 * Copyright (c) 2018-2025, MarkedJS. (MIT License)
