@@ -72,7 +72,7 @@ def test_fresh_chat_endpoint_is_idempotent_and_payload_bound(tmp_path: Path) -> 
         assert post(port, "/api/chats", payload)[0] == 202
         assert results.local_pinned_runs() == []
         assert (
-            post(port, "/api/chats", {**payload, "prompt": "Different immutable message"})[0] == 400
+            post(port, "/api/chats", {**payload, "prompt": "Different immutable message"})[0] == 409
         )
         assert post(port, "/api/chats", {**payload, "request_id": "bad"})[0] == 400
         assert post(port, "/api/chats", {**payload, "images": ["unverified-ref"]})[0] == 400
