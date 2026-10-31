@@ -373,3 +373,18 @@ def test_plain_tool_result_citation_is_not_mistaken_for_partial_json() -> None:
         "content": {"content_type": "text", "parts": ["[1] A useful result"]},
     })
     assert parse_sse_body(body).tool_calls[0]["result"] == "[1] A useful result"
+
+
+def test_durable_stream_summary_redacts_urls_and_emails_and_omits_payload() -> None:
+    from prompta.tool_events import summarize_stream_tool_calls
+
+    calls: tuple[dict[str, object], ...] = ({
+        "id": "tool-1", "action": "Open https://private.example/token",
+        "connector": "owner@example.com", "status": "completed",
+        "arguments": "PRIVATE_TOKEN", "result": "PRIVATE_RESPONSE",
+    },)
+    (summary,) = summarize_stream_tool_calls(calls)
+    assert summary["action"] == "Open [redacted]"
+    assert summary["connector"] == "[redacted]"
+    assert summary["arguments"] == summary["result"] == ""
+    assert "PRIVATE" not in str(summary)

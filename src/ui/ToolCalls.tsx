@@ -95,7 +95,7 @@ export default function ToolCalls({ calls }: { calls: CapturedToolCall[] }) {
                 </section>
               )}
               {!call.arguments && !call.result && !call.error && (
-                <p>No additional details captured.</p>
+                <p>Only the tool name and status are stored for privacy.</p>
               )}
             </div>
           </details>

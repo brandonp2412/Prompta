@@ -38,6 +38,7 @@ def test_tool_cards_sibling_to_the_inner_answer_are_captured_without_crossing_tu
       </div>
       <div data-testid="conversation-turn-42">
         <button aria-label="Used Search">Used Search</button>
+        <button aria-label="Searched the web for PRIVATE_QUERY">Searched the web</button>
         <button aria-label="Used Hidden" style="display:none">Used Hidden</button>
         <div class="group flex flex-col">
           <div id="answer" data-message-author-role="assistant">
@@ -63,7 +64,7 @@ def test_tool_cards_sibling_to_the_inner_answer_are_captured_without_crossing_tu
                 };
                 }"""
             )
-            assert result == {"root": "conversation-turn-42", "actions": ["Used Search"]}
+            assert result == {"root": "conversation-turn-42", "actions": ["Used Search", "Searched the web"]}
         finally:
             browser.close()
 
@@ -94,5 +95,36 @@ def test_turn_root_prefers_exact_data_key_over_a_broad_article() -> None:
                 }"""
             )
             assert result == ["Used Right"]
+        finally:
+            browser.close()
+
+
+def test_live_canary_probe_counts_only_visible_owned_tool_activity() -> None:
+    from scripts.run_tool_call_e2e import _VISIBLE_COUNT
+
+    executable = os.environ.get("PROMPTA_TEST_CHROMIUM", "")
+    if not executable or not Path(executable).is_file():
+        pytest.skip("Headless Chromium unavailable")
+    script = load_browser_script("markdown_from_dom.js")
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(executable_path=executable, headless=True)
+        try:
+            page = browser.new_page()
+            page.set_content("""
+            <main>
+              <div data-testid="conversation-turn-1">
+                <button aria-label="Used Old Tool">Used Old Tool</button>
+                <div data-message-author-role="user">Old turn</div>
+              </div>
+              <div data-testid="conversation-turn-2">
+                <button aria-label="Searched the web for PRIVATE_QUERY">Searched the web</button>
+                <div data-message-author-role="assistant" data-message-id="new">
+                  <div class="markdown">Answer</div>
+                </div>
+              </div>
+            </main>
+            """)
+            count = page.evaluate("() => {" + script + "return (" + _VISIBLE_COUNT + ")();}")
+            assert count == 1
         finally:
             browser.close()

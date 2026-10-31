@@ -41,6 +41,10 @@ def merge_tool_calls(previous: object, incoming: tuple[dict[str, object], ...]) 
     def same_activity(dom: dict[str, object], stream: dict[str, object]) -> bool:
         label = str(dom.get("action", "")).casefold().removeprefix("used ").strip()
         names = (str(stream.get(field, "")).casefold().strip() for field in ("connector", "action"))
+        if label in ("searched the web", "searching the web"):
+            return any("search" in name or name == "web" for name in names)
+        if label in ("ran code", "running code"):
+            return any("python" in name or name == "code" for name in names)
         return label == "tool activity" or label in names
 
     stream_calls = [

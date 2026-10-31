@@ -1,4 +1,5 @@
 import asyncio
+import json
 from collections.abc import Callable
 from pathlib import Path
 from unittest.mock import AsyncMock, Mock
@@ -133,3 +134,48 @@ async def test_patchright_driver_selects_main_world_for_passive_callbacks(tmp_pa
     page.evaluate.assert_awaited_with("main-world observer", isolated_context=False)
     assert await driver.eval("scoped DOM check") is True
     page.evaluate.assert_awaited_with("scoped DOM check", isolated_context=True)
+
+
+@pytest.mark.asyncio
+async def test_native_completed_sse_persists_only_bounded_tool_metadata(tmp_path: Path) -> None:
+    driver = PlaywrightDriver(profile=tmp_path)
+    driver._connected = True
+    driver.context = "owned-fresh-tab"
+    driver._pages[driver.context] = Mock(spec=Page, **{"is_closed.return_value": False})
+    capture = driver.arm_send_capture()
+    request = Mock(spec=Request)
+    request.method = "POST"
+    request.url = "https://chatgpt.com/backend-api/conversation"
+    call = {
+        "id": "native-tool", "author": {"role": "assistant"},
+        "recipient": "api_tool.call_tool",
+        "content": {"content_type": "text", "parts": [json.dumps({
+            "type": "mcpToolCall", "tool": "calendar.search",
+            "arguments": {"password": "PRIVATE_SECRET", "query": "PRIVATE_QUERY"},
+        })]},
+    }
+    answer = {
+        "id": "answer", "author": {"role": "assistant"}, "recipient": "all",
+        "channel": "final", "content": {"content_type": "text", "parts": ["Done"]},
+        "status": "finished_successfully",
+    }
+    body = "".join(
+        "data: " + json.dumps({"conversation_id": "owned", "message": message}) + chr(10) * 2
+        for message in (call, answer)
+    ) + "data: [DONE]" + chr(10) * 2
+    response = Mock(spec=Response)
+    response.request = request
+    response.status = 200
+    response.headers = {"content-type": "text/event-stream"}
+    response.finished = Mock(side_effect=lambda: asyncio.sleep(0))
+    response.text = Mock(side_effect=lambda: asyncio.sleep(0, result=body))
+    driver._on_request(request)
+    driver._on_response(response)
+    await asyncio.gather(*driver._response_tasks)
+    result = driver.captured_assistant_response(capture)
+    assert result is not None and result.status == "complete"
+    assert result.tool_calls[0]["action"] == "search"
+    assert result.tool_calls[0]["arguments"] == ""
+    assert result.tool_calls[0]["result"] == ""
+    assert "PRIVATE" not in str(result.tool_calls)
+    await driver.close()

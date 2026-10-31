@@ -144,14 +144,14 @@ const responseTurnRoot = (element) =>
   element;
 
 const toolCallsFromTurns = (turns, visible, markdownSelector) => {
-  const toolSelector = '[data-testid*="tool-call"], [data-testid*="tool-card"], [data-testid*="tool-result"], [data-tool-name], [aria-label^="Used "]';
+  const toolSelector = '[data-testid*="tool-call"], [data-testid*="tool-card"], [data-testid*="tool-result"], [data-tool-name], [aria-label^="Used "], [aria-label^="Searched "], [aria-label^="Searching "], [aria-label^="Ran "]';
   const seen = new Set();
   return turns.flatMap((turn) => [...turn.querySelectorAll(toolSelector + ', button, [role="button"]')]
     .filter((node) => {
       if (seen.has(node) || !visible(node) || node.closest(markdownSelector) ||
           node.parentElement?.closest(toolSelector)) return false;
       // Modern connector disclosures can have only a visible "Used …" label.
-      if (!node.matches(toolSelector) && !/^Used\s+\S/i.test(node.textContent?.trim() || "")) return false;
+      if (!node.matches(toolSelector) && !/^(?:Used\s+\S|Searched\s+the\s+web|Searching\s+the\s+web|Ran\s+(?:code|Python))/i.test(node.textContent?.trim() || "")) return false;
       seen.add(node);
       return true;
     }).map((node) => {
@@ -160,7 +160,9 @@ const toolCallsFromTurns = (turns, visible, markdownSelector) => {
         node.querySelector('summary, button, [role="button"]')?.textContent ||
         (node.matches('button, [role="button"]') ? node.textContent : "") || "Tool activity";
       const state = node.getAttribute("data-state") || "";
-      return { action: heading.trim().slice(0, 120), status: /error|fail/i.test(state) ? "error" :
+      const title = heading.trim().match(/^(?:Searched the web|Searching the web|Ran code|Running code)\b/i)?.[0] ||
+        heading.split(/\r?\n/)[0].trim();
+      return { action: title.slice(0, 120), status: /error|fail/i.test(state) ? "error" :
         /running|loading|pending/i.test(state) ? "running" :
         /complete|success|done/i.test(state) ? "completed" : "observed" };
     })).slice(0, 128);

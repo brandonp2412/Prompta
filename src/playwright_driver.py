@@ -9,6 +9,7 @@ import threading
 import time
 import uuid
 from collections.abc import Sequence
+from dataclasses import replace
 from pathlib import Path
 from typing import Literal, Protocol, TypeVar
 from urllib.parse import urlsplit
@@ -49,9 +50,12 @@ from .model_picker import (
     _UsableCollection,
     _UsableT,
 )
+from .owned_tool_stream import OwnedToolStream
 from .response_capture import CaptureResult, normalize_dom_snapshot, parse_sse_body
 from .send_outcome import SendOutcomeUnknownError
 from .strict_types import int_value, json_object
+from .tool_call_store import deserialize_tool_calls, merge_tool_calls, serialize_tool_calls
+from .tool_events import summarize_stream_tool_calls
 
 
 class BrowsingContextUnavailableError(RuntimeError):
@@ -148,6 +152,7 @@ class PlaywrightDriver(ModelPickerMixin):
         self._send_capture: dict[str, object] | None = None
         self._response_tasks: set[asyncio.Task[None]] = set()
         self._response_events: asyncio.Queue[CaptureResult | None] = asyncio.Queue(maxsize=4)
+        self._tool_stream: OwnedToolStream | None = None
         self.needs_browser_restart = False
         self.profile = profile.expanduser().resolve()
         self.chrome_path = chrome_path
@@ -345,8 +350,11 @@ class PlaywrightDriver(ModelPickerMixin):
         if request.method.upper() != "POST" or not self._is_send_endpoint(request.url):
             return
         if capture.get("request_obj") is not None:
-            capture["ambiguous_request"] = True
-            self._signal_response(None)
+            # A connector tool can trigger follow-up POSTs in the same owned tab.
+            # Do not treat these as another user send after the first response starts.
+            if not capture.get("response_started"):
+                capture["ambiguous_request"] = True
+                self._signal_response(None)
             return
         capture["request_obj"] = request
         capture["request_id"] = str(id(request))
@@ -383,7 +391,10 @@ class PlaywrightDriver(ModelPickerMixin):
             # Its tab may close first; that is an interrupted capture, never a retry.
             body = await response.text()
             if not capture.get("ambiguous_request"):
-                capture["assistant_result"] = parse_sse_body(body)
+                parsed = parse_sse_body(body)
+                capture["assistant_result"] = replace(
+                    parsed, tool_calls=summarize_stream_tool_calls(parsed.tool_calls)
+                )
                 self._signal_response(capture["assistant_result"])
         except asyncio.CancelledError:
             capture["assistant_capture_stop"] = "interrupted"
@@ -392,6 +403,13 @@ class PlaywrightDriver(ModelPickerMixin):
         except (PlaywrightError, RuntimeError):
             capture["assistant_capture_stop"] = "interrupted"
             self._signal_response(None)
+
+    def _on_tool_stream_capture(self, result: CaptureResult) -> None:
+        capture = self._send_capture
+        if capture is None or capture.get("ambiguous_request"):
+            return
+        capture["tool_capture"] = result
+        self._signal_response(result)
 
     def _signal_response(self, result: CaptureResult | None) -> None:
         if self._response_events.full():
@@ -412,6 +430,16 @@ class PlaywrightDriver(ModelPickerMixin):
 
         # Page-scoped CDP binding, not an HTTP request, refresh, or DOM scrape.
         await page.expose_function("__promptaPassiveUpdate", on_change)
+        if self._tool_stream is not None:
+            await self._tool_stream.stop()
+        try:
+            self._tool_stream = await OwnedToolStream.attach(
+                page, lambda: self._send_capture is not None,
+                self._is_send_endpoint, self._on_tool_stream_capture,
+            )
+        except (PlaywrightError, RuntimeError, TypeError, AttributeError) as exc:
+            # The DOM observer remains active if this Chromium lacks CDP streaming.
+            logger.info("Owned tool streaming unavailable error_type=%s", type(exc).__name__)
 
     async def wait_capture_update(self, *, timeout: float) -> CaptureResult | None:
         try:
@@ -422,8 +450,16 @@ class PlaywrightDriver(ModelPickerMixin):
     @staticmethod
     def captured_assistant_response(capture: dict[str, object]) -> CaptureResult | None:
         result = capture.get("assistant_result")
+        tools = capture.get("tool_capture")
         if isinstance(result, CaptureResult):
+            if isinstance(tools, CaptureResult) and tools.tool_calls:
+                combined = merge_tool_calls(
+                    serialize_tool_calls(result.tool_calls), tools.tool_calls
+                )
+                return replace(result, tool_calls=tuple(deserialize_tool_calls(combined)))
             return result
+        if isinstance(tools, CaptureResult):
+            return tools
         if capture.get("assistant_capture_stop") == "interrupted":
             return CaptureResult("sse", "interrupted", "", None, None, None)
         return None
@@ -1686,6 +1722,12 @@ class PlaywrightDriver(ModelPickerMixin):
         if self._response_tasks:
             await asyncio.gather(*self._response_tasks, return_exceptions=True)
         self._response_tasks.clear()
+        if self._tool_stream is not None:
+            try:
+                await self._tool_stream.stop()
+            except PlaywrightError:
+                pass
+            self._tool_stream = None
         self._connected = False
 
         # For an attached browser, stopping Playwright disconnects the automation

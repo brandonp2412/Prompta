@@ -107,7 +107,7 @@ def _message_complete(message: dict[str, object]) -> bool:
 class SseResponseAccumulator:
     """Decode one POST stream, rejecting ambiguous branch/identity changes."""
 
-    def __init__(self) -> None:
+    def __init__(self, tool_collector: ToolEventCollector | None = None) -> None:
         self._line_buffer = ""
         self._data_lines: list[str] = []
         self._parts: list[str] = []
@@ -122,7 +122,7 @@ class SseResponseAccumulator:
         self._ambiguous = False
         self._overflow = False
         self._received = 0
-        self._tools = ToolEventCollector()
+        self._tools = tool_collector if tool_collector is not None else ToolEventCollector()
         self._tool_message: dict[str, object] | None = None
 
     def feed(self, chunk: str) -> None:

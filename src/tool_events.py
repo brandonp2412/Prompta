@@ -94,6 +94,30 @@ def normalize_dom_tool_calls(value: object) -> tuple[dict[str, object], ...]:
     return tuple(calls)
 
 
+def summarize_stream_tool_calls(
+    calls: tuple[dict[str, object], ...],
+) -> tuple[dict[str, object], ...]:
+    """Only bounded invocation metadata may cross the durable storage boundary."""
+    summaries: list[dict[str, object]] = []
+    for call in calls[:_MAX_TOOLS]:
+        identifier = _text(call.get("id"))[:100]
+        action = _text(call.get("action"))[:120]
+        if not identifier or not action:
+            continue
+        connector = _text(call.get("connector"))[:100]
+        status = _text(call.get("status"))
+        summaries.append({
+            "id": identifier,
+            "connector": re.sub(r"https?://\S+|\b[\w.+-]+@[\w.-]+\.[a-z]{2,}\b",
+                                "[redacted]", connector, flags=re.I),
+            "action": re.sub(r"https?://\S+|\b[\w.+-]+@[\w.-]+\.[a-z]{2,}\b",
+                             "[redacted]", action, flags=re.I),
+            "status": status if status in ("running", "completed", "error", "observed") else "observed",
+            "arguments": "", "result": "", "error": "",
+        })
+    return tuple(summaries)
+
+
 class ToolEventCollector:
     """Deduplicates invocation snapshots and pairs tool results without recording thoughts."""
 
