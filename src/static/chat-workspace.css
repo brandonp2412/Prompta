@@ -409,6 +409,15 @@
 .assistant-group .code-snippet .token.comment { color: #a0a0a0; }
 .assistant-group .code-snippet .token.function { color: #a9c8ff; }
 .assistant-group .code-snippet .token.operator { color: #e3e3e3; }
+.assistant-group .tool-call-body .token.keyword,
+.assistant-group .tool-call-body .token.boolean { color: #c99cff; }
+.assistant-group .tool-call-body .token.string { color: #f7aa77; }
+.assistant-group .tool-call-body .token.number { color: #b8d69e; }
+.assistant-group .tool-call-body .token.comment { color: #a0a0a0; }
+.assistant-group .tool-call-body .token.function,
+.assistant-group .tool-call-body .token.property { color: #a9c8ff; }
+.assistant-group .tool-call-body .token.operator { color: #e3e3e3; }
+.assistant-group .tool-call-body code { font: inherit; }
 .assistant-group .result-table-scroll { margin: 17px 0 22px; }
 .assistant-group .result-markdown table {
   width: 100%;

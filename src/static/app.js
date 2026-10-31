@@ -19669,6 +19669,291 @@ highlight: function highlight(container) {
 	Prism.languages.ts = Prism.languages.typescript;
 })(Prism);
 //#endregion
+//#region ../../prompta/node_modules/prismjs/components/prism-python.js
+Prism.languages.python = {
+	"comment": {
+		pattern: /(^|[^\\])#.*/,
+		lookbehind: true,
+		greedy: true
+	},
+	"string-interpolation": {
+		pattern: /(?:f|fr|rf)(?:("""|''')[\s\S]*?\1|("|')(?:\\.|(?!\2)[^\\\r\n])*\2)/i,
+		greedy: true,
+		inside: {
+			"interpolation": {
+				pattern: /((?:^|[^{])(?:\{\{)*)\{(?!\{)(?:[^{}]|\{(?!\{)(?:[^{}]|\{(?!\{)(?:[^{}])+\})+\})+\}/,
+				lookbehind: true,
+				inside: {
+					"format-spec": {
+						pattern: /(:)[^:(){}]+(?=\}$)/,
+						lookbehind: true
+					},
+					"conversion-option": {
+						pattern: /![sra](?=[:}]$)/,
+						alias: "punctuation"
+					},
+					rest: null
+				}
+			},
+			"string": /[\s\S]+/
+		}
+	},
+	"triple-quoted-string": {
+		pattern: /(?:[rub]|br|rb)?("""|''')[\s\S]*?\1/i,
+		greedy: true,
+		alias: "string"
+	},
+	"string": {
+		pattern: /(?:[rub]|br|rb)?("|')(?:\\.|(?!\1)[^\\\r\n])*\1/i,
+		greedy: true
+	},
+	"function": {
+		pattern: /((?:^|\s)def[ \t]+)[a-zA-Z_]\w*(?=\s*\()/g,
+		lookbehind: true
+	},
+	"class-name": {
+		pattern: /(\bclass\s+)\w+/i,
+		lookbehind: true
+	},
+	"decorator": {
+		pattern: /(^[\t ]*)@\w+(?:\.\w+)*/m,
+		lookbehind: true,
+		alias: ["annotation", "punctuation"],
+		inside: { "punctuation": /\./ }
+	},
+	"keyword": /\b(?:_(?=\s*:)|and|as|assert|async|await|break|case|class|continue|def|del|elif|else|except|exec|finally|for|from|global|if|import|in|is|lambda|match|nonlocal|not|or|pass|print|raise|return|try|while|with|yield)\b/,
+	"builtin": /\b(?:__import__|abs|all|any|apply|ascii|basestring|bin|bool|buffer|bytearray|bytes|callable|chr|classmethod|cmp|coerce|compile|complex|delattr|dict|dir|divmod|enumerate|eval|execfile|file|filter|float|format|frozenset|getattr|globals|hasattr|hash|help|hex|id|input|int|intern|isinstance|issubclass|iter|len|list|locals|long|map|max|memoryview|min|next|object|oct|open|ord|pow|property|range|raw_input|reduce|reload|repr|reversed|round|set|setattr|slice|sorted|staticmethod|str|sum|super|tuple|type|unichr|unicode|vars|xrange|zip)\b/,
+	"boolean": /\b(?:False|None|True)\b/,
+	"number": /\b0(?:b(?:_?[01])+|o(?:_?[0-7])+|x(?:_?[a-f0-9])+)\b|(?:\b\d+(?:_\d+)*(?:\.(?:\d+(?:_\d+)*)?)?|\B\.\d+(?:_\d+)*)(?:e[+-]?\d+(?:_\d+)*)?j?(?!\w)/i,
+	"operator": /[-+%=]=?|!=|:=|\*\*?=?|\/\/?=?|<[<=>]?|>[=>]?|[&|^~]/,
+	"punctuation": /[{}[\];(),.:]/
+};
+Prism.languages.python["string-interpolation"].inside["interpolation"].inside.rest = Prism.languages.python;
+Prism.languages.py = Prism.languages.python;
+//#endregion
+//#region ../../prompta/node_modules/prismjs/components/prism-bash.js
+(function(Prism) {
+	var envVars = "\\b(?:BASH|BASHOPTS|BASH_ALIASES|BASH_ARGC|BASH_ARGV|BASH_CMDS|BASH_COMPLETION_COMPAT_DIR|BASH_LINENO|BASH_REMATCH|BASH_SOURCE|BASH_VERSINFO|BASH_VERSION|COLORTERM|COLUMNS|COMP_WORDBREAKS|DBUS_SESSION_BUS_ADDRESS|DEFAULTS_PATH|DESKTOP_SESSION|DIRSTACK|DISPLAY|EUID|GDMSESSION|GDM_LANG|GNOME_KEYRING_CONTROL|GNOME_KEYRING_PID|GPG_AGENT_INFO|GROUPS|HISTCONTROL|HISTFILE|HISTFILESIZE|HISTSIZE|HOME|HOSTNAME|HOSTTYPE|IFS|INSTANCE|JOB|LANG|LANGUAGE|LC_ADDRESS|LC_ALL|LC_IDENTIFICATION|LC_MEASUREMENT|LC_MONETARY|LC_NAME|LC_NUMERIC|LC_PAPER|LC_TELEPHONE|LC_TIME|LESSCLOSE|LESSOPEN|LINES|LOGNAME|LS_COLORS|MACHTYPE|MAILCHECK|MANDATORY_PATH|NO_AT_BRIDGE|OLDPWD|OPTERR|OPTIND|ORBIT_SOCKETDIR|OSTYPE|PAPERSIZE|PATH|PIPESTATUS|PPID|PS1|PS2|PS3|PS4|PWD|RANDOM|REPLY|SECONDS|SELINUX_INIT|SESSION|SESSIONTYPE|SESSION_MANAGER|SHELL|SHELLOPTS|SHLVL|SSH_AUTH_SOCK|TERM|UID|UPSTART_EVENTS|UPSTART_INSTANCE|UPSTART_JOB|UPSTART_SESSION|USER|WINDOWID|XAUTHORITY|XDG_CONFIG_DIRS|XDG_CURRENT_DESKTOP|XDG_DATA_DIRS|XDG_GREETER_DATA_DIR|XDG_MENU_PREFIX|XDG_RUNTIME_DIR|XDG_SEAT|XDG_SEAT_PATH|XDG_SESSION_DESKTOP|XDG_SESSION_ID|XDG_SESSION_PATH|XDG_SESSION_TYPE|XDG_VTNR|XMODIFIERS)\\b";
+	var commandAfterHeredoc = {
+		pattern: /(^(["']?)\w+\2)[ \t]+\S.*/,
+		lookbehind: true,
+		alias: "punctuation",
+		inside: null
+	};
+	var insideString = {
+		"bash": commandAfterHeredoc,
+		"environment": {
+			pattern: RegExp("\\$" + envVars),
+			alias: "constant"
+		},
+		"variable": [
+			{
+				pattern: /\$?\(\([\s\S]+?\)\)/,
+				greedy: true,
+				inside: {
+					"variable": [{
+						pattern: /(^\$\(\([\s\S]+)\)\)/,
+						lookbehind: true
+					}, /^\$\(\(/],
+					"number": /\b0x[\dA-Fa-f]+\b|(?:\b\d+(?:\.\d*)?|\B\.\d+)(?:[Ee]-?\d+)?/,
+					"operator": /--|\+\+|\*\*=?|<<=?|>>=?|&&|\|\||[=!+\-*/%<>^&|]=?|[?~:]/,
+					"punctuation": /\(\(?|\)\)?|,|;/
+				}
+			},
+			{
+				pattern: /\$\((?:\([^)]+\)|[^()])+\)|`[^`]+`/,
+				greedy: true,
+				inside: { "variable": /^\$\(|^`|\)$|`$/ }
+			},
+			{
+				pattern: /\$\{[^}]+\}/,
+				greedy: true,
+				inside: {
+					"operator": /:[-=?+]?|[!\/]|##?|%%?|\^\^?|,,?/,
+					"punctuation": /[\[\]]/,
+					"environment": {
+						pattern: RegExp("(\\{)" + envVars),
+						lookbehind: true,
+						alias: "constant"
+					}
+				}
+			},
+			/\$(?:\w+|[#?*!@$])/
+		],
+		"entity": /\\(?:[abceEfnrtv\\"]|O?[0-7]{1,3}|U[0-9a-fA-F]{8}|u[0-9a-fA-F]{4}|x[0-9a-fA-F]{1,2})/
+	};
+	Prism.languages.bash = {
+		"shebang": {
+			pattern: /^#!\s*\/.*/,
+			alias: "important"
+		},
+		"comment": {
+			pattern: /(^|[^"{\\$])#.*/,
+			lookbehind: true
+		},
+		"function-name": [{
+			pattern: /(\bfunction\s+)[\w-]+(?=(?:\s*\(?:\s*\))?\s*\{)/,
+			lookbehind: true,
+			alias: "function"
+		}, {
+			pattern: /\b[\w-]+(?=\s*\(\s*\)\s*\{)/,
+			alias: "function"
+		}],
+		"for-or-select": {
+			pattern: /(\b(?:for|select)\s+)\w+(?=\s+in\s)/,
+			alias: "variable",
+			lookbehind: true
+		},
+		"assign-left": {
+			pattern: /(^|[\s;|&]|[<>]\()\w+(?:\.\w+)*(?=\+?=)/,
+			inside: { "environment": {
+				pattern: RegExp("(^|[\\s;|&]|[<>]\\()" + envVars),
+				lookbehind: true,
+				alias: "constant"
+			} },
+			alias: "variable",
+			lookbehind: true
+		},
+		"parameter": {
+			pattern: /(^|\s)-{1,2}(?:\w+:[+-]?)?\w+(?:\.\w+)*(?=[=\s]|$)/,
+			alias: "variable",
+			lookbehind: true
+		},
+		"string": [
+			{
+				pattern: /((?:^|[^<])<<-?\s*)(\w+)\s[\s\S]*?(?:\r?\n|\r)\2/,
+				lookbehind: true,
+				greedy: true,
+				inside: insideString
+			},
+			{
+				pattern: /((?:^|[^<])<<-?\s*)(["'])(\w+)\2\s[\s\S]*?(?:\r?\n|\r)\3/,
+				lookbehind: true,
+				greedy: true,
+				inside: { "bash": commandAfterHeredoc }
+			},
+			{
+				pattern: /(^|[^\\](?:\\\\)*)"(?:\\[\s\S]|\$\([^)]+\)|\$(?!\()|`[^`]+`|[^"\\`$])*"/,
+				lookbehind: true,
+				greedy: true,
+				inside: insideString
+			},
+			{
+				pattern: /(^|[^$\\])'[^']*'/,
+				lookbehind: true,
+				greedy: true
+			},
+			{
+				pattern: /\$'(?:[^'\\]|\\[\s\S])*'/,
+				greedy: true,
+				inside: { "entity": insideString.entity }
+			}
+		],
+		"environment": {
+			pattern: RegExp("\\$?" + envVars),
+			alias: "constant"
+		},
+		"variable": insideString.variable,
+		"function": {
+			pattern: /(^|[\s;|&]|[<>]\()(?:add|apropos|apt|apt-cache|apt-get|aptitude|aspell|automysqlbackup|awk|basename|bash|bc|bconsole|bg|bzip2|cal|cargo|cat|cfdisk|chgrp|chkconfig|chmod|chown|chroot|cksum|clear|cmp|column|comm|composer|cp|cron|crontab|csplit|curl|cut|date|dc|dd|ddrescue|debootstrap|df|diff|diff3|dig|dir|dircolors|dirname|dirs|dmesg|docker|docker-compose|du|egrep|eject|env|ethtool|expand|expect|expr|fdformat|fdisk|fg|fgrep|file|find|fmt|fold|format|free|fsck|ftp|fuser|gawk|git|gparted|grep|groupadd|groupdel|groupmod|groups|grub-mkconfig|gzip|halt|head|hg|history|host|hostname|htop|iconv|id|ifconfig|ifdown|ifup|import|install|ip|java|jobs|join|kill|killall|less|link|ln|locate|logname|logrotate|look|lpc|lpr|lprint|lprintd|lprintq|lprm|ls|lsof|lynx|make|man|mc|mdadm|mkconfig|mkdir|mke2fs|mkfifo|mkfs|mkisofs|mknod|mkswap|mmv|more|most|mount|mtools|mtr|mutt|mv|nano|nc|netstat|nice|nl|node|nohup|notify-send|npm|nslookup|op|open|parted|passwd|paste|pathchk|ping|pkill|pnpm|podman|podman-compose|popd|pr|printcap|printenv|ps|pushd|pv|quota|quotacheck|quotactl|ram|rar|rcp|reboot|remsync|rename|renice|rev|rm|rmdir|rpm|rsync|scp|screen|sdiff|sed|sendmail|seq|service|sftp|sh|shellcheck|shuf|shutdown|sleep|slocate|sort|split|ssh|stat|strace|su|sudo|sum|suspend|swapon|sync|sysctl|tac|tail|tar|tee|time|timeout|top|touch|tr|traceroute|tsort|tty|umount|uname|unexpand|uniq|units|unrar|unshar|unzip|update-grub|uptime|useradd|userdel|usermod|users|uudecode|uuencode|v|vcpkg|vdir|vi|vim|virsh|vmstat|wait|watch|wc|wget|whereis|which|who|whoami|write|xargs|xdg-open|yarn|yes|zenity|zip|zsh|zypper)(?=$|[)\s;|&])/,
+			lookbehind: true
+		},
+		"keyword": {
+			pattern: /(^|[\s;|&]|[<>]\()(?:case|do|done|elif|else|esac|fi|for|function|if|in|select|then|until|while)(?=$|[)\s;|&])/,
+			lookbehind: true
+		},
+		"builtin": {
+			pattern: /(^|[\s;|&]|[<>]\()(?:\.|:|alias|bind|break|builtin|caller|cd|command|continue|declare|echo|enable|eval|exec|exit|export|getopts|hash|help|let|local|logout|mapfile|printf|pwd|read|readarray|readonly|return|set|shift|shopt|source|test|times|trap|type|typeset|ulimit|umask|unalias|unset)(?=$|[)\s;|&])/,
+			lookbehind: true,
+			alias: "class-name"
+		},
+		"boolean": {
+			pattern: /(^|[\s;|&]|[<>]\()(?:false|true)(?=$|[)\s;|&])/,
+			lookbehind: true
+		},
+		"file-descriptor": {
+			pattern: /\B&\d\b/,
+			alias: "important"
+		},
+		"operator": {
+			pattern: /\d?<>|>\||\+=|=[=~]?|!=?|<<[<-]?|[&\d]?>>|\d[<>]&?|[<>][&=]?|&[>&]?|\|[&|]?/,
+			inside: { "file-descriptor": {
+				pattern: /^\d/,
+				alias: "important"
+			} }
+		},
+		"punctuation": /\$?\(\(?|\)\)?|\.\.|[{}[\];\\]/,
+		"number": {
+			pattern: /(^|\s)(?:[1-9]\d*|0)(?:[.,]\d+)?\b/,
+			lookbehind: true
+		}
+	};
+	commandAfterHeredoc.inside = Prism.languages.bash;
+	var toBeCopied = [
+		"comment",
+		"function-name",
+		"for-or-select",
+		"assign-left",
+		"parameter",
+		"string",
+		"environment",
+		"function",
+		"keyword",
+		"builtin",
+		"boolean",
+		"file-descriptor",
+		"operator",
+		"punctuation",
+		"number"
+	];
+	var inside = insideString.variable[1].inside;
+	for (var i = 0; i < toBeCopied.length; i++) inside[toBeCopied[i]] = Prism.languages.bash[toBeCopied[i]];
+	Prism.languages.sh = Prism.languages.bash;
+	Prism.languages.shell = Prism.languages.bash;
+})(Prism);
+//#endregion
+//#region ../../prompta/node_modules/prismjs/components/prism-json.js
+Prism.languages.json = {
+	"property": {
+		pattern: /(^|[^\\])"(?:\\.|[^\\"\r\n])*"(?=\s*:)/,
+		lookbehind: true,
+		greedy: true
+	},
+	"string": {
+		pattern: /(^|[^\\])"(?:\\.|[^\\"\r\n])*"(?!\s*:)/,
+		lookbehind: true,
+		greedy: true
+	},
+	"comment": {
+		pattern: /\/\/.*|\/\*[\s\S]*?(?:\*\/|$)/,
+		greedy: true
+	},
+	"number": /-?\b\d+(?:\.\d+)?(?:e[+-]?\d+)?\b/i,
+	"punctuation": /[{}[\],]/,
+	"operator": /:/,
+	"boolean": /\b(?:false|true)\b/,
+	"null": {
+		pattern: /\bnull\b/,
+		alias: "keyword"
+	}
+};
+Prism.languages.webmanifest = Prism.languages.json;
+//#endregion
+//#region src/ui/CodeHighlight.tsx
+function highlightedCode(value, language) {
+	const grammar = import_prism.default.languages[language];
+	if (!grammar) return value;
+	function render(stream) {
+		if (typeof stream === "string") return stream;
+		if (!Array.isArray(stream)) return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+			className: "token " + stream.type,
+			children: render(stream.content)
+		});
+		return stream.map((part, i) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_react.Fragment, { children: render(part) }, i));
+	}
+	return render(import_prism.default.tokenize(value, grammar));
+}
+//#endregion
 //#region src/ui/ResultMarkdown.tsx
 function children(token) {
 	return "tokens" in token && Array.isArray(token.tokens) ? token.tokens : [];
@@ -19703,19 +19988,6 @@ function recoveredListLabel(value) {
 		" ",
 		parts[2]
 	] });
-}
-function highlightedCode(value, language) {
-	const grammar = import_prism.default.languages[language];
-	if (!grammar) return value;
-	function render(stream) {
-		if (typeof stream === "string") return stream;
-		if (!Array.isArray(stream)) return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-			className: "token " + stream.type,
-			children: render(stream.content)
-		});
-		return stream.map((part, i) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_react.Fragment, { children: render(part) }, i));
-	}
-	return render(import_prism.default.tokenize(value, grammar));
 }
 function ResultMarkdown({ source, captureSource = "" }) {
 	const displaySource = (0, import_react.useMemo)(() => formatStoredResponse(source, captureSource), [source, captureSource]);
@@ -19867,7 +20139,105 @@ function ResultMarkdown({ source, captureSource = "" }) {
 	});
 }
 //#endregion
+//#region src/ui/ToolCallFormatting.ts
+function asObject(value) {
+	return value !== null && typeof value === "object" && !Array.isArray(value) ? Object.fromEntries(Object.entries(value)) : null;
+}
+function parseJson(value) {
+	try {
+		return JSON.parse(value);
+	} catch {
+		return;
+	}
+}
+function nestedArguments(value) {
+	const root = asObject(value);
+	if (!root) return [];
+	const candidates = [root];
+	for (const key of [
+		"arguments",
+		"input",
+		"parameters"
+	]) {
+		const wrapped = root[key];
+		const nested = asObject(typeof wrapped === "string" ? parseJson(wrapped) : wrapped);
+		if (nested) candidates.push(nested);
+	}
+	return candidates;
+}
+function codeFromArguments(value, call) {
+	const identity = `${call.connector} ${call.action}`.toLowerCase();
+	const python = /python|execute_python/.test(identity);
+	const shell = /serena|shell|bash|terminal|exec_command|run_command|execute_command/.test(identity);
+	const javascript = /javascript|run_code|browser_evaluate/.test(identity);
+	if (!python && !shell && !javascript) return null;
+	for (const args of nestedArguments(value)) {
+		const language = typeof args.language === "string" ? args.language.toLowerCase() : "";
+		if (python || language === "python") {
+			const code = args.code ?? args.python_code ?? args.script;
+			if (typeof code === "string" && code.trim()) return {
+				text: code,
+				language: "python"
+			};
+		}
+		if (shell || language === "bash" || language === "shell") {
+			const code = args.command ?? args.cmd ?? args.shell_command ?? args.script;
+			if (typeof code === "string" && code.trim()) return {
+				text: code,
+				language: "bash"
+			};
+		}
+		if (javascript || language === "javascript") {
+			const code = args.code ?? args.script;
+			if (typeof code === "string" && code.trim()) return {
+				text: code,
+				language: "javascript"
+			};
+		}
+	}
+	return null;
+}
+function toolPayload(value, call, input) {
+	const parsed = parseJson(value);
+	if (parsed !== void 0) {
+		if (input) {
+			const code = codeFromArguments(parsed, call);
+			if (code) return code;
+		}
+		return {
+			text: JSON.stringify(parsed, null, 2),
+			language: "json"
+		};
+	}
+	if (input) {
+		const identity = `${call.connector} ${call.action}`.toLowerCase();
+		if (/python|execute_python/.test(identity)) return {
+			text: value,
+			language: "python"
+		};
+		if (/serena|shell|bash|terminal|exec_command|run_command|execute_command/.test(identity)) return {
+			text: value,
+			language: "bash"
+		};
+		if (/javascript|run_code|browser_evaluate/.test(identity)) return {
+			text: value,
+			language: "javascript"
+		};
+	}
+	return {
+		text: value,
+		language: ""
+	};
+}
+//#endregion
 //#region src/ui/ToolCalls.tsx
+function ToolContent({ value, call, input }) {
+	const { text, language } = toolPayload(value, call, input);
+	return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("pre", { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("code", {
+		className: language ? "language-" + language : "",
+		children: highlightedCode(text, language)
+	}) });
+}
 var statusMark = {
 	Failed: "!",
 	Running: "…",
@@ -19993,9 +20363,21 @@ function ToolCalls({ calls }) {
 						(call.arguments || call.result || call.error) && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 							className: "tool-call-body",
 							children: [
-								call.arguments && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h4", { children: "Input / code" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("pre", { children: call.arguments })] }),
-								call.result && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h4", { children: "Output" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("pre", { children: call.result })] }),
-								call.error && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h4", { children: "Error" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("pre", { children: call.error })] })
+								call.arguments && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h4", { children: "Input / code" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ToolContent, {
+									value: call.arguments,
+									call,
+									input: true
+								})] }),
+								call.result && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h4", { children: "Output" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ToolContent, {
+									value: call.result,
+									call,
+									input: false
+								})] }),
+								call.error && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h4", { children: "Error" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ToolContent, {
+									value: call.error,
+									call,
+									input: false
+								})] })
 							]
 						}),
 						!call.arguments && !call.result && !call.error && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
