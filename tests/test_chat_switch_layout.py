@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 
 import pytest
-from playwright.sync_api import expect, sync_playwright
+from patchright.sync_api import expect, sync_playwright
 from test_web_results import completed_run, server
 
 
@@ -67,7 +67,7 @@ def test_chat_switch_keeps_transcript_and_composer_shell_stable(
                     }
                     return fetchOriginal(resource, options);
                 };
-            }""")
+            }""", isolated_context=False)
             if width <= 680:
                 page.get_by_role("button", name="Back to chats").click()
             page.locator(".chats-list .chat-row").filter(has_text="CLS Beta").click()
@@ -76,10 +76,10 @@ def test_chat_switch_keeps_transcript_and_composer_shell_stable(
             assert page.locator(".chat-transcript-scroll").evaluate(
                 "(node) => getComputedStyle(node).visibility"
             ) == "hidden"
-            during = page.evaluate("window.__geometry()")
+            during = page.evaluate("window.__geometry()", isolated_context=False)
             expect(page.locator(".chat-switch-cover")).to_have_count(0, timeout=10000)
             expect(page.locator(".chat-detail-content")).to_contain_text("CLS Beta")
-            after = page.evaluate("window.__geometry()")
+            after = page.evaluate("window.__geometry()", isolated_context=False)
             for name in ("header", "shell", "composer"):
                 for metric in ("x", "y", "width", "height"):
                     assert abs(during[name][metric] - after[name][metric]) <= 1, (
@@ -87,13 +87,13 @@ def test_chat_switch_keeps_transcript_and_composer_shell_stable(
                         f"{during[name][metric]} -> {after[name][metric]}"
                     )
             if width > 680:
-                before = page.evaluate("window.__before")
+                before = page.evaluate("window.__before", isolated_context=False)
                 for name in ("header", "shell", "composer"):
                     for metric in ("x", "y", "width", "height"):
                         assert abs(before[name][metric] - after[name][metric]) <= 1, (
                             f"{name}.{metric} shifted across chat navigation"
                         )
-                assert page.evaluate("window.__shifts.reduce((a, b) => a + b, 0)") < 0.01
+                assert page.evaluate("window.__shifts.reduce((a, b) => a + b, 0)", isolated_context=False) < 0.01
             assert remote_posts == []
         finally:
             browser.close()
@@ -126,7 +126,7 @@ def test_slow_saved_turns_does_not_block_primary_chat(
                     }
                     return original(resource, options);
                 };
-            }""")
+            }""", isolated_context=False)
             if width <= 680:
                 page.get_by_role("button", name="Back to chats").click()
             page.locator(".chats-list .chat-row").filter(has_text="Fast Beta").click()
@@ -204,13 +204,13 @@ def test_fast_saved_replies_reveal_with_final_scroll_position(
                     observer.disconnect();
                 });
                 observer.observe(document.body, { childList: true, subtree: true });
-            }""")
+            }""", isolated_context=False)
             if width <= 680:
                 page.get_by_role("button", name="Back to chats").click()
             page.locator(".chats-list .chat-row").filter(has_text="Reveal Beta").click()
             expect(page.locator(".chat-switch-cover")).to_have_count(0, timeout=10000)
             page.wait_for_function("window.__revealGeometry !== null")
-            revealed = page.evaluate("window.__revealGeometry")
+            revealed = page.evaluate("window.__revealGeometry", isolated_context=False)
             assert revealed["assistantCount"] == 2, revealed
             assert abs(revealed["distanceFromBottom"]) <= 2, revealed
             assert page.locator(".assistant-group").count() == 2

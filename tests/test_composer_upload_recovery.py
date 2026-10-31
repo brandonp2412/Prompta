@@ -8,7 +8,7 @@ import time
 from pathlib import Path
 
 import pytest
-from playwright.sync_api import FilePayload, expect, sync_playwright
+from patchright.sync_api import FilePayload, expect, sync_playwright
 from test_web_results import completed_run, server
 
 PNG = base64.b64decode(
@@ -57,7 +57,7 @@ def test_late_image_upload_cannot_attach_to_a_different_chat(
             page.get_by_role("button", name="Open chat sidebar").click()
         page.locator(".chats-list .chat-row").filter(has_text="Image isolation probe").click()
         page.wait_for_url("**/?view=chats&run=image-isolation")
-        page.evaluate("window.finishUpload()")
+        page.evaluate("window.finishUpload()", isolated_context=False)
         expect(page.get_by_role("textbox", name="Message for current chat")).to_be_visible()
         if width <= 680:
             page.get_by_role("button", name="Back to chats").click()
@@ -104,7 +104,7 @@ def test_browser_reconnect_and_periodic_repair_only_refresh_local_views(
         expect(page.get_by_role("button", name="Refresh jobs")).to_be_visible()
         page.wait_for_timeout(500)
         baseline = sum("/api/jobs" in url for _, url in requests)
-        page.evaluate("window.dispatchEvent(new Event('online'))")
+        page.evaluate("window.dispatchEvent(new Event('online'))", isolated_context=False)
         page.wait_for_timeout(400)
         assert sum("/api/jobs" in url for _, url in requests) > baseline
         baseline = sum("/api/jobs" in url for _, url in requests)

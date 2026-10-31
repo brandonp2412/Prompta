@@ -15,7 +15,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import uvicorn
-from playwright.sync_api import Browser, Playwright, sync_playwright
+from patchright.sync_api import Browser, Playwright, sync_playwright
 
 from prompta import core
 from prompta.scheduler_runtime import SchedulerRuntime

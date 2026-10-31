@@ -4,7 +4,7 @@ from pathlib import Path
 from unittest.mock import AsyncMock, Mock
 
 import pytest
-from playwright.async_api import Page, Request, Response
+from patchright.async_api import Page, Request, Response
 
 from prompta.playwright_driver import PlaywrightDriver
 

@@ -51,7 +51,7 @@ jobs:
       - name: Sync
         run: |
           uv sync --locked
-          uv run playwright install --with-deps chromium
+          uv run patchright install --with-deps chromium
       - name: Generate README screenshots
         run: uv run python scripts/generate_readme_screenshots.py
       - name: Commit generated screenshots

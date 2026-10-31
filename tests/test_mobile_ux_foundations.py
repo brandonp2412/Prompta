@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 
 import pytest
-from playwright.sync_api import expect, sync_playwright
+from patchright.sync_api import expect, sync_playwright
 from test_mobile_ux_inventory import populate
 from test_web_results import server
 
@@ -28,7 +28,7 @@ def serve_candidate_assets(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def typography(page: object, selector: str) -> dict[str, float]:
-    from playwright.sync_api import Page
+    from patchright.sync_api import Page
 
     assert isinstance(page, Page)
     values: object = page.locator(selector).first.evaluate(

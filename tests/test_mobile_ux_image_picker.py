@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 
 import pytest
-from playwright.sync_api import Page, expect, sync_playwright
+from patchright.sync_api import Page, expect, sync_playwright
 from test_mobile_ux_inventory import populate
 from test_web_results import server
 

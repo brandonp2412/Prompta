@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 
 import pytest
-from playwright.sync_api import expect, sync_playwright
+from patchright.sync_api import expect, sync_playwright
 from test_web_results import server
 
 

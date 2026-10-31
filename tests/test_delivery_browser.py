@@ -2743,7 +2743,7 @@ async def async_no_composer(_page: object) -> None:
 
 @pytest.mark.asyncio
 async def test_composer_text_fallback_targets_the_composer(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    from playwright.async_api import Error as PlaywrightError
+    from patchright.async_api import Error as PlaywrightError
 
     class Composer:
         def __init__(self) -> None:
@@ -2792,7 +2792,7 @@ async def test_composer_text_fallback_targets_the_composer(tmp_path: Path, monke
 async def test_composer_fallback_rejects_stolen_focus(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from playwright.async_api import Error as PlaywrightError
+    from patchright.async_api import Error as PlaywrightError
 
     class Composer:
         async def is_visible(self) -> bool:

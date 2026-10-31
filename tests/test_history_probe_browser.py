@@ -8,7 +8,7 @@ import os
 from pathlib import Path
 
 import pytest
-from playwright.async_api import async_playwright
+from patchright.async_api import async_playwright
 
 from prompta.browser_script_loader import load_browser_script
 
@@ -49,7 +49,7 @@ def test_historical_probe_real_chromium_dom() -> None:
                     lambda route: route.fulfill(status=200, content_type="text/html", body=HTML),
                 )
                 await page.goto("https://chatgpt.com/c/" + CONVERSATION)
-                result = await page.evaluate(script)
+                result = await page.evaluate(script, isolated_context=False)
                 assert isinstance(result, dict)
                 assert result["verified"] is True
                 assert result["complete"] is True
@@ -65,7 +65,7 @@ def test_historical_probe_real_chromium_dom() -> None:
                 await page.locator('[data-message-author-role="user"] p').evaluate(
                     "element => element.textContent = 'Wrong prompt'",
                 )
-                mismatched = await page.evaluate(script)
+                mismatched = await page.evaluate(script, isolated_context=False)
                 assert isinstance(mismatched, dict)
                 assert mismatched["ambiguous"] is True
                 assert mismatched["text"] == ""
@@ -115,7 +115,7 @@ def test_historical_tools_follow_all_chunks_of_only_the_original_turn() -> None:
                     status=200, content_type="text/html", body=html,
                 ))
                 await page.goto("https://chatgpt.com/c/" + CONVERSATION)
-                result = await page.evaluate(script)
+                result = await page.evaluate(script, isolated_context=False)
                 assert result["verified"] is True and result["complete"] is True
                 assert result["text"] == "First chunk\n\nFinal chunk"
                 assert result["branch_message_id"] == final
@@ -155,13 +155,13 @@ def test_live_capture_deduplicates_nested_messages_and_keeps_tool_headings() -> 
                     status=200, content_type="text/html", body="<main></main>",
                 ))
                 await page.goto("https://chatgpt.com/c/" + CONVERSATION)
-                assert await page.evaluate(load_browser_script("passive_response_observer.js"))
+                assert await page.evaluate(load_browser_script("passive_response_observer.js"), isolated_context=False)
                 await page.evaluate("""html => {
                     const fixture = new DOMParser().parseFromString(html, 'text/html');
                     document.querySelector('main').append(...fixture.body.childNodes);
-                }""", response)
+                }""", response, isolated_context=False)
                 await page.wait_for_function("window.__promptaPassiveResponseObserver.read().complete")
-                captured = await page.evaluate(load_browser_script("passive_response_read.js"))
+                captured = await page.evaluate(load_browser_script("passive_response_read.js"), isolated_context=False)
                 assert captured["ambiguous"] is False
                 assert captured["text"] == "First chunk\n\nFinal chunk"
                 assert captured["branch_message_id"] == final

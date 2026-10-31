@@ -14,7 +14,7 @@ from typing import Literal
 
 import pytest
 from live_server import LiveServer
-from playwright.sync_api import expect, sync_playwright
+from patchright.sync_api import expect, sync_playwright
 
 from prompta.jobs import add_job
 from prompta.response_capture import CaptureResult

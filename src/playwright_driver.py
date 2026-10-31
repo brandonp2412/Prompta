@@ -14,7 +14,7 @@ from typing import Literal, Protocol, TypeVar
 from urllib.parse import urlsplit
 from urllib.request import urlopen
 
-from playwright.async_api import (
+from patchright.async_api import (
     Browser,
     BrowserContext,
     Locator,
@@ -24,10 +24,10 @@ from playwright.async_api import (
     Response,
     async_playwright,
 )
-from playwright.async_api import (
+from patchright.async_api import (
     Error as PlaywrightError,
 )
-from playwright.async_api import (
+from patchright.async_api import (
     TimeoutError as PlaywrightTimeoutError,
 )
 

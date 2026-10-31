@@ -7,7 +7,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-from playwright.sync_api import Route, expect, sync_playwright
+from patchright.sync_api import Route, expect, sync_playwright
 from test_web_results import get, post_json, server
 
 

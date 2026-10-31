@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 
 import pytest
-from playwright.sync_api import expect, sync_playwright
+from patchright.sync_api import expect, sync_playwright
 from test_reply_ui_browser import seed_terminal
 from test_web_results import server
 
@@ -50,11 +50,11 @@ def test_code_copy_reports_success_failure_and_resets(
             page.evaluate(
                 "Object.defineProperty(navigator, 'clipboard', {configurable: true, "
                 "value: {writeText: async () => {throw new Error('denied')}}})"
-            )
+            , isolated_context=False)
             button.click()
             expect(button).to_have_text("Copy failed")
             expect(button).to_have_text("Copy code", timeout=4000)
-            assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+            assert page.evaluate("document.documentElement.scrollWidth <= innerWidth", isolated_context=False)
         finally:
             browser.close()
 

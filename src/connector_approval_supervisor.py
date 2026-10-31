@@ -10,9 +10,9 @@ import asyncio
 import logging
 from collections.abc import Awaitable, Callable
 
-from playwright.async_api import Error as PlaywrightError
-from playwright.async_api import Page
-from playwright.async_api import TimeoutError as PlaywrightTimeoutError
+from patchright.async_api import Error as PlaywrightError
+from patchright.async_api import Page
+from patchright.async_api import TimeoutError as PlaywrightTimeoutError
 
 from .browser_script_loader import load_browser_script
 

@@ -14,7 +14,7 @@ from pathlib import Path
 from urllib.parse import quote
 from urllib.request import urlopen
 
-from playwright.async_api import async_playwright
+from patchright.async_api import async_playwright
 
 from .browser_ownership import (
     MAX_OWNED_TAB_AGE_SECONDS,

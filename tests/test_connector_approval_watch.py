@@ -4,7 +4,7 @@ import os
 import shutil
 
 import pytest
-from playwright.async_api import Browser, BrowserContext, Route, async_playwright
+from patchright.async_api import Browser, BrowserContext, Route, async_playwright
 
 from prompta.browser_script_loader import load_browser_script
 from prompta.connector_approval_watch import unread_chat_paths
@@ -110,7 +110,7 @@ async def test_open_non_prompta_tabs_get_backup_permission_without_navigation(
         await route.fulfill(
             status=200,
             content_type="text/html",
-            body='<div role="dialog"><button onclick="window.grants=(window.grants||0)+1;'
+            body='<div role="dialog"><button onclick="document.body.dataset.grants=String(Number(document.body.dataset.grants||0)+1);'
                  'this.parentElement.remove()">Always allow</button><button>Allow once</button></div>',
         )
 
@@ -131,10 +131,10 @@ async def test_open_non_prompta_tabs_get_backup_permission_without_navigation(
             candidates = await watcher.open_chat_candidates(context, set())
             assert candidates == [(user_page, CHAT_A)]
             await watcher.watch_open_chat(user_page, CHAT_A)
-            assert await user_page.evaluate("window.grants") == 1
+            assert await user_page.evaluate("document.body.dataset.grants") == "1"
             assert not user_page.is_closed()
             assert user_page.url == "https://chatgpt.com" + CHAT_A
-            assert await owned_page.evaluate("window.grants || 0") == 0
+            assert await owned_page.evaluate("document.body.dataset.grants || null") is None
         finally:
             await browser.close()
 
@@ -176,10 +176,10 @@ async def test_unread_sidebar_detection_and_connector_approval() -> None:
             assert await page.evaluate(scan) == [CHAT_B]
 
             await page.set_content(
-                '<div role="dialog"><button onclick="window.grants=(window.grants||0)+1;'
+                '<div role="dialog"><button onclick="document.body.dataset.grants=String(Number(document.body.dataset.grants||0)+1);'
                 'this.parentElement.remove()">Always allow</button></div>'
             )
             assert await page.evaluate(load_browser_script("approve_connector.js")) is True
-            assert await page.evaluate("window.grants") == 1
+            assert await page.evaluate("document.body.dataset.grants") == "1"
         finally:
             await browser.close()

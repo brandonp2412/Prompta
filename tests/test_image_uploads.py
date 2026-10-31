@@ -12,7 +12,7 @@ from urllib.request import Request, urlopen
 
 import pytest
 from live_server import LiveServer
-from playwright.sync_api import sync_playwright
+from patchright.sync_api import sync_playwright
 
 from prompta.delivery_queue import DeliveryQueueStore
 from prompta.image_store import ImageStore

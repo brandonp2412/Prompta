@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 from live_server import LiveServer
-from playwright.sync_api import expect, sync_playwright
+from patchright.sync_api import expect, sync_playwright
 
 from prompta.response_capture import CaptureResult
 from prompta.response_store import ResponseStore

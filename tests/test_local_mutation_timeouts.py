@@ -7,7 +7,7 @@ import os
 from pathlib import Path
 
 import pytest
-from playwright.sync_api import Route, expect, sync_playwright
+from patchright.sync_api import Route, expect, sync_playwright
 from test_stage5_composer import serve_test_ui
 from test_web_results import server
 
@@ -68,13 +68,13 @@ def test_stalled_fresh_send_unlocks_composer_and_reuses_exact_request(
         expect(send).to_be_enabled()
         expect(composer).to_have_value("Synthetic timed-out receipt")
         assert app.queue.records() == [], "A stalled client-side request cannot hit the server"
-        receipt = page.evaluate("localStorage.getItem('prompta.pending-fresh-requests.v1')")
+        receipt = page.evaluate("localStorage.getItem('prompta.pending-fresh-requests.v1')", isolated_context=False)
         assert isinstance(receipt, str)
         assert "Synthetic timed-out receipt" not in receipt
 
         send.click()
         page.wait_for_url("**/?view=chats&run=manual-*")
-        post_ids = page.evaluate("window.__postIds")
+        post_ids = page.evaluate("window.__postIds", isolated_context=False)
         assert len(post_ids) == 2 and post_ids[0] == post_ids[1]
         assert len(app.queue.records()) == 1
         browser.close()
@@ -103,7 +103,7 @@ def test_stalled_queued_followup_reuses_exact_id_and_clears_busy_state(
 
         send.click()
         expect(composer).to_have_value("")
-        post_ids = page.evaluate("window.__postIds")
+        post_ids = page.evaluate("window.__postIds", isolated_context=False)
         assert len(post_ids) == 2 and post_ids[0] == post_ids[1]
         turns = ManualReplyStore(results.path).turns("early")
         assert turns is not None and len(turns) == 2

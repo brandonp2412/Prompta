@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 from live_server import LiveServer
-from playwright.sync_api import expect, sync_playwright
+from patchright.sync_api import expect, sync_playwright
 
 
 @pytest.fixture(autouse=True)
@@ -57,7 +57,7 @@ def test_sidebar_and_reply_composer_keep_identity_through_new_chat(
                     new MutationObserver(() => {
                         if (!window.__rowNode.isConnected) window.__rowWasRemoved = true;
                     }).observe(document.querySelector(".chats-list"), {childList: true, subtree: true});
-                }""")
+                }""", isolated_context=False)
 
                 if width <= 680:
                     page.get_by_role("button", name="Back to chats").click()
@@ -69,7 +69,7 @@ def test_sidebar_and_reply_composer_keep_identity_through_new_chat(
                 if width > 680:
                     assert page.evaluate("""() =>
                         document.querySelector(".chat-composer-wrap") === window.__composerNode
-                    """), "Switching between replies remounted the composer"
+                    """, isolated_context=False), "Switching between replies remounted the composer"
                 else:
                     expect(
                         page.get_by_role("textbox", name="Message for current chat")
@@ -81,15 +81,15 @@ def test_sidebar_and_reply_composer_keep_identity_through_new_chat(
                 page.wait_for_url("**/?view=chats&draft=new")
                 assert page.evaluate("""() =>
                     document.querySelector(".chats-sidebar") === window.__sidebarNode
-                """), "New-chat navigation remounted the sidebar"
-                assert page.evaluate("() => window.__rowNode.isConnected")
+                """, isolated_context=False), "New-chat navigation remounted the sidebar"
+                assert page.evaluate("() => window.__rowNode.isConnected", isolated_context=False)
 
                 composer = page.get_by_role("textbox", name="Message for new chat")
                 composer.fill("Synthetic local test")
                 page.evaluate("""() => {
                     window.__freshComposerNode = document.querySelector('.chat-composer-wrap');
                     window.__freshTextareaNode = document.querySelector('.chat-composer textarea');
-                }""")
+                }""", isolated_context=False)
                 with page.expect_response(
                     lambda response: (
                         response.url.endswith("/api/chats") and response.request.method == "POST"
@@ -108,7 +108,7 @@ def test_sidebar_and_reply_composer_keep_identity_through_new_chat(
                     textareaStable: document.querySelector('.chat-composer textarea') === window.__freshTextareaNode,
                     focused: document.activeElement === window.__freshTextareaNode,
                     activeTag: document.activeElement?.tagName,
-                })""")
+                })""", isolated_context=False)
                 assert composer_state["wrapperStable"], (
                     f"A fresh send remounted the composer: {composer_state}"
                 )
@@ -120,11 +120,11 @@ def test_sidebar_and_reply_composer_keep_identity_through_new_chat(
                 )
                 assert page.evaluate("""() =>
                     localStorage.getItem('prompta.new-chat-draft.v1') === null
-                """), "The submitted fresh draft was retained after route change"
+                """, isolated_context=False), "The submitted fresh draft was retained after route change"
                 assert page.evaluate("""() =>
                     document.querySelector(".chats-sidebar") === window.__sidebarNode
                     && window.__rowNode.isConnected && !window.__rowWasRemoved
-                """), "A confirmed fresh send discarded existing sidebar rows"
+                """, isolated_context=False), "A confirmed fresh send discarded existing sidebar rows"
             finally:
                 browser.close()
     finally:
@@ -173,7 +173,7 @@ def test_multiline_reply_clears_with_smooth_resize_and_keeps_focus(
                         return original(frames, options);
                     };
                     window.__composerNode = textarea;
-                }""")
+                }""", isolated_context=False)
                 with page.expect_response(
                     lambda response: (
                         response.url.endswith("/reply-queue") and response.request.method == "POST"
@@ -187,7 +187,7 @@ def test_multiline_reply_clears_with_smooth_resize_and_keeps_focus(
                     sameNode: document.querySelector('.chat-composer textarea') === window.__composerNode,
                     focused: document.activeElement === window.__composerNode,
                     animations: window.__composerCollapse,
-                })""")
+                })""", isolated_context=False)
                 assert state["sameNode"] and state["focused"], state
                 animation = state["animations"][0]
                 assert float(animation["frames"][0]["height"].removesuffix("px")) > float(
@@ -195,7 +195,7 @@ def test_multiline_reply_clears_with_smooth_resize_and_keeps_focus(
                 ), animation
                 assert animation["options"]["duration"] == 160
                 expect(page.locator(".message-group.user-group")).to_have_count(2)
-                assert page.evaluate("() => document.documentElement.scrollWidth <= innerWidth")
+                assert page.evaluate("() => document.documentElement.scrollWidth <= innerWidth", isolated_context=False)
             finally:
                 browser.close()
     finally:

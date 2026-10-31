@@ -12,7 +12,7 @@ import uuid
 from dataclasses import replace
 from pathlib import Path
 
-from playwright.async_api import Error as PlaywrightError
+from patchright.async_api import Error as PlaywrightError
 
 from .browser_ownership import MAX_OWNED_TAB_AGE_SECONDS
 from .browser_script_loader import load_browser_script

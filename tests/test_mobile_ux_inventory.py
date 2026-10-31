@@ -5,7 +5,7 @@ import time
 from pathlib import Path
 
 import pytest
-from playwright.sync_api import Page, expect, sync_playwright
+from patchright.sync_api import Page, expect, sync_playwright
 from test_web_results import completed_run, server
 
 from prompta.jobs import add_job
@@ -410,7 +410,7 @@ def test_mobile_ux_destructive_job_confirmation_is_dismissed_in_fixture(tmp_path
                 dialogs: list[str] = []
 
                 def dismiss(dialog: object) -> None:
-                    from playwright.sync_api import Dialog
+                    from patchright.sync_api import Dialog
 
                     assert isinstance(dialog, Dialog)
                     dialogs.append(dialog.message)

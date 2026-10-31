@@ -74,7 +74,7 @@ async def test_real_browser_observer_binds_owned_route_without_network() -> None
     import os
     import shutil
 
-    from playwright.async_api import async_playwright
+    from patchright.async_api import async_playwright
 
     script = load_browser_script("passive_response_observer.js")
     async with async_playwright() as playwright:

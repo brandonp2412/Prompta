@@ -16,7 +16,7 @@ from collections import OrderedDict
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from playwright.async_api import Browser, BrowserContext, Page, Response, async_playwright
+from patchright.async_api import Browser, BrowserContext, Page, Response, async_playwright
 
 from .account_read_gate import AccountReadGate
 from .browser_ownership import MAX_OWNED_TAB_AGE_SECONDS

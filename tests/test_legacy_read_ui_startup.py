@@ -7,7 +7,7 @@ import time
 from pathlib import Path
 
 import pytest
-from playwright.sync_api import expect, sync_playwright
+from patchright.sync_api import expect, sync_playwright
 from test_web_results import completed_run, server
 
 
@@ -46,7 +46,7 @@ def test_chat_list_and_detail_load_while_legacy_import_never_returns(
         expect(page.locator(".chats-list .chat-row").filter(
             has_text="Visible despite blocked migration"
         )).to_be_visible(timeout=5000)
-        assert page.evaluate("window.pendingLegacyReadImport") is True
+        assert page.evaluate("window.pendingLegacyReadImport", isolated_context=False) is True
         page.locator(".chats-list .chat-row").filter(
             has_text="Visible despite blocked migration"
         ).click()

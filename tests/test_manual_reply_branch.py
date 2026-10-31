@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 
 import pytest
-from playwright.sync_api import sync_playwright
+from patchright.sync_api import sync_playwright
 
 from prompta.manual_reply_dispatch import (
     _branch_probe,
@@ -47,7 +47,7 @@ def test_exact_branch_probe_decodes_only_one_backend_id(attribute: str, expected
         routed: list[str] = []
 
         def fulfill(route: object) -> None:
-            from playwright.sync_api import Route
+            from patchright.sync_api import Route
 
             assert isinstance(route, Route)
             routed.append(route.request.url)
@@ -133,7 +133,7 @@ def test_branch_wait_observes_delayed_assistant_hydration_without_polling(
         routed: list[str] = []
 
         def serve(route: object) -> None:
-            from playwright.sync_api import Route
+            from patchright.sync_api import Route
 
             assert isinstance(route, Route)
             routed.append(route.request.url)

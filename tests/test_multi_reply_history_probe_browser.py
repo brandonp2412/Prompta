@@ -7,7 +7,7 @@ import os
 from pathlib import Path
 
 import pytest
-from playwright.sync_api import sync_playwright
+from patchright.sync_api import sync_playwright
 
 from prompta.browser_script_loader import load_browser_script
 
@@ -51,7 +51,7 @@ def test_second_followup_probe_requires_full_original_lineage_and_final_copy() -
             routed: list[str] = []
 
             def serve(route: object) -> None:
-                from playwright.sync_api import Route
+                from patchright.sync_api import Route
 
                 assert isinstance(route, Route)
                 routed.append(route.request.url)

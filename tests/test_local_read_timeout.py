@@ -7,7 +7,7 @@ import time
 from pathlib import Path
 
 import pytest
-from playwright.sync_api import expect, sync_playwright
+from patchright.sync_api import expect, sync_playwright
 from test_web_results import completed_run, server
 
 
@@ -52,7 +52,7 @@ def test_hung_local_results_get_times_out_then_retries(
         })()""")
         page.goto(f"http://127.0.0.1:{port}/?view=chats")
         expect(page.get_by_role("button", name="Retry chats")).to_be_visible(timeout=5000)
-        page.evaluate("window.blockLocalResults = false")
+        page.evaluate("window.blockLocalResults = false", isolated_context=False)
         # A disconnected-stream repair can finish between the Retry control
         # appearing and Playwright waiting for its animation to stabilize.
         # Click if still present; either path must restore the local chat.
@@ -61,7 +61,7 @@ def test_hung_local_results_get_times_out_then_retries(
             (button) => button.textContent?.trim() === 'Retry chats'
           );
           retry?.click();
-        }""")
+        }""", isolated_context=False)
         expect(page.locator(".chats-list .chat-row").filter(has_text="Stalled local read")).to_be_visible()
         assert remote == [] and writes == []
         browser.close()

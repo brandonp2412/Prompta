@@ -6,7 +6,7 @@ import os
 import shutil
 
 import pytest
-from playwright.async_api import Browser, BrowserContext, Page, Route, async_playwright
+from patchright.async_api import Browser, BrowserContext, Page, Route, async_playwright
 
 import prompta.connector_approval_watch as watcher
 from prompta.account_read_gate import AccountReadGate

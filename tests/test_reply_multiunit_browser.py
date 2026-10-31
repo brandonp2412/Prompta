@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 
 import pytest
-from playwright.async_api import async_playwright
+from patchright.async_api import async_playwright
 
 from prompta.browser_script_loader import load_browser_script
 

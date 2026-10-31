@@ -8,9 +8,11 @@ import time
 from pathlib import Path
 
 import pytest
-from playwright.async_api import async_playwright
+from patchright.async_api import async_playwright
 
 from prompta.browser_script_loader import load_browser_script
+
+# Fixture handlers run in the page main world; Patchright isolates evaluate() by default.
 
 
 @pytest.mark.asyncio
@@ -56,25 +58,25 @@ async def test_connector_permission_controls() -> None:
             page = await browser.new_page()
             script = load_browser_script("approve_connector.js")
             await page.set_content('<button onclick="window.clicked=true;this.remove()">Always allow</button>')
-            assert await page.evaluate(script) is False
-            assert await page.evaluate('window.clicked === true') is False
+            assert await page.evaluate(script, isolated_context=False) is False
+            assert await page.evaluate('window.clicked === true', isolated_context=False) is False
             await page.set_content('<div role="dialog"><button onclick="window.clicked=true;this.remove()">Always allow</button></div>')
-            assert await page.evaluate(script) is True
-            assert await page.evaluate('window.clicked') is True
+            assert await page.evaluate(script, isolated_context=False) is True
+            assert await page.evaluate('window.clicked', isolated_context=False) is True
             await page.set_content('<section><button onclick="window.clicked=true;this.remove()">Always allow</button><button>Allow once</button></section>')
-            assert await page.evaluate(script) is True
+            assert await page.evaluate(script, isolated_context=False) is True
             await page.set_content('<div role="dialog"><button onclick="window.once=true;this.remove()">Allow once</button><button>Deny</button></div>')
-            assert await page.evaluate(script) is True
-            assert await page.evaluate('window.once') is True
+            assert await page.evaluate(script, isolated_context=False) is True
+            assert await page.evaluate('window.once', isolated_context=False) is True
             await page.set_content('<div role="dialog"><button onclick="window.once=false">Allow once</button><button>Always allow</button><button>Deny</button></div>')
-            assert await page.evaluate(script) == "stuck"
-            assert await page.evaluate('window.once') is True
+            assert await page.evaluate(script, isolated_context=False) == "stuck"
+            assert await page.evaluate('window.once', isolated_context=False) is True
             await page.set_content('<button onclick="window.outside=true">Allow once</button>')
-            assert await page.evaluate(script) is False
-            assert await page.evaluate('window.outside === true') is False
+            assert await page.evaluate(script, isolated_context=False) is False
+            assert await page.evaluate('window.outside === true', isolated_context=False) is False
             await page.set_content('<div role="dialog"><label><input type="checkbox">Always allow</label><button onclick="window.checked=document.querySelector(\'input\').checked;this.remove()">Allow</button></div>')
-            assert await page.evaluate(script) is True
-            assert await page.evaluate('window.checked') is True
+            assert await page.evaluate(script, isolated_context=False) is True
+            assert await page.evaluate('window.checked', isolated_context=False) is True
             await page.set_content(
                 '<div><form><button type="button" onclick="window.approved=true;this.remove()">'
                 '<span>Always allow</span></button>'
@@ -82,8 +84,8 @@ async def test_connector_permission_controls() -> None:
                 '<button><span>Allow once</span><kbd aria-hidden="true">⏎</kbd></button>'
                 '</form></div>'
             )
-            assert await page.evaluate(script) is True
-            assert await page.evaluate('window.approved') is True
+            assert await page.evaluate(script, isolated_context=False) is True
+            assert await page.evaluate('window.approved', isolated_context=False) is True
             await page.set_content(
                 '<div role="dialog" id="first"><button onclick="window.grants=(window.grants||0)+1;'
                 'this.parentElement.remove();document.getElementById(\'second\').hidden=false">'
@@ -91,57 +93,57 @@ async def test_connector_permission_controls() -> None:
                 '<div role="dialog" id="second" hidden><button onclick="window.grants++;'
                 'this.parentElement.remove()">Always allow</button></div>'
             )
-            assert await page.evaluate(script) is True
-            assert await page.evaluate(script) is True
-            assert await page.evaluate(script) is False
-            assert await page.evaluate('window.grants') == 2
+            assert await page.evaluate(script, isolated_context=False) is True
+            assert await page.evaluate(script, isolated_context=False) is True
+            assert await page.evaluate(script, isolated_context=False) is False
+            assert await page.evaluate('window.grants', isolated_context=False) == 2
             await page.set_content(
                 '<section><div><div><button aria-labelledby="choice" '
                 'onclick="this.remove()"><span id="choice">Always&nbsp; allow</span>'
                 '</button></div></div><aside><button>Deny</button></aside></section>'
             )
-            assert await page.evaluate(script) is True
+            assert await page.evaluate(script, isolated_context=False) is True
             await page.set_content(
                 '<div role="dialog"><button onclick="window.attempts=(window.attempts||0)+1">'
                 'Always allow</button></div>'
             )
-            assert await page.evaluate(script) == "stuck"
-            assert await page.evaluate(script) is False
-            assert await page.evaluate('window.attempts') == 1
+            assert await page.evaluate(script, isolated_context=False) == "stuck"
+            assert await page.evaluate(script, isolated_context=False) is False
+            assert await page.evaluate('window.attempts', isolated_context=False) == 1
             await page.wait_for_timeout(3000)
-            assert await page.evaluate(script) == "stuck"
+            assert await page.evaluate(script, isolated_context=False) == "stuck"
             await page.wait_for_timeout(3000)
-            assert await page.evaluate(script) is False
-            assert await page.evaluate('window.attempts') == 2
+            assert await page.evaluate(script, isolated_context=False) is False
+            assert await page.evaluate('window.attempts', isolated_context=False) == 2
             await page.set_content(
                 '<div role="dialog"><button disabled>Always allow</button>'
                 '<button onclick="setTimeout(() => this.remove(), 200)">Always allow</button></div>'
             )
-            assert await page.evaluate(script) is True
+            assert await page.evaluate(script, isolated_context=False) is True
             await page.set_content(
                 '<div role="dialog"><button style="visibility:hidden" '
                 'onclick="window.hiddenClicked=true">Always allow</button></div>'
             )
-            assert await page.evaluate(script) is False
-            assert await page.evaluate('window.hiddenClicked === true') is False
+            assert await page.evaluate(script, isolated_context=False) is False
+            assert await page.evaluate('window.hiddenClicked === true', isolated_context=False) is False
             await page.set_content('<div role="dialog"><button disabled>Always allow</button></div>')
-            assert await page.evaluate(script) is False
+            assert await page.evaluate(script, isolated_context=False) is False
             # A temporarily unhydrated button must be eligible to retry later.
             await page.set_content(
                 '<div role="dialog"><button id="retry" onclick="window.retry=(window.retry||0)+1;'
                 'this.remove()">Always allow</button></div>'
             )
-            await page.evaluate("document.getElementById('retry').onclick = null")
-            assert await page.evaluate(script) == "stuck"
+            await page.evaluate("document.getElementById('retry').onclick = null", isolated_context=False)
+            assert await page.evaluate(script, isolated_context=False) == "stuck"
             await page.evaluate(
                 "window.__promptaConnectorApproval.set(document.getElementById('retry'), "
                 "{attempts: 2, at: performance.now() - 7000})"
-            )
+            , isolated_context=False)
             await page.evaluate(
                 "() => {document.getElementById('retry').onclick = function() {window.retry=1; this.remove()}}"
-            )
-            assert await page.evaluate(script) is True
-            assert await page.evaluate("window.retry") == 1
+            , isolated_context=False)
+            assert await page.evaluate(script, isolated_context=False) is True
+            assert await page.evaluate("window.retry", isolated_context=False) == 1
             # After three persistent misses, fall back to the scoped Allow once.
             await page.set_content(
                 '<div role="dialog"><button id="persistent">Always allow</button>'
@@ -151,17 +153,17 @@ async def test_connector_permission_controls() -> None:
             await page.evaluate(
                 "window.__promptaConnectorApproval.set(document.getElementById('persistent'), "
                 "{attempts: 3, at: performance.now() - 70000})"
-            )
-            assert await page.evaluate(script) is True
-            assert await page.evaluate("window.onceFallback") is True
+            , isolated_context=False)
+            assert await page.evaluate(script, isolated_context=False) is True
+            assert await page.evaluate("window.onceFallback", isolated_context=False) is True
             # A disabled persistent grant must not block a working one-time grant.
             await page.set_content(
                 '<div role="dialog"><button disabled>Always allow</button>'
                 '<button onclick="window.disabledFallback=true;this.remove()">Allow once</button>'
                 '<button>Deny</button></div>'
             )
-            assert await page.evaluate(script) is True
-            assert await page.evaluate("window.disabledFallback") is True
+            assert await page.evaluate(script, isolated_context=False) is True
+            assert await page.evaluate("window.disabledFallback", isolated_context=False) is True
         finally:
             await browser.close()
 

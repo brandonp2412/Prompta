@@ -8,7 +8,7 @@ import time
 from pathlib import Path
 
 import pytest
-from playwright.sync_api import expect, sync_playwright
+from patchright.sync_api import expect, sync_playwright
 from test_web_results import completed_run, server
 
 from prompta.delivery_queue import DeliveryQueueStore
@@ -211,11 +211,11 @@ def test_old_job_image_upload_cannot_reappear_in_reopened_editor(
         expect(page.get_by_text("Uploading…")).to_be_visible()
         page.get_by_role("button", name="Cancel").click()
         expect(page.get_by_role("button", name="New job")).to_be_visible()
-        assert page.evaluate("window.uploadAborted") is True
+        assert page.evaluate("window.uploadAborted", isolated_context=False) is True
         page.get_by_role("button", name="New job").click()
         expect(page.get_by_role("button", name="Add images")).to_be_enabled()
         expect(page.locator(".job-image-preview")).to_have_count(0)
-        page.evaluate("window.finishOldUpload?.()")
+        page.evaluate("window.finishOldUpload?.()", isolated_context=False)
         expect(page.locator(".job-image-preview")).to_have_count(0)
         browser.close()
 
