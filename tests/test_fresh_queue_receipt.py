@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 import pytest
 from patchright.sync_api import Route, expect, sync_playwright
-from test_web_results import get, post_json, server
+from web_results_support import get, post_json, server
 
 
 def test_exact_local_queue_receipt_is_read_only_and_idempotent(tmp_path: Path) -> None:

@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 from patchright.sync_api import Route, expect, sync_playwright
 from test_reply_ui_browser import CONVERSATION, seed_terminal
-from test_web_results import server
+from web_results_support import server
 
 SEND_ID = "lost-reply-receipt"
 

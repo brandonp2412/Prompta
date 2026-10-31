@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 from patchright.sync_api import Page, expect, sync_playwright
-from test_web_results import completed_run, server
+from web_results_support import completed_run, server
 
 from prompta.jobs import add_job
 from prompta.reply_contracts import ReplyIntent

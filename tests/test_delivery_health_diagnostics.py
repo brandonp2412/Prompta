@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 import pytest
 from patchright.sync_api import expect, sync_playwright
-from test_web_results import get, server
+from web_results_support import get, server
 
 
 def test_health_distinguishes_http_liveness_from_browser_readiness(tmp_path: Path) -> None:
