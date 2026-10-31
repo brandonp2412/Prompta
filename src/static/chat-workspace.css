@@ -258,25 +258,11 @@
 
 .sidebar-topbar { min-width: 0; position: relative; z-index: 5; flex: none; }
 .sidebar-topbar .sidebar-brand { position: relative; padding-block: 12px; }
-.sidebar-options { position: static; flex: none; margin-left: auto; }
-.sidebar-options summary {
-  display: grid; place-items: center; width: 44px; height: 44px; cursor: pointer;
-  border-radius: 10px; color: #bdbdbd; list-style: none;
+.sidebar-topbar .mark-all-read {
+  display: grid; place-items: center; flex: none; margin-left: auto;
+  width: 44px; height: 44px; padding: 0; border-radius: 10px; color: #bdbdbd;
 }
-.sidebar-options summary::-webkit-details-marker { display: none; }
-.sidebar-options summary:hover, .sidebar-options[open] summary { background: #292929; color: #fff; }
-.sidebar-options summary svg { width: 20px; height: 20px; }
-.sidebar-options-menu {
-  position: absolute; top: calc(100% + 4px); left: 0; z-index: 8;
-  width: min(250px, calc(100vw - 76px)); padding: 7px;
-  border: 1px solid #3c3c3c; border-radius: 12px;
-  background: #262626; box-shadow: 0 10px 28px #0009;
-}
-.sidebar-options-menu .mark-all-read { min-height: 44px; font-size: .86rem; color: #ddd; }
-.sidebar-options-menu .chat-recovery-summary {
-  margin: 5px 7px 3px; padding-top: 10px; border-top: 1px solid #414141;
-  font-size: .76rem; line-height: 1.5; overflow-wrap: anywhere;
-}
+.sidebar-topbar .mark-all-read svg { width: 20px; height: 20px; }
 
 @media (max-width: 680px) {
   .sidebar-topbar { display: flex; align-items: center; gap: 2px; padding: 5px 8px 0; }
@@ -284,15 +270,16 @@
   .sidebar-topbar .sidebar-brand strong { font-size: 1rem; }
   .sidebar-topbar .sidebar-actions { display: flex; flex: none; gap: 0; padding: 0; }
   .sidebar-topbar .sidebar-actions button {
-    flex-direction: row; justify-content: center; width: 40px; min-width: 40px;
+    flex-direction: row; justify-content: center; width: 44px; min-width: 44px;
     height: 44px; min-height: 44px; padding: 0; border-radius: 10px;
   }
   .sidebar-topbar .sidebar-actions button svg { width: 20px; height: 20px; }
   .sidebar-topbar .sidebar-actions .action-label { display: none; }
   .sidebar-topbar .sidebar-close {
-    display: grid; place-items: center; flex: 0 0 40px; width: 40px; height: 44px; padding: 0;
+    display: grid; place-items: center; flex: 0 0 44px; width: 44px; height: 44px; padding: 0;
   }
-  .sidebar-options summary { width: 40px; height: 40px; }
+  .sidebar-topbar .mark-all-read { width: 44px; }
+  .chat-entry .chat-pin { width: 44px; }
   .chats-controls { grid-template-columns: minmax(0, 1fr) minmax(100px, .6fr); gap: 6px; padding: 2px 9px 7px; }
   .chats-controls input, .chats-controls select { height: 40px; font-size: 16px; }
 }
@@ -544,3 +531,18 @@
 .tool-type-group > summary { padding: 9px 8px; cursor: pointer; overflow-wrap: anywhere; font-size: .84rem; color: #ccc; }
 .tool-call > summary { cursor: pointer; }
 .workspace-header strong { min-width: 0; flex: 1; }
+
+/* Put padding outside the line clamp so partial extra lines cannot leak through. */
+.prompt-bubble { padding: 11px 17px; }
+.prompt-bubble .prompt-message { padding: 0; }
+.prompt-bubble .prompt-expand { margin: 8px 0 0 auto; }
+@media (max-width: 680px) {
+  .prompt-bubble { padding: 10px 14px; }
+}
+
+/* Keep the last preview lines beside the expansion control. */
+.prompt-bubble:has(.prompt-message.collapsed) { position: relative; }
+.prompt-bubble:has(.prompt-message.collapsed) .prompt-expand {
+  position: absolute; right: 10px; bottom: 8px; margin: 0;
+  box-shadow: 0 0 0 5px #303030;
+}

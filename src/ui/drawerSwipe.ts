@@ -63,7 +63,10 @@ export function createDrawerSwipe({
     const dx = touch.clientX - gesture.x;
     const dy = touch.clientY - gesture.y;
     if (!gesture.locked) {
-      if (Math.max(Math.abs(dx), Math.abs(dy)) < 10) return;
+      // Cancel the first horizontal movement before the browser starts scrolling.
+      if (Math.abs(dx) > Math.abs(dy) && (gesture.opening ? dx > 0 : dx < 0))
+        event.preventDefault();
+      if (Math.max(Math.abs(dx), Math.abs(dy)) < 4) return;
       if (Math.abs(dy) >= Math.abs(dx) / 1.15) {
         gesture.rejected = true;
         return;

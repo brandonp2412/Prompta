@@ -72,55 +72,26 @@ export default function ChatsSidebar({
       <div className="sidebar-topbar">
         <div className="sidebar-brand">
           <strong>Prompta</strong>
-          <details className="sidebar-options">
-            <summary aria-label="Chat options" title="Chat options">
-              <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                <circle cx="5" cy="12" r="1.8" />
-                <circle cx="12" cy="12" r="1.8" />
-                <circle cx="19" cy="12" r="1.8" />
-              </svg>
-            </summary>
-            <div className="sidebar-options-menu">
-              <button
-                type="button"
-                onClick={(event) => {
-                  const menu = event.currentTarget.closest("details");
-                  if (menu) menu.open = false;
-                  void markAllRead();
-                }}
-                disabled={markingAllRead.value}
-                aria-label="Mark all local chats as read"
-                className="mark-all-read"
-              >
-                <svg
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.8"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  aria-hidden="true"
-                >
-                  <path d="m2 12 4 4L16 6M9 12l4 4L23 6"></path>
-                </svg>
-                {markingAllRead.value ? "Marking as read…" : "Mark all as read"}
-              </button>
-              {attentionCount > 0 &&
-                ((recoveryBacklog.value ?? 0) > 0 ||
-                  (recoveryReplyBacklog.value ?? 0) > 0 ||
-                  (recoveryUnverified.value ?? 0) > 0) && (
-                  <p className="chat-recovery-summary">
-                    Recovery: {recoveryBacklog.value ?? 0} original captures eligible
-                    {(recoveryReplyBacklog.value ?? 0) > 0 &&
-                      ` · ${recoveryReplyBacklog.value} follow-ups unresolved`}
-                    {(recoveryUnverified.value ?? 0) > 0 &&
-                      ` · ${recoveryUnverified.value} need manual review (no verified chat ID)`}
-                    {recoveryPauseSeconds.value > 0 &&
-                      ` · waiting ~${Math.ceil(recoveryPauseSeconds.value / 60)} min`}
-                  </p>
-                )}
-            </div>
-          </details>
+          <button
+            type="button"
+            onClick={() => void markAllRead()}
+            disabled={markingAllRead.value}
+            aria-label="Mark all local chats as read"
+            title={markingAllRead.value ? "Marking as read…" : "Mark all as read"}
+            className="mark-all-read"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <path d="m2 12 4 4L16 6M9 12l4 4L23 6"></path>
+            </svg>
+          </button>
         </div>
         <nav aria-label="Main navigation" className="sidebar-actions">
           <button
@@ -208,6 +179,21 @@ export default function ChatsSidebar({
           ×
         </button>
       </div>
+      {attentionCount > 0 &&
+        ((recoveryBacklog.value ?? 0) > 0 ||
+          (recoveryReplyBacklog.value ?? 0) > 0 ||
+          (recoveryUnverified.value ?? 0) > 0) && (
+          <p className="chat-recovery-summary">
+            Recovery: {recoveryBacklog.value ?? 0} original captures eligible
+            {(recoveryReplyBacklog.value ?? 0) > 0 &&
+              ` · ${recoveryReplyBacklog.value} follow-ups unresolved`}
+            {(recoveryUnverified.value ?? 0) > 0 &&
+              ` · ${recoveryUnverified.value} need manual review (no verified chat ID)`}
+            {recoveryPauseSeconds.value > 0 &&
+              ` · waiting ~${Math.ceil(recoveryPauseSeconds.value / 60)} min`}
+          </p>
+        )}
+
       {filtersOpen.value ? (
         <>
           <div id="chat-filters" className="chats-controls">

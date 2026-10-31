@@ -425,7 +425,6 @@ def test_mark_all_as_read_button_persists_across_tabs_and_reload(tmp_path: Path)
                         break
                 expect(mobile.locator(".chat-entry")).to_have_count(65)
 
-                mobile.get_by_label("Chat options").click()
                 button = mobile.get_by_role("button", name="Mark all local chats as read")
                 expect(button).to_be_visible()
                 button.click()

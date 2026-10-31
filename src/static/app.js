@@ -12077,7 +12077,8 @@ function createDrawerSwipe({ drawerOpen, drawerProgress, isList, drawerWidth, cl
 		const dx = touch.clientX - gesture.x;
 		const dy = touch.clientY - gesture.y;
 		if (!gesture.locked) {
-			if (Math.max(Math.abs(dx), Math.abs(dy)) < 10) return;
+			if (Math.abs(dx) > Math.abs(dy) && (gesture.opening ? dx > 0 : dx < 0)) event.preventDefault();
+			if (Math.max(Math.abs(dx), Math.abs(dy)) < 4) return;
 			if (Math.abs(dy) >= Math.abs(dx) / 1.15) {
 				gesture.rejected = true;
 				return;
@@ -13177,7 +13178,9 @@ function createChatsPageController(initialProps) {
 	}
 	function maybeLoadMore() {
 		if (loadingList.value || loadingMore.value || Boolean(listError.value) || morePageFailed.value || nextOffset.value >= total.value || !listPane.value) return;
-		if (listPane.value.scrollTop + listPane.value.clientHeight >= listPane.value.scrollHeight - 240) loadMore();
+		const pane = listPane.value;
+		const prefetchDistance = Math.max(800, pane.clientHeight * 2);
+		if (pane.scrollTop + pane.clientHeight >= pane.scrollHeight - prefetchDistance) loadMore();
 	}
 	async function loadList(reset = false) {
 		if (!reset && listInFlight) {
@@ -13296,13 +13299,15 @@ function createChatsPageController(initialProps) {
 			loadingDetail.value = false;
 			if (view.value === "chats" && selectedRunId.value === id) markRead(body);
 			await tick();
-			if (followTail && scrollPane.value && selectedRunId.value === id) scrollPane.value.scrollTop = scrollPane.value.scrollHeight;
+			if (followTail && !newSelection && scrollPane.value && selectedRunId.value === id) scrollPane.value.scrollTop = scrollPane.value.scrollHeight;
 			const savedTurns = earlyTurns === void 0 ? await replyRequest : earlyTurns;
 			if (generation !== detailGeneration || selectedRunId.value !== id) return;
 			if (earlyTurns === void 0) {
+				const pane = scrollPane.value;
+				const stillFollowing = followTail && !!pane && pane.scrollHeight - pane.scrollTop - pane.clientHeight < 96;
 				turns.value = recoverVisibleTurns(savedTurns, turns.value, originalTurn, true);
 				turnsError.value = !savedTurns ? "Saved replies are temporarily unavailable; showing the last confirmed turns." : "";
-				if (followTail) {
+				if (stillFollowing) {
 					await tick();
 					if (scrollPane.value && selectedRunId.value === id) scrollPane.value.scrollTop = scrollPane.value.scrollHeight;
 				}
@@ -16423,67 +16428,23 @@ function ChatsSidebar({ model, refs }) {
 				children: [
 					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 						className: "sidebar-brand",
-						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("strong", { children: "Prompta" }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("details", {
-							className: "sidebar-options",
-							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("summary", {
-								"aria-label": "Chat options",
-								title: "Chat options",
-								children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("svg", {
-									viewBox: "0 0 24 24",
-									fill: "currentColor",
-									"aria-hidden": "true",
-									children: [
-										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("circle", {
-											cx: "5",
-											cy: "12",
-											r: "1.8"
-										}),
-										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("circle", {
-											cx: "12",
-											cy: "12",
-											r: "1.8"
-										}),
-										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("circle", {
-											cx: "19",
-											cy: "12",
-											r: "1.8"
-										})
-									]
-								})
-							}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-								className: "sidebar-options-menu",
-								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
-									type: "button",
-									onClick: (event) => {
-										const menu = event.currentTarget.closest("details");
-										if (menu) menu.open = false;
-										markAllRead();
-									},
-									disabled: markingAllRead.value,
-									"aria-label": "Mark all local chats as read",
-									className: "mark-all-read",
-									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("svg", {
-										viewBox: "0 0 24 24",
-										fill: "none",
-										stroke: "currentColor",
-										strokeWidth: "1.8",
-										strokeLinecap: "round",
-										strokeLinejoin: "round",
-										"aria-hidden": "true",
-										children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: "m2 12 4 4L16 6M9 12l4 4L23 6" })
-									}), markingAllRead.value ? "Marking as read…" : "Mark all as read"]
-								}), attentionCount > 0 && ((recoveryBacklog.value ?? 0) > 0 || (recoveryReplyBacklog.value ?? 0) > 0 || (recoveryUnverified.value ?? 0) > 0) && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", {
-									className: "chat-recovery-summary",
-									children: [
-										"Recovery: ",
-										recoveryBacklog.value ?? 0,
-										" original captures eligible",
-										(recoveryReplyBacklog.value ?? 0) > 0 && ` · ${recoveryReplyBacklog.value} follow-ups unresolved`,
-										(recoveryUnverified.value ?? 0) > 0 && ` · ${recoveryUnverified.value} need manual review (no verified chat ID)`,
-										recoveryPauseSeconds.value > 0 && ` · waiting ~${Math.ceil(recoveryPauseSeconds.value / 60)} min`
-									]
-								})]
-							})]
+						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("strong", { children: "Prompta" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+							type: "button",
+							onClick: () => void markAllRead(),
+							disabled: markingAllRead.value,
+							"aria-label": "Mark all local chats as read",
+							title: markingAllRead.value ? "Marking as read…" : "Mark all as read",
+							className: "mark-all-read",
+							children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("svg", {
+								viewBox: "0 0 24 24",
+								fill: "none",
+								stroke: "currentColor",
+								strokeWidth: "1.8",
+								strokeLinecap: "round",
+								strokeLinejoin: "round",
+								"aria-hidden": "true",
+								children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: "m2 12 4 4L16 6M9 12l4 4L23 6" })
+							})
 						})]
 					}),
 					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("nav", {
@@ -16578,6 +16539,17 @@ function ChatsSidebar({ model, refs }) {
 						className: "sidebar-close",
 						children: "×"
 					})
+				]
+			}),
+			attentionCount > 0 && ((recoveryBacklog.value ?? 0) > 0 || (recoveryReplyBacklog.value ?? 0) > 0 || (recoveryUnverified.value ?? 0) > 0) && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", {
+				className: "chat-recovery-summary",
+				children: [
+					"Recovery: ",
+					recoveryBacklog.value ?? 0,
+					" original captures eligible",
+					(recoveryReplyBacklog.value ?? 0) > 0 && ` · ${recoveryReplyBacklog.value} follow-ups unresolved`,
+					(recoveryUnverified.value ?? 0) > 0 && ` · ${recoveryUnverified.value} need manual review (no verified chat ID)`,
+					recoveryPauseSeconds.value > 0 && ` · waiting ~${Math.ceil(recoveryPauseSeconds.value / 60)} min`
 				]
 			}),
 			filtersOpen.value ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {

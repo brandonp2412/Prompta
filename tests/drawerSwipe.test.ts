@@ -52,6 +52,19 @@ describe("drawer swipe", () => {
     expect(ui.drawerProgress.value).toBeNull();
   });
 
+  test("blocks scrolling from the first horizontal movement through vertical drift", () => {
+    const ui = setup();
+    ui.startSwipe(event(20).value);
+    const initial = event(23, 101);
+    ui.moveSwipe(initial.value);
+    expect(initial.prevented).toBe(true);
+    ui.moveSwipe(event(50, 105).value);
+    const diagonal = event(160, 200);
+    ui.moveSwipe(diagonal.value);
+    expect(diagonal.prevented).toBe(true);
+    expect(ui.drawerProgress.value).toBeCloseTo(140 / 320);
+  });
+
   test("does not hijack vertical scrolling or non-edge touches", () => {
     const ui = setup();
     ui.startSwipe(event(170).value);

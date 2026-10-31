@@ -76,7 +76,7 @@ def test_sidebar_infinite_scroll_search_focus_and_wide_mobile_swipe(
                 if previous == 65:
                     break
                 page.locator(".chats-list").evaluate(
-                    "element => element.scrollTop = element.scrollHeight"
+                    "element => element.scrollTop = element.scrollHeight - element.clientHeight - 600"
                 )
                 page.wait_for_function(
                     f"() => document.querySelectorAll('.chat-entry').length > {previous}"
@@ -413,6 +413,13 @@ def test_chats_ui_desktop_mobile_and_no_chatgpt_requests(tmp_path: Path) -> None
                 bubble = page.locator(".prompt-bubble")
                 bubble.scroll_into_view_if_needed()
                 collapsed_box = bubble.bounding_box()
+                preview_box = page.locator(".prompt-message.collapsed").bounding_box()
+                expand_box = page.get_by_role("button", name="Show full prompt").bounding_box()
+                assert preview_box and expand_box
+                assert preview_box["y"] + preview_box["height"] > expand_box["y"] + expand_box["height"] - 8
+                page.screenshot(
+                    path=str(screenshots / "prompta-collapsed-prompt.png"), animations="disabled"
+                )
                 page.get_by_role("button", name="Show full prompt").click()
                 expect(page.locator(".prompt-message.collapsed")).to_have_count(0)
                 expanded_box = bubble.bounding_box()
@@ -552,7 +559,8 @@ def test_chats_ui_desktop_mobile_and_no_chatgpt_requests(tmp_path: Path) -> None
                 expect(phone.get_by_text("Partial response", exact=False)).to_be_visible()
                 phone.get_by_role("button", name="Open chat sidebar").click()
                 assert phone.locator(".chats-sidebar").is_visible()
-                assert phone.locator(".chats-detail").is_hidden()
+                expect(phone.locator(".chats-detail")).to_be_visible()
+                expect(phone.locator(".drawer-backdrop")).to_be_visible()
                 context.close()
             finally:
                 browser.close()

@@ -590,8 +590,9 @@ export function createChatsPageController(initialProps: Props) {
       !listPane.value
     )
       return;
-    if (listPane.value.scrollTop + listPane.value.clientHeight >= listPane.value.scrollHeight - 240)
-      void loadMore();
+    const pane = listPane.value;
+    const prefetchDistance = Math.max(800, pane.clientHeight * 2);
+    if (pane.scrollTop + pane.clientHeight >= pane.scrollHeight - prefetchDistance) void loadMore();
   }
 
   async function loadList(reset = false) {
@@ -751,16 +752,19 @@ export function createChatsPageController(initialProps: Props) {
       loadingDetail.value = false;
       if (view.value === "chats" && selectedRunId.value === id) void markRead(body);
       await tick();
-      if (followTail && scrollPane.value && selectedRunId.value === id)
+      if (followTail && !newSelection && scrollPane.value && selectedRunId.value === id)
         scrollPane.value.scrollTop = scrollPane.value.scrollHeight;
       const savedTurns = earlyTurns === undefined ? await replyRequest : earlyTurns;
       if (generation !== detailGeneration || selectedRunId.value !== id) return;
       if (earlyTurns === undefined) {
+        const pane = scrollPane.value;
+        const stillFollowing =
+          followTail && !!pane && pane.scrollHeight - pane.scrollTop - pane.clientHeight < 96;
         turns.value = recoverVisibleTurns(savedTurns, turns.value, originalTurn, true);
         turnsError.value = !savedTurns
           ? "Saved replies are temporarily unavailable; showing the last confirmed turns."
           : "";
-        if (followTail) {
+        if (stillFollowing) {
           await tick();
           if (scrollPane.value && selectedRunId.value === id)
             scrollPane.value.scrollTop = scrollPane.value.scrollHeight;
