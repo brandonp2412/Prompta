@@ -1,7 +1,7 @@
 import { signal, computed, batch } from "@preact/signals-react";
 import { isRepeatingJob, sortJobs } from "./jobSorting";
 import { subscribeLiveUpdates } from "./liveUpdates";
-import { type QueueSnapshot, type WaitingJob } from "./queueStatus";
+import { isQueueSnapshot, type QueueSnapshot, type WaitingJob } from "./queueStatus";
 import { localGet } from "./localRead";
 import { localPost, localRejectionDetail, localUploadTimeoutMs } from "./localMutation";
 import {
@@ -69,17 +69,35 @@ export function createJobsPageController(initialProps: Props) {
   let deliveryHealthError = signal("");
   let jobsLoadError = signal("");
   let queueSnapshot = signal<QueueSnapshot | null>(null);
+  let queueError = signal("");
+  let queueInFlight = false;
+  let queueRefreshPending = false;
   function waitingJob(jobName: string): WaitingJob | undefined {
     return queueSnapshot.value?.waiting.find((job) => job.name === jobName);
   }
   async function loadQueue() {
+    if (queueInFlight) {
+      queueRefreshPending = true;
+      return;
+    }
+    queueInFlight = true;
     try {
       const response = await localGet("./api/queue-status");
       if (!response.ok) throw new Error("Queue status unavailable");
-      queueSnapshot.value = (await response.json()) as QueueSnapshot;
+      const data: unknown = await response.json();
+      if (!isQueueSnapshot(data)) throw new Error("Invalid queue snapshot");
+      queueSnapshot.value = data;
+      queueError.value = "";
     } catch {
-      // Do not present a stale queue position as current.
+      // Never display a stale queue position as current.
       queueSnapshot.value = null;
+      queueError.value = "Queue position and ETA are temporarily unavailable.";
+    } finally {
+      queueInFlight = false;
+      if (queueRefreshPending) {
+        queueRefreshPending = false;
+        void loadQueue();
+      }
     }
   }
   const pendingDeliveries = computed(() =>
@@ -693,7 +711,8 @@ export function createJobsPageController(initialProps: Props) {
           },
         );
         if (generation !== uploadGen || activeEditorRoute.value !== route) return;
-        if (!response.ok) throw new Error("Image upload failed.");
+        if (!response.ok)
+          throw new Error(await localRejectionDetail(response, "Image upload failed."));
         const result = (await response.json()) as { image?: ImageRef };
         if (!result.image?.ref || !result.image.url.startsWith("./api/images/")) {
           throw new Error("Image upload receipt was invalid.");
@@ -851,6 +870,8 @@ export function createJobsPageController(initialProps: Props) {
     deliveryHealthError,
     jobsLoadError,
     queueSnapshot,
+    queueError,
+    loadQueue,
     waitingJob,
     pendingDeliveries,
     recoveryPauseSeconds,

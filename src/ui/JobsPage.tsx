@@ -10,6 +10,8 @@ export default function JobsPage(props: Props) {
   useSignals();
   const {
     jobsLoadError,
+    queueError,
+    loadQueue,
     filterOptions,
     jobs,
     activeFilters,
@@ -191,6 +193,15 @@ export default function JobsPage(props: Props) {
                 <span>{jobsLoadError.value}</span>
                 <button type="button" onClick={() => void load()}>
                   Retry jobs
+                </button>
+              </div>
+            )}
+
+            {queueError.value && (
+              <div role="status" className="result-error recovery-error jobs-recovery-error">
+                <span>{queueError.value}</span>
+                <button type="button" onClick={() => void loadQueue()}>
+                  Retry queue estimates
                 </button>
               </div>
             )}

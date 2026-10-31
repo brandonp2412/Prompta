@@ -172,6 +172,30 @@ test("network return immediately repairs an offline stream without duplicate lis
   });
 });
 
+test("returning from a hidden tab restores the stalled-stream watchdog", () => {
+  withFakeStream(({ instances, tick, fire, fireWindow, timers }) => {
+    const off = subscribeLiveUpdates("chats", () => {});
+    try {
+      instances[0]?.emit("ping");
+      Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
+      tick(59_000);
+      fire(60_000);
+      expect([...timers.values()].some((timer) => timer.ms === 60_000)).toBe(false);
+
+      Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
+      fireWindow("pageshow");
+      expect([...timers.values()].some((timer) => timer.ms === 60_000)).toBe(true);
+      tick(2_000);
+      fire(60_000);
+      fire(2_000);
+      expect(instances).toHaveLength(2);
+      expect(instances[0]?.closed).toBe(true);
+    } finally {
+      off();
+    }
+  });
+});
+
 test("a silent stalled SSE connection is replaced and degraded status heals", () => {
   withFakeStream(({ instances, tick, fire }) => {
     const status: boolean[] = [];
