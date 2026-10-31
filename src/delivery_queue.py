@@ -23,6 +23,7 @@ from .delivery_state import (
 from .image_store import image_refs
 from .persistence import create_database, job_deliveries
 from .response_store import ResponseStore
+from .response_store import results as response_records
 from .strict_types import float_value, int_value
 
 logger = logging.getLogger(__name__)
@@ -82,17 +83,77 @@ class DeliveryQueueStore:
         ).scalars().all()
         return [str(send_id) for send_id in expired_ids]
 
+    def reconcile_accepted_outcomes(self, *, now: float | None = None) -> int:
+        """Correct quarantined queue receipts only when local acceptance is proven.
+
+        The capture and queue databases are separate. A browser may persist its
+        verified acceptance before the queue worker loses its claim lease.
+        A local accepted_at receipt is evidence to mark delivery successful;
+        an absent receipt never authorizes a resend or a successful status.
+        Only IDs and timestamps are queried, never private response text.
+        """
+        at = time.time() if now is None else float(now)
+        with self.engine.connect() as connection:
+            uncertain_ids = connection.execute(
+                select(job_deliveries.c.send_id)
+                .where(job_deliveries.c.status == "outcome_unknown")
+            ).scalars().all()
+        if not uncertain_ids:
+            return 0
+        try:
+            with self.results.engine.connect() as connection:
+                confirmed_ids = connection.execute(
+                    select(response_records.c.send_id).where(
+                        response_records.c.send_id.in_(uncertain_ids),
+                        response_records.c.accepted_at > 0,
+                        response_records.c.status.in_((
+                            "accepted", "generating", "completed", "interrupted", "unavailable"
+                        )),
+                    )
+                ).scalars().all()
+        except (OSError, SQLAlchemyError) as exc:
+            logger.warning(
+                "Accepted delivery reconciliation deferred error_type=%s",
+                type(exc).__name__,
+            )
+            return 0
+        if not confirmed_ids:
+            return 0
+        with self.engine.begin() as connection:
+            changed = connection.execute(
+                update(job_deliveries)
+                .where(
+                    job_deliveries.c.send_id.in_(confirmed_ids),
+                    job_deliveries.c.status == "outcome_unknown",
+                )
+                .values(
+                    status="succeeded",
+                    error="",
+                    last_error="",
+                    retry_at=0,
+                    updated_at=at,
+                    finished_at=case(
+                        (job_deliveries.c.finished_at > 0, job_deliveries.c.finished_at),
+                        else_=at,
+                    ),
+                )
+            )
+        return int(changed.rowcount or 0)
+
     def expire_leases(self, *, now: float | None = None) -> int:
         """Quarantine expired sends even while dispatch admission is blocked.
 
-        Maintenance performs no send, retry or claim, so an unknown outcome
-        remains quarantined until separately verified by a human.
+        Maintenance performs no send, retry or claim. Unproven outcomes stay
+        quarantined; only a durable local acceptance receipt can resolve one.
         """
         at = time.time() if now is None else float(now)
         with self.engine.begin() as connection:
             expired_ids = self._expire_leases(connection, at)
         for send_id in expired_ids:
             self._mark_result_unavailable(send_id)
+        reconciled = self.reconcile_accepted_outcomes(now=at)
+        if reconciled:
+            logger.info("Recovered %d durable accepted delivery receipts", reconciled)
         return len(expired_ids)
 
     @staticmethod

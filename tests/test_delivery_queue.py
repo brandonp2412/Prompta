@@ -91,7 +91,39 @@ def test_expired_lease_sweep_preserves_accepted_response(tmp_path: Path) -> None
     assert accepted["status"] == "accepted"
     assert accepted["accepted_at"] == 101.0
     delivery = store.get("send-1")
-    assert delivery is not None and delivery["status"] == "outcome_unknown"
+    assert delivery is not None and delivery["status"] == "succeeded"
+    assert delivery["last_error"] == ""
+    assert store.claim_next("worker-b", now=111.0, lease_seconds=10.0) is None
+
+
+def test_acceptance_recorded_after_quarantine_reconciles_without_replay(tmp_path: Path) -> None:
+    store = DeliveryQueueStore(tmp_path / "delivery.sqlite3")
+    store.upsert(_queued_record())
+    assert store.claim_next("worker-a", now=100.0, lease_seconds=10.0) is not None
+
+    assert store.expire_leases(now=110.0) == 1
+    unknown = store.get("send-1")
+    assert unknown is not None and unknown["status"] == "outcome_unknown"
+    assert store.results.accept("send-1", "late-capture", deadline=500.0, now=111.0)
+
+    assert store.expire_leases(now=112.0) == 0
+    reconciled = store.get("send-1")
+    assert reconciled is not None and reconciled["status"] == "succeeded"
+    assert reconciled["last_error"] == ""
+    assert store.expire_leases(now=113.0) == 0
+    assert store.claim_next("worker-b", now=114.0, lease_seconds=10.0) is None
+
+
+def test_unknown_receipt_without_acceptance_proof_remains_quarantined(tmp_path: Path) -> None:
+    store = DeliveryQueueStore(tmp_path / "delivery.sqlite3")
+    store.upsert(_queued_record())
+    assert store.claim_next("worker-a", now=100.0, lease_seconds=10.0) is not None
+
+    assert store.expire_leases(now=110.0) == 1
+    assert store.reconcile_accepted_outcomes(now=200.0) == 0
+    unknown = store.get("send-1")
+    assert unknown is not None and unknown["status"] == "outcome_unknown"
+    assert store.claim_next("worker-b", now=201.0, lease_seconds=10.0) is None
 
 
 def test_health_metrics_cover_pending_and_last_success(tmp_path: Path) -> None:
