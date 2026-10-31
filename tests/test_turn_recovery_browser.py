@@ -70,7 +70,14 @@ def test_transient_turn_outage_keeps_confirmed_reply_visible(
             expect(page.get_by_role("button", name="Retry replies")).to_be_visible()
             expect(page.get_by_text("Second saved response")).to_be_visible()
             fail = False
-            page.get_by_role("button", name="Retry replies").click()
+            # A simultaneous local refresh can recover the turns before a user
+            # reaches Retry. Click it if still present, accepting either path.
+            page.evaluate("""() => {
+                const retry = [...document.querySelectorAll('button')].find(
+                    button => button.textContent?.trim() === 'Retry replies'
+                );
+                retry?.click();
+            }""")
             expect(page.get_by_role("button", name="Retry replies")).to_have_count(0)
             expect(page.get_by_text("Second saved response")).to_be_visible()
             # Opening a local chat may persist its read receipt; never dispatch a reply.

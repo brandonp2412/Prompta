@@ -137,6 +137,7 @@ class PromptaJobServer(ThreadingHTTPServer):
         if not browser_reachable:
             issues.append("ChatGPT browser unreachable")
         recovery = self.results.recovery_metrics(now=now)
+        recovery.update(self.replies.reply_recovery_metrics(now=now))
         read_backoff_seconds, _attempts = self.queue_view.runtime.read_backoff_status()
         recovery["account_read_backoff_seconds"] = int(read_backoff_seconds + 0.999)
         return {
@@ -147,6 +148,7 @@ class PromptaJobServer(ThreadingHTTPServer):
             "services": services,
             "browser": {"reachable": browser_reachable, "page_count": page_count},
             "queue": self.queue.health_metrics(now=now),
+            "admission": self.queue_view.runtime.account_admission_status(),
             "recovery": recovery,
         }
 

@@ -30,6 +30,8 @@ def test_health_distinguishes_http_liveness_from_browser_readiness(tmp_path: Pat
         assert health["ready"] is True
         assert health["issues"] == []
         assert health["browser"] == {"reachable": True, "page_count": 2}
+        admission = health["admission"]
+        assert isinstance(admission, dict) and admission.get("blocked") is False
 
 
 def test_health_exposes_local_recovery_counts_without_branch_identity(tmp_path: Path) -> None:
@@ -44,9 +46,25 @@ def test_health_exposes_local_recovery_counts_without_branch_identity(tmp_path: 
         assert isinstance(recovery, dict)
         assert recovery.get("missing_verified_identity") == 1
         assert recovery.get("recoverable") == 0
+        assert recovery.get("unresolved_reply_captures") == 0
+        assert recovery.get("recoverable_reply_captures") == 0
+        assert recovery.get("due_reply_recovery_probes") == 0
         backoff = recovery.get("account_read_backoff_seconds")
         assert isinstance(backoff, int) and backoff >= 0
         assert "hidden-send" not in body and "Private prompt" not in body
+
+        app.queue_view.runtime.set_resource_admission(False, "available RAM below threshold")
+        for service in ("ui", "scheduler", "delivery_worker", "manual_reply_worker", "browser"):
+            assert app.health.beat(service)
+        with patch("prompta.web.browser_page_count", return_value=(True, 1)):
+            status, health, body = get(port, "/api/health")
+        assert status == 200 and health["ready"] is True
+        assert health["admission"] == {
+            "blocked": True, "kind": "resource_pressure",
+            "reason": "available RAM below threshold",
+            "retry_after_seconds": 0, "retry_at_epoch": 0.0,
+        }
+        assert "Private prompt" not in body
 
 
 @pytest.mark.parametrize("width,height", [(1440, 900), (390, 844)])
@@ -63,6 +81,7 @@ def test_jobs_shows_real_readiness_and_uncertain_queue_metrics(
             "known", "123:owner", "/c/12345678-1234-4123-8123-123456789abc", now=12,
         )
         assert app.results.finish("known", "123:owner", "interrupted", now=50)
+        app.queue_view.runtime.set_resource_admission(False, "Host memory pressure")
         with (
             patch("prompta.web.browser_page_count", return_value=(False, 0)),
             patch.object(app.queue_view.runtime, "read_backoff_status", return_value=(120.0, 1)),
@@ -78,7 +97,10 @@ def test_jobs_shows_real_readiness_and_uncertain_queue_metrics(
             summary.click()
             expect(page.get_by_text("ChatGPT browser unreachable")).to_be_visible()
             expect(page.get_by_text("Unconfirmed sends", exact=True)).to_be_visible()
+            expect(page.get_by_text("Dispatch paused:", exact=False)).to_be_visible()
             expect(page.get_by_text("Chats eligible for read-only recovery")).to_be_visible()
+            expect(page.get_by_text("Unresolved follow-up captures")).to_be_visible()
+            expect(page.get_by_text("Follow-ups eligible for recovery")).to_be_visible()
             expect(page.get_by_text("Read-only recovery is waiting", exact=False)).to_be_visible()
             assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
             browser.close()

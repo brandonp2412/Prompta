@@ -193,8 +193,12 @@ class HistoryRecovery:
                     self.replies.recover_historical_reply(reply_id, result, now=at)
                     if reply_id else self.results.recover_historical_response(send_id, result, now=at)
                 )
-                if recovered and result is not None:
-                    if result.status == "complete":
+                if recovered and result is not None and result.status == "complete":
+                    # A complete-looking DOM snapshot may only merge tool
+                    # metadata while preserving a longer interrupted answer.
+                    # Report success only after durable storage is terminal.
+                    stored = self.replies.get(reply_id) if reply_id else self.results.get(send_id)
+                    if stored is not None and stored["status"] == "completed":
                         self.runtime.record_read_success()
                         logger.info("Historical response recovered send_id=%s", send_id)
                         return True

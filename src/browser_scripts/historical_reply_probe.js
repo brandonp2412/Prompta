@@ -7,5 +7,5 @@
   const parent = __PARENT__;
   /* PROMPTA_MARKDOWN_FROM_DOM */
   /* PROMPTA_REPLY_TURN_SCAN */
-  return scanExactReplyTurn(conversation, originalPrompt, replyText, parent);
+  return scanExactReplyTurn(conversation, originalPrompt, replyText, parent, true);
 })();

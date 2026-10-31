@@ -25,6 +25,7 @@ from sqlalchemy import (
     func,
     inspect,
     literal,
+    or_,
     select,
     update,
 )
@@ -593,10 +594,62 @@ class ManualReplyStore:
                 changed += result.rowcount
         return changed
 
+    def reply_recovery_metrics(self, *, now: float | None = None) -> dict[str, int]:
+        """Count unresolved explicit replies without exposing their text or branch IDs."""
+        at = time.time() if now is None else now
+        attempts = history_recovery_attempts.alias("reply_metric_attempts")
+        predecessor = replies.alias("reply_metric_predecessor")
+        prior_verified = select(predecessor.c.reply_id).where(
+            predecessor.c.send_id == replies.c.send_id,
+            predecessor.c.conversation_id == replies.c.conversation_id,
+            predecessor.c.message_id == replies.c.parent_id,
+            predecessor.c.reply_id != replies.c.reply_id,
+            predecessor.c.message_id != "",
+            predecessor.c.status.in_(("completed", "interrupted")),
+        ).exists()
+        joined = replies.join(results, replies.c.send_id == results.c.send_id).outerjoin(
+            attempts, attempts.c.send_id == literal("reply:") + replies.c.reply_id,
+        )
+        unresolved = (
+            replies.c.status.in_(("outcome_unknown", "interrupted")),
+            replies.c.lease_owner == "",
+        )
+        verified = (
+            *unresolved,
+            replies.c.conversation_id != "",
+            replies.c.conversation_id == results.c.conversation_id,
+            results.c.status == "completed",
+            or_(replies.c.parent_id == results.c.message_id, prior_verified),
+        )
+        with self.engine.connect() as connection:
+            total = connection.execute(select(func.count()).select_from(replies).where(
+                *unresolved
+            )).scalar_one()
+            recoverable = connection.execute(select(func.count()).select_from(joined).where(
+                *verified
+            )).scalar_one()
+            due = connection.execute(select(func.count()).select_from(joined).where(
+                *verified, func.coalesce(attempts.c.next_attempt_at, 0) <= at,
+            )).scalar_one()
+        return {
+            "unresolved_reply_captures": total,
+            "recoverable_reply_captures": recoverable,
+            "due_reply_recovery_probes": due,
+        }
+
     def next_history_reply_recovery(self, *, now: float | None = None) -> dict[str, object] | None:
         """Only first explicit replies with a verified original parent are eligible."""
         at = time.time() if now is None else now
         attempts = history_recovery_attempts.alias("reply_recovery")
+        predecessor = replies.alias("verified_predecessor")
+        prior_reply_verified = select(predecessor.c.reply_id).where(
+            predecessor.c.send_id == replies.c.send_id,
+            predecessor.c.conversation_id == replies.c.conversation_id,
+            predecessor.c.message_id == replies.c.parent_id,
+            predecessor.c.reply_id != replies.c.reply_id,
+            predecessor.c.message_id != "",
+            predecessor.c.status.in_(("completed", "interrupted")),
+        ).exists()
         joined = replies.join(results, replies.c.send_id == results.c.send_id).outerjoin(
             attempts, attempts.c.send_id == literal("reply:") + replies.c.reply_id,
         )
@@ -609,7 +662,7 @@ class ManualReplyStore:
                 replies.c.status.in_(("outcome_unknown", "interrupted")),
                 replies.c.lease_owner == "",
                 replies.c.conversation_id != "",
-                replies.c.parent_id == results.c.message_id,
+                or_(replies.c.parent_id == results.c.message_id, prior_reply_verified),
                 replies.c.conversation_id == results.c.conversation_id,
                 results.c.status == "completed",
                 func.coalesce(attempts.c.next_attempt_at, 0) <= at,
@@ -647,14 +700,28 @@ class ManualReplyStore:
                 results.c.send_id == row["send_id"],
                 results.c.conversation_id == capture.conversation_id,
             )).mappings().one_or_none()
-            if original is None or original["status"] != "completed" or original["message_id"] != row["parent_id"]:
+            if original is None or original["status"] != "completed":
                 return False
-            text = capture.text[:2 * 1024 * 1024]
+            if original["message_id"] != row["parent_id"]:
+                verified_predecessor = connection.execute(select(replies.c.reply_id).where(
+                    replies.c.send_id == row["send_id"],
+                    replies.c.reply_id != reply_id,
+                    replies.c.conversation_id == capture.conversation_id,
+                    replies.c.message_id == row["parent_id"],
+                    replies.c.status.in_(("completed", "interrupted")),
+                ).limit(1)).first()
+                if verified_predecessor is None:
+                    return False
+            captured_text = capture.text[:2 * 1024 * 1024]
+            text = captured_text
             if len(text) < len(str(row["assistant_text"])):
                 if not capture.tool_calls:
                     return False
                 text = str(row["assistant_text"])
-            complete = capture.status == "complete" and bool(text)
+            complete = (
+                capture.status == "complete" and bool(captured_text)
+                and len(captured_text) >= len(str(row["assistant_text"]))
+            )
             changed = connection.execute(update(replies).where(
                 replies.c.reply_id == reply_id,
                 replies.c.status.in_(("outcome_unknown", "interrupted")),
