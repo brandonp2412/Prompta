@@ -204,10 +204,12 @@ class ResponseStore:
         self._secure_files()
 
     def _secure_files(self) -> None:
-        for suffix in ("", "-wal", "-shm"):
-            path = Path(str(self.path) + suffix)
-            if path.exists():
-                path.chmod(0o600)
+        self.path.chmod(0o600)
+        for suffix in ("-wal", "-shm"):
+            try:
+                Path(str(self.path) + suffix).chmod(0o600)
+            except FileNotFoundError:
+                continue
 
     def ensure_queued(
         self, send_id: str, user_text: str, job_name: str = "", *, now: float | None = None
