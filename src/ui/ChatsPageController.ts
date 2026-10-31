@@ -1,4 +1,5 @@
 import type React from "react";
+import { createDrawerSwipe } from "./drawerSwipe";
 import { signal, computed, effect, batch } from "@preact/signals-react";
 import { untracked as untrack } from "@preact/signals-core";
 import { subscribeLiveUpdates } from "./liveUpdates";
@@ -66,8 +67,8 @@ export function createChatsPageController(initialProps: Props) {
     { value: "queued", label: "Queued" },
   ];
 
-  let queueSnapshot = signal<QueueSnapshot>(emptyQueueSnapshot);
-  let queueError = signal("");
+  const queueSnapshot = signal<QueueSnapshot>(emptyQueueSnapshot);
+  const queueError = signal("");
   let queueGeneration = 0;
   let queueInFlight = false;
   let queueRefreshPending = false;
@@ -82,49 +83,49 @@ export function createChatsPageController(initialProps: Props) {
   const recoveryBacklog = signal<number | null>(null);
   const recoveryUnverified = signal<number | null>(null);
   const recoveryReplyBacklog = signal<number | null>(null);
-  let items = signal<RunSummary[]>([]);
-  let pinnedItems = signal<RunSummary[]>([]);
-  let pinnedIds = signal<string[]>([]);
+  const items = signal<RunSummary[]>([]);
+  const pinnedItems = signal<RunSummary[]>([]);
+  const pinnedIds = signal<string[]>([]);
   let legacyPinIds: string[] = [];
   let confirmedPins: RunSummary[] = [];
-  let pinsReady = signal(false);
+  const pinsReady = signal(false);
   let pendingPinWrites = 0;
   let pinWriteQueue: Promise<void> = Promise.resolve();
-  let pinError = signal("");
+  const pinError = signal("");
   let pinWriteError = false;
-  let readAt = signal<Record<string, number>>({});
-  let readRevisions = signal<Record<string, string>>({});
-  let optimisticReads = signal<Record<string, string>>({});
-  let readError = signal("");
-  let markingAllRead = signal(false);
-  let baselineAt = signal(0);
-  let drawerOpen = signal(false);
-  let drawerProgress = signal<number | null>(null);
+  const readAt = signal<Record<string, number>>({});
+  const readRevisions = signal<Record<string, string>>({});
+  const optimisticReads = signal<Record<string, string>>({});
+  const readError = signal("");
+  const markingAllRead = signal(false);
+  const baselineAt = signal(0);
+  const drawerOpen = signal(false);
+  const drawerProgress = signal<number | null>(null);
   const visibleDrawerProgress = computed(() => drawerProgress.value ?? (drawerOpen.value ? 1 : 0));
-  let filtersOpen = signal(false);
-  let expandedPrompts = signal<Record<string, boolean>>({});
-  let total = signal(0);
-  let nextOffset = signal(0);
-  let loadingMore = signal(false);
-  let search = signal("");
-  let statusFilter = signal<ChatListStatus>("");
-  let detail = signal<RunDetail | null>(null);
-  let turns = signal<LocalTurn[]>([]);
-  let turnsError = signal("");
-  let recoveringReply = signal(false);
+  const filtersOpen = signal(false);
+  const expandedPrompts = signal<Record<string, boolean>>({});
+  const total = signal(0);
+  const nextOffset = signal(0);
+  const loadingMore = signal(false);
+  const search = signal("");
+  const statusFilter = signal<ChatListStatus>("");
+  const detail = signal<RunDetail | null>(null);
+  const turns = signal<LocalTurn[]>([]);
+  const turnsError = signal("");
+  const recoveringReply = signal(false);
   const startingNewChatFromFailure = signal(false);
-  let copyState = signal("");
-  let scrollPane = signal<HTMLDivElement>();
-  let listPane = signal<HTMLDivElement>();
-  let sidebarPane = signal<HTMLElement>();
-  let jobsWorkspace = signal<HTMLDivElement>();
-  let searchInput = signal<HTMLInputElement>();
-  let loadingList = signal(true);
-  let loadingDetail = signal(false);
-  let pendingRevealFor = signal<string | null>(null);
-  let listError = signal("");
-  let morePageFailed = signal(false);
-  let detailError = signal("");
+  const copyState = signal("");
+  const scrollPane = signal<HTMLDivElement>();
+  const listPane = signal<HTMLDivElement>();
+  const sidebarPane = signal<HTMLElement>();
+  const jobsWorkspace = signal<HTMLDivElement>();
+  const searchInput = signal<HTMLInputElement>();
+  const loadingList = signal(true);
+  const loadingDetail = signal(false);
+  const pendingRevealFor = signal<string | null>(null);
+  const listError = signal("");
+  const morePageFailed = signal(false);
+  const detailError = signal("");
   let listGeneration = 0;
   let listInFlight = false;
   let listRefreshPending = false;
@@ -134,23 +135,11 @@ export function createChatsPageController(initialProps: Props) {
   let detailRefreshFor: string | null = null;
   let searchTimer: ReturnType<typeof setTimeout> | undefined;
   let liveRefreshTimer: ReturnType<typeof setTimeout> | undefined;
-  let swipeStart: {
-    identifier: number;
-    x: number;
-    y: number;
-    opening: boolean;
-    width: number;
-    locked: boolean;
-    rejected: boolean;
-    lastX: number;
-    lastTime: number;
-    velocityX: number;
-  } | null = null;
-
-  const activity = (item: RunSummary) => item.updated_at || item.created_at;
   const newestFirst = (a: RunSummary, b: RunSummary) =>
-    activity(b) - activity(a) || b.created_at - a.created_at || a.send_id.localeCompare(b.send_id);
-  let pinned = computed(() => {
+    (b.updated_at || b.created_at) - (a.updated_at || a.created_at) ||
+    b.created_at - a.created_at ||
+    a.send_id.localeCompare(b.send_id);
+  const pinned = computed(() => {
     const byId = new Map(
       [...pinnedItems.value, ...items.value].map((item) => [item.send_id, item]),
     );
@@ -186,7 +175,7 @@ export function createChatsPageController(initialProps: Props) {
       return "";
     return "This reply is not yet ready to resend.";
   });
-  let visibleWaiting = computed(() =>
+  const visibleWaiting = computed(() =>
     statusFilter.value && statusFilter.value !== "queued"
       ? []
       : queueSnapshot.value.waiting.filter(
@@ -195,7 +184,7 @@ export function createChatsPageController(initialProps: Props) {
             job.name.toLowerCase().includes(search.value.trim().toLowerCase()),
         ),
   );
-  let unpinned = computed(() =>
+  const unpinned = computed(() =>
     items.value.filter((item) => !pinnedIds.value.includes(item.send_id)).sort(newestFirst),
   );
   const switchingChat = computed(
@@ -1329,89 +1318,13 @@ export function createChatsPageController(initialProps: Props) {
     }
   }
 
-  const clampDrawer = (value: number) => Math.max(0, Math.min(1, value));
-
-  function cancelSwipe() {
-    swipeStart = null;
-    drawerProgress.value = null;
-  }
-
-  function startSwipe(event: TouchEvent) {
-    if (
-      swipeStart ||
-      !window.matchMedia("(max-width: 680px)").matches ||
-      event.touches.length !== 1
-    )
-      return;
-    const touch = event.touches[0];
-    const showList = view.value === "chats" && !selectedRunId.value && !newChatOpen.value;
-    if (showList || (!drawerOpen.value && touch.clientX > 120)) return;
-    swipeStart = {
-      identifier: touch.identifier,
-      x: touch.clientX,
-      y: touch.clientY,
-      opening: !drawerOpen.value,
-      width: sidebarPane.value?.getBoundingClientRect().width || Math.min(340, innerWidth - 44),
-      locked: false,
-      rejected: false,
-      lastX: touch.clientX,
-      lastTime: performance.now(),
-      velocityX: 0,
-    };
-  }
-
-  function moveSwipe(event: TouchEvent) {
-    const gesture = swipeStart;
-    if (!gesture || gesture.rejected) return;
-    if (event.touches.length !== 1 || event.touches[0].identifier !== gesture.identifier) {
-      cancelSwipe();
-      return;
-    }
-    const touch = event.touches[0];
-    const dx = touch.clientX - gesture.x;
-    const dy = touch.clientY - gesture.y;
-    if (!gesture.locked) {
-      if (Math.max(Math.abs(dx), Math.abs(dy)) < 10) return;
-      if (Math.abs(dy) >= Math.abs(dx) / 1.15) {
-        gesture.rejected = true;
-        return;
-      }
-      if ((gesture.opening && dx <= 0) || (!gesture.opening && dx >= 0)) return;
-      gesture.locked = true;
-    }
-    // Own only horizontal gestures; leave vertical chat scrolling and text inputs alone.
-    event.preventDefault();
-    const now = performance.now();
-    const dt = now - gesture.lastTime;
-    if (dt > 0) {
-      const instantVelocity = (touch.clientX - gesture.lastX) / dt;
-      gesture.velocityX = gesture.velocityX * 0.35 + instantVelocity * 0.65;
-    }
-    gesture.lastX = touch.clientX;
-    gesture.lastTime = now;
-    drawerProgress.value = clampDrawer((gesture.opening ? 0 : 1) + dx / gesture.width);
-  }
-
-  function finishSwipe(event: TouchEvent) {
-    const gesture = swipeStart;
-    if (!gesture) return;
-    const touch = Array.from(event.changedTouches).find(
-      (item) => item.identifier === gesture.identifier,
-    );
-    if (!touch) return;
-    if (gesture.locked) {
-      const dx = touch.clientX - gesture.x;
-      const progress = clampDrawer((gesture.opening ? 0 : 1) + dx / gesture.width);
-      const fling =
-        Math.abs(dx) >= 30 &&
-        Math.abs(gesture.velocityX) >= 0.45 &&
-        performance.now() - gesture.lastTime < 120;
-      if (fling) drawerOpen.value = gesture.velocityX > 0;
-      else if (gesture.opening) drawerOpen.value = progress >= 0.35;
-      else drawerOpen.value = progress > 0.65;
-    }
-    cancelSwipe();
-  }
+  const { cancelSwipe, startSwipe, moveSwipe, finishSwipe } = createDrawerSwipe({
+    drawerOpen,
+    drawerProgress,
+    isList: () => view.value === "chats" && !selectedRunId.value && !newChatOpen.value,
+    drawerWidth: () =>
+      sidebarPane.value?.getBoundingClientRect().width || Math.min(340, innerWidth - 44),
+  });
 
   function selectRun(item: RunSummary) {
     void markRead(item);
@@ -1601,6 +1514,7 @@ export function createChatsPageController(initialProps: Props) {
     toggleSearch,
     cancelSwipe,
     startSwipe,
+    moveSwipe,
     finishSwipe,
     selectRun,
     showJobs,

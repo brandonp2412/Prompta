@@ -21,7 +21,7 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 	enumerable: true
 }) : target, mod));
 //#endregion
-//#region node_modules/scheduler/cjs/scheduler.production.js
+//#region ../../prompta/node_modules/scheduler/cjs/scheduler.production.js
 /**
 * @license React
 * scheduler.production.js
@@ -276,12 +276,12 @@ var require_scheduler_production = /* @__PURE__ */ __commonJSMin(((exports) => {
 	};
 }));
 //#endregion
-//#region node_modules/scheduler/index.js
+//#region ../../prompta/node_modules/scheduler/index.js
 var require_scheduler = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_scheduler_production();
 }));
 //#endregion
-//#region node_modules/react/cjs/react.production.js
+//#region ../../prompta/node_modules/react/cjs/react.production.js
 /**
 * @license React
 * react.production.js
@@ -668,12 +668,12 @@ var require_react_production = /* @__PURE__ */ __commonJSMin(((exports) => {
 	exports.version = "19.3.1";
 }));
 //#endregion
-//#region node_modules/react/index.js
+//#region ../../prompta/node_modules/react/index.js
 var require_react = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_react_production();
 }));
 //#endregion
-//#region node_modules/react-dom/cjs/react-dom.production.js
+//#region ../../prompta/node_modules/react-dom/cjs/react-dom.production.js
 /**
 * @license React
 * react-dom.production.js
@@ -826,7 +826,7 @@ var require_react_dom_production = /* @__PURE__ */ __commonJSMin(((exports) => {
 	exports.version = "19.3.1";
 }));
 //#endregion
-//#region node_modules/react-dom/index.js
+//#region ../../prompta/node_modules/react-dom/index.js
 var require_react_dom = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	function checkDCE() {
 		if (typeof __REACT_DEVTOOLS_GLOBAL_HOOK__ === "undefined" || typeof __REACT_DEVTOOLS_GLOBAL_HOOK__.checkDCE !== "function") return;
@@ -840,7 +840,7 @@ var require_react_dom = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_react_dom_production();
 }));
 //#endregion
-//#region node_modules/react-dom/cjs/react-dom-client.production.js
+//#region ../../prompta/node_modules/react-dom/cjs/react-dom-client.production.js
 /**
 * @license React
 * react-dom-client.production.js
@@ -11415,7 +11415,7 @@ var require_react_dom_client_production = /* @__PURE__ */ __commonJSMin(((export
 	};
 }));
 //#endregion
-//#region node_modules/react-dom/client.js
+//#region ../../prompta/node_modules/react-dom/client.js
 var require_client = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	function checkDCE() {
 		if (typeof __REACT_DEVTOOLS_GLOBAL_HOOK__ === "undefined" || typeof __REACT_DEVTOOLS_GLOBAL_HOOK__.checkDCE !== "function") return;
@@ -11429,7 +11429,7 @@ var require_client = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_react_dom_client_production();
 }));
 //#endregion
-//#region node_modules/@preact/signals-core/dist/signals-core.module.js
+//#region ../../prompta/node_modules/@preact/signals-core/dist/signals-core.module.js
 var import_react = /* @__PURE__ */ __toESM(require_react());
 var import_client = require_client();
 var i$1 = Symbol.for("preact-signals");
@@ -11841,7 +11841,7 @@ function x$2(i, t) {
 	return n;
 }
 //#endregion
-//#region node_modules/use-sync-external-store/cjs/use-sync-external-store-shim.production.js
+//#region ../../prompta/node_modules/use-sync-external-store/cjs/use-sync-external-store-shim.production.js
 /**
 * @license React
 * use-sync-external-store-shim.production.js
@@ -11901,7 +11901,7 @@ var require_use_sync_external_store_shim_production = /* @__PURE__ */ __commonJS
 	exports.useSyncExternalStore = void 0 !== React.useSyncExternalStore ? React.useSyncExternalStore : shim;
 }));
 //#endregion
-//#region node_modules/@preact/signals-react/runtime/dist/runtime.module.js
+//#region ../../prompta/node_modules/@preact/signals-react/runtime/dist/runtime.module.js
 var import_shim = (/* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_use_sync_external_store_shim_production();
 })))();
@@ -12039,6 +12039,83 @@ Object.defineProperties(l$1.prototype, {
 });
 function N$1(n, t) {
 	return C$1(n, t);
+}
+//#endregion
+//#region src/ui/drawerSwipe.ts
+function createDrawerSwipe({ drawerOpen, drawerProgress, isList, drawerWidth, clock = performance }) {
+	let swipe = null;
+	const clampDrawer = (value) => Math.max(0, Math.min(1, value));
+	function cancelSwipe() {
+		swipe = null;
+		drawerProgress.value = null;
+	}
+	function startSwipe(event) {
+		if (swipe || !window.matchMedia("(max-width: 680px)").matches || event.touches.length !== 1) return;
+		const touch = event.touches[0];
+		if (isList() || !drawerOpen.value && touch.clientX > 120) return;
+		swipe = {
+			identifier: touch.identifier,
+			x: touch.clientX,
+			y: touch.clientY,
+			opening: !drawerOpen.value,
+			width: drawerWidth(),
+			locked: false,
+			rejected: false,
+			lastX: touch.clientX,
+			lastTime: clock.now(),
+			velocityX: 0
+		};
+	}
+	function moveSwipe(event) {
+		const gesture = swipe;
+		if (!gesture || gesture.rejected) return;
+		if (event.touches.length !== 1 || event.touches[0].identifier !== gesture.identifier) {
+			cancelSwipe();
+			return;
+		}
+		const touch = event.touches[0];
+		const dx = touch.clientX - gesture.x;
+		const dy = touch.clientY - gesture.y;
+		if (!gesture.locked) {
+			if (Math.max(Math.abs(dx), Math.abs(dy)) < 10) return;
+			if (Math.abs(dy) >= Math.abs(dx) / 1.15) {
+				gesture.rejected = true;
+				return;
+			}
+			if (gesture.opening && dx <= 0 || !gesture.opening && dx >= 0) return;
+			gesture.locked = true;
+		}
+		event.preventDefault();
+		const now = clock.now();
+		const dt = now - gesture.lastTime;
+		if (dt > 0) {
+			const instantVelocity = (touch.clientX - gesture.lastX) / dt;
+			gesture.velocityX = gesture.velocityX * .35 + instantVelocity * .65;
+		}
+		gesture.lastX = touch.clientX;
+		gesture.lastTime = now;
+		drawerProgress.value = clampDrawer((gesture.opening ? 0 : 1) + dx / gesture.width);
+	}
+	function finishSwipe(event) {
+		const gesture = swipe;
+		if (!gesture) return;
+		const touch = Array.from(event.changedTouches).find((item) => item.identifier === gesture.identifier);
+		if (!touch) return;
+		if (gesture.locked) {
+			const dx = touch.clientX - gesture.x;
+			const progress = clampDrawer((gesture.opening ? 0 : 1) + dx / gesture.width);
+			if (Math.abs(dx) >= 30 && Math.abs(gesture.velocityX) >= .45 && clock.now() - gesture.lastTime < 120) drawerOpen.value = gesture.velocityX > 0;
+			else if (gesture.opening) drawerOpen.value = progress >= .35;
+			else drawerOpen.value = progress > .65;
+		}
+		cancelSwipe();
+	}
+	return {
+		cancelSwipe,
+		startSwipe,
+		moveSwipe,
+		finishSwipe
+	};
 }
 //#endregion
 //#region src/ui/liveUpdates.ts
@@ -12735,8 +12812,8 @@ function createChatsPageController(initialProps) {
 			label: "Queued"
 		}
 	];
-	let queueSnapshot = y$2(emptyQueueSnapshot);
-	let queueError = y$2("");
+	const queueSnapshot = y$2(emptyQueueSnapshot);
+	const queueError = y$2("");
 	let queueGeneration = 0;
 	let queueInFlight = false;
 	let queueRefreshPending = false;
@@ -12751,49 +12828,49 @@ function createChatsPageController(initialProps) {
 	const recoveryBacklog = y$2(null);
 	const recoveryUnverified = y$2(null);
 	const recoveryReplyBacklog = y$2(null);
-	let items = y$2([]);
-	let pinnedItems = y$2([]);
-	let pinnedIds = y$2([]);
+	const items = y$2([]);
+	const pinnedItems = y$2([]);
+	const pinnedIds = y$2([]);
 	let legacyPinIds = [];
 	let confirmedPins = [];
-	let pinsReady = y$2(false);
+	const pinsReady = y$2(false);
 	let pendingPinWrites = 0;
 	let pinWriteQueue = Promise.resolve();
-	let pinError = y$2("");
+	const pinError = y$2("");
 	let pinWriteError = false;
-	let readAt = y$2({});
-	let readRevisions = y$2({});
-	let optimisticReads = y$2({});
-	let readError = y$2("");
-	let markingAllRead = y$2(false);
-	let baselineAt = y$2(0);
-	let drawerOpen = y$2(false);
-	let drawerProgress = y$2(null);
+	const readAt = y$2({});
+	const readRevisions = y$2({});
+	const optimisticReads = y$2({});
+	const readError = y$2("");
+	const markingAllRead = y$2(false);
+	const baselineAt = y$2(0);
+	const drawerOpen = y$2(false);
+	const drawerProgress = y$2(null);
 	const visibleDrawerProgress = O(() => drawerProgress.value ?? (drawerOpen.value ? 1 : 0));
-	let filtersOpen = y$2(false);
-	let expandedPrompts = y$2({});
-	let total = y$2(0);
-	let nextOffset = y$2(0);
-	let loadingMore = y$2(false);
-	let search = y$2("");
-	let statusFilter = y$2("");
-	let detail = y$2(null);
-	let turns = y$2([]);
-	let turnsError = y$2("");
-	let recoveringReply = y$2(false);
+	const filtersOpen = y$2(false);
+	const expandedPrompts = y$2({});
+	const total = y$2(0);
+	const nextOffset = y$2(0);
+	const loadingMore = y$2(false);
+	const search = y$2("");
+	const statusFilter = y$2("");
+	const detail = y$2(null);
+	const turns = y$2([]);
+	const turnsError = y$2("");
+	const recoveringReply = y$2(false);
 	const startingNewChatFromFailure = y$2(false);
-	let copyState = y$2("");
-	let scrollPane = y$2();
-	let listPane = y$2();
-	let sidebarPane = y$2();
-	let jobsWorkspace = y$2();
-	let searchInput = y$2();
-	let loadingList = y$2(true);
-	let loadingDetail = y$2(false);
-	let pendingRevealFor = y$2(null);
-	let listError = y$2("");
-	let morePageFailed = y$2(false);
-	let detailError = y$2("");
+	const copyState = y$2("");
+	const scrollPane = y$2();
+	const listPane = y$2();
+	const sidebarPane = y$2();
+	const jobsWorkspace = y$2();
+	const searchInput = y$2();
+	const loadingList = y$2(true);
+	const loadingDetail = y$2(false);
+	const pendingRevealFor = y$2(null);
+	const listError = y$2("");
+	const morePageFailed = y$2(false);
+	const detailError = y$2("");
 	let listGeneration = 0;
 	let listInFlight = false;
 	let listRefreshPending = false;
@@ -12803,10 +12880,8 @@ function createChatsPageController(initialProps) {
 	let detailRefreshFor = null;
 	let searchTimer;
 	let liveRefreshTimer;
-	let swipeStart = null;
-	const activity = (item) => item.updated_at || item.created_at;
-	const newestFirst = (a, b) => activity(b) - activity(a) || b.created_at - a.created_at || a.send_id.localeCompare(b.send_id);
-	let pinned = O(() => {
+	const newestFirst = (a, b) => (b.updated_at || b.created_at) - (a.updated_at || a.created_at) || b.created_at - a.created_at || a.send_id.localeCompare(b.send_id);
+	const pinned = O(() => {
 		const byId = new Map([...pinnedItems.value, ...items.value].map((item) => [item.send_id, item]));
 		const filtered = search.value.trim() || statusFilter.value;
 		return pinnedIds.value.map((id) => byId.get(id)).filter((item) => !!item).filter((item) => !filtered || items.value.some((listed) => listed.send_id === item.send_id));
@@ -12827,8 +12902,8 @@ function createChatsPageController(initialProps) {
 		].includes(latest.status)) return "";
 		return "This reply is not yet ready to resend.";
 	});
-	let visibleWaiting = O(() => statusFilter.value && statusFilter.value !== "queued" ? [] : queueSnapshot.value.waiting.filter((job) => !search.value.trim() || job.name.toLowerCase().includes(search.value.trim().toLowerCase())));
-	let unpinned = O(() => items.value.filter((item) => !pinnedIds.value.includes(item.send_id)).sort(newestFirst));
+	const visibleWaiting = O(() => statusFilter.value && statusFilter.value !== "queued" ? [] : queueSnapshot.value.waiting.filter((job) => !search.value.trim() || job.name.toLowerCase().includes(search.value.trim().toLowerCase())));
+	const unpinned = O(() => items.value.filter((item) => !pinnedIds.value.includes(item.send_id)).sort(newestFirst));
 	const switchingChat = O(() => view.value === "chats" && !!selectedRunId.value && (detail.value?.send_id !== selectedRunId.value || pendingRevealFor.value === selectedRunId.value));
 	const selectedChatTitle = O(() => {
 		if (detail.value?.send_id === selectedRunId.value) return detail.value.title || detail.value.job_name || "Chats";
@@ -13654,72 +13729,12 @@ function createChatsPageController(initialProps) {
 			searchInput.value?.focus();
 		}
 	}
-	const clampDrawer = (value) => Math.max(0, Math.min(1, value));
-	function cancelSwipe() {
-		swipeStart = null;
-		drawerProgress.value = null;
-	}
-	function startSwipe(event) {
-		if (swipeStart || !window.matchMedia("(max-width: 680px)").matches || event.touches.length !== 1) return;
-		const touch = event.touches[0];
-		if (view.value === "chats" && !selectedRunId.value && !newChatOpen.value || !drawerOpen.value && touch.clientX > 120) return;
-		swipeStart = {
-			identifier: touch.identifier,
-			x: touch.clientX,
-			y: touch.clientY,
-			opening: !drawerOpen.value,
-			width: sidebarPane.value?.getBoundingClientRect().width || Math.min(340, innerWidth - 44),
-			locked: false,
-			rejected: false,
-			lastX: touch.clientX,
-			lastTime: performance.now(),
-			velocityX: 0
-		};
-	}
-	function moveSwipe(event) {
-		const gesture = swipeStart;
-		if (!gesture || gesture.rejected) return;
-		if (event.touches.length !== 1 || event.touches[0].identifier !== gesture.identifier) {
-			cancelSwipe();
-			return;
-		}
-		const touch = event.touches[0];
-		const dx = touch.clientX - gesture.x;
-		const dy = touch.clientY - gesture.y;
-		if (!gesture.locked) {
-			if (Math.max(Math.abs(dx), Math.abs(dy)) < 10) return;
-			if (Math.abs(dy) >= Math.abs(dx) / 1.15) {
-				gesture.rejected = true;
-				return;
-			}
-			if (gesture.opening && dx <= 0 || !gesture.opening && dx >= 0) return;
-			gesture.locked = true;
-		}
-		event.preventDefault();
-		const now = performance.now();
-		const dt = now - gesture.lastTime;
-		if (dt > 0) {
-			const instantVelocity = (touch.clientX - gesture.lastX) / dt;
-			gesture.velocityX = gesture.velocityX * .35 + instantVelocity * .65;
-		}
-		gesture.lastX = touch.clientX;
-		gesture.lastTime = now;
-		drawerProgress.value = clampDrawer((gesture.opening ? 0 : 1) + dx / gesture.width);
-	}
-	function finishSwipe(event) {
-		const gesture = swipeStart;
-		if (!gesture) return;
-		const touch = Array.from(event.changedTouches).find((item) => item.identifier === gesture.identifier);
-		if (!touch) return;
-		if (gesture.locked) {
-			const dx = touch.clientX - gesture.x;
-			const progress = clampDrawer((gesture.opening ? 0 : 1) + dx / gesture.width);
-			if (Math.abs(dx) >= 30 && Math.abs(gesture.velocityX) >= .45 && performance.now() - gesture.lastTime < 120) drawerOpen.value = gesture.velocityX > 0;
-			else if (gesture.opening) drawerOpen.value = progress >= .35;
-			else drawerOpen.value = progress > .65;
-		}
-		cancelSwipe();
-	}
+	const { cancelSwipe, startSwipe, moveSwipe, finishSwipe } = createDrawerSwipe({
+		drawerOpen,
+		drawerProgress,
+		isList: () => view.value === "chats" && !selectedRunId.value && !newChatOpen.value,
+		drawerWidth: () => sidebarPane.value?.getBoundingClientRect().width || Math.min(340, innerWidth - 44)
+	});
 	function selectRun(item) {
 		markRead(item);
 		drawerOpen.value = false;
@@ -13894,6 +13909,7 @@ function createChatsPageController(initialProps) {
 		toggleSearch,
 		cancelSwipe,
 		startSwipe,
+		moveSwipe,
 		finishSwipe,
 		selectRun,
 		showJobs,
@@ -14666,7 +14682,7 @@ function createJobsPageController(initialProps) {
 	};
 }
 //#endregion
-//#region node_modules/react/cjs/react-jsx-runtime.production.js
+//#region ../../prompta/node_modules/react/cjs/react-jsx-runtime.production.js
 /**
 * @license React
 * react-jsx-runtime.production.js
@@ -16616,7 +16632,7 @@ function ChatsSidebar({ model, refs }) {
 	});
 }
 //#endregion
-//#region node_modules/marked/lib/marked.esm.js
+//#region ../../prompta/node_modules/marked/lib/marked.esm.js
 /**
 * marked v16.4.2 - a markdown parser
 * Copyright (c) 2018-2025, MarkedJS. (MIT License)
@@ -18686,11 +18702,13 @@ function ChatsPage(props) {
 	(0, import_react.useEffect)(() => {
 		window.addEventListener("keydown", escapeDrawer);
 		window.addEventListener("touchstart", startSwipe);
+		window.addEventListener("touchmove", model.moveSwipe, { passive: false });
 		window.addEventListener("touchend", finishSwipe);
 		window.addEventListener("touchcancel", cancelSwipe);
 		return () => {
 			window.removeEventListener("keydown", escapeDrawer);
 			window.removeEventListener("touchstart", startSwipe);
+			window.removeEventListener("touchmove", model.moveSwipe);
 			window.removeEventListener("touchend", finishSwipe);
 			window.removeEventListener("touchcancel", cancelSwipe);
 		};

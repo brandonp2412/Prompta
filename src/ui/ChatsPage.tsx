@@ -70,11 +70,13 @@ export default function ChatsPage(props: Props) {
   useEffect(() => {
     window.addEventListener("keydown", escapeDrawer);
     window.addEventListener("touchstart", startSwipe);
+    window.addEventListener("touchmove", model.moveSwipe, { passive: false });
     window.addEventListener("touchend", finishSwipe);
     window.addEventListener("touchcancel", cancelSwipe);
     return () => {
       window.removeEventListener("keydown", escapeDrawer);
       window.removeEventListener("touchstart", startSwipe);
+      window.removeEventListener("touchmove", model.moveSwipe);
       window.removeEventListener("touchend", finishSwipe);
       window.removeEventListener("touchcancel", cancelSwipe);
     };
