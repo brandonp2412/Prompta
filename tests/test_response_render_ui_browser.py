@@ -277,3 +277,93 @@ def test_legacy_chatgpt_metrics_and_checklist_are_reconstructed(
                 page.close()
         finally:
             browser.close()
+
+
+def test_dom_capture_matches_chatgpt_table_code_and_checklist(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    chromium = Path(os.environ.get("PROMPTA_TEST_CHROMIUM", "/usr/bin/chromium"))
+    if not chromium.is_file():
+        pytest.skip("Chromium unavailable")
+
+    import prompta.web as web_module
+
+    monkeypatch.setattr(
+        web_module,
+        "_STATIC_ROOT",
+        Path(__file__).resolve().parents[1] / "src/static",
+    )
+    with server(tmp_path) as (app, port), sync_patchright() as patchright:
+        send_id = "chatgpt-parity"
+        seed_terminal(app, send_id=send_id, missing_id=False)
+        dom_capture = (
+            "Here is the verification summary.\n\n"
+            "| State | Count |\n| --- | ---: |\n"
+            "| Interrupted | 28 |\n| Unavailable | 9 |\n| Completed | 107 |\n\n"
+            "Heading: verified\nTable: verified\nList: verified\n"
+            "Code: verified\nBlockquote: verified\n\n"
+            "### TypeScript\n\nTypeScript\n\n"
+            + chr(96) * 3 + "\nconst healthy = true;\n" + chr(96) * 3 + "\n\n"
+            "> The rendering was checked visually."
+        )
+        with app.results.engine.begin() as connection:
+            columns = [
+                row[1] for row in connection.exec_driver_sql("PRAGMA table_info(job_responses)")
+            ]
+            source_column = "source" if "source" in columns else "capture_source"
+            connection.exec_driver_sql(
+                f"UPDATE job_responses SET {source_column} = ?, status = ?, assistant_text = ? "
+                "WHERE send_id = ?",
+                ("dom", "completed", dom_capture, send_id),
+            )
+        browser = patchright.chromium.launch(
+            executable_path=str(chromium),
+            headless=True,
+            args=["--no-sandbox"],
+        )
+        try:
+            for width, height in [(320, 700), (360, 800), (390, 844), (412, 915), (1440, 900)]:
+                page = browser.new_page(viewport={"width": width, "height": height})
+                page.goto(f"http://127.0.0.1:{port}/?view=chats&run={send_id}")
+                response = page.locator(".assistant-group")
+                expect(response).to_be_visible()
+                expect(response.locator("table")).to_have_count(1)
+                expect(response.locator("table .numeric-cell")).to_have_count(4)
+                expect(response.locator(".result-recovered-list li strong")).to_have_count(5)
+                expect(response.locator(".code-toolbar span")).to_have_text("TypeScript")
+                expect(response.locator("h3")).to_have_text("TypeScript")
+                expect(response.locator(".result-markdown > p", has_text="TypeScript")).to_have_count(0)
+                expect(response.locator(".code-snippet .token.keyword")).to_have_count(1)
+                expect(response.locator(".code-snippet .token.boolean")).to_have_count(1)
+                expect(response.locator("blockquote")).to_contain_text("checked visually")
+                styles = page.evaluate(
+                    """() => {
+                        const response = document.querySelector('.assistant-group');
+                        const table = response.querySelector('table');
+                        const content = response.querySelector('.result-markdown');
+                        const count = table.querySelector('td.numeric-cell');
+                        return {
+                            widthRatio: table.getBoundingClientRect().width / content.getBoundingClientRect().width,
+                            countAlign: getComputedStyle(count).textAlign,
+                            leftBorder: getComputedStyle(count).borderLeftWidth,
+                            surface: getComputedStyle(document.querySelector('.chats-detail')).backgroundColor,
+                            overflow: document.documentElement.scrollWidth > window.innerWidth,
+                        };
+                    }"""
+                )
+                assert styles["widthRatio"] >= 0.96
+                assert styles["countAlign"] == "right"
+                assert styles["leftBorder"] == "0px"
+                assert styles["surface"] == "rgb(8, 8, 8)"
+                assert not styles["overflow"]
+                if screenshot_dir := os.environ.get("PROMPTA_RESPONSE_SCREENSHOT_DIR"):
+                    destination = Path(screenshot_dir)
+                    destination.mkdir(parents=True, exist_ok=True)
+                    page.screenshot(
+                        path=str(destination / f"chatgpt-parity-{width}.png"),
+                        full_page=True,
+                    )
+                page.close()
+        finally:
+            browser.close()

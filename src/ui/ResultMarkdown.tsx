@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { marked, type Token, type Tokens } from "marked";
+import Prism from "prismjs";
+import "prismjs/components/prism-typescript";
 import {
   formatStoredResponse,
   isFlattenedDomResponse,
@@ -10,6 +12,53 @@ import {
 
 function children(token: Token): Token[] {
   return "tokens" in token && Array.isArray(token.tokens) ? token.tokens : [];
+}
+
+const codeLanguages: Record<string, string> = {
+  ts: "typescript",
+  typescript: "typescript",
+  js: "javascript",
+  javascript: "javascript",
+};
+
+function precedingToken(items: Token[], index: number): number {
+  let previous = index - 1;
+  while (previous >= 0 && items[previous]?.type === "space") previous -= 1;
+  return previous;
+}
+
+function recoveredCodeLanguage(items: Token[], index: number, captureSource: string): string {
+  if (captureSource !== "dom" || items[index]?.type !== "code") return "";
+  const labelIndex = precedingToken(items, index);
+  const label = items[labelIndex];
+  if (label?.type !== "paragraph" && label?.type !== "text") return "";
+  const language = label.text.trim().toLowerCase();
+  if (!codeLanguages[language]) return "";
+  const heading = items[precedingToken(items, labelIndex)];
+  if (heading?.type !== "heading" || heading.text.trim().toLowerCase() !== language) return "";
+  return language;
+}
+
+function recoveredListLabel(value: string): React.ReactNode {
+  const parts = /^([A-Za-z][A-Za-z ]{1,30}:)\s+(.+)$/.exec(value);
+  if (!parts) return value;
+  return <><strong>{parts[1]}</strong> {parts[2]}</>;
+}
+
+function highlightedCode(value: string, language: string): React.ReactNode {
+  const grammar = Prism.languages[language];
+  if (!grammar) return value;
+  function render(stream: Prism.TokenStream): React.ReactNode {
+    return stream.map((part, i) => {
+      if (typeof part === "string") return part;
+      let content: React.ReactNode;
+      if (typeof part.content === "string") content = part.content;
+      else if (Array.isArray(part.content)) content = render(part.content);
+      else content = render([part.content]);
+      return <span key={i} className={"token " + part.type}>{content}</span>;
+    });
+  }
+  return render(Prism.tokenize(value, grammar));
 }
 
 export default function ResultMarkdown({
@@ -105,6 +154,10 @@ export default function ResultMarkdown({
 
   function blocks(items: Token[]): React.ReactNode {
     return items.map((token, index) => {
+      if ((token.type === "paragraph" || token.type === "text") && captureSource === "dom") {
+        const next = items.findIndex((item, i) => i > index && item.type !== "space");
+        if (next >= 0 && recoveredCodeLanguage(items, next, captureSource)) return null;
+      }
       switch (token.type) {
         case "heading":
           if (token.depth === 1) return <h1 key={index}>{inline(children(token))}</h1>;
@@ -136,20 +189,23 @@ export default function ResultMarkdown({
             return (
               <ul key={index} className="result-recovered-list">
                 {labelList.map((item, i) => (
-                  <li key={i}>{item}</li>
+                  <li key={i}>{recoveredListLabel(item)}</li>
                 ))}
               </ul>
             );
           return <p key={index}>{inline(children(token).length ? children(token) : [token])}</p>;
         }
         case "code": {
+          const language = token.lang || recoveredCodeLanguage(items, index, captureSource);
+          const grammar = codeLanguages[language.toLowerCase()] || language.toLowerCase();
+          const label = grammar === "typescript" ? "TypeScript" : language || "Code";
           let copyLabel = "Copy code";
           if (copiedCode === index + ":" + token.text)
             copyLabel = copyStatus === "copied" ? "Copied" : "Copy failed";
           return (
             <div key={index} className="code-snippet">
               <div className="code-toolbar">
-                <span>{token.lang || "Code"}</span>
+                <span>{label}</span>
                 <button
                   type="button"
                   aria-label="Copy code"
@@ -160,8 +216,8 @@ export default function ResultMarkdown({
                 </button>
               </div>
               <pre>
-                <code className={token.lang ? "language-" + token.lang.split(/\s+/)[0] : ""}>
-                  {token.text}
+                <code className={grammar ? "language-" + grammar : ""}>
+                  {highlightedCode(token.text, grammar)}
                 </code>
               </pre>
             </div>
@@ -171,26 +227,37 @@ export default function ResultMarkdown({
           return token.ordered ? (
             <ol key={index} start={token.start || 1}>
               {token.items.map((item: Tokens.ListItem, i: number) => (
-                <li key={i}>{blocks(item.tokens)}</li>
+                <li key={i}>
+                  {captureSource === "dom" && item.tokens.length === 1 && item.tokens[0]?.type === "text"
+                    ? recoveredListLabel(item.text)
+                    : blocks(item.tokens)}
+                </li>
               ))}
             </ol>
           ) : (
             <ul key={index}>
               {token.items.map((item: Tokens.ListItem, i: number) => (
-                <li key={i}>{blocks(item.tokens)}</li>
+                <li key={i}>
+                  {captureSource === "dom" && item.tokens.length === 1 && item.tokens[0]?.type === "text"
+                    ? recoveredListLabel(item.text)
+                    : blocks(item.tokens)}
+                </li>
               ))}
             </ul>
           );
         case "blockquote":
           return <blockquote key={index}>{blocks(token.tokens ?? [])}</blockquote>;
-        case "table":
+        case "table": {
+          const numericColumns = token.header.map((_, column) =>
+            token.rows.length > 0 && token.rows.every((row) => /^[+-]?[$£€]?\d[\d,.]*%?$/.test(row[column]?.text.trim() || "")),
+          );
           return (
             <div key={index} className="result-table-scroll">
               <table>
                 <thead>
                   <tr>
                     {token.header.map((cell: Tokens.TableCell, i: number) => (
-                      <th key={i}>{inline(cell.tokens)}</th>
+                      <th key={i} className={numericColumns[i] ? "numeric-cell" : ""}>{inline(cell.tokens)}</th>
                     ))}
                   </tr>
                 </thead>
@@ -198,7 +265,7 @@ export default function ResultMarkdown({
                   {token.rows.map((row: Tokens.TableCell[], i: number) => (
                     <tr key={i}>
                       {row.map((cell: Tokens.TableCell, j: number) => (
-                        <td key={j}>{inline(cell.tokens)}</td>
+                        <td key={j} className={numericColumns[j] ? "numeric-cell" : ""}>{inline(cell.tokens)}</td>
                       ))}
                     </tr>
                   ))}
@@ -206,6 +273,7 @@ export default function ResultMarkdown({
               </table>
             </div>
           );
+        }
         case "hr":
           return <hr key={index} />;
         case "html":
