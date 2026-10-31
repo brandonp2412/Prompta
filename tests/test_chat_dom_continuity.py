@@ -1,4 +1,4 @@
-"""Browser regression: chat navigation and fresh sends preserve existing Svelte DOM."""
+"""Browser regression: chat navigation and fresh sends preserve existing React DOM."""
 
 from __future__ import annotations
 

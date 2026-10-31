@@ -13,9 +13,9 @@ buildq --wait -- uv run --no-sync pytest -q
 buildq --wait -- bun run check
 ```
 
-Python uses strict Ruff and Ty checks. The UI uses Svelte 5, strict TypeScript, and Vite. Fix types and behavior at the source.
+Python uses strict Ruff and Ty checks. The UI uses React 19, strict TypeScript, signal-backed controllers, and Vite. Fix types and behavior at the source.
 
-Svelte components own markup and view state. Use stable keyed lists and preserve component identity during navigation and refresh. Render Markdown through structured tokens. Keep browser effects in typed helpers. `bun run lint:dom` and the browser continuity tests check these boundaries.
+React components own markup; signal-backed controllers preserve view state. Use stable keyed lists and preserve component identity during navigation and refresh. Render Markdown through structured tokens. Keep browser effects in typed helpers. `bun run lint:dom` and the browser continuity tests check these boundaries.
 
 ## API and schema changes
 

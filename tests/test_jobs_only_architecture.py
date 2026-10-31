@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 
 
@@ -18,36 +19,38 @@ def test_chat_client_modules_are_absent() -> None:
 
 
 def test_ui_keeps_jobs_and_forbids_unsafe_chat_actions() -> None:
-    app = Path("src/ui/App.svelte").read_text()
-    sidebar = Path("src/ui/ChatsPage.svelte").read_text()
+    app = Path("src/ui/App.tsx").read_text()
+    sidebar = Path("src/ui/ChatsPage.tsx").read_text()
     assert "ChatsPage" in app
-    assert 'import JobsPage from "./JobsPage.svelte"' in sidebar
-    assert '{#if view === "jobs"}' in sidebar
-    assert "<JobsPage workspace={jobsWorkspace} />" in sidebar
+    assert 'import JobsPage from "./JobsPage"' in sidebar
+    assert 'view.value === "jobs"' in sidebar
+    assert "<JobsPage workspace={jobsWorkspace.value}" in sidebar
     assert "Machine Gun" not in app
-    assert 'localGet("./api/results?' in sidebar
+    controller = Path("src/ui/ChatsPageController.ts").read_text()
+    assert 'localGet("./api/results?' in controller
     local_reads = Path("src/ui/localRead.ts").read_text()
     assert 'cache: "no-store"' in local_reads
     assert "AbortSignal.timeout" in local_reads
-    assert 'localPost("./api/results/"' in sidebar
-    assert "localStorage.setItem(preferencesKey" in sidebar
-    assert 'localPost("./api/local-chat-pins"' in sidebar
+    assert '"./api/results/" + encodeURIComponent(sendId) + "/reply-recover"' in controller
+    assert re.search(r"localStorage\.setItem\(\s*preferencesKey", controller)
+    assert re.search(r'localPost\(\s*"\./api/local-chat-pins"', controller)
     local_mutations = Path("src/ui/localMutation.ts").read_text()
     assert 'cache: "no-store"' in local_mutations
     assert "AbortSignal.timeout(timeoutMs)" in local_mutations
     assert 'method: "POST"' in local_mutations
     assert "return fetch(url, {" in local_mutations
-    assert "pinnedIds = Array.isArray(prefs.pinnedIds)" not in sidebar
-    assert "/backend-api/pins" not in sidebar
+    assert "pinnedIds = Array.isArray(prefs.pinnedIds)" not in controller
+    assert "/backend-api/pins" not in controller
     assert "onNewChat" in sidebar
-    for component in Path("src/ui").glob("*.svelte"):
+    assert not list(Path("src/ui").glob("*.svelte"))
+    for component in Path("src/ui").glob("*.tsx"):
         source = component.read_text()
         assert "Machine Gun" not in source
         assert "/backend-api/conversation" not in source
 
 
 def test_jobs_api_requests_are_relative_to_deployment_prefix() -> None:
-    page = Path("src/ui/JobsPage.svelte").read_text()
+    page = Path("src/ui/JobsPageController.ts").read_text()
     assert 'localPost("./api/jobs", payload)' in page
     assert 'localGet("./api/jobs")' in page
     assert 'localPost("/api/jobs"' not in page
@@ -55,22 +58,24 @@ def test_jobs_api_requests_are_relative_to_deployment_prefix() -> None:
 
 
 def test_jobs_ui_is_paginated() -> None:
-    page = Path("src/ui/JobsPage.svelte").read_text()
+    page = Path("src/ui/JobsPageController.ts").read_text()
+    jsx = Path("src/ui/JobsPage.tsx").read_text()
     assert "const pageSize = 10" in page
-    assert "{#each visibleJobs as job" in page
-    assert 'aria-label="Job pages"' in page
-    assert "Previous" in page
-    assert "Next" in page
+    assert "visibleJobs.value.map((job" in jsx
+    assert 'aria-label="Job pages"' in jsx
+    assert "Previous" in jsx
+    assert "Next" in jsx
 
 
 def test_jobs_ui_pause_resume_targets_only_visible_page() -> None:
-    page = Path("src/ui/JobsPage.svelte").read_text()
-    assert 'role="switch"' not in page
-    assert 'visibleJobs.map((job) => job.name)' in page
+    page = Path("src/ui/JobsPageController.ts").read_text()
+    jsx = Path("src/ui/JobsPage.tsx").read_text()
+    assert 'role="switch"' not in jsx
+    assert 'visibleJobs.value.map((job) => job.name)' in page
     assert '"pause_many"' in page
     assert '"resume_many"' in page
-    assert "Pause visible" in page
-    assert "Resume visible" in page
+    assert "Pause visible" in jsx
+    assert "Resume visible" in jsx
     assert '"pause_all"' not in page
     assert '"resume_all"' not in page
 

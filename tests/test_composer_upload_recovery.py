@@ -253,7 +253,7 @@ def test_failed_upload_batch_rolls_back_and_duplicate_image_is_deduped(
         page.goto(f"http://127.0.0.1:{port}/?view=chats&draft=new")
         same: FilePayload = {"name": "same.png", "mimeType": "image/png", "buffer": PNG}
         # The server uses content-addressed image references. A repeated
-        # attachment must not create duplicate keyed Svelte preview nodes.
+        # attachment must not create duplicate keyed React preview nodes.
         page.get_by_label("Choose images").set_input_files([same, same])
         expect(page.locator(".composer-preview")).to_have_count(1)
         page.get_by_role("button", name="Remove same.png").click()
