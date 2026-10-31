@@ -719,13 +719,19 @@ class ResponseStore:
                 and row["message_id"] != capture.message_id
             ):
                 return False
-            complete = capture.status == "complete" and bool(capture.text)
-            # The fallback must never erase a longer already-stored partial answer.
+            # A later historical DOM snapshot can be truncated while the saved
+            # partial response is longer. Preserve it without falsely claiming
+            # completion; only a sufficiently complete snapshot can close it.
             text = capture.text[:_MAX_TEXT]
-            if len(text) < len(str(row["assistant_text"])):
-                if not complete and not capture.tool_calls:
+            saved_text = str(row["assistant_text"])
+            complete = (
+                capture.status == "complete" and bool(text)
+                and len(text) >= len(saved_text)
+            )
+            if len(text) < len(saved_text):
+                if not capture.tool_calls:
                     return False
-                text = str(row["assistant_text"])
+                text = saved_text
             changed = connection.execute(update(results).where(
                 results.c.send_id == send_id,
                 results.c.status.in_(("interrupted", "unavailable")),

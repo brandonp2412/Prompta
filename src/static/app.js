@@ -12063,6 +12063,7 @@ var reconnectAttempts = 0;
 var lastStreamFrameAt = 0;
 var streamConnected = false;
 var updatesDelayed = false;
+var observedOffline = false;
 function notify(topic) {
 	if (document.visibilityState !== "visible") return;
 	for (const listener of listeners[topic]) listener();
@@ -12169,13 +12170,23 @@ function visibleAgain() {
 	}
 }
 function offline() {
+	observedOffline = true;
 	connectionLost();
+}
+function onlineAgain() {
+	const wasOffline = observedOffline;
+	observedOffline = false;
+	if (wasOffline) {
+		retryLiveConnection();
+		return;
+	}
+	visibleAgain();
 }
 function start() {
 	connectionLost();
 	connect();
 	document.addEventListener("visibilitychange", visibleAgain);
-	window.addEventListener("online", visibleAgain);
+	window.addEventListener("online", onlineAgain);
 	window.addEventListener("offline", offline);
 	window.addEventListener("pageshow", visibleAgain);
 }
@@ -12194,9 +12205,10 @@ function stop() {
 	reconnectAttempts = 0;
 	lastStreamFrameAt = 0;
 	streamConnected = false;
+	observedOffline = false;
 	publishStatus(false);
 	document.removeEventListener("visibilitychange", visibleAgain);
-	window.removeEventListener("online", visibleAgain);
+	window.removeEventListener("online", onlineAgain);
 	window.removeEventListener("offline", offline);
 	window.removeEventListener("pageshow", visibleAgain);
 }
@@ -12317,6 +12329,15 @@ async function localRejectionDetail(response, fallback) {
 				if (typeof candidate !== "string") continue;
 				const message = candidate.trim();
 				if (message && message.length <= 300) return message;
+			}
+			if (Array.isArray(detail)) for (const issue of detail) {
+				if (!issue || typeof issue !== "object" || !("msg" in issue)) continue;
+				if (typeof issue.msg !== "string") continue;
+				const message = issue.msg.trim();
+				if (!message || message.length > 200) continue;
+				if (!("loc" in issue) || !Array.isArray(issue.loc) || !issue.loc.includes("body")) continue;
+				const field = [...issue.loc].reverse().find((part) => typeof part === "string" && part !== "body" && /^[a-zA-Z][a-zA-Z0-9_]{0,40}$/.test(part));
+				return field ? `${field}: ${message}` : message;
 			}
 		}
 	} catch {}
@@ -15494,7 +15515,7 @@ function createChatComposerController(initialProps) {
 					timeoutMs: localUploadTimeoutMs
 				});
 				if (generation !== uploadGeneration || key !== draftStorageKey.value) return;
-				if (!response.ok) throw new Error("Image upload failed.");
+				if (!response.ok) throw new Error(await localRejectionDetail(response, "Image upload failed."));
 				const result = await response.json();
 				if (!result.image?.ref || !result.image.url.startsWith("./api/images/")) throw new Error("Image upload receipt was invalid.");
 				if (!images.value.some((image) => image.ref === result.image?.ref)) {

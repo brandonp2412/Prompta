@@ -13,6 +13,7 @@ function withFakeStream(
     timers: Map<number, { ms: number; callback: () => void }>;
     tick: (milliseconds: number) => void;
     fire: (milliseconds: number) => void;
+    fireWindow: (name: string) => void;
   }) => void,
 ) {
   const originalSource = Object.getOwnPropertyDescriptor(globalThis, "EventSource");
@@ -21,6 +22,7 @@ function withFakeStream(
   const originalNow = Date.now;
   const timers = new Map<number, { ms: number; callback: () => void }>();
   const instances: FakeStream[] = [];
+  const windowHandlers = new Map<string, Set<() => void>>();
   let now = 1000;
   let nextTimer = 0;
   class LocalFakeStream {
@@ -53,8 +55,13 @@ function withFakeStream(
         return id;
       },
       clearTimeout: (id: number) => timers.delete(id),
-      addEventListener: () => {},
-      removeEventListener: () => {},
+      addEventListener: (name: string, callback: () => void) => {
+        if (!windowHandlers.has(name)) windowHandlers.set(name, new Set());
+        windowHandlers.get(name)?.add(callback);
+      },
+      removeEventListener: (name: string, callback: () => void) => {
+        windowHandlers.get(name)?.delete(callback);
+      },
     },
   });
   Object.defineProperty(globalThis, "document", {
@@ -79,6 +86,9 @@ function withFakeStream(
         if (!entry) return;
         timers.delete(entry[0]);
         entry[1].callback();
+      },
+      fireWindow: (name: string) => {
+        for (const callback of windowHandlers.get(name) ?? []) callback();
       },
     });
   } finally {
@@ -132,6 +142,33 @@ test("terminal SSE failures reopen once, ignore stale events and clean up on unm
     }
     expect(instances[2]?.closed).toBe(true);
     expect(timers.size).toBe(0);
+  });
+});
+
+test("network return immediately repairs an offline stream without duplicate listeners", () => {
+  withFakeStream(({ instances, fireWindow }) => {
+    let updates = 0;
+    const off = subscribeLiveUpdates("chats", () => {
+      updates += 1;
+    });
+    try {
+      instances[0]?.emit("open");
+      instances[0]?.emit("sync");
+      expect(updates).toBe(1);
+      fireWindow("offline");
+      fireWindow("online");
+      expect(instances.length).toBe(2);
+      expect(instances[0]?.closed).toBe(true);
+      instances[0]?.emit("sync");
+      expect(updates).toBe(3); // One refresh on loss, one on reconnection.
+      instances[1]?.emit("open");
+      instances[1]?.emit("sync");
+      expect(updates).toBe(4);
+      fireWindow("online");
+      expect(instances.length).toBe(2); // No repeated reconnect after recovery.
+    } finally {
+      off();
+    }
   });
 });
 

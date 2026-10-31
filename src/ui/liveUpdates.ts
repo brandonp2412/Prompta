@@ -24,6 +24,7 @@ let reconnectAttempts = 0;
 let lastStreamFrameAt = 0;
 let streamConnected = false;
 let updatesDelayed = false;
+let observedOffline = false;
 
 function notify(topic: Topic) {
   if (document.visibilityState !== "visible") return;
@@ -149,7 +150,20 @@ function visibleAgain() {
 }
 
 function offline() {
+  observedOffline = true;
   connectionLost();
+}
+
+function onlineAgain() {
+  const wasOffline = observedOffline;
+  observedOffline = false;
+  if (wasOffline) {
+    // An EventSource may remain CONNECTING after the network returns. Replace
+    // that exact stream now, rather than waiting for the 60-second watchdog.
+    retryLiveConnection();
+    return;
+  }
+  visibleAgain();
 }
 
 function start() {
@@ -158,7 +172,7 @@ function start() {
   connectionLost();
   connect();
   document.addEventListener("visibilitychange", visibleAgain);
-  window.addEventListener("online", visibleAgain);
+  window.addEventListener("online", onlineAgain);
   window.addEventListener("offline", offline);
   window.addEventListener("pageshow", visibleAgain);
 }
@@ -178,9 +192,10 @@ function stop() {
   reconnectAttempts = 0;
   lastStreamFrameAt = 0;
   streamConnected = false;
+  observedOffline = false;
   publishStatus(false);
   document.removeEventListener("visibilitychange", visibleAgain);
-  window.removeEventListener("online", visibleAgain);
+  window.removeEventListener("online", onlineAgain);
   window.removeEventListener("offline", offline);
   window.removeEventListener("pageshow", visibleAgain);
 }

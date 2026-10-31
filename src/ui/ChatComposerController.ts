@@ -11,7 +11,7 @@ import {
   rememberComposerImages,
 } from "./composerDraftMemory";
 import type { ComposerImageRef } from "./composerDraftMemory";
-import { localPost, localUploadTimeoutMs } from "./localMutation";
+import { localPost, localRejectionDetail, localUploadTimeoutMs } from "./localMutation";
 export type SendResult = {
   ok: boolean;
   message: string;
@@ -254,7 +254,8 @@ export function createChatComposerController(initialProps: Props) {
           },
         );
         if (generation !== uploadGeneration || key !== draftStorageKey.value) return;
-        if (!response.ok) throw new Error("Image upload failed.");
+        if (!response.ok)
+          throw new Error(await localRejectionDetail(response, "Image upload failed."));
         const result = (await response.json()) as { image?: ImageRef };
         if (!result.image?.ref || !result.image.url.startsWith("./api/images/")) {
           throw new Error("Image upload receipt was invalid.");

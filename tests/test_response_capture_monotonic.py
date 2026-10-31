@@ -59,11 +59,24 @@ def test_shorter_historical_final_preserves_interrupted_answer(tmp_path: Path) -
     longer = "An already captured, meaningful partial response."
     assert store.write("manual-1", "123:owner", _capture("partial", longer), now=12)
     assert store.finish("manual-1", "123:owner", "interrupted", now=13)
-    assert store.recover_historical_response("manual-1", _capture("complete", "Done."), now=14)
+    assert not store.recover_historical_response("manual-1", _capture("complete", "Done."), now=14)
     row = store.get("manual-1")
     assert row is not None
-    assert row["status"] == "completed"
+    assert row["status"] == "interrupted"
     assert row["assistant_text"] == longer
+    with_tools = CaptureResult(
+        "dom", "complete", "Done.", CONVERSATION, MESSAGE, PARENT, "verified-observer",
+        tool_calls=({"id": "tool-1", "action": "Used search", "status": "observed"},),
+    )
+    assert store.recover_historical_response("manual-1", with_tools, now=15)
+    saved = store.detail("manual-1")
+    assert saved is not None and saved["status"] == "interrupted"
+    assert saved["assistant_text"] == longer
+    tool_calls = saved["tool_calls"]
+    assert isinstance(tool_calls, list) and len(tool_calls) == 1
+    assert store.recover_historical_response("manual-1", _capture("complete", longer), now=16)
+    row = store.get("manual-1")
+    assert row is not None and row["status"] == "completed"
 
 
 def test_tool_only_capture_cannot_cross_a_verified_branch(tmp_path: Path) -> None:
