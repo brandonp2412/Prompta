@@ -112,6 +112,7 @@
   let searchInput = $state<HTMLInputElement>();
   let loadingList = $state(true);
   let loadingDetail = $state(false);
+  let pendingRevealFor = $state<string | null>(null);
   let listError = $state("");
   let morePageFailed = $state(false);
   let detailError = $state("");
@@ -168,7 +169,8 @@
       )
   );
   let unpinned = $derived(items.filter((item) => !pinnedIds.includes(item.send_id)).sort(newestFirst));
-  const switchingChat = $derived(view === "chats" && !!selectedRunId && detail?.send_id !== selectedRunId);
+  const switchingChat = $derived(view === "chats" && !!selectedRunId &&
+    (detail?.send_id !== selectedRunId || pendingRevealFor === selectedRunId));
   const selectedChatTitle = $derived.by(() => {
     if (detail?.send_id === selectedRunId) return detail.title || detail.job_name || "Chats";
     const summary = [...items, ...pinnedItems].find((item) => item.send_id === selectedRunId);
@@ -507,8 +509,9 @@
     const generation = ++detailGeneration;
     const newSelection = detail?.send_id !== id;
     if (newSelection) {
-      // Keep the previous transcript mounted behind the loading cover until
-      // the next chat is ready; clearing it causes a visible empty/full jump.
+      // Keep the cover until the new transcript has been laid out and scrolled.
+      // Revealing the content before the scroll adjustment causes a visible snap.
+      pendingRevealFor = id;
       detailError = "";
       turnsError = "";
     }
@@ -528,28 +531,43 @@
       if (!response.ok) throw new Error("Result not found");
       const body: RunDetail = await response.json();
       if (generation !== detailGeneration || selectedRunId !== id) return;
+      // A quick turns read should join the primary result before first reveal.
+      // Never hold the main transcript behind an unhealthy optional endpoint.
+      const earlyTurns = newSelection
+        ? await Promise.race([
+            replyRequest,
+            new Promise<undefined>((resolve) => setTimeout(resolve, 100)),
+          ])
+        : undefined;
+      if (generation !== detailGeneration || selectedRunId !== id) return;
       detail = body;
       const originalTurn: LocalTurn = {
         reply_id: "", user_text: body.user_text, assistant_text: body.assistant_text,
         tool_calls: body.tool_calls,
         status: body.status, created_at: body.created_at, updated_at: body.updated_at,
       };
-      turns = recoverVisibleTurns(null, turns, originalTurn, !newSelection);
-      turnsError = "";
-      detailError = "";
-      loadingDetail = false;
-      if (view === "chats" && selectedRunId === id) markRead(body);
-      await tick();
-      if (followTail && scrollPane && selectedRunId === id) scrollPane.scrollTop = scrollPane.scrollHeight;
-      const savedTurns = await replyRequest;
-      if (generation !== detailGeneration || selectedRunId !== id) return;
-      turns = recoverVisibleTurns(savedTurns, turns, originalTurn, true);
-      turnsError = !savedTurns
+      turns = recoverVisibleTurns(earlyTurns ?? null, turns, originalTurn, !newSelection);
+      turnsError = earlyTurns === null
         ? "Saved replies are temporarily unavailable; showing the last confirmed turns."
         : "";
-      if (followTail) {
-        await tick();
-        if (scrollPane && selectedRunId === id) scrollPane.scrollTop = scrollPane.scrollHeight;
+      detailError = "";
+      loadingDetail = false;
+      if (view === "chats" && selectedRunId === id) void markRead(body);
+      await tick();
+      if (followTail && scrollPane && selectedRunId === id) scrollPane.scrollTop = scrollPane.scrollHeight;
+      // The cover is removed only after the scroll position is committed.
+      if (pendingRevealFor === id) pendingRevealFor = null;
+      const savedTurns = earlyTurns === undefined ? await replyRequest : earlyTurns;
+      if (generation !== detailGeneration || selectedRunId !== id) return;
+      if (earlyTurns === undefined) {
+        turns = recoverVisibleTurns(savedTurns, turns, originalTurn, true);
+        turnsError = !savedTurns
+          ? "Saved replies are temporarily unavailable; showing the last confirmed turns."
+          : "";
+        if (followTail) {
+          await tick();
+          if (scrollPane && selectedRunId === id) scrollPane.scrollTop = scrollPane.scrollHeight;
+        }
       }
     } catch {
       if (generation === detailGeneration) detailError = "This run is unavailable locally.";

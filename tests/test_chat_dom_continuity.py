@@ -12,6 +12,13 @@ from live_server import LiveServer
 from playwright.sync_api import expect, sync_playwright
 
 
+@pytest.fixture(autouse=True)
+def serve_current_worktree_assets(monkeypatch: pytest.MonkeyPatch) -> None:
+    import prompta.web as web_module
+
+    monkeypatch.setattr(web_module, "_STATIC_ROOT", Path(__file__).resolve().parents[1] / "src/static")
+
+
 @pytest.mark.parametrize("width,height", [(1440, 900), (390, 844)])
 def test_sidebar_and_reply_composer_keep_identity_through_new_chat(
     tmp_path: Path,

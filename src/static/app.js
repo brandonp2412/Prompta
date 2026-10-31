@@ -9731,6 +9731,7 @@ function ChatsPage($$anchor, $$props) {
 	let searchInput = /* @__PURE__ */ state(void 0);
 	let loadingList = /* @__PURE__ */ state(true);
 	let loadingDetail = /* @__PURE__ */ state(false);
+	let pendingRevealFor = /* @__PURE__ */ state(null);
 	let listError = /* @__PURE__ */ state("");
 	let morePageFailed = /* @__PURE__ */ state(false);
 	let detailError = /* @__PURE__ */ state("");
@@ -9769,7 +9770,7 @@ function ChatsPage($$anchor, $$props) {
 	});
 	let visibleWaiting = /* @__PURE__ */ user_derived(() => get(statusFilter) && get(statusFilter) !== "queued" ? [] : get(queueSnapshot).waiting.filter((job) => !get(search).trim() || job.name.toLowerCase().includes(get(search).trim().toLowerCase())));
 	let unpinned = /* @__PURE__ */ user_derived(() => get(items).filter((item) => !get(pinnedIds).includes(item.send_id)).sort(newestFirst));
-	const switchingChat = /* @__PURE__ */ user_derived(() => $$props.view === "chats" && !!$$props.selectedRunId && get(detail)?.send_id !== $$props.selectedRunId);
+	const switchingChat = /* @__PURE__ */ user_derived(() => $$props.view === "chats" && !!$$props.selectedRunId && (get(detail)?.send_id !== $$props.selectedRunId || get(pendingRevealFor) === $$props.selectedRunId));
 	const selectedChatTitle = /* @__PURE__ */ user_derived(() => {
 		if (get(detail)?.send_id === $$props.selectedRunId) return get(detail).title || get(detail).job_name || "Chats";
 		return [...get(items), ...get(pinnedItems)].find((item) => item.send_id === $$props.selectedRunId)?.title || "Chats";
@@ -10068,6 +10069,7 @@ function ChatsPage($$anchor, $$props) {
 		const generation = ++detailGeneration;
 		const newSelection = get(detail)?.send_id !== id;
 		if (newSelection) {
+			set(pendingRevealFor, id, true);
 			set(detailError, "");
 			set(turnsError, "");
 		}
@@ -10084,6 +10086,8 @@ function ChatsPage($$anchor, $$props) {
 			if (!response.ok) throw new Error("Result not found");
 			const body = await response.json();
 			if (generation !== detailGeneration || $$props.selectedRunId !== id) return;
+			const earlyTurns = newSelection ? await Promise.race([replyRequest, new Promise((resolve) => setTimeout(resolve, 100))]) : void 0;
+			if (generation !== detailGeneration || $$props.selectedRunId !== id) return;
 			set(detail, body, true);
 			const originalTurn = {
 				reply_id: "",
@@ -10094,20 +10098,23 @@ function ChatsPage($$anchor, $$props) {
 				created_at: body.created_at,
 				updated_at: body.updated_at
 			};
-			set(turns, recoverVisibleTurns(null, get(turns), originalTurn, !newSelection), true);
-			set(turnsError, "");
+			set(turns, recoverVisibleTurns(earlyTurns ?? null, get(turns), originalTurn, !newSelection), true);
+			set(turnsError, earlyTurns === null ? "Saved replies are temporarily unavailable; showing the last confirmed turns." : "", true);
 			set(detailError, "");
 			set(loadingDetail, false);
 			if ($$props.view === "chats" && $$props.selectedRunId === id) markRead(body);
 			await tick();
 			if (followTail && get(scrollPane) && $$props.selectedRunId === id) get(scrollPane).scrollTop = get(scrollPane).scrollHeight;
-			const savedTurns = await replyRequest;
+			if (get(pendingRevealFor) === id) set(pendingRevealFor, null);
+			const savedTurns = earlyTurns === void 0 ? await replyRequest : earlyTurns;
 			if (generation !== detailGeneration || $$props.selectedRunId !== id) return;
-			set(turns, recoverVisibleTurns(savedTurns, get(turns), originalTurn, true), true);
-			set(turnsError, !savedTurns ? "Saved replies are temporarily unavailable; showing the last confirmed turns." : "", true);
-			if (followTail) {
-				await tick();
-				if (get(scrollPane) && $$props.selectedRunId === id) get(scrollPane).scrollTop = get(scrollPane).scrollHeight;
+			if (earlyTurns === void 0) {
+				set(turns, recoverVisibleTurns(savedTurns, get(turns), originalTurn, true), true);
+				set(turnsError, !savedTurns ? "Saved replies are temporarily unavailable; showing the last confirmed turns." : "", true);
+				if (followTail) {
+					await tick();
+					if (get(scrollPane) && $$props.selectedRunId === id) get(scrollPane).scrollTop = get(scrollPane).scrollHeight;
+				}
 			}
 		} catch {
 			if (generation === detailGeneration) set(detailError, "This run is unavailable locally.");
