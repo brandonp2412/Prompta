@@ -21,23 +21,11 @@
     // The assistant unit key identifies the rendered answer container across updates.
     return element.getAttribute("data-chatgpt-search-unit-key") || element.getAttribute("data-content-search-unit-key") || "";
   };
-  const uuid = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i;
   const branchMessageId = (element) => {
-    const legacy = element.getAttribute("data-message-id") || "";
-    if (uuid.test(legacy)) return legacy.toLowerCase();
-    const raw = element.getAttribute("data-chatgpt-search-message-ids") || element.getAttribute("data-content-search-message-ids");
-    if (!raw) return "";
-    try {
-      // ChatGPT also emits whitespace-separated IDs, sometimes repeating the
-      // same backend ID. Only one distinct UUID can identify a reply parent.
-      const ids = raw.trim().startsWith("[") ? JSON.parse(raw) : raw.trim().split(/\s+/);
-      if (!Array.isArray(ids) || !ids.length ||
-          !ids.every((id) => typeof id === "string" && uuid.test(id))) return "";
-      const unique = [...new Set(ids.map((id) => id.toLowerCase()))];
-      return unique.length === 1 ? unique[0] : "";
-    } catch { return ""; }
+    const ids = assistantMessageIdsFromDom(element);
+    return ids.length === 1 ? ids[0] : "";
   };
-  const baseline = new Set([...document.querySelectorAll(messageSelector)].map(identity).filter(Boolean));
+  const baseline = new Set(topLevelResponseNodes(document, messageSelector).map(identity).filter(Boolean));
   const replyIdentity = (elements) => {
     if (!elements.length) return "";
     const modern = elements.map((element) =>
@@ -65,7 +53,7 @@
     // ChatGPT can replace <main> when the new conversation receives its URL.
     const main = document.querySelector("main");
     if (!main) return;
-    const fresh = [...main.querySelectorAll(messageSelector)].filter((element) => !baseline.has(identity(element)) && visible(element));
+    const fresh = topLevelResponseNodes(main, messageSelector).filter((element) => !baseline.has(identity(element)) && visible(element));
     const nextId = replyIdentity(fresh);
     if (ambiguous || (fresh.length && (!nextId || (observedId && nextId !== observedId)))) {
       ambiguous = true; // Different turns must not silently replace an earlier answer.

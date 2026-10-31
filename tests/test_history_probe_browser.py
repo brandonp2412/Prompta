@@ -85,15 +85,17 @@ def test_historical_tools_follow_all_chunks_of_only_the_original_turn() -> None:
     first = "11111111-1111-4111-8111-111111111111"
     final = "22222222-2222-4222-8222-222222222222"
     html = f"""<main>
-      <div data-content-search-unit-key="fallback-turn-0:0:user">Original prompt</div>
+      <div data-content-search-unit-key="fallback-turn-0:0:user">
+        <h2>You said:</h2><div data-message-author-role="user"><div class="whitespace-pre-wrap">Original prompt</div></div>
+      </div>
       <article>
         <div data-content-search-unit-key="fallback-turn-0:1:assistant" data-content-search-message-ids="{first}">
-          <div class="markdown">First chunk</div></div>
+          <div data-message-author-role="assistant" data-message-id="{first}"><div class="markdown">First chunk</div></div></div>
         <button data-state="completed">Used Search</button>
       </article>
       <article>
-        <div data-content-search-unit-key="fallback-turn-0:2:assistant" data-content-search-message-ids="{final} {final}">
-          <div class="markdown">Final chunk</div></div>
+        <div data-content-search-unit-key="fallback-turn-0:2:assistant" data-content-search-message-ids="{first} {final}">
+          <div data-message-author-role="assistant" data-message-id="{final}"><div class="markdown">Final chunk</div></div></div>
         <button data-state="completed">Used Calendar</button>
         <button data-testid="copy-turn-action-button">Copy</button>
       </article>
@@ -121,6 +123,53 @@ def test_historical_tools_follow_all_chunks_of_only_the_original_turn() -> None:
                     {"action": "Used Search", "status": "completed"},
                     {"action": "Used Calendar", "status": "completed"},
                 ]
+            finally:
+                await browser.close()
+
+    asyncio.run(fixture())
+
+
+def test_live_capture_deduplicates_nested_messages_and_keeps_tool_headings() -> None:
+    chromium = Path(os.environ.get("PROMPTA_TEST_CHROMIUM", "/usr/bin/chromium"))
+    if not chromium.exists():
+        pytest.skip("Chromium test browser is not installed")
+    first = "11111111-1111-4111-8111-111111111111"
+    final = "22222222-2222-4222-8222-222222222222"
+    response = f"""<article>
+      <div data-content-search-unit-key="fallback-turn-0:1:assistant" data-content-search-message-ids="{first}">
+        <div data-message-author-role="assistant" data-message-id="{first}"><div class="markdown">First chunk</div></div>
+      </div><button data-state="completed">Used Search</button>
+    </article><article>
+      <div data-content-search-unit-key="fallback-turn-0:2:assistant" data-content-search-message-ids="{first} {final}">
+        <div data-message-author-role="assistant" data-message-id="{final}"><div class="markdown">Final chunk</div></div>
+      </div><div>private reasoning</div><button data-state="completed">Used Calendar</button>
+      <button data-testid="copy-turn-action-button">Copy</button>
+    </article>"""
+
+    async def fixture() -> None:
+        async with async_playwright() as playwright:
+            browser = await playwright.chromium.launch(executable_path=str(chromium), headless=True)
+            try:
+                page = await browser.new_page()
+                await page.route("https://chatgpt.com/c/**", lambda route: route.fulfill(
+                    status=200, content_type="text/html", body="<main></main>",
+                ))
+                await page.goto("https://chatgpt.com/c/" + CONVERSATION)
+                assert await page.evaluate(load_browser_script("passive_response_observer.js"))
+                await page.evaluate("""html => {
+                    const fixture = new DOMParser().parseFromString(html, 'text/html');
+                    document.querySelector('main').append(...fixture.body.childNodes);
+                }""", response)
+                await page.wait_for_function("window.__promptaPassiveResponseObserver.read().complete")
+                captured = await page.evaluate(load_browser_script("passive_response_read.js"))
+                assert captured["ambiguous"] is False
+                assert captured["text"] == "First chunk\n\nFinal chunk"
+                assert captured["branch_message_id"] == final
+                assert captured["tool_calls"] == [
+                    {"action": "Used Search", "status": "completed"},
+                    {"action": "Used Calendar", "status": "completed"},
+                ]
+                assert "private reasoning" not in str(captured)
             finally:
                 await browser.close()
 

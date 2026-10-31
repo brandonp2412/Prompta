@@ -17,19 +17,18 @@
   }
   const main = document.querySelector("main");
   if (!main) return empty;
-  const users = [...main.querySelectorAll(
-    '[data-message-author-role="user"], [data-chatgpt-search-unit-key$=":user"], [data-content-search-unit-key$=":user"]'
-  )].filter(visible);
+  const userSelector = '[data-message-author-role="user"], [data-chatgpt-search-unit-key$=":user"], [data-content-search-unit-key$=":user"]';
+  const users = topLevelResponseNodes(main, userSelector).filter(visible);
   if (!users.length) return empty;
-  const userText = normalize(users[0].innerText || users[0].textContent || "");
+  const userBody = users[0].querySelector?.(".whitespace-pre-wrap") || users[0];
+  const userText = normalize(userBody.innerText || userBody.textContent || "");
   const expected = normalize(originalPrompt);
   // Controls may append labels to the original user text, but must not replace it.
   if (!expected || (!userText.startsWith(expected) && userText !== expected)) {
     return { ...empty, ambiguous: true };
   }
-  const assistants = [...main.querySelectorAll(
-    '[data-message-author-role="assistant"][data-message-id], [data-chatgpt-search-unit-key$=":assistant"][data-chatgpt-search-message-ids], [data-content-search-unit-key$=":assistant"]'
-  )].filter(visible);
+  const assistantSelector = '[data-message-author-role="assistant"][data-message-id], [data-chatgpt-search-unit-key$=":assistant"][data-chatgpt-search-message-ids], [data-content-search-unit-key$=":assistant"]';
+  const assistants = topLevelResponseNodes(main, assistantSelector).filter(visible);
   if (!assistants.length) return { ...empty, verified: true };
   const assistant = assistants[0];
   const beforeNextUser = (node) => !users[1] || Boolean(
@@ -61,21 +60,10 @@
   const generating = [...document.querySelectorAll(
     'button[data-testid="stop-button"], button[aria-label="Stop generating"], button[aria-label="Stop streaming"]'
   )].some(visible);
-  const uuid = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i;
   const lastTextIndex = segments.findLastIndex(Boolean);
   const finalAnswer = lastTextIndex < 0 ? assistant : answerUnits[lastTextIndex];
-  const legacy = finalAnswer.getAttribute("data-message-id") || "";
-  let branch = uuid.test(legacy) ? legacy.toLowerCase() : "";
-  if (!branch) {
-    const raw = finalAnswer.getAttribute("data-chatgpt-search-message-ids") || finalAnswer.getAttribute("data-content-search-message-ids") || "";
-    try {
-      const ids = raw.trim().startsWith("[") ? JSON.parse(raw) : raw.trim().split(/\s+/);
-      if (Array.isArray(ids) && ids.length && ids.every((id) => typeof id === "string" && uuid.test(id))) {
-        const unique = [...new Set(ids.map((id) => id.toLowerCase()))];
-        if (unique.length === 1) branch = unique[0];
-      }
-    } catch {}
-  }
+  const finalIds = assistantMessageIdsFromDom(finalAnswer);
+  const branch = finalIds.length === 1 ? finalIds[0] : "";
   return {
     verified: true, ambiguous: false, message_id: identity,
     branch_message_id: branch, pathname: location.pathname, text,

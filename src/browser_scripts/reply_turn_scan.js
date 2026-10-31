@@ -41,19 +41,7 @@ const scanExactReplyTurn = (conversation, originalPrompt, replyText, parent, all
       !normalize(replyText) || userText(replyUser) !== normalize(replyText)) {
     return { ...empty, ambiguous: true };
   }
-  const uuid = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i;
-  const ids = (node) => {
-    const legacy = node.getAttribute("data-message-id") || "";
-    if (legacy) return uuid.test(legacy) ? [legacy.toLowerCase()] : [];
-    const raw = node.getAttribute("data-chatgpt-search-message-ids") ||
-      node.getAttribute("data-content-search-message-ids") || "";
-    try {
-      const parsed = raw.trim().startsWith("[") ? JSON.parse(raw) : raw.trim().split(/\s+/);
-      return Array.isArray(parsed) && parsed.length &&
-        parsed.every((id) => typeof id === "string" && uuid.test(id))
-        ? [...new Set(parsed.map((id) => id.toLowerCase()))] : [];
-    } catch { return []; }
-  };
+  const ids = assistantMessageIdsFromDom;
   const originalAssistants = nodes.slice(previousUser.index + 1, replyUser.index)
     .filter(({ role }) => role === "assistant");
   if (!originalAssistants.length ||

@@ -113,6 +113,27 @@
     return block(root).trim();
   };
 
+// Search units can wrap legacy message nodes. Treat each rendered unit once.
+const topLevelResponseNodes = (root, selector) => [...root.querySelectorAll(selector)]
+  .filter((node) => !node.parentElement?.closest(selector));
+const assistantMessageIdsFromDom = (element) => {
+  const uuid = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i;
+  const legacy = element.getAttribute("data-message-id") || "";
+  if (legacy) return uuid.test(legacy) ? [legacy.toLowerCase()] : [];
+  // A final legacy node inside a modern search unit is stronger evidence than
+  // an aggregate list that also contains tool and thought message identities.
+  const nested = [...element.querySelectorAll('[data-message-author-role="assistant"][data-message-id]')]
+    .map((node) => node.getAttribute?.("data-message-id")).filter(Boolean);
+  if (nested.length) return nested.every((id) => uuid.test(id))
+    ? [...new Set(nested.map((id) => id.toLowerCase()))] : [];
+  const raw = element.getAttribute("data-chatgpt-search-message-ids") || element.getAttribute("data-content-search-message-ids") || "";
+  try {
+    const ids = raw.trim().startsWith("[") ? JSON.parse(raw) : raw.trim().split(/\s+/);
+    return Array.isArray(ids) && ids.length && ids.every((id) => typeof id === "string" && uuid.test(id))
+      ? [...new Set(ids.map((id) => id.toLowerCase()))] : [];
+  } catch { return []; }
+};
+
 // Read visible tool headings only inside the already verified owned response turn.
 // Never expand controls, read tool bodies/thoughts, or issue requests.
 const toolCallsFromTurns = (turns, visible, markdownSelector) => {
