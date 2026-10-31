@@ -89,8 +89,8 @@ def test_recovery_health_never_counts_invalid_conversation_ids_as_recoverable(
             ).values(conversation_id="not-a-verified-uuid"))
         recovery = get(port, "/api/health")[1]["recovery"]
         assert isinstance(recovery, dict)
-        assert recovery["recoverable"] == 0
-        assert recovery["missing_verified_identity"] == 1
+        assert recovery.get("recoverable") == 0
+        assert recovery.get("missing_verified_identity") == 1
 
         with app.results.engine.begin() as connection:
             connection.execute(update(result_table).where(
@@ -98,8 +98,8 @@ def test_recovery_health_never_counts_invalid_conversation_ids_as_recoverable(
             ).values(conversation_id="12345678-1234-4123-8123-123456789abc"))
         recovery = get(port, "/api/health")[1]["recovery"]
         assert isinstance(recovery, dict)
-        assert recovery["recoverable"] == 1
-        assert recovery["missing_verified_identity"] == 0
+        assert recovery.get("recoverable") == 1
+        assert recovery.get("missing_verified_identity") == 0
 
 
 @pytest.mark.parametrize(
