@@ -13588,7 +13588,11 @@ function createChatsPageController(initialProps) {
 			ok: false,
 			message: "Wait for the current response to finish."
 		};
-		if (!latest.conversation_id) return sendFresh(freshContinuationPrompt(text), originalImageRefs());
+		if (!latest.conversation_id) return {
+			ok: false,
+			fallbackAvailable: true,
+			message: "This chat has no verified ChatGPT conversation ID. Nothing was sent. Choose Continue in new chat to create a separate conversation with saved context."
+		};
 		const verification = latest.message_id ? { messageId: latest.message_id } : await recoverReply(sendId);
 		const parentId = verification.messageId;
 		if (!parentId) {
@@ -15591,6 +15595,7 @@ function createChatComposerController(initialProps) {
 	const sendDisabled = y$2(initialProps.sendDisabled);
 	const restoreDraft = y$2(initialProps.restoreDraft);
 	const retryablePreflight = y$2(initialProps.retryablePreflight);
+	const offerFreshContinuation = y$2(initialProps.offerFreshContinuation);
 	let draft = y$2("");
 	let restoredDraft = y$2("");
 	let restoredPreflight = y$2(false);
@@ -15616,7 +15621,7 @@ function createChatComposerController(initialProps) {
 	const canAttach = O(() => mode.value === "fresh" && !disabled.value && !sending.value && !uploading.value);
 	const hasDraft = O(() => !!draft.value.trim());
 	const canSend = O(() => !disabled.value && !sendDisabled.value && !sending.value && !uploading.value && hasDraft.value);
-	const canFallback = O(() => mode.value === "reply" && !disabled.value && !sending.value && !uploading.value && hasDraft.value && fallbackAvailable.value && !!onFallbackSend.value);
+	const canFallback = O(() => mode.value === "reply" && !disabled.value && !sending.value && !uploading.value && hasDraft.value && (fallbackAvailable.value || offerFreshContinuation.value) && !!onFallbackSend.value);
 	function resizeTextarea() {
 		fitTextarea();
 	}
@@ -15864,6 +15869,7 @@ function createChatComposerController(initialProps) {
 			if (sendDisabled.peek() !== next.sendDisabled) sendDisabled.value = next.sendDisabled;
 			if (restoreDraft.peek() !== next.restoreDraft) restoreDraft.value = next.restoreDraft;
 			if (retryablePreflight.peek() !== next.retryablePreflight) retryablePreflight.value = next.retryablePreflight;
+			if (offerFreshContinuation.peek() !== next.offerFreshContinuation) offerFreshContinuation.value = next.offerFreshContinuation;
 		});
 	}
 	return {
@@ -15877,6 +15883,7 @@ function createChatComposerController(initialProps) {
 		sending,
 		feedback,
 		fallbackAvailable,
+		offerFreshContinuation,
 		dragging,
 		textarea,
 		fileInput,
@@ -15900,7 +15907,7 @@ function createChatComposerController(initialProps) {
 function ChatComposer(props) {
 	const model = (0, import_react.useMemo)(() => createChatComposerController(props), []);
 	N$1();
-	const { mode, onFallbackSend, onNewChat, disabled, draft, images, uploading, sending, feedback, fallbackAvailable, dragging, fileInput, draftStorageKey, canAttach, hasDraft, canSend, canFallback, draftChanged, addFiles, submit, keydown, pasted, dropped } = model;
+	const { mode, onFallbackSend, onNewChat, disabled, draft, images, uploading, sending, feedback, fallbackAvailable, offerFreshContinuation, dragging, fileInput, draftStorageKey, canAttach, hasDraft, canSend, canFallback, draftChanged, addFiles, submit, keydown, pasted, dropped } = model;
 	const refs = (0, import_react.useMemo)(() => ({
 		textarea: (element) => {
 			if (model.textarea.peek() !== (element ?? void 0)) model.textarea.value = element ?? void 0;
@@ -16056,12 +16063,12 @@ function ChatComposer(props) {
 				className: "composer-feedback",
 				children: feedback.value
 			}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {}),
-			mode.value === "reply" && fallbackAvailable.value && onFallbackSend.value && hasDraft.value ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+			mode.value === "reply" && (fallbackAvailable.value || offerFreshContinuation.value) && onFallbackSend.value && hasDraft.value ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 				type: "button",
 				disabled: !canFallback.value,
 				onClick: () => void submit(true),
 				className: "composer-fallback",
-				children: "Start new chat with last result"
+				children: "Continue in new chat"
 			}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {})
 		]
 	}) });
@@ -18556,7 +18563,7 @@ function ChatTranscript({ model, refs }) {
 							type: "button",
 							onClick: () => void retryFailedTurn(turn),
 							className: "row-action",
-							children: "Retry this follow-up"
+							children: "Retry unsent reply"
 						}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {})] }),
 						index === turns.value.length - 1 && turns.value.some((saved) => saved.assistant_text.trim()) && [
 							"preflight_failed",
@@ -18571,7 +18578,7 @@ function ChatTranscript({ model, refs }) {
 								disabled: startingNewChat.value,
 								"aria-busy": startingNewChat.value,
 								onClick: () => void startFailedReplyInNewChat(turn),
-								children: "Start new chat with last result"
+								children: "Continue in new chat"
 							}), turn.status === "outcome_unknown" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "The original reply may still have been delivered." })]
 						}),
 						index === 0 && [
@@ -18798,6 +18805,12 @@ function ChatsPage(props) {
 						chatId: selectedRunId.value ?? void 0,
 						onSend: selectedRunId.value ? sendReply : sendFresh,
 						onFallbackSend: (text) => sendFresh(freshContinuationPrompt(text), originalImageRefs()),
+						offerFreshContinuation: Boolean(selectedRunId.value && detail.value?.send_id === selectedRunId.value && !detail.value.conversation_id && !turns.value.at(-1)?.conversation_id && [
+							"completed",
+							"interrupted",
+							"unavailable",
+							"outcome_unknown"
+						].includes(turns.value.at(-1)?.status ?? "")),
 						onNewChat: createChat,
 						restoreDraft: selectedRunId.value && detail.value?.send_id === selectedRunId.value && turns.value.at(-1)?.status === "preflight_failed" ? turns.value.at(-1)?.user_text ?? "" : "",
 						retryablePreflight: Boolean(selectedRunId.value && detail.value?.send_id === selectedRunId.value && turns.value.at(-1)?.status === "preflight_failed"),

@@ -190,7 +190,8 @@ def test_explicit_reply_respects_shared_resource_admission(
     # Resource admission can recover, but only another explicit click with
     # the exact immutable intent may rearm this definitely-unsent request.
     SchedulerRuntime(state, state).set_resource_admission(True, "")
-    assert store.get(REPLY_ID)["status"] == "preflight_failed"
+    unsent = store.get(REPLY_ID)
+    assert unsent is not None and unsent["status"] == "preflight_failed"
     with pytest.raises(ReplyConflict, match="Idempotency key"):
         service.submit("send-1", ReplyIntent(REPLY_ID, CONVERSATION, PARENT, "Changed text"))
     assert service.submit("send-1", intent)["status"] == "prepared"
