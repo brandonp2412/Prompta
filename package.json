@@ -13,7 +13,7 @@
     "build": "vite build && bun scripts/normalize-bundle.mjs src/static/app.js",
     "fmt": "bun x oxfmt src/ui vite.config.ts",
     "fmt:check": "bun x oxfmt --check src/ui vite.config.ts",
-    "lint": "bun x oxlint --deny-warnings --type-aware --type-check src/ui && bun run lint:dom",
+    "lint": "bun x oxlint --deny-warnings --type-aware --type-check -D no-nested-ternary src/ui && bun run lint:dom",
     "lint:dom": "bun scripts/lint-react-dom.mjs && node --test tests/lintReactDom.test.mjs",
     "typecheck": "bun x tsgo -p tsconfig.json --noEmit",
     "check": "bun run fmt:check && bun run lint && bun run typecheck && bun run build"
