@@ -677,7 +677,7 @@ class ManualReplyStore:
                 results.c.send_id == row["send_id"],
                 results.c.conversation_id == capture.conversation_id,
             )).mappings().one_or_none()
-            if original is None or original["status"] != "completed":
+            if original is None or original["status"] not in ("completed", "interrupted", "unavailable"):
                 return False
             if original["message_id"] != row["parent_id"]:
                 verified_predecessor = connection.execute(select(replies.c.reply_id).where(

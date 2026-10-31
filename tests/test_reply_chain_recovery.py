@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from sqlalchemy import update
 
 from prompta.history_recovery import HistoryRecovery
@@ -76,8 +77,16 @@ def test_later_uncertain_reply_is_eligible_only_with_verified_predecessor(tmp_pa
     assert unresolved is not None and unresolved["status"] == "outcome_unknown"
 
 
-def test_later_reply_recovers_via_one_read_only_exact_chat_visit(tmp_path: Path) -> None:
+@pytest.mark.parametrize("original_status", ["completed", "interrupted", "unavailable"])
+def test_later_reply_recovers_via_one_read_only_exact_chat_visit(
+    tmp_path: Path, original_status: str,
+) -> None:
     responses, replies, reply_id = _chain(tmp_path)
+    if original_status != "completed":
+        with responses.engine.begin() as connection:
+            connection.execute(update(result_table).where(
+                result_table.c.send_id == "chain-run",
+            ).values(status=original_status))
 
     class ReadOnlyDriver:
         context = "owned"
@@ -216,6 +225,30 @@ def test_interrupted_original_keeps_verified_reply_recovery_eligible(tmp_path: P
         ).values(conversation_id="different-conversation"))
     assert replies.next_history_reply_recovery(now=20) is None
     assert replies.reply_recovery_metrics(now=20)["recoverable_reply_captures"] == 0
+
+
+@pytest.mark.parametrize("original_status", ["interrupted", "unavailable"])
+def test_verified_followup_recovers_after_original_capture_fails(
+    tmp_path: Path, original_status: str,
+) -> None:
+    responses, replies, reply_id = _chain(tmp_path)
+    with responses.engine.begin() as connection:
+        connection.execute(update(result_table).where(
+            result_table.c.send_id == "chain-run",
+        ).values(status=original_status))
+
+    candidate = replies.next_history_reply_recovery(now=20)
+    assert candidate is not None and candidate["reply_id"] == reply_id
+    assert replies.recover_historical_reply(
+        reply_id,
+        CaptureResult("dom", "complete", "Recovered second answer",
+                      CONVERSATION, SECOND_REPLY_ID, FIRST_REPLY_ID, "turn"),
+        now=21,
+    )
+    saved = replies.get(reply_id)
+    assert saved is not None and saved["status"] == "completed"
+    assert saved["assistant_text"] == "Recovered second answer"
+    assert replies.next_history_reply_recovery(now=22) is None
 
 
 def test_attention_filter_surfaces_uncertain_followups_and_clears_after_recovery(

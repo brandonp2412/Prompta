@@ -27,11 +27,18 @@ class AccountReadGate:
     def note_http_429(self, retry_after_header: str | None = None) -> float:
         """Register one rate-limit event per account cooldown, not per failed XHR."""
         remaining = self.remaining()
+        explicit_delay = parse_retry_after_header(retry_after_header)
         if remaining > 0:
-            return remaining
-        retry_after = max(DEFAULT_RETRY_AFTER, parse_retry_after_header(retry_after_header))
+            if explicit_delay <= remaining:
+                return remaining
+            return self.runtime.record_read_rate_limit(
+                RateLimitError("ChatGPT account read HTTP 429", retry_after=explicit_delay),
+                extend_only=True,
+            )
+        retry_after = max(DEFAULT_RETRY_AFTER, explicit_delay)
         remaining = self.runtime.record_read_rate_limit(
-            RateLimitError("ChatGPT account read HTTP 429", retry_after=retry_after)
+            RateLimitError("ChatGPT account read HTTP 429", retry_after=retry_after),
+            extend_only=True,
         )
         logger.warning("ChatGPT account read paused after HTTP 429 seconds=%d", round(remaining))
         return remaining

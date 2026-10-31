@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import threading
+import time
 from collections.abc import Generator
 from contextlib import contextmanager
 from http.client import HTTPConnection, HTTPResponse
@@ -116,6 +117,26 @@ def test_live_revisions_do_not_depend_on_private_payloads(tmp_path: Path) -> Non
         after_queue = app.live_events.snapshot()
         assert after_queue.chats != after_job.chats
         assert after_queue.jobs == after_job.jobs
+
+
+def test_service_heartbeats_do_not_reload_jobs_but_scheduler_changes_do(tmp_path: Path) -> None:
+    app = LiveServer(
+        ("127.0.0.1", 0), state_path=tmp_path / "runtime.sqlite3",
+        jobs_path=tmp_path / "jobs.sqlite3",
+    )
+    try:
+        before = app.live_events.snapshot()
+        assert app.health.beat("ui", now=time.time() + 10)
+        after_heartbeat = app.live_events.snapshot()
+        assert after_heartbeat.jobs == before.jobs
+        assert after_heartbeat.chats == before.chats
+
+        app.queue_view.runtime.update_scheduler_state({"live_jobs_probe": 1})
+        after_job_state = app.live_events.snapshot()
+        assert after_job_state.jobs != after_heartbeat.jobs
+        assert after_job_state.chats == after_heartbeat.chats
+    finally:
+        app.server_close()
 
 
 def test_live_revision_stat_failure_does_not_break_event_observation(tmp_path: Path) -> None:

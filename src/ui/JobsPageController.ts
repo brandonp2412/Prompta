@@ -44,6 +44,7 @@ export function createJobsPageController(initialProps: Props) {
       recoverable: number;
       ready_for_read_only_probe: number;
       missing_verified_identity: number;
+      attention_chats: number;
       unresolved_reply_captures: number;
       recoverable_reply_captures: number;
       due_reply_recovery_probes: number;

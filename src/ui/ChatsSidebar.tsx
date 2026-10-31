@@ -31,6 +31,9 @@ export default function ChatsSidebar({
     readError,
     markingAllRead,
     attentionChats,
+    recoveryBacklog,
+    recoveryReplyBacklog,
+    recoveryPauseSeconds,
     drawerOpen,
     filtersOpen,
     search,
@@ -195,6 +198,16 @@ export default function ChatsSidebar({
           </strong>
         </button>
       )}
+      {attentionCount > 0 &&
+        ((recoveryBacklog.value ?? 0) > 0 || (recoveryReplyBacklog.value ?? 0) > 0) && (
+          <p className="chat-recovery-summary">
+            Recovery: {recoveryBacklog.value ?? 0} original captures eligible
+            {(recoveryReplyBacklog.value ?? 0) > 0 &&
+              ` · ${recoveryReplyBacklog.value} follow-ups unresolved`}
+            {recoveryPauseSeconds.value > 0 &&
+              ` · waiting ~${Math.ceil(recoveryPauseSeconds.value / 60)} min`}
+          </p>
+        )}
       {filtersOpen.value ? (
         <>
           <div id="chat-filters" className="chats-controls">

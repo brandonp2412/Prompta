@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import time
 from pathlib import Path
 from unittest.mock import patch
 
@@ -88,16 +89,18 @@ def test_recovery_health_never_counts_invalid_conversation_ids_as_recoverable(
                 result_table.c.send_id == "invalid-id"
             ).values(conversation_id="not-a-verified-uuid"))
         recovery = get(port, "/api/health")[1]["recovery"]
-        assert recovery["recoverable"] == 0
-        assert recovery["missing_verified_identity"] == 1
+        assert isinstance(recovery, dict)
+        assert recovery.get("recoverable") == 0
+        assert recovery.get("missing_verified_identity") == 1
 
         with app.results.engine.begin() as connection:
             connection.execute(update(result_table).where(
                 result_table.c.send_id == "invalid-id"
             ).values(conversation_id="12345678-1234-4123-8123-123456789abc"))
         recovery = get(port, "/api/health")[1]["recovery"]
-        assert recovery["recoverable"] == 1
-        assert recovery["missing_verified_identity"] == 0
+        assert isinstance(recovery, dict)
+        assert recovery.get("recoverable") == 1
+        assert recovery.get("missing_verified_identity") == 0
 
 
 @pytest.mark.parametrize("width,height", [(1440, 900), (390, 844)])
@@ -136,4 +139,32 @@ def test_jobs_shows_real_readiness_and_uncertain_queue_metrics(
             expect(page.get_by_text("Follow-ups eligible for recovery")).to_be_visible()
             expect(page.get_by_text("Read-only recovery is waiting", exact=False)).to_be_visible()
             assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+            browser.close()
+
+
+def test_global_probe_pacing_is_not_mislabeled_as_account_cooldown(tmp_path: Path) -> None:
+    executable = os.environ.get("PROMPTA_TEST_CHROMIUM", "")
+    if not executable or not Path(executable).exists():
+        pytest.skip("Headless Chromium unavailable")
+    with server(tmp_path) as (app, port):
+        app.results.ensure_queued("paced", "Synthetic recovery prompt", now=10)
+        assert app.results.accept("paced", "123:owner", deadline=50, now=11)
+        assert app.results.bind_conversation_route(
+            "paced", "123:owner", "/c/12345678-1234-4123-8123-123456789abc", now=12,
+        )
+        assert app.results.finish("paced", "123:owner", "interrupted", now=50)
+        now = time.time()
+        app.results.schedule_history_recovery("__global_pacing__", next_attempt_at=now + 80, now=now)
+        with (
+            patch("prompta.web.browser_page_count", return_value=(True, 1)),
+            sync_playwright() as playwright,
+        ):
+            browser = playwright.chromium.launch(executable_path=executable, headless=True)
+            page = browser.new_page(viewport={"width": 390, "height": 844})
+            page.goto(f"http://127.0.0.1:{port}/?view=jobs")
+            summary = page.locator(".delivery-diagnostics summary")
+            expect(summary).not_to_contain_text("Recovery paused")
+            summary.click()
+            expect(page.get_by_text("Read-only recovery is paced", exact=False)).to_be_visible()
+            assert page.evaluate("document.documentElement.scrollWidth <= innerWidth + 1")
             browser.close()

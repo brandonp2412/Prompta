@@ -17,6 +17,7 @@
 .chat-attention-shortcut { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: calc(100% - 20px); margin: 0 10px 8px; padding: 10px 12px; color: #f0b0ac; background: #342627; border: 1px solid #624346; border-radius: 11px; font-size: .82rem; text-align: left; cursor: pointer; }
 .chat-attention-shortcut:hover { background: #443032; }
 .chat-attention-shortcut strong { font-size: .75rem; white-space: nowrap; }
+.chat-recovery-summary { margin: -3px 12px 9px; color: #b8b8bd; font-size: .73rem; line-height: 1.4; }
 .chats-list { padding: 1px 8px 8px; }
 .chat-entry { margin: 1px 0; }
 .chat-entry .chat-row { min-height: 55px; padding: 9px 4px 9px 11px; display: flex; flex-direction: column; align-items: stretch; justify-content: center; gap: 2px; min-width: 0; }

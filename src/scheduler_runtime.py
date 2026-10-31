@@ -363,11 +363,12 @@ class SchedulerRuntime:
         self.update_account_state({"read_rate_limit_backoff": snapshot})
         self.update_scheduler_state({"read_rate_limit_backoff": snapshot})
 
-    def record_read_rate_limit(self, exc: RateLimitError) -> float:
+    def record_read_rate_limit(self, exc: RateLimitError, *, extend_only: bool = False) -> float:
         wall_time = time.time()
         engine = self._connect_state()
         try:
             with engine.begin() as connection:
+                connection.exec_driver_sql("BEGIN IMMEDIATE")
                 value_json = connection.execute(
                     select(account_state.c.value_json).where(
                         account_state.c.key == "read_rate_limit_backoff"
@@ -381,7 +382,13 @@ class SchedulerRuntime:
                         decoded = {}
                     snapshot = string_object_dict(decoded) or {}
                     backoff.restore(snapshot, wall_time=wall_time)
-                remaining = backoff.record(float(exc.retry_after))
+                if extend_only and backoff.remaining() > 0:
+                    backoff.blocked_until = max(
+                        backoff.blocked_until, time.monotonic() + float(exc.retry_after),
+                    )
+                    remaining = backoff.remaining()
+                else:
+                    remaining = backoff.record(float(exc.retry_after))
                 snapshot = backoff.snapshot(wall_time=wall_time)
                 updates = {
                     "read_rate_limit_backoff": snapshot,

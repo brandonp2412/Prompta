@@ -714,7 +714,22 @@ class ResponseStore:
             return connection.execute(stmt).rowcount == 1
 
     def pause_history_recovery_security(self, *, until: float, now: float | None = None) -> None:
-        self.schedule_history_recovery("__security_pause__", next_attempt_at=until, now=now)
+        at = time.time() if now is None else now
+        stmt = insert(history_recovery_attempts).values(
+            send_id="__security_pause__", attempt_count=1,
+            next_attempt_at=until, last_attempt_at=at,
+        )
+        with self.engine.begin() as connection:
+            connection.execute(stmt.on_conflict_do_update(
+                index_elements=[history_recovery_attempts.c.send_id],
+                set_={
+                    "next_attempt_at": func.max(
+                        history_recovery_attempts.c.next_attempt_at, stmt.excluded.next_attempt_at,
+                    ),
+                    "last_attempt_at": at,
+                    "attempt_count": history_recovery_attempts.c.attempt_count + 1,
+                },
+            ))
 
     def recover_historical_response(
         self, send_id: str, capture: CaptureResult, *, now: float | None = None,

@@ -21,7 +21,7 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 	enumerable: true
 }) : target, mod));
 //#endregion
-//#region node_modules/scheduler/cjs/scheduler.production.js
+//#region ../../prompta/node_modules/scheduler/cjs/scheduler.production.js
 /**
 * @license React
 * scheduler.production.js
@@ -276,12 +276,12 @@ var require_scheduler_production = /* @__PURE__ */ __commonJSMin(((exports) => {
 	};
 }));
 //#endregion
-//#region node_modules/scheduler/index.js
+//#region ../../prompta/node_modules/scheduler/index.js
 var require_scheduler = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_scheduler_production();
 }));
 //#endregion
-//#region node_modules/react/cjs/react.production.js
+//#region ../../prompta/node_modules/react/cjs/react.production.js
 /**
 * @license React
 * react.production.js
@@ -668,12 +668,12 @@ var require_react_production = /* @__PURE__ */ __commonJSMin(((exports) => {
 	exports.version = "19.3.1";
 }));
 //#endregion
-//#region node_modules/react/index.js
+//#region ../../prompta/node_modules/react/index.js
 var require_react = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_react_production();
 }));
 //#endregion
-//#region node_modules/react-dom/cjs/react-dom.production.js
+//#region ../../prompta/node_modules/react-dom/cjs/react-dom.production.js
 /**
 * @license React
 * react-dom.production.js
@@ -826,7 +826,7 @@ var require_react_dom_production = /* @__PURE__ */ __commonJSMin(((exports) => {
 	exports.version = "19.3.1";
 }));
 //#endregion
-//#region node_modules/react-dom/index.js
+//#region ../../prompta/node_modules/react-dom/index.js
 var require_react_dom = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	function checkDCE() {
 		if (typeof __REACT_DEVTOOLS_GLOBAL_HOOK__ === "undefined" || typeof __REACT_DEVTOOLS_GLOBAL_HOOK__.checkDCE !== "function") return;
@@ -840,7 +840,7 @@ var require_react_dom = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_react_dom_production();
 }));
 //#endregion
-//#region node_modules/react-dom/cjs/react-dom-client.production.js
+//#region ../../prompta/node_modules/react-dom/cjs/react-dom-client.production.js
 /**
 * @license React
 * react-dom-client.production.js
@@ -11415,7 +11415,7 @@ var require_react_dom_client_production = /* @__PURE__ */ __commonJSMin(((export
 	};
 }));
 //#endregion
-//#region node_modules/react-dom/client.js
+//#region ../../prompta/node_modules/react-dom/client.js
 var require_client = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	function checkDCE() {
 		if (typeof __REACT_DEVTOOLS_GLOBAL_HOOK__ === "undefined" || typeof __REACT_DEVTOOLS_GLOBAL_HOOK__.checkDCE !== "function") return;
@@ -11429,7 +11429,7 @@ var require_client = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_react_dom_client_production();
 }));
 //#endregion
-//#region node_modules/@preact/signals-core/dist/signals-core.module.js
+//#region ../../prompta/node_modules/@preact/signals-core/dist/signals-core.module.js
 var import_react = /* @__PURE__ */ __toESM(require_react());
 var import_client = require_client();
 var i$1 = Symbol.for("preact-signals");
@@ -11841,7 +11841,7 @@ function x$2(i, t) {
 	return n;
 }
 //#endregion
-//#region node_modules/use-sync-external-store/cjs/use-sync-external-store-shim.production.js
+//#region ../../prompta/node_modules/use-sync-external-store/cjs/use-sync-external-store-shim.production.js
 /**
 * @license React
 * use-sync-external-store-shim.production.js
@@ -11901,7 +11901,7 @@ var require_use_sync_external_store_shim_production = /* @__PURE__ */ __commonJS
 	exports.useSyncExternalStore = void 0 !== React.useSyncExternalStore ? React.useSyncExternalStore : shim;
 }));
 //#endregion
-//#region node_modules/@preact/signals-react/runtime/dist/runtime.module.js
+//#region ../../prompta/node_modules/@preact/signals-react/runtime/dist/runtime.module.js
 var import_shim = (/* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_use_sync_external_store_shim_production();
 })))();
@@ -14632,7 +14632,7 @@ function createJobsPageController(initialProps) {
 	};
 }
 //#endregion
-//#region node_modules/react/cjs/react-jsx-runtime.production.js
+//#region ../../prompta/node_modules/react/cjs/react-jsx-runtime.production.js
 /**
 * @license React
 * react-jsx-runtime.production.js
@@ -14943,13 +14943,15 @@ function DeliveryDiagnostics({ model }) {
 	N$1();
 	const health = model.deliveryHealth.value;
 	const error = model.deliveryHealthError.value;
-	const pause = model.recoveryPauseSeconds.value;
+	const pause = Math.max(health?.recovery.account_read_backoff_seconds ?? 0, health?.recovery.security_pause_seconds ?? 0);
+	const pace = health?.recovery.global_pace_seconds ?? 0;
 	const nextRetry = health?.queue.next_retry_at_epoch;
+	const attentionCount = health?.recovery.attention_chats ?? 0;
 	const recoveryWaiting = Boolean(health && pause > 0 && (health.recovery.recoverable > 0 || health.recovery.recoverable_reply_captures > 0));
 	let label = "status unavailable";
 	if (!error && health?.ready === false) label = "needs attention";
 	else if (!error && health?.admission?.blocked) label = "waiting for capacity";
-	else if (!error && health) label = "online";
+	else if (!error && health) label = attentionCount > 0 ? "online · review needed" : "online";
 	if (!health && !error) return null;
 	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("details", {
 		className: "delivery-diagnostics",
@@ -14962,6 +14964,15 @@ function DeliveryDiagnostics({ model }) {
 					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
 						className: "delivery-count",
 						children: [model.pendingDeliveries.value, " pending"]
+					}),
+					attentionCount > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+						className: "delivery-count",
+						children: [
+							attentionCount,
+							" ",
+							attentionCount === 1 ? "chat needs" : "chats need",
+							" review"
+						]
 					}),
 					health.queue.outcome_unknown > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
 						className: "delivery-count",
@@ -15013,11 +15024,12 @@ function DeliveryDiagnostics({ model }) {
 					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("dt", { children: "Captures in progress" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("dd", { children: health.recovery.active_captures })] }),
 					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("dt", { children: "Stale capture leases" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("dd", { children: health.recovery.stale_capture_leases })] }),
 					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("dt", { children: "Chats eligible for read-only recovery" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("dd", { children: health.recovery.recoverable })] }),
-					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("dt", { children: "Due for recovery probe" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("dd", { children: health.recovery.ready_for_read_only_probe })] }),
+					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("dt", { children: "Per-chat probes due (subject to cooldown)" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("dd", { children: health.recovery.ready_for_read_only_probe })] }),
 					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("dt", { children: "Unresolved follow-up captures" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("dd", { children: health.recovery.unresolved_reply_captures })] }),
 					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("dt", { children: "Follow-ups eligible for recovery" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("dd", { children: health.recovery.recoverable_reply_captures })] }),
 					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("dt", { children: "Due follow-up probes" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("dd", { children: health.recovery.due_reply_recovery_probes })] }),
-					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("dt", { children: "Missing verified chat identity" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("dd", { children: health.recovery.missing_verified_identity })] })
+					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("dt", { children: "Missing verified chat identity" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("dd", { children: health.recovery.missing_verified_identity })] }),
+					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("dt", { children: "Chats needing attention" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("dd", { children: attentionCount })] })
 				] }),
 				health.recovery.stale_capture_leases > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
 					role: "status",
@@ -15032,10 +15044,10 @@ function DeliveryDiagnostics({ model }) {
 						" min). No automatic resends will occur."
 					]
 				}),
-				!recoveryWaiting && health.recovery.global_pace_seconds > 0 && health.recovery.ready_for_read_only_probe > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", { children: [
+				!recoveryWaiting && pace > 0 && health.recovery.ready_for_read_only_probe > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", { children: [
 					"Read-only recovery is paced to one verified chat at a time; next probe in about",
 					" ",
-					Math.ceil(health.recovery.global_pace_seconds),
+					Math.ceil(pace),
 					" seconds."
 				] }),
 				health.recovery.missing_verified_identity > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { children: "Chats without a verified conversation identity cannot be recovered automatically. Their local partial results remain available." }),
@@ -16243,7 +16255,7 @@ function ChatRow({ item, model }) {
 //#region src/ui/ChatsSidebar.tsx
 function ChatsSidebar({ model, refs }) {
 	N$1();
-	const { retryPins, view, selectedRunId, statuses, queueSnapshot, queueError, items, pinError, readError, markingAllRead, attentionChats, drawerOpen, filtersOpen, search, statusFilter, loadingList, listError, morePageFailed, pinned, visibleWaiting, unpinned, retryReadSync, markAllRead, loadQueue, maybeLoadMore, loadList, loadMore, applyFilter, searchChanged, toggleSearch, showJobs, createChat } = model;
+	const { retryPins, view, selectedRunId, statuses, queueSnapshot, queueError, items, pinError, readError, markingAllRead, attentionChats, recoveryBacklog, recoveryReplyBacklog, recoveryPauseSeconds, drawerOpen, filtersOpen, search, statusFilter, loadingList, listError, morePageFailed, pinned, visibleWaiting, unpinned, retryReadSync, markAllRead, loadQueue, maybeLoadMore, loadList, loadMore, applyFilter, searchChanged, toggleSearch, showJobs, createChat } = model;
 	function emptyChatsLabel() {
 		if (listError.value) return "Chat list temporarily unavailable";
 		if (search.value || statusFilter.value) return "No matching chats";
@@ -16387,6 +16399,16 @@ function ChatsSidebar({ model, refs }) {
 					attentionCount === 1 ? "chat" : "chats"
 				] })]
 			}),
+			attentionCount > 0 && ((recoveryBacklog.value ?? 0) > 0 || (recoveryReplyBacklog.value ?? 0) > 0) && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", {
+				className: "chat-recovery-summary",
+				children: [
+					"Recovery: ",
+					recoveryBacklog.value ?? 0,
+					" original captures eligible",
+					(recoveryReplyBacklog.value ?? 0) > 0 && ` · ${recoveryReplyBacklog.value} follow-ups unresolved`,
+					recoveryPauseSeconds.value > 0 && ` · waiting ~${Math.ceil(recoveryPauseSeconds.value / 60)} min`
+				]
+			}),
 			filtersOpen.value ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 				id: "chat-filters",
 				className: "chats-controls",
@@ -16520,7 +16542,7 @@ function ChatsSidebar({ model, refs }) {
 	});
 }
 //#endregion
-//#region node_modules/marked/lib/marked.esm.js
+//#region ../../prompta/node_modules/marked/lib/marked.esm.js
 /**
 * marked v16.4.2 - a markdown parser
 * Copyright (c) 2018-2025, MarkedJS. (MIT License)

@@ -7,8 +7,13 @@ export default function DeliveryDiagnostics({ model }: { model: Controller }) {
   useSignals();
   const health = model.deliveryHealth.value;
   const error = model.deliveryHealthError.value;
-  const pause = model.recoveryPauseSeconds.value;
+  const pause = Math.max(
+    health?.recovery.account_read_backoff_seconds ?? 0,
+    health?.recovery.security_pause_seconds ?? 0,
+  );
+  const pace = health?.recovery.global_pace_seconds ?? 0;
   const nextRetry = health?.queue.next_retry_at_epoch;
+  const attentionCount = health?.recovery.attention_chats ?? 0;
   const recoveryWaiting = Boolean(
     health &&
     pause > 0 &&
@@ -18,7 +23,7 @@ export default function DeliveryDiagnostics({ model }: { model: Controller }) {
   let label = "status unavailable";
   if (!error && health?.ready === false) label = "needs attention";
   else if (!error && health?.admission?.blocked) label = "waiting for capacity";
-  else if (!error && health) label = "online";
+  else if (!error && health) label = attentionCount > 0 ? "online · review needed" : "online";
 
   if (!health && !error) return null;
 
@@ -36,6 +41,11 @@ export default function DeliveryDiagnostics({ model }: { model: Controller }) {
         {health && (
           <>
             <span className="delivery-count">{model.pendingDeliveries.value} pending</span>
+            {attentionCount > 0 && (
+              <span className="delivery-count">
+                {attentionCount} {attentionCount === 1 ? "chat needs" : "chats need"} review
+              </span>
+            )}
             {health.queue.outcome_unknown > 0 && (
               <span className="delivery-count">
                 {health.queue.outcome_unknown} unconfirmed historically
@@ -117,7 +127,7 @@ export default function DeliveryDiagnostics({ model }: { model: Controller }) {
               <dd>{health.recovery.recoverable}</dd>
             </div>
             <div>
-              <dt>Due for recovery probe</dt>
+              <dt>Per-chat probes due (subject to cooldown)</dt>
               <dd>{health.recovery.ready_for_read_only_probe}</dd>
             </div>
             <div>
@@ -136,6 +146,10 @@ export default function DeliveryDiagnostics({ model }: { model: Controller }) {
               <dt>Missing verified chat identity</dt>
               <dd>{health.recovery.missing_verified_identity}</dd>
             </div>
+            <div>
+              <dt>Chats needing attention</dt>
+              <dd>{attentionCount}</dd>
+            </div>
           </dl>
           {health.recovery.stale_capture_leases > 0 && (
             <p role="status">
@@ -149,14 +163,12 @@ export default function DeliveryDiagnostics({ model }: { model: Controller }) {
               {Math.ceil(pause / 60)} min). No automatic resends will occur.
             </p>
           )}
-          {!recoveryWaiting &&
-            health.recovery.global_pace_seconds > 0 &&
-            health.recovery.ready_for_read_only_probe > 0 && (
-              <p>
-                Read-only recovery is paced to one verified chat at a time; next probe in about{" "}
-                {Math.ceil(health.recovery.global_pace_seconds)} seconds.
-              </p>
-            )}
+          {!recoveryWaiting && pace > 0 && health.recovery.ready_for_read_only_probe > 0 && (
+            <p>
+              Read-only recovery is paced to one verified chat at a time; next probe in about{" "}
+              {Math.ceil(pace)} seconds.
+            </p>
+          )}
           {health.recovery.missing_verified_identity > 0 && (
             <p>
               Chats without a verified conversation identity cannot be recovered automatically.
