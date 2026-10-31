@@ -1,4 +1,25 @@
 import type { CapturedToolCall } from "./resultFormatting";
+import { highlightedCode } from "./CodeHighlight";
+import { toolPayload } from "./ToolCallFormatting";
+
+function ToolContent({
+  value,
+  call,
+  input,
+}: {
+  value: string;
+  call: CapturedToolCall;
+  input: boolean;
+}) {
+  const { text, language } = toolPayload(value, call, input);
+  return (
+    <pre>
+      <code className={language ? "language-" + language : ""}>
+        {highlightedCode(text, language)}
+      </code>
+    </pre>
+  );
+}
 
 const statusMark: Record<string, string> = {
   Failed: "!",
@@ -88,19 +109,19 @@ export default function ToolCalls({ calls }: { calls: CapturedToolCall[] }) {
                     {call.arguments && (
                       <section>
                         <h4>Input / code</h4>
-                        <pre>{call.arguments}</pre>
+                        <ToolContent value={call.arguments} call={call} input={true} />
                       </section>
                     )}
                     {call.result && (
                       <section>
                         <h4>Output</h4>
-                        <pre>{call.result}</pre>
+                        <ToolContent value={call.result} call={call} input={false} />
                       </section>
                     )}
                     {call.error && (
                       <section>
                         <h4>Error</h4>
-                        <pre>{call.error}</pre>
+                        <ToolContent value={call.error} call={call} input={false} />
                       </section>
                     )}
                   </div>

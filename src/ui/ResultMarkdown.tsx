@@ -1,7 +1,6 @@
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { marked, type Token, type Tokens } from "marked";
-import Prism from "prismjs";
-import "prismjs/components/prism-typescript";
+import { highlightedCode } from "./CodeHighlight";
 import {
   formatStoredResponse,
   isFlattenedDomResponse,
@@ -47,18 +46,6 @@ function recoveredListLabel(value: string): React.ReactNode {
       <strong>{parts[1]}</strong> {parts[2]}
     </>
   );
-}
-
-function highlightedCode(value: string, language: string): React.ReactNode {
-  const grammar = Prism.languages[language];
-  if (!grammar) return value;
-  function render(stream: Prism.TokenStream): React.ReactNode {
-    if (typeof stream === "string") return stream;
-    if (!Array.isArray(stream))
-      return <span className={"token " + stream.type}>{render(stream.content)}</span>;
-    return stream.map((part, i) => <Fragment key={i}>{render(part)}</Fragment>);
-  }
-  return render(Prism.tokenize(value, grammar));
 }
 
 export default function ResultMarkdown({
