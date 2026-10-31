@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 from patchright.sync_api import Route, expect, sync_playwright
-from test_web_results import server
+from web_results_support import server
 
 from prompta.reply_contracts import ReplyIntent
 from prompta.response_capture import CaptureResult

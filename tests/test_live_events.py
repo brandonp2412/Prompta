@@ -99,7 +99,12 @@ def test_sse_stream_signals_cross_process_store_changes_and_reconnects(tmp_path:
 
 
 def test_live_revisions_do_not_depend_on_private_payloads(tmp_path: Path) -> None:
-    with live_server(tmp_path) as (app, _, jobs_path):
+    jobs_path = tmp_path / "jobs.sqlite3"
+    app = LiveServer(
+        ("127.0.0.1", 0), state_path=tmp_path / "runtime.sqlite3",
+        jobs_path=jobs_path,
+    )
+    try:
         before = app.live_events.snapshot()
         app.results.ensure_queued("first", "Confidential result", "Audit")
         after_result = app.live_events.snapshot()
@@ -117,6 +122,8 @@ def test_live_revisions_do_not_depend_on_private_payloads(tmp_path: Path) -> Non
         after_queue = app.live_events.snapshot()
         assert after_queue.chats != after_job.chats
         assert after_queue.jobs == after_job.jobs
+    finally:
+        app.server_close()
 
 
 def test_service_heartbeats_do_not_reload_jobs_but_scheduler_changes_do(tmp_path: Path) -> None:

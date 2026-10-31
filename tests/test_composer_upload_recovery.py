@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 from patchright.sync_api import FilePayload, expect, sync_playwright
-from test_web_results import completed_run, server
+from web_results_support import completed_run, server
 
 PNG = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Uw2FSsAAAAASUVORK5CYII="

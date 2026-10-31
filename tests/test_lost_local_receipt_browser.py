@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 from patchright.sync_api import Route, expect, sync_playwright
-from test_web_results import completed_run, server
+from web_results_support import completed_run, server
 
 
 @pytest.mark.parametrize("width,height", [(1440, 900), (390, 844)])

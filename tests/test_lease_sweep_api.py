@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from test_web_results import get, server
+from web_results_support import get, server
 
 
 def test_expired_delivery_appears_terminal_in_live_api_without_replay(tmp_path: Path) -> None:

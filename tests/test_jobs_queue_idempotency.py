@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 from patchright.sync_api import Route, expect, sync_playwright
-from test_web_results import post_json, server
+from web_results_support import post_json, server
 
 
 def test_fire_now_and_immediate_run_once_reuse_queue_request_ids(tmp_path: Path) -> None:

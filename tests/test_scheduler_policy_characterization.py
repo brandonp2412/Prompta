@@ -7,6 +7,7 @@ from unittest.mock import patch
 import pytest
 
 from prompta.jobs import PromptJob, add_job, load_jobs
+from prompta.scheduler_policy import occurrence_key
 from prompta.scheduler_runtime import SchedulerRuntime
 from prompta.scheduler_service import DurableSchedulerProducer
 
@@ -78,11 +79,11 @@ def test_occurrence_key_prefers_uncertain_send_marker_and_one_time_epoch(tmp_pat
         },
     )
 
-    assert producer._occurrence_key(job) == _occurrence_hash(job, 1000.0)
+    assert occurrence_key(job, producer.runtime.job_state(job.name)) == _occurrence_hash(job, 1000.0)
 
     one_time = PromptJob("once", "work once", 0, exact_interval=True, run_at_epoch=2345.0)
     producer.runtime.update_job_state(one_time.name, {"initial_due_at_epoch": 9999.0})
-    assert producer._occurrence_key(one_time) == _occurrence_hash(one_time, 2345.0)
+    assert occurrence_key(one_time, producer.runtime.job_state(one_time.name)) == _occurrence_hash(one_time, 2345.0)
 
 
 def test_terminal_failure_advances_exact_recurring_schedule_once(tmp_path: Path) -> None:

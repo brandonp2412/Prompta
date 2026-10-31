@@ -27,10 +27,6 @@ def prompt_hash(prompt: str) -> str:
     return hashlib.sha256(prompt.encode()).hexdigest()
 
 
-def scheduled_job_prompt(job: PromptJob) -> str:
-    return job.prompt
-
-
 def _state_float(state: Mapping[str, object], key: str) -> float:
     try:
         return float_value(state.get(key))

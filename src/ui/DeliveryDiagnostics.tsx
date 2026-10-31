@@ -32,7 +32,7 @@ export default function DeliveryDiagnostics({ model }: { model: Controller }) {
       <summary>
         <span
           className={
-            error || health?.ready === false || health?.admission?.blocked
+            error || health?.ready === false || health?.admission?.blocked || attentionCount > 0
               ? "delivery-indicator degraded"
               : "delivery-indicator"
           }
