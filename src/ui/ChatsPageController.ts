@@ -7,6 +7,7 @@ import { recoverVisibleTurns } from "./turnRecovery";
 import { nextResultPageOffset, reconcileResultPage } from "./resultListRefresh";
 import { localGet, localReadTimeoutMs } from "./localRead";
 import { localPost, localRejectionDetail } from "./localMutation";
+import { pinReceiptConfirmed, readReceiptConfirmed } from "./localReceiptReconciliation";
 import {
   acknowledgeExactReplyRequest,
   acknowledgeQueuedFollowupRequest,
@@ -107,6 +108,8 @@ export function createChatsPageController(initialProps: Props) {
   let lastRecoveryHealthAt = 0;
   const recoveryPauseSeconds = signal(0);
   const recoveryPauseReason = signal("");
+  const recoveryBacklog = signal<number | null>(null);
+  const recoveryReplyBacklog = signal<number | null>(null);
   let items = signal<RunSummary[]>([]);
   let pinnedItems = signal<RunSummary[]>([]);
   let pinnedIds = signal<string[]>([]);
@@ -358,12 +361,23 @@ export function createChatsPageController(initialProps: Props) {
         // A blocked storage event does not undo a confirmed server receipt.
       }
     } catch {
+      // The local server may have committed before the acknowledgment was lost.
+      // Confirm the exact stored revision without another POST.
+      if (await readReceiptConfirmed(item.send_id, revision)) {
+        readError.value = "";
+        try {
+          localStorage.setItem(readSyncKey, item.send_id + ":" + Date.now());
+        } catch {
+          // The durable read receipt is already confirmed.
+        }
+        return;
+      }
       if (optimisticReads.value[item.send_id] === revision) {
         const next = { ...optimisticReads.value };
         delete next[item.send_id];
         optimisticReads.value = next;
       }
-      readError.value = "Could not save read status. Try opening the chat again.";
+      readError.value = "Read status could not be confirmed. Refresh or retry to sync it.";
       void loadList();
     }
   }
@@ -392,7 +406,11 @@ export function createChatsPageController(initialProps: Props) {
         // The server receipt remains durable if cross-tab notification is unavailable.
       }
     } catch {
-      readError.value = "Could not mark all chats as read. Try again.";
+      // The bulk POST may have committed before its acknowledgment was lost.
+      // Refresh using GETs only and let the user verify saved read badges.
+      await Promise.all([loadList(), loadPins()]);
+      readError.value =
+        "Mark-all read status could not be confirmed. Check unread badges before repeating.";
     } finally {
       markingAllRead.value = false;
     }
@@ -475,8 +493,18 @@ export function createChatsPageController(initialProps: Props) {
         pinWriteError = false;
         pinError.value = "";
       } catch {
-        pinWriteError = true;
-        pinError.value = "Could not save pinned chat.";
+        // A timed-out POST may still have committed. A local GET can settle
+        // this one pin/unpin without risking a second write.
+        if (await pinReceiptConfirmed(item.send_id, next)) {
+          confirmedPins = next
+            ? [item, ...confirmedPins.filter((confirmed) => confirmed.send_id !== item.send_id)]
+            : confirmedPins.filter((confirmed) => confirmed.send_id !== item.send_id);
+          pinWriteError = false;
+          pinError.value = "";
+        } else {
+          pinWriteError = true;
+          pinError.value = "Pin change could not be confirmed. Refresh or retry pins.";
+        }
       } finally {
         pendingPinWrites -= 1;
         if (!pendingPinWrites) {
@@ -530,6 +558,8 @@ export function createChatsPageController(initialProps: Props) {
           account_read_backoff_seconds?: number;
           security_pause_seconds?: number;
           global_pace_seconds?: number;
+          recoverable?: number;
+          unresolved_reply_captures?: number;
         };
       };
       const delays = [
@@ -547,6 +577,12 @@ export function createChatsPageController(initialProps: Props) {
         recoveryPauseSeconds.value = Math.ceil(longest.seconds);
         recoveryPauseReason.value = longest.reason;
       }
+      const backlog = body.recovery?.recoverable;
+      const replies = body.recovery?.unresolved_reply_captures;
+      if (typeof backlog === "number" && Number.isSafeInteger(backlog) && backlog >= 0)
+        recoveryBacklog.value = backlog;
+      if (typeof replies === "number" && Number.isSafeInteger(replies) && replies >= 0)
+        recoveryReplyBacklog.value = replies;
     } catch {
       // Keep the last confirmed value; this is informational, not a send gate.
     } finally {
@@ -1507,6 +1543,8 @@ export function createChatsPageController(initialProps: Props) {
     queueError,
     recoveryPauseSeconds,
     recoveryPauseReason,
+    recoveryBacklog,
+    recoveryReplyBacklog,
     queueGeneration,
     queueInFlight,
     queueRefreshPending,

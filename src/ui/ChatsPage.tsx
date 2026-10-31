@@ -32,6 +32,8 @@ export default function ChatsPage(props: Props) {
     queueError,
     recoveryPauseSeconds,
     recoveryPauseReason,
+    recoveryBacklog,
+    recoveryReplyBacklog,
     items,
     pinnedIds,
     pinsReady,
@@ -1018,6 +1020,19 @@ export default function ChatsPage(props: Props) {
                                             <span>
                                               Recovery checks are read-only. No automatic resend.
                                             </span>
+                                            {recoveryBacklog.value !== null &&
+                                              recoveryBacklog.value > 0 && (
+                                                <span role="status">
+                                                  Recovery backlog: {recoveryBacklog.value} original
+                                                  captures
+                                                  {recoveryReplyBacklog.value !== null &&
+                                                  recoveryReplyBacklog.value > 0
+                                                    ? `; ${recoveryReplyBacklog.value} unresolved follow-up captures`
+                                                    : ""}
+                                                  . Checks are account-paced, so completion may take
+                                                  time.
+                                                </span>
+                                              )}
                                             {index === 0 && detail.value?.recovery && (
                                               <span role="status">
                                                 {recoveryProgress(

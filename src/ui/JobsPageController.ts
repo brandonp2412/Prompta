@@ -3,7 +3,7 @@ import { isRepeatingJob, sortJobs } from "./jobSorting";
 import { subscribeLiveUpdates } from "./liveUpdates";
 import { type QueueSnapshot, type WaitingJob } from "./queueStatus";
 import { localGet } from "./localRead";
-import { localPost, localUploadTimeoutMs } from "./localMutation";
+import { localPost, localRejectionDetail, localUploadTimeoutMs } from "./localMutation";
 import {
   acknowledgeFreshQueueRequest,
   findFreshQueueReceiptStatus,
@@ -611,12 +611,15 @@ export function createJobsPageController(initialProps: Props) {
       }
       const response = await localPost("./api/jobs", payload);
       definitivelyRejected = !response.ok && response.status < 500;
-      const result = await response.json();
       if (!response.ok) {
         throw new Error(
-          String(result.error || String(response.status) + " " + response.statusText),
+          await localRejectionDetail(
+            response,
+            `Job update was rejected (HTTP ${response.status}).`,
+          ),
         );
       }
+      const result = await response.json();
       if (request) acknowledgeFreshQueueRequest(request.fingerprint, request.requestId);
       const nextJobs: Job[] = Array.isArray(result.jobs) ? result.jobs : [];
       applyJobs(nextJobs);

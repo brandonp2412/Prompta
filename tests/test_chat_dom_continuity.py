@@ -164,6 +164,9 @@ def test_multiline_reply_clears_with_smooth_resize_and_keeps_focus(
                 expect(composer).to_be_visible()
                 message = "Line one\nLine two\nLine three\nLine four"
                 composer.fill(message)
+                # The textarea can accept a draft before the selected run's
+                # asynchronous send eligibility finishes loading.
+                expect(page.get_by_role("button", name="Send reply")).to_be_enabled()
                 page.evaluate("""() => {
                     window.__composerCollapse = [];
                     const textarea = document.querySelector('.chat-composer textarea');

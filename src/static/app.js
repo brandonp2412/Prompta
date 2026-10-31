@@ -12269,8 +12269,30 @@ function queueEtaExplanation(snapshot) {
 }
 //#endregion
 //#region src/ui/turnRecovery.ts
+function mergeConfirmedTurn(previous, incoming) {
+	if (previous.message_id && incoming.message_id && previous.message_id !== incoming.message_id) return previous;
+	const latest = incoming.updated_at >= previous.updated_at ? incoming : previous;
+	const older = latest === incoming ? previous : incoming;
+	const latestCalls = latest.tool_calls?.length ?? 0;
+	const olderCalls = older.tool_calls?.length ?? 0;
+	return {
+		...latest,
+		assistant_text: latest.assistant_text.length >= older.assistant_text.length ? latest.assistant_text : older.assistant_text,
+		...olderCalls > latestCalls ? { tool_calls: older.tool_calls } : {},
+		status: latest.status === "completed" || older.status !== "completed" ? latest.status : "completed"
+	};
+}
+function mergeConfirmedTurns(stored, previous) {
+	const byId = new Map(stored.map((turn) => [turn.reply_id, turn]));
+	const previousIds = new Set(previous.map((turn) => turn.reply_id));
+	return [...previous.map((turn) => {
+		const incoming = byId.get(turn.reply_id);
+		return incoming ? mergeConfirmedTurn(turn, incoming) : turn;
+	}), ...stored.filter((turn) => !previousIds.has(turn.reply_id))];
+}
 function recoverVisibleTurns(stored, previous, original, sameRun) {
-	if (stored?.length) return stored;
+	if (stored?.length) return sameRun && previous.length ? mergeConfirmedTurns(stored, previous) : stored;
+	if (stored?.length === 0 && sameRun && previous.length > 1) return previous;
 	if (stored === null && sameRun && previous.length) {
 		const first = previous[0];
 		if (first.reply_id || original.updated_at < first.updated_at) return previous;
@@ -12371,6 +12393,29 @@ function localPost(url, payload, { timeoutMs = localMutationTimeoutMs, signal } 
 		body: JSON.stringify(payload),
 		signal: signal ? AbortSignal.any([signal, timeout]) : timeout
 	});
+}
+//#endregion
+//#region src/ui/localReceiptReconciliation.ts
+async function readReceiptConfirmed(sendId, revision) {
+	try {
+		const response = await localGet("./api/results/" + encodeURIComponent(sendId));
+		if (!response.ok) return false;
+		const body = await response.json();
+		return Boolean(body && typeof body === "object" && "last_read_revision" in body && body.last_read_revision === revision);
+	} catch {
+		return false;
+	}
+}
+async function pinReceiptConfirmed(sendId, pinned) {
+	try {
+		const response = await localGet("./api/local-chat-pins");
+		if (!response.ok) return false;
+		const body = await response.json();
+		if (!body || typeof body !== "object" || !("items" in body) || !Array.isArray(body.items)) return false;
+		return body.items.some((item) => item && typeof item === "object" && "send_id" in item && item.send_id === sendId) === pinned;
+	} catch {
+		return false;
+	}
 }
 //#endregion
 //#region src/ui/pendingExactReply.ts
@@ -12686,6 +12731,8 @@ function createChatsPageController(initialProps) {
 	let lastRecoveryHealthAt = 0;
 	const recoveryPauseSeconds = y$2(0);
 	const recoveryPauseReason = y$2("");
+	const recoveryBacklog = y$2(null);
+	const recoveryReplyBacklog = y$2(null);
 	let items = y$2([]);
 	let pinnedItems = y$2([]);
 	let pinnedIds = y$2([]);
@@ -12839,12 +12886,19 @@ function createChatsPageController(initialProps) {
 				localStorage.setItem(readSyncKey, item.send_id + ":" + Date.now());
 			} catch {}
 		} catch {
+			if (await readReceiptConfirmed(item.send_id, revision)) {
+				readError.value = "";
+				try {
+					localStorage.setItem(readSyncKey, item.send_id + ":" + Date.now());
+				} catch {}
+				return;
+			}
 			if (optimisticReads.value[item.send_id] === revision) {
 				const next = { ...optimisticReads.value };
 				delete next[item.send_id];
 				optimisticReads.value = next;
 			}
-			readError.value = "Could not save read status. Try opening the chat again.";
+			readError.value = "Read status could not be confirmed. Refresh or retry to sync it.";
 			loadList();
 		}
 	}
@@ -12866,7 +12920,8 @@ function createChatsPageController(initialProps) {
 				localStorage.setItem(readSyncKey, "all:" + Date.now());
 			} catch {}
 		} catch {
-			readError.value = "Could not mark all chats as read. Try again.";
+			await Promise.all([loadList(), loadPins()]);
+			readError.value = "Mark-all read status could not be confirmed. Check unread badges before repeating.";
 		} finally {
 			markingAllRead.value = false;
 		}
@@ -12927,8 +12982,14 @@ function createChatsPageController(initialProps) {
 				pinWriteError = false;
 				pinError.value = "";
 			} catch {
-				pinWriteError = true;
-				pinError.value = "Could not save pinned chat.";
+				if (await pinReceiptConfirmed(item.send_id, next)) {
+					confirmedPins = next ? [item, ...confirmedPins.filter((confirmed) => confirmed.send_id !== item.send_id)] : confirmedPins.filter((confirmed) => confirmed.send_id !== item.send_id);
+					pinWriteError = false;
+					pinError.value = "";
+				} else {
+					pinWriteError = true;
+					pinError.value = "Pin change could not be confirmed. Refresh or retry pins.";
+				}
 			} finally {
 				pendingPinWrites -= 1;
 				if (!pendingPinWrites) {
@@ -12991,6 +13052,10 @@ function createChatsPageController(initialProps) {
 				recoveryPauseSeconds.value = Math.ceil(longest.seconds);
 				recoveryPauseReason.value = longest.reason;
 			}
+			const backlog = body.recovery?.recoverable;
+			const replies = body.recovery?.unresolved_reply_captures;
+			if (typeof backlog === "number" && Number.isSafeInteger(backlog) && backlog >= 0) recoveryBacklog.value = backlog;
+			if (typeof replies === "number" && Number.isSafeInteger(replies) && replies >= 0) recoveryReplyBacklog.value = replies;
 		} catch {} finally {
 			recoveryHealthInFlight = false;
 		}
@@ -13724,6 +13789,8 @@ function createChatsPageController(initialProps) {
 		queueError,
 		recoveryPauseSeconds,
 		recoveryPauseReason,
+		recoveryBacklog,
+		recoveryReplyBacklog,
 		queueGeneration,
 		queueInFlight,
 		queueRefreshPending,
@@ -14310,8 +14377,8 @@ function createJobsPageController(initialProps) {
 			}
 			const response = await localPost("./api/jobs", payload);
 			definitivelyRejected = !response.ok && response.status < 500;
+			if (!response.ok) throw new Error(await localRejectionDetail(response, `Job update was rejected (HTTP ${response.status}).`));
 			const result = await response.json();
-			if (!response.ok) throw new Error(String(result.error || String(response.status) + " " + response.statusText));
 			if (request) acknowledgeFreshQueueRequest(request.fingerprint, request.requestId);
 			applyJobs(Array.isArray(result.jobs) ? result.jobs : []);
 			status.value = success;
@@ -17872,7 +17939,7 @@ function ToolCalls({ calls }) {
 function ChatsPage(props) {
 	const model = (0, import_react.useMemo)(() => createChatsPageController(props), []);
 	N$1();
-	const { retryPins, view, selectedRunId, newChatOpen, onSelect, statuses, responseBadge, exactConversationUrl, queueSnapshot, queueError, recoveryPauseSeconds, recoveryPauseReason, items, pinnedIds, pinsReady, pinError, readError, markingAllRead, drawerOpen, drawerProgress, visibleDrawerProgress, filtersOpen, expandedPrompts, search, statusFilter, detail, turns, turnsError, recoveringReply, startingNewChatFromFailure, copyState, jobsWorkspace, loadingList, listError, morePageFailed, detailError, pinned, replyBlockedReason, visibleWaiting, unpinned, switchingChat, selectedChatTitle, isUnread, retryReadSync, markAllRead, togglePin, loadQueue, maybeLoadMore, loadList, loadMore, loadDetail, sendFresh, freshContinuationPrompt, startFailedReplyInNewChat, retryFailedInitialInNewChat, originalImageRefs, sendReply, retryFailedTurn, copyText, applyFilter, searchChanged, toggleSearch, cancelSwipe, startSwipe, finishSwipe, selectRun, showJobs, createChat, escapeDrawer, togglePrompt } = model;
+	const { retryPins, view, selectedRunId, newChatOpen, onSelect, statuses, responseBadge, exactConversationUrl, queueSnapshot, queueError, recoveryPauseSeconds, recoveryPauseReason, recoveryBacklog, recoveryReplyBacklog, items, pinnedIds, pinsReady, pinError, readError, markingAllRead, drawerOpen, drawerProgress, visibleDrawerProgress, filtersOpen, expandedPrompts, search, statusFilter, detail, turns, turnsError, recoveringReply, startingNewChatFromFailure, copyState, jobsWorkspace, loadingList, listError, morePageFailed, detailError, pinned, replyBlockedReason, visibleWaiting, unpinned, switchingChat, selectedChatTitle, isUnread, retryReadSync, markAllRead, togglePin, loadQueue, maybeLoadMore, loadList, loadMore, loadDetail, sendFresh, freshContinuationPrompt, startFailedReplyInNewChat, retryFailedInitialInNewChat, originalImageRefs, sendReply, retryFailedTurn, copyText, applyFilter, searchChanged, toggleSearch, cancelSwipe, startSwipe, finishSwipe, selectRun, showJobs, createChat, escapeDrawer, togglePrompt } = model;
 	const refs = (0, import_react.useMemo)(() => ({
 		sidebarPane: (element) => {
 			if (model.sidebarPane.peek() !== (element ?? void 0)) model.sidebarPane.value = element ?? void 0;
@@ -18461,6 +18528,16 @@ function ChatsPage(props) {
 											className: ["chat-recovery-guidance"].filter(Boolean).join(" "),
 											children: [
 												/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Recovery checks are read-only. No automatic resend." }),
+												recoveryBacklog.value !== null && recoveryBacklog.value > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+													role: "status",
+													children: [
+														"Recovery backlog: ",
+														recoveryBacklog.value,
+														" original captures",
+														recoveryReplyBacklog.value !== null && recoveryReplyBacklog.value > 0 ? `; ${recoveryReplyBacklog.value} unresolved follow-up captures` : "",
+														". Checks are account-paced, so completion may take time."
+													]
+												}),
 												index === 0 && detail.value?.recovery && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
 													role: "status",
 													children: recoveryProgress(detail.value.recovery, Date.now() / 1e3)
