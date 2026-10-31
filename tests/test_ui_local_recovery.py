@@ -59,7 +59,7 @@ def test_local_recovery_controls_restore_list_pins_detail_and_turns(
             expect(page.get_by_role("button", name="Retry replies")).to_be_visible()
             page.unroute("**/api/results/local-recovery-run/turns")
             page.get_by_role("button", name="Retry replies").click()
-            expect(page.get_by_text("Answer for Local recovery probe")).to_be_visible()
+            expect(page.locator(".chat-transcript-scroll").get_by_text("Answer for Local recovery probe")).to_be_visible()
             expect(page.get_by_role("button", name="Retry replies")).to_have_count(0)
             assert remote == []
             browser.close()

@@ -791,4 +791,19 @@ class ResponseStore:
             "created_at", "accepted_at", "updated_at", "finished_at",
         )}
         detail["tool_calls"] = deserialize_tool_calls(row["tool_calls_json"])
+        # Recovery is read-only and rate-limited. Expose its persisted schedule
+        # so users can distinguish a pending check from a silent failure.
+        if row["status"] in ("interrupted", "unavailable"):
+            with self.engine.connect() as connection:
+                attempt = connection.execute(select(
+                    history_recovery_attempts.c.attempt_count,
+                    history_recovery_attempts.c.last_attempt_at,
+                    history_recovery_attempts.c.next_attempt_at,
+                ).where(history_recovery_attempts.c.send_id == send_id)).mappings().one_or_none()
+            detail["recovery"] = {
+                "attempt_count": int(attempt["attempt_count"]) if attempt else 0,
+                "last_attempt_at": float(attempt["last_attempt_at"]) if attempt else 0,
+                "next_attempt_at": float(attempt["next_attempt_at"]) if attempt else 0,
+                "eligible": bool(row["conversation_id"]),
+            }
         return detail

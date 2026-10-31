@@ -28,8 +28,27 @@ export type RunDetail = RunSummary & {
   source: string;
   conversation_id?: string;
   accepted_at: number;
+  recovery?: {
+    attempt_count: number;
+    last_attempt_at: number;
+    next_attempt_at: number;
+    eligible: boolean;
+  };
   images: { name: string; url: string }[];
 };
+
+export function recoveryProgress(recovery: RunDetail["recovery"], now: number): string | null {
+  if (!recovery) return null;
+  if (!recovery.eligible) return "No verified conversation ID for automatic recovery.";
+  if (recovery.attempt_count === 0) return "Awaiting first read-only recovery check.";
+  const attempts = recovery.attempt_count;
+  const checked = `Read-only recovery checked ${attempts} ${attempts === 1 ? "time" : "times"}.`;
+  if (recovery.next_attempt_at > now) {
+    const minutes = Math.ceil((recovery.next_attempt_at - now) / 60);
+    return `${checked} Next eligible check in about ${minutes} min; account pacing may delay it.`;
+  }
+  return `${checked} Awaiting next available recovery slot.`;
+}
 
 export type CapturedToolCall = {
   id: string;

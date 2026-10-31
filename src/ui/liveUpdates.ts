@@ -11,10 +11,17 @@ const statusListeners = new Set<StatusListener>();
 const healthyPollMs = 120000;
 const recoveryPollMs = 15000;
 const statusGraceMs = 10000;
+const reconnectDelayMs = 2000;
+const maxReconnectDelayMs = 30000;
+const staleStreamMs = 60000; // Server sends a ping at least every 15 seconds.
 let source: EventSource | null = null;
 let fallbackTimer: number | undefined;
 let fallbackIntervalMs: number | undefined;
 let statusTimer: number | undefined;
+let reconnectTimer: number | undefined;
+let watchdogTimer: number | undefined;
+let reconnectAttempts = 0;
+let lastStreamFrameAt = 0;
 let streamConnected = false;
 let updatesDelayed = false;
 
@@ -41,6 +48,74 @@ function setPollingInterval(milliseconds: number) {
   fallbackTimer = window.setInterval(refreshBoth, milliseconds);
 }
 
+function scheduleReconnect() {
+  if (reconnectTimer !== undefined || !hasSubscribers()) return;
+  const delay = Math.min(maxReconnectDelayMs, reconnectDelayMs * 2 ** reconnectAttempts);
+  reconnectAttempts = Math.min(reconnectAttempts + 1, 4);
+  reconnectTimer = window.setTimeout(() => {
+    reconnectTimer = undefined;
+    if (!hasSubscribers()) return;
+    source?.close();
+    source = null;
+    connect();
+  }, delay);
+}
+
+function armWatchdog(current: EventSource) {
+  window.clearTimeout(watchdogTimer);
+  watchdogTimer = window.setTimeout(() => {
+    watchdogTimer = undefined;
+    if (source !== current || document.visibilityState !== "visible") return;
+    if (Date.now() - lastStreamFrameAt < staleStreamMs) {
+      armWatchdog(current);
+      return;
+    }
+    // A silently stalled stream can remain OPEN forever. Recover it even if
+    // the browser never emits an error; periodic GETs still work meanwhile.
+    connectionLost();
+    scheduleReconnect();
+  }, staleStreamMs);
+}
+
+function connect() {
+  if (typeof EventSource === "undefined") return;
+  try {
+    const nextSource = new EventSource("./api/events");
+    source = nextSource;
+    lastStreamFrameAt = Date.now();
+    armWatchdog(nextSource);
+    nextSource.addEventListener("open", () => {
+      if (source !== nextSource) return;
+      reconnectAttempts = 0;
+      lastStreamFrameAt = Date.now();
+      armWatchdog(nextSource);
+      // The next sync frame owns GET invalidation; open restores status only.
+      connectionRestored();
+    });
+    nextSource.addEventListener("error", () => {
+      if (source !== nextSource) return;
+      connectionLost();
+      // CONNECTING is auto-retried by browsers. CLOSED is terminal and needs
+      // a new EventSource instance; never leave the UI polling indefinitely.
+      if (nextSource.readyState === 2) scheduleReconnect();
+    });
+    for (const topic of ["sync", "jobs", "chats", "ping"] as const) {
+      nextSource.addEventListener(topic, () => {
+        if (source !== nextSource) return;
+        lastStreamFrameAt = Date.now();
+        armWatchdog(nextSource);
+        if (topic === "sync") refreshBoth();
+        else if (topic !== "ping") notify(topic);
+      });
+    }
+  } catch {
+    // Browser policies can reject construction; retain GET fallback and try
+    // again with bounded backoff instead of crashing the entire page.
+    connectionLost();
+    scheduleReconnect();
+  }
+}
+
 function connectionLost() {
   const wasConnected = streamConnected;
   streamConnected = false;
@@ -65,7 +140,12 @@ function connectionRestored() {
 }
 
 function visibleAgain() {
-  if (document.visibilityState === "visible") refreshBoth();
+  if (document.visibilityState !== "visible") return;
+  refreshBoth();
+  if (source?.readyState === 2 || (source && Date.now() - lastStreamFrameAt >= staleStreamMs)) {
+    connectionLost();
+    scheduleReconnect();
+  }
 }
 
 function offline() {
@@ -73,23 +153,10 @@ function offline() {
 }
 
 function start() {
-  // EventSource reconnects automatically; each sync repairs missed revisions.
-  // Poll faster while connecting or disconnected, but not when healthy.
+  // Browsers reconnect CONNECTING streams. Our watchdog additionally repairs
+  // terminal CLOSED or silent stalls; GET polling continues during both.
   connectionLost();
-  if (typeof EventSource !== "undefined") {
-    const nextSource = new EventSource("./api/events");
-    source = nextSource;
-    nextSource.addEventListener("open", () => {
-      // The next sync event owns GET invalidation; open restores status only.
-      if (source === nextSource) connectionRestored();
-    });
-    nextSource.addEventListener("error", () => {
-      if (source === nextSource) connectionLost();
-    });
-    nextSource.addEventListener("sync", refreshBoth);
-    nextSource.addEventListener("jobs", () => notify("jobs"));
-    nextSource.addEventListener("chats", () => notify("chats"));
-  }
+  connect();
   document.addEventListener("visibilitychange", visibleAgain);
   window.addEventListener("online", visibleAgain);
   window.addEventListener("offline", offline);
@@ -101,9 +168,15 @@ function stop() {
   source = null;
   window.clearInterval(fallbackTimer);
   window.clearTimeout(statusTimer);
+  window.clearTimeout(reconnectTimer);
+  window.clearTimeout(watchdogTimer);
   fallbackTimer = undefined;
   fallbackIntervalMs = undefined;
   statusTimer = undefined;
+  reconnectTimer = undefined;
+  watchdogTimer = undefined;
+  reconnectAttempts = 0;
+  lastStreamFrameAt = 0;
   streamConnected = false;
   publishStatus(false);
   document.removeEventListener("visibilitychange", visibleAgain);
@@ -114,6 +187,21 @@ function stop() {
 
 function hasSubscribers() {
   return listeners.jobs.size > 0 || listeners.chats.size > 0 || statusListeners.size > 0;
+}
+
+export function retryLiveConnection() {
+  if (!hasSubscribers()) return;
+  window.clearTimeout(reconnectTimer);
+  window.clearTimeout(watchdogTimer);
+  reconnectTimer = undefined;
+  watchdogTimer = undefined;
+  source?.close();
+  source = null;
+  reconnectAttempts = 0;
+  const wasConnected = streamConnected;
+  connectionLost();
+  connect();
+  if (!wasConnected) refreshBoth();
 }
 
 export function subscribeLiveUpdates(topic: Topic, listener: Listener): () => void {

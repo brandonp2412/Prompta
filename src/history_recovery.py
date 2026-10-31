@@ -117,7 +117,14 @@ class HistoryRecovery:
             )
             deadline = asyncio.get_running_loop().time() + 25.0
             while asyncio.get_running_loop().time() < deadline:
-                state = await driver.dom_state()
+                try:
+                    state = await driver.dom_state()
+                except TimeoutError:
+                    # A single slow hydration/CDP read is not an account or
+                    # branch failure. Stay on the same exact chat and retry
+                    # without consuming another global navigation slot.
+                    await asyncio.sleep(2.0)
+                    continue
                 if (
                     isinstance(driver, _HistoryRateLimitSignal)
                     and driver.history_rate_limited()
@@ -126,7 +133,11 @@ class HistoryRecovery:
                 limit_text = str(state.get("rate_limit_text") or "")
                 if is_rate_limited_text(limit_text):
                     raise RateLimitError.from_text(limit_text)
-                payload = await driver.eval(script)
+                try:
+                    payload = await driver.eval(script)
+                except TimeoutError:
+                    await asyncio.sleep(2.0)
+                    continue
                 if isinstance(payload, dict):
                     if payload.get("rate_limited") is True:
                         raise RateLimitError()

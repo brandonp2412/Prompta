@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import ChatsPage from "./ChatsPage";
-import { subscribeLiveStatus } from "./liveUpdates";
+import { retryLiveConnection, subscribeLiveStatus } from "./liveUpdates";
 
 type View = "jobs" | "chats";
 type Route = { view: View; selectedRunId: string | null; newChatOpen: boolean };
@@ -58,7 +58,10 @@ export default function App({ serverName }: { serverName: string }) {
           className={"live-updates-warning" + (route.view === "chats" ? " chat-view" : "")}
           role="status"
         >
-          Live updates delayed. Checking automatically.
+          <span>Live updates delayed. Checking automatically.</span>
+          <button type="button" onClick={retryLiveConnection}>
+            Refresh now
+          </button>
         </div>
       )}
       <ChatsPage

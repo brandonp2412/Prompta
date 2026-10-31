@@ -12050,10 +12050,17 @@ var statusListeners = /* @__PURE__ */ new Set();
 var healthyPollMs = 12e4;
 var recoveryPollMs = 15e3;
 var statusGraceMs = 1e4;
+var reconnectDelayMs = 2e3;
+var maxReconnectDelayMs = 3e4;
+var staleStreamMs = 6e4;
 var source = null;
 var fallbackTimer;
 var fallbackIntervalMs;
 var statusTimer;
+var reconnectTimer;
+var watchdogTimer;
+var reconnectAttempts = 0;
+var lastStreamFrameAt = 0;
 var streamConnected = false;
 var updatesDelayed = false;
 function notify(topic) {
@@ -12075,6 +12082,67 @@ function setPollingInterval(milliseconds) {
 	fallbackIntervalMs = milliseconds;
 	fallbackTimer = window.setInterval(refreshBoth, milliseconds);
 }
+function scheduleReconnect() {
+	if (reconnectTimer !== void 0 || !hasSubscribers()) return;
+	const delay = Math.min(maxReconnectDelayMs, reconnectDelayMs * 2 ** reconnectAttempts);
+	reconnectAttempts = Math.min(reconnectAttempts + 1, 4);
+	reconnectTimer = window.setTimeout(() => {
+		reconnectTimer = void 0;
+		if (!hasSubscribers()) return;
+		source?.close();
+		source = null;
+		connect();
+	}, delay);
+}
+function armWatchdog(current) {
+	window.clearTimeout(watchdogTimer);
+	watchdogTimer = window.setTimeout(() => {
+		watchdogTimer = void 0;
+		if (source !== current || document.visibilityState !== "visible") return;
+		if (Date.now() - lastStreamFrameAt < staleStreamMs) {
+			armWatchdog(current);
+			return;
+		}
+		connectionLost();
+		scheduleReconnect();
+	}, staleStreamMs);
+}
+function connect() {
+	if (typeof EventSource === "undefined") return;
+	try {
+		const nextSource = new EventSource("./api/events");
+		source = nextSource;
+		lastStreamFrameAt = Date.now();
+		armWatchdog(nextSource);
+		nextSource.addEventListener("open", () => {
+			if (source !== nextSource) return;
+			reconnectAttempts = 0;
+			lastStreamFrameAt = Date.now();
+			armWatchdog(nextSource);
+			connectionRestored();
+		});
+		nextSource.addEventListener("error", () => {
+			if (source !== nextSource) return;
+			connectionLost();
+			if (nextSource.readyState === 2) scheduleReconnect();
+		});
+		for (const topic of [
+			"sync",
+			"jobs",
+			"chats",
+			"ping"
+		]) nextSource.addEventListener(topic, () => {
+			if (source !== nextSource) return;
+			lastStreamFrameAt = Date.now();
+			armWatchdog(nextSource);
+			if (topic === "sync") refreshBoth();
+			else if (topic !== "ping") notify(topic);
+		});
+	} catch {
+		connectionLost();
+		scheduleReconnect();
+	}
+}
 function connectionLost() {
 	const wasConnected = streamConnected;
 	streamConnected = false;
@@ -12093,26 +12161,19 @@ function connectionRestored() {
 	setPollingInterval(healthyPollMs);
 }
 function visibleAgain() {
-	if (document.visibilityState === "visible") refreshBoth();
+	if (document.visibilityState !== "visible") return;
+	refreshBoth();
+	if (source?.readyState === 2 || source && Date.now() - lastStreamFrameAt >= staleStreamMs) {
+		connectionLost();
+		scheduleReconnect();
+	}
 }
 function offline() {
 	connectionLost();
 }
 function start() {
 	connectionLost();
-	if (typeof EventSource !== "undefined") {
-		const nextSource = new EventSource("./api/events");
-		source = nextSource;
-		nextSource.addEventListener("open", () => {
-			if (source === nextSource) connectionRestored();
-		});
-		nextSource.addEventListener("error", () => {
-			if (source === nextSource) connectionLost();
-		});
-		nextSource.addEventListener("sync", refreshBoth);
-		nextSource.addEventListener("jobs", () => notify("jobs"));
-		nextSource.addEventListener("chats", () => notify("chats"));
-	}
+	connect();
 	document.addEventListener("visibilitychange", visibleAgain);
 	window.addEventListener("online", visibleAgain);
 	window.addEventListener("offline", offline);
@@ -12123,9 +12184,15 @@ function stop() {
 	source = null;
 	window.clearInterval(fallbackTimer);
 	window.clearTimeout(statusTimer);
+	window.clearTimeout(reconnectTimer);
+	window.clearTimeout(watchdogTimer);
 	fallbackTimer = void 0;
 	fallbackIntervalMs = void 0;
 	statusTimer = void 0;
+	reconnectTimer = void 0;
+	watchdogTimer = void 0;
+	reconnectAttempts = 0;
+	lastStreamFrameAt = 0;
 	streamConnected = false;
 	publishStatus(false);
 	document.removeEventListener("visibilitychange", visibleAgain);
@@ -12135,6 +12202,20 @@ function stop() {
 }
 function hasSubscribers() {
 	return listeners.jobs.size > 0 || listeners.chats.size > 0 || statusListeners.size > 0;
+}
+function retryLiveConnection() {
+	if (!hasSubscribers()) return;
+	window.clearTimeout(reconnectTimer);
+	window.clearTimeout(watchdogTimer);
+	reconnectTimer = void 0;
+	watchdogTimer = void 0;
+	source?.close();
+	source = null;
+	reconnectAttempts = 0;
+	const wasConnected = streamConnected;
+	connectionLost();
+	connect();
+	if (!wasConnected) refreshBoth();
 }
 function subscribeLiveUpdates(topic, listener) {
 	const wasEmpty = !hasSubscribers();
@@ -12189,10 +12270,26 @@ function nextResultPageOffset(offset, receivedCount, total) {
 //#endregion
 //#region src/ui/localRead.ts
 var localReadTimeoutMs = 12e3;
-function localGet(url) {
-	return fetch(url, {
+var transientGatewayStatuses = /* @__PURE__ */ new Set([
+	502,
+	503,
+	504
+]);
+var transientRetryDelayMs = 250;
+async function localGet(url) {
+	const startedAt = Date.now();
+	const first = await fetch(url, {
 		cache: "no-store",
 		signal: AbortSignal.timeout(localReadTimeoutMs)
+	});
+	if (!transientGatewayStatuses.has(first.status)) return first;
+	if (12e3 - (Date.now() - startedAt) <= transientRetryDelayMs) return first;
+	await new Promise((resolve) => setTimeout(resolve, transientRetryDelayMs));
+	const remaining = localReadTimeoutMs - (Date.now() - startedAt);
+	if (remaining <= 0) return first;
+	return fetch(url, {
+		cache: "no-store",
+		signal: AbortSignal.timeout(remaining)
 	});
 }
 //#endregion
@@ -17226,6 +17323,15 @@ b.parse;
 x.lex;
 //#endregion
 //#region src/ui/resultFormatting.ts
+function recoveryProgress(recovery, now) {
+	if (!recovery) return null;
+	if (!recovery.eligible) return "No verified conversation ID for automatic recovery.";
+	if (recovery.attempt_count === 0) return "Awaiting first read-only recovery check.";
+	const attempts = recovery.attempt_count;
+	const checked = `Read-only recovery checked ${attempts} ${attempts === 1 ? "time" : "times"}.`;
+	if (recovery.next_attempt_at > now) return `${checked} Next eligible check in about ${Math.ceil((recovery.next_attempt_at - now) / 60)} min; account pacing may delay it.`;
+	return `${checked} Awaiting next available recovery slot.`;
+}
 function partialResponseLabel(status) {
 	switch (status) {
 		case "generating": return "Live partial response · still generating";
@@ -17275,6 +17381,9 @@ function safeHref(href) {
 	} catch {
 		return null;
 	}
+}
+function plainPreview(text) {
+	return text.replace(/\[([^\]]+)\]\([^)]+\)/g, "$1").replace(/```[^\n]*\n?/g, " ").replace(/^[#>]+\s*/gm, "").replace(/\*\*|__|~~|[`*_]/g, "").replace(/\s+/g, " ").trim();
 }
 function legacyTableRow(chunk) {
 	if (!/\n[ \r\n]*\t[ \r\n]*\n/.test(chunk)) return null;
@@ -17681,12 +17790,12 @@ function ChatsPage(props) {
 				view.value === "chats" && selectedRunId.value === item.send_id ? "chosen" : "",
 				isUnread(item) ? "unread" : ""
 			].filter(Boolean).join(" "),
-			children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+			children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
 				type: "button",
 				onClick: () => selectRun(item),
 				"aria-current": view.value === "chats" && selectedRunId.value === item.send_id ? "true" : void 0,
 				className: ["chat-row"].filter(Boolean).join(" "),
-				children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+				children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
 					className: ["chat-row-top"].filter(Boolean).join(" "),
 					children: [
 						isUnread(item) ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
@@ -17707,7 +17816,18 @@ function ChatsPage(props) {
 							})
 						})
 					]
-				})
+				}), item.has_response && item.preview.trim() ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+					className: "chat-preview",
+					title: plainPreview(item.preview),
+					children: plainPreview(item.preview)
+				}) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+					className: "chat-row-meta",
+					children: [
+						statusLabel(item.status),
+						" · ",
+						chatMessageTime(item.updated_at || item.created_at)
+					]
+				})]
 			}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 				type: "button",
 				disabled: !pinsReady.value,
@@ -18179,6 +18299,11 @@ function ChatsPage(props) {
 												children: "Start new chat with last result"
 											}), turn.status === "outcome_unknown" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "The original reply may still have been delivered." })]
 										}),
+										index === 0 && ["interrupted", "unavailable"].includes(turn.status) && detail.value?.recovery?.eligible === false && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+											className: "chat-recovery-guidance",
+											role: "status",
+											children: [recoveryProgress(detail.value.recovery, Date.now() / 1e3), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "The capture has no verified ChatGPT conversation to revisit. No automatic resend will occur." })]
+										}),
 										[
 											"interrupted",
 											"unavailable",
@@ -18187,6 +18312,10 @@ function ChatsPage(props) {
 											className: ["chat-recovery-guidance"].filter(Boolean).join(" "),
 											children: [
 												/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Recovery checks are read-only. No automatic resend." }),
+												index === 0 && detail.value?.recovery && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+													role: "status",
+													children: recoveryProgress(detail.value.recovery, Date.now() / 1e3)
+												}),
 												recoveryPauseSeconds.value > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
 													role: "status",
 													children: [
@@ -18305,10 +18434,14 @@ function App({ serverName }) {
 	}
 	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("main", {
 		className: "jobs-app",
-		children: [updatesDelayed && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+		children: [updatesDelayed && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 			className: "live-updates-warning" + (route.view === "chats" ? " chat-view" : ""),
 			role: "status",
-			children: "Live updates delayed. Checking automatically."
+			children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Live updates delayed. Checking automatically." }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+				type: "button",
+				onClick: retryLiveConnection,
+				children: "Refresh now"
+			})]
 		}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ChatsPage, {
 			view: route.view,
 			selectedRunId: route.selectedRunId,

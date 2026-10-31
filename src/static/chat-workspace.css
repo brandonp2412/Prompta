@@ -16,8 +16,9 @@
 .chats-controls input, .chats-controls select { height: 38px; font-size: .85rem; }
 .chats-list { padding: 1px 8px 8px; }
 .chat-entry { margin: 1px 0; }
-.chat-entry .chat-row { min-height: 43px; padding: 10px 4px 10px 11px; display: flex; align-items: center; }
+.chat-entry .chat-row { min-height: 55px; padding: 9px 4px 9px 11px; display: flex; flex-direction: column; align-items: stretch; justify-content: center; gap: 2px; min-width: 0; }
 .chat-entry .chat-row-top { width: 100%; align-items: center; gap: 8px; }
+.chat-entry .chat-preview, .chat-entry .chat-row-meta { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 1; line-clamp: 1; overflow: hidden; text-overflow: ellipsis; white-space: normal; font-size: .74rem; line-height: 1.4; color: #999; }
 .chat-entry .chat-row-top strong { font-size: .94rem; font-weight: 500; line-height: 1.5; }
 .chat-entry .chat-row-top .result-dot { width: 9px; height: 9px; margin-left: auto; }
 .chat-entry .chat-pin { width: 32px; align-self: stretch; }

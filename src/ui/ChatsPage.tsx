@@ -10,6 +10,8 @@ import {
   chatMessageTime,
   formatStoredResponse,
   partialResponseLabel,
+  plainPreview,
+  recoveryProgress,
   turnStatus,
 } from "./resultFormatting";
 import type { RunSummary, ResultStatus } from "./resultFormatting";
@@ -174,6 +176,15 @@ export default function ChatsPage(props: Props) {
                 </span>
               </span>
             </span>
+            {item.has_response && item.preview.trim() ? (
+              <span className="chat-preview" title={plainPreview(item.preview)}>
+                {plainPreview(item.preview)}
+              </span>
+            ) : (
+              <span className="chat-row-meta">
+                {statusLabel(item.status)} · {chatMessageTime(item.updated_at || item.created_at)}
+              </span>
+            )}
           </button>
           <button
             type="button"
@@ -947,6 +958,20 @@ export default function ChatsPage(props: Props) {
                                             )}
                                           </div>
                                         )}
+                                      {index === 0 &&
+                                        ["interrupted", "unavailable"].includes(turn.status) &&
+                                        detail.value?.recovery?.eligible === false && (
+                                          <div className="chat-recovery-guidance" role="status">
+                                            {recoveryProgress(
+                                              detail.value.recovery,
+                                              Date.now() / 1000,
+                                            )}
+                                            <span>
+                                              The capture has no verified ChatGPT conversation to
+                                              revisit. No automatic resend will occur.
+                                            </span>
+                                          </div>
+                                        )}
                                       {["interrupted", "unavailable", "outcome_unknown"].includes(
                                         turn.status,
                                       ) &&
@@ -962,6 +987,14 @@ export default function ChatsPage(props: Props) {
                                             <span>
                                               Recovery checks are read-only. No automatic resend.
                                             </span>
+                                            {index === 0 && detail.value?.recovery && (
+                                              <span role="status">
+                                                {recoveryProgress(
+                                                  detail.value.recovery,
+                                                  Date.now() / 1000,
+                                                )}
+                                              </span>
+                                            )}
                                             {recoveryPauseSeconds.value > 0 && (
                                               <span role="status">
                                                 Recovery is waiting about{" "}
