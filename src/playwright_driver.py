@@ -528,6 +528,8 @@ class PlaywrightDriver:
             and "text/event-stream" in response.headers.get("content-type", "").casefold()
         ):
             # This is the existing POST's response. No fetch, routing, or history GET.
+            # The stream itself is proof of generation, even before final text exists.
+            capture["sse_stream"] = True
             task = asyncio.create_task(self._read_completed_sse_response(response, capture))
             self._response_tasks.add(task)
             task.add_done_callback(self._response_tasks.discard)
@@ -611,6 +613,7 @@ class PlaywrightDriver:
             "request_obj": None,
             "status": 0,
             "response_started": False,
+            "sse_stream": False,
             "completed": False,
             "fetch_error": "",
             "ambiguous_request": False,

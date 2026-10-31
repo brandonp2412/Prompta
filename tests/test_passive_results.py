@@ -109,6 +109,26 @@ def test_empty_answer_cannot_be_completed(tmp_path: Path) -> None:
     assert row["status"] == "accepted"
 
 
+def test_verified_generation_status_preserves_unique_lease(tmp_path: Path) -> None:
+    store = ResponseStore(tmp_path / "chat-results.sqlite3")
+    store.ensure_queued("s", "prompt", now=10)
+    assert store.accept("s", "owner", deadline=40, now=11)
+    assert not store.mark_generating("s", "other", now=12)
+    assert store.mark_generating("s", "owner", now=12)
+    row = store.get("s")
+    assert row is not None
+    assert row["status"] == "generating" and row["assistant_text"] == ""
+    assert not store.mark_generating("s", "owner", now=13)
+    assert store.write("s", "owner", _capture("Finished", "complete"), now=14)
+    assert not store.mark_generating("s", "owner", now=15)
+    finished = store.get("s")
+    assert finished is not None and finished["status"] == "completed"
+
+    store.ensure_queued("expired", "prompt", now=10)
+    assert store.accept("expired", "owner", deadline=20, now=11)
+    assert not store.mark_generating("expired", "owner", now=20)
+
+
 class StreamDriver:
     def __init__(self, updates: list[CaptureResult | None]) -> None:
         self.updates = updates
@@ -138,6 +158,34 @@ class StreamDriver:
     async def eval(self, _script: str) -> object:
         self.eval_calls += 1
         return False
+
+
+@pytest.mark.asyncio
+async def test_owned_sse_stream_shows_generating_before_final_text(tmp_path: Path) -> None:
+    sender = BrowserDeliverySender(tmp_path / "runtime.sqlite3", connector_approval=False)
+    sender.results.ensure_queued("s", "private")
+    owner = f"{os.getpid()}:test"
+    assert sender.results.accept("s", owner, deadline=time.time() + 60)
+    driver = StreamDriver([])
+    task = asyncio.create_task(sender._capture_until_complete(
+        driver, {"sse_stream": True, "status": 200}, "s", owner,
+        deadline=asyncio.get_running_loop().time() + 1,
+    ))
+    try:
+        for _ in range(50):
+            row = sender.results.get("s")
+            if row is not None and row["status"] == "generating":
+                break
+            await asyncio.sleep(0.01)
+        else:
+            pytest.fail("Verified stream never advanced accepted to generating")
+        assert row["assistant_text"] == ""
+        assert row["capture_owner"] == owner
+    finally:
+        driver.is_connected = False
+        await asyncio.wait_for(task, timeout=2)
+    finished = sender.results.get("s")
+    assert finished is not None and finished["status"] == "interrupted"
 
 
 @pytest.mark.asyncio

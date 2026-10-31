@@ -53,6 +53,39 @@ def offline_approval_default(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(ConnectorApproval, "load", classmethod(lambda cls: cls(enabled=False)))
 
 
+@pytest.mark.asyncio
+async def test_only_owned_event_stream_marks_live_generation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    driver = PlaywrightDriver(profile=tmp_path / "profile")
+    request = MagicMock(spec=playwright_driver.Request)
+    request.method = "POST"
+    response = MagicMock(spec=playwright_driver.Response)
+    response.request = request
+    response.url = "https://chatgpt.com/backend-api/conversation"
+    response.status = 200
+    response.headers = {"content-type": "text/event-stream"}
+    capture: dict[str, object] = {"request_obj": request, "ambiguous_request": False}
+    driver._send_capture = capture
+    reader = AsyncMock(return_value=None)
+    monkeypatch.setattr(driver, "_read_completed_sse_response", reader)
+
+    driver._on_response(response)
+    assert capture["response_started"] is True
+    assert capture["sse_stream"] is True
+    await asyncio.sleep(0)
+    reader.assert_awaited_once()
+
+    capture["sse_stream"] = False
+    response.headers = {"content-type": "application/json"}
+    driver._on_response(response)
+    assert capture["sse_stream"] is False
+    capture["ambiguous_request"] = True
+    response.headers = {"content-type": "text/event-stream"}
+    driver._on_response(response)
+    assert capture["sse_stream"] is False
+
+
 class FakeDriver:
     def __init__(self) -> None:
         self.is_connected = True

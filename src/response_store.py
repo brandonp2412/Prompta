@@ -224,6 +224,22 @@ class ResponseStore:
             )
         return changed.rowcount == 1
 
+    def mark_generating(
+        self, send_id: str, owner: str, *, now: float | None = None,
+    ) -> bool:
+        """Record a verified live response stream before any final answer text exists."""
+        at = time.time() if now is None else now
+        with self.engine.begin() as connection:
+            changed = connection.execute(
+                update(results).where(
+                    results.c.send_id == send_id,
+                    results.c.capture_owner == owner,
+                    results.c.status == "accepted",
+                    results.c.capture_deadline > at,
+                ).values(status="generating", updated_at=at)
+            )
+        return changed.rowcount == 1
+
     def bind_conversation_route(
         self, send_id: str, owner: str, path: object, *, now: float | None = None
     ) -> bool:

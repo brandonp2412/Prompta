@@ -420,6 +420,9 @@ class BrowserDeliverySender:
         dom_completed_at: float | None = None
         empty_reasoning_since: float | None = None
         seen_tool_calls: tuple[dict[str, object], ...] = ()
+        if capture.get("sse_stream"):
+            # The stream may start before the passive observer's first wait.
+            self.results.mark_generating(send_id, owner)
         try:
             while (remaining := deadline - asyncio.get_running_loop().time()) > 0:
                 if not driver.is_connected:
@@ -522,6 +525,10 @@ class BrowserDeliverySender:
                     )
                     final_status = "unavailable"
                     break
+                if capture.get("sse_stream"):
+                    # An owned, successful event stream is live generation even
+                    # when only thinking/tool activity is visible so far.
+                    self.results.mark_generating(send_id, owner)
                 if sse is not None and sse.tool_calls and sse.tool_calls != seen_tool_calls:
                     # Tool-only SSE may finish before any user-facing answer exists.
                     # Persist its redacted events against this unique owned lease.
