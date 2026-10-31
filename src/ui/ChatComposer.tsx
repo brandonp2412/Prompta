@@ -22,6 +22,7 @@ export default function ChatComposer(props: Props) {
     canAttach,
     hasDraft,
     canSend,
+    canFallback,
     draftChanged,
     addFiles,
     submit,
@@ -242,11 +243,14 @@ export default function ChatComposer(props: Props) {
         ) : (
           <></>
         )}
-        {fallbackAvailable.value && onFallbackSend.value && hasDraft.value ? (
+        {mode.value === "reply" &&
+        fallbackAvailable.value &&
+        onFallbackSend.value &&
+        hasDraft.value ? (
           <>
             <button
               type="button"
-              disabled={sending.value}
+              disabled={!canFallback.value}
               onClick={() => void submit(true)}
               className="composer-fallback"
             >

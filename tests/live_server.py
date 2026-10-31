@@ -9,6 +9,7 @@ from pathlib import Path
 
 import uvicorn
 
+from prompta.persistence import create_database
 from prompta.web import WebServices, create_app
 
 
@@ -47,3 +48,7 @@ class LiveServer(WebServices):
 
     def server_close(self) -> None:
         self.socket.close()
+        create_database(self.state_path).dispose()
+        self.queue.engine.dispose()
+        self.results.engine.dispose()
+        self.replies.engine.dispose()

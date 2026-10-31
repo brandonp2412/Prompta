@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import os
-from functools import lru_cache
+from collections import OrderedDict
 from pathlib import Path
+from threading import RLock
 
 from sqlalchemy import (
     Boolean,
@@ -105,10 +106,28 @@ def create_database(path: Path, *, timeout: float = 5.0) -> Engine:
     return _database_engine(str(target.resolve()), timeout)
 
 
-@lru_cache(maxsize=32)
+_engine_cache: OrderedDict[tuple[str, float], Engine] = OrderedDict()
+_engine_lock = RLock()
+_ENGINE_CACHE_LIMIT = 32
+
+
 def _database_engine(path: str, timeout: float) -> Engine:
-    engine = create_engine(
-        f"sqlite:///{path}", connect_args={"timeout": timeout, "check_same_thread": False}
-    )
-    upgrade_database(engine, "runtime")
-    return engine
+    key = (path, timeout)
+    with _engine_lock:
+        cached = _engine_cache.get(key)
+        if cached is not None:
+            _engine_cache.move_to_end(key)
+            return cached
+        engine = create_engine(
+            f"sqlite:///{path}", connect_args={"timeout": timeout, "check_same_thread": False}
+        )
+        try:
+            upgrade_database(engine, "runtime")
+        except Exception:
+            engine.dispose()
+            raise
+        _engine_cache[key] = engine
+        if len(_engine_cache) > _ENGINE_CACHE_LIMIT:
+            _, evicted = _engine_cache.popitem(last=False)
+            evicted.dispose()
+        return engine

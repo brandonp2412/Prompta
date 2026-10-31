@@ -29,6 +29,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.sqlite import insert
 from sqlalchemy.engine import Engine
+from sqlalchemy.pool import NullPool
 
 from .response_capture import CaptureResult, conversation_id_from_path
 from .schema_migrations import upgrade_database
@@ -195,6 +196,7 @@ class ResponseStore:
         self.engine: Engine = create_engine(
             f"sqlite:///{self.path.resolve()}",
             connect_args={"timeout": 30.0, "check_same_thread": False},
+            poolclass=NullPool,
         )
         with self.engine.begin() as connection:
             connection.exec_driver_sql("PRAGMA journal_mode=WAL")
@@ -202,10 +204,12 @@ class ResponseStore:
         self._secure_files()
 
     def _secure_files(self) -> None:
-        for suffix in ("", "-wal", "-shm"):
-            path = Path(str(self.path) + suffix)
-            if path.exists():
-                path.chmod(0o600)
+        self.path.chmod(0o600)
+        for suffix in ("-wal", "-shm"):
+            try:
+                Path(str(self.path) + suffix).chmod(0o600)
+            except FileNotFoundError:
+                continue
 
     def ensure_queued(
         self, send_id: str, user_text: str, job_name: str = "", *, now: float | None = None

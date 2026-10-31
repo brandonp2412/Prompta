@@ -88,16 +88,50 @@ def test_recovery_health_never_counts_invalid_conversation_ids_as_recoverable(
                 result_table.c.send_id == "invalid-id"
             ).values(conversation_id="not-a-verified-uuid"))
         recovery = get(port, "/api/health")[1]["recovery"]
-        assert recovery["recoverable"] == 0
-        assert recovery["missing_verified_identity"] == 1
+        assert isinstance(recovery, dict)
+        assert recovery.get("recoverable") == 0
+        assert recovery.get("missing_verified_identity") == 1
 
         with app.results.engine.begin() as connection:
             connection.execute(update(result_table).where(
                 result_table.c.send_id == "invalid-id"
             ).values(conversation_id="12345678-1234-4123-8123-123456789abc"))
         recovery = get(port, "/api/health")[1]["recovery"]
-        assert recovery["recoverable"] == 1
-        assert recovery["missing_verified_identity"] == 0
+        assert isinstance(recovery, dict)
+        assert recovery.get("recoverable") == 1
+        assert recovery.get("missing_verified_identity") == 0
+
+
+@pytest.mark.parametrize(
+    "width,height", [(320, 640), (360, 800), (390, 844), (412, 915), (844, 390), (1440, 900)]
+)
+def test_healthy_services_still_surface_unresolved_chat_attention(
+    tmp_path: Path, width: int, height: int,
+) -> None:
+    executable = os.environ.get("PROMPTA_TEST_CHROMIUM", "")
+    if not executable or not Path(executable).exists():
+        pytest.skip("Headless Chromium unavailable")
+    with server(tmp_path) as (app, port):
+        app.results.ensure_queued("needs-review", "Private synthetic prompt", now=10)
+        assert app.results.accept("needs-review", "123:owner", deadline=50, now=11)
+        assert app.results.finish("needs-review", "123:owner", "interrupted", now=50)
+        for service in ("ui", "scheduler", "delivery_worker", "manual_reply_worker", "browser"):
+            assert app.health.beat(service)
+        with (
+            patch("prompta.web.browser_page_count", return_value=(True, 1)),
+            sync_playwright() as playwright,
+        ):
+            browser = playwright.chromium.launch(executable_path=executable, headless=True)
+            page = browser.new_page(viewport={"width": width, "height": height})
+            page.goto(f"http://127.0.0.1:{port}/?view=jobs")
+            summary = page.locator(".delivery-diagnostics summary")
+            expect(summary).to_contain_text("Delivery online · review needed")
+            expect(summary).to_contain_text("1 chat needs review")
+            summary.click()
+            expect(page.get_by_text("Chats needing attention")).to_be_visible()
+            expect(page.locator(".delivery-diagnostics dd").last).to_have_text("1")
+            assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+            browser.close()
 
 
 @pytest.mark.parametrize("width,height", [(1440, 900), (390, 844)])

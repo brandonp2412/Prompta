@@ -21,7 +21,7 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 	enumerable: true
 }) : target, mod));
 //#endregion
-//#region node_modules/scheduler/cjs/scheduler.production.js
+//#region ../../prompta/node_modules/scheduler/cjs/scheduler.production.js
 /**
 * @license React
 * scheduler.production.js
@@ -276,12 +276,12 @@ var require_scheduler_production = /* @__PURE__ */ __commonJSMin(((exports) => {
 	};
 }));
 //#endregion
-//#region node_modules/scheduler/index.js
+//#region ../../prompta/node_modules/scheduler/index.js
 var require_scheduler = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_scheduler_production();
 }));
 //#endregion
-//#region node_modules/react/cjs/react.production.js
+//#region ../../prompta/node_modules/react/cjs/react.production.js
 /**
 * @license React
 * react.production.js
@@ -668,12 +668,12 @@ var require_react_production = /* @__PURE__ */ __commonJSMin(((exports) => {
 	exports.version = "19.3.1";
 }));
 //#endregion
-//#region node_modules/react/index.js
+//#region ../../prompta/node_modules/react/index.js
 var require_react = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_react_production();
 }));
 //#endregion
-//#region node_modules/react-dom/cjs/react-dom.production.js
+//#region ../../prompta/node_modules/react-dom/cjs/react-dom.production.js
 /**
 * @license React
 * react-dom.production.js
@@ -826,7 +826,7 @@ var require_react_dom_production = /* @__PURE__ */ __commonJSMin(((exports) => {
 	exports.version = "19.3.1";
 }));
 //#endregion
-//#region node_modules/react-dom/index.js
+//#region ../../prompta/node_modules/react-dom/index.js
 var require_react_dom = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	function checkDCE() {
 		if (typeof __REACT_DEVTOOLS_GLOBAL_HOOK__ === "undefined" || typeof __REACT_DEVTOOLS_GLOBAL_HOOK__.checkDCE !== "function") return;
@@ -840,7 +840,7 @@ var require_react_dom = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_react_dom_production();
 }));
 //#endregion
-//#region node_modules/react-dom/cjs/react-dom-client.production.js
+//#region ../../prompta/node_modules/react-dom/cjs/react-dom-client.production.js
 /**
 * @license React
 * react-dom-client.production.js
@@ -11415,7 +11415,7 @@ var require_react_dom_client_production = /* @__PURE__ */ __commonJSMin(((export
 	};
 }));
 //#endregion
-//#region node_modules/react-dom/client.js
+//#region ../../prompta/node_modules/react-dom/client.js
 var require_client = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	function checkDCE() {
 		if (typeof __REACT_DEVTOOLS_GLOBAL_HOOK__ === "undefined" || typeof __REACT_DEVTOOLS_GLOBAL_HOOK__.checkDCE !== "function") return;
@@ -11429,7 +11429,7 @@ var require_client = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_react_dom_client_production();
 }));
 //#endregion
-//#region node_modules/@preact/signals-core/dist/signals-core.module.js
+//#region ../../prompta/node_modules/@preact/signals-core/dist/signals-core.module.js
 var import_react = /* @__PURE__ */ __toESM(require_react());
 var import_client = require_client();
 var i$1 = Symbol.for("preact-signals");
@@ -11841,7 +11841,7 @@ function x$2(i, t) {
 	return n;
 }
 //#endregion
-//#region node_modules/use-sync-external-store/cjs/use-sync-external-store-shim.production.js
+//#region ../../prompta/node_modules/use-sync-external-store/cjs/use-sync-external-store-shim.production.js
 /**
 * @license React
 * use-sync-external-store-shim.production.js
@@ -11901,7 +11901,7 @@ var require_use_sync_external_store_shim_production = /* @__PURE__ */ __commonJS
 	exports.useSyncExternalStore = void 0 !== React.useSyncExternalStore ? React.useSyncExternalStore : shim;
 }));
 //#endregion
-//#region node_modules/@preact/signals-react/runtime/dist/runtime.module.js
+//#region ../../prompta/node_modules/@preact/signals-react/runtime/dist/runtime.module.js
 var import_shim = (/* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_use_sync_external_store_shim_production();
 })))();
@@ -14632,7 +14632,7 @@ function createJobsPageController(initialProps) {
 	};
 }
 //#endregion
-//#region node_modules/react/cjs/react-jsx-runtime.production.js
+//#region ../../prompta/node_modules/react/cjs/react-jsx-runtime.production.js
 /**
 * @license React
 * react-jsx-runtime.production.js
@@ -14944,24 +14944,35 @@ function DeliveryDiagnostics({ model }) {
 	const health = model.deliveryHealth.value;
 	const error = model.deliveryHealthError.value;
 	const pause = model.recoveryPauseSeconds.value;
+	const attention = health?.recovery.attention_chats ?? 0;
 	const nextRetry = health?.queue.next_retry_at_epoch;
 	const recoveryWaiting = Boolean(health && pause > 0 && (health.recovery.recoverable > 0 || health.recovery.recoverable_reply_captures > 0));
 	let label = "status unavailable";
 	if (!error && health?.ready === false) label = "needs attention";
 	else if (!error && health?.admission?.blocked) label = "waiting for capacity";
+	else if (!error && attention > 0) label = "online · review needed";
 	else if (!error && health) label = "online";
 	if (!health && !error) return null;
 	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("details", {
 		className: "delivery-diagnostics",
 		children: [
 			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("summary", { children: [
-				/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: error || health?.ready === false || health?.admission?.blocked ? "delivery-indicator degraded" : "delivery-indicator" }),
+				/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: error || health?.ready === false || health?.admission?.blocked || attention > 0 ? "delivery-indicator degraded" : "delivery-indicator" }),
 				"Delivery ",
 				label,
 				health && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
 					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
 						className: "delivery-count",
 						children: [model.pendingDeliveries.value, " pending"]
+					}),
+					attention > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+						className: "delivery-count",
+						children: [
+							attention,
+							" ",
+							attention === 1 ? "chat needs" : "chats need",
+							" review"
+						]
 					}),
 					health.queue.outcome_unknown > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
 						className: "delivery-count",
@@ -15017,7 +15028,8 @@ function DeliveryDiagnostics({ model }) {
 					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("dt", { children: "Unresolved follow-up captures" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("dd", { children: health.recovery.unresolved_reply_captures })] }),
 					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("dt", { children: "Follow-ups eligible for recovery" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("dd", { children: health.recovery.recoverable_reply_captures })] }),
 					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("dt", { children: "Due follow-up probes" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("dd", { children: health.recovery.due_reply_recovery_probes })] }),
-					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("dt", { children: "Missing verified chat identity" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("dd", { children: health.recovery.missing_verified_identity })] })
+					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("dt", { children: "Missing verified chat identity" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("dd", { children: health.recovery.missing_verified_identity })] }),
+					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("dt", { children: "Chats needing attention" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("dd", { children: attention })] })
 				] }),
 				health.recovery.stale_capture_leases > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
 					role: "status",
@@ -15545,6 +15557,7 @@ function createChatComposerController(initialProps) {
 	const canAttach = O(() => mode.value === "fresh" && !disabled.value && !sending.value && !uploading.value);
 	const hasDraft = O(() => !!draft.value.trim());
 	const canSend = O(() => !disabled.value && !sendDisabled.value && !sending.value && !uploading.value && hasDraft.value);
+	const canFallback = O(() => mode.value === "reply" && !disabled.value && !sending.value && !uploading.value && hasDraft.value && fallbackAvailable.value && !!onFallbackSend.value);
 	function resizeTextarea() {
 		fitTextarea();
 	}
@@ -15650,7 +15663,7 @@ function createChatComposerController(initialProps) {
 		}
 	}
 	async function submit(useFallback = false) {
-		if (!canSend.value || useFallback && (!fallbackAvailable.value || !onFallbackSend.value)) return;
+		if (useFallback ? !canFallback.value : !canSend.value) return;
 		const submittedKey = draftStorageKey.value;
 		const generation = ++submissionGeneration;
 		const submitted = draft.value;
@@ -15811,6 +15824,7 @@ function createChatComposerController(initialProps) {
 		canAttach,
 		hasDraft,
 		canSend,
+		canFallback,
 		draftChanged,
 		addFiles,
 		submit,
@@ -15826,7 +15840,7 @@ function createChatComposerController(initialProps) {
 function ChatComposer(props) {
 	const model = (0, import_react.useMemo)(() => createChatComposerController(props), []);
 	N$1();
-	const { mode, onFallbackSend, onNewChat, disabled, draft, images, uploading, sending, feedback, fallbackAvailable, dragging, fileInput, draftStorageKey, canAttach, hasDraft, canSend, draftChanged, addFiles, submit, keydown, pasted, dropped } = model;
+	const { mode, onFallbackSend, onNewChat, disabled, draft, images, uploading, sending, feedback, fallbackAvailable, dragging, fileInput, draftStorageKey, canAttach, hasDraft, canSend, canFallback, draftChanged, addFiles, submit, keydown, pasted, dropped } = model;
 	const refs = (0, import_react.useMemo)(() => ({
 		textarea: (element) => {
 			if (model.textarea.peek() !== (element ?? void 0)) model.textarea.value = element ?? void 0;
@@ -15982,9 +15996,9 @@ function ChatComposer(props) {
 				className: "composer-feedback",
 				children: feedback.value
 			}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {}),
-			fallbackAvailable.value && onFallbackSend.value && hasDraft.value ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+			mode.value === "reply" && fallbackAvailable.value && onFallbackSend.value && hasDraft.value ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 				type: "button",
-				disabled: sending.value,
+				disabled: !canFallback.value,
 				onClick: () => void submit(true),
 				className: "composer-fallback",
 				children: "Start new chat with last result"
@@ -16520,7 +16534,7 @@ function ChatsSidebar({ model, refs }) {
 	});
 }
 //#endregion
-//#region node_modules/marked/lib/marked.esm.js
+//#region ../../prompta/node_modules/marked/lib/marked.esm.js
 /**
 * marked v16.4.2 - a markdown parser
 * Copyright (c) 2018-2025, MarkedJS. (MIT License)
