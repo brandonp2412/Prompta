@@ -78,7 +78,7 @@ class ReplyReadState:
             item["last_reply_revision"] = revision
             item["last_reply_at"] = at
             item["needs_attention"] = (
-                item["status"] in ("interrupted", "unavailable") or send_id in attention_ids
+                item["status"] in ("interrupted", "unavailable", "outcome_unknown") or send_id in attention_ids
             )
 
     def mark_all_local_read(self) -> int:

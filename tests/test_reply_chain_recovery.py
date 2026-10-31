@@ -281,6 +281,15 @@ def test_attention_filter_surfaces_uncertain_followups_and_clears_after_recovery
     assert responses.page(status="needs_attention")["total"] == 1
     assert responses.recovery_metrics(now=30)["attention_chats"] == 1
 
+    with responses.engine.begin() as connection:
+        connection.execute(update(result_table).where(
+            result_table.c.send_id == "chain-run"
+        ).values(status="outcome_unknown"))
+    page = responses.page(status="needs_attention")
+    assert page["total"] == 1
+    replies.annotate_response_markers(page["items"])
+    assert page["items"][0]["needs_attention"] is True
+
 
 def test_mark_all_read_tracks_only_the_latest_completed_revision(tmp_path: Path) -> None:
     responses, replies, reply_id = _chain(tmp_path)
