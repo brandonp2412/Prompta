@@ -114,6 +114,10 @@ def _renew_lease_until_done(
 ) -> None:
     failures = 0
     wait_seconds = _LEASE_RENEW_SECONDS
+    # A database hiccup does not revoke an otherwise valid durable lease.
+    # Keep retrying until its conservative local deadline, while the store
+    # remains the final authority for completion and expiry.
+    safe_deadline = time.monotonic() + max(0.0, _LEASE_SECONDS - _LEASE_RENEW_SECONDS)
     while not stop.wait(wait_seconds):
         try:
             renewed = queue.renew_lease(
@@ -129,16 +133,17 @@ def _renew_lease_until_done(
                 "Delivery lease renewal failed send_id=%s attempt=%d error_type=%s",
                 send_id, failures, type(exc).__name__,
             )
-            if failures >= 3:
+            if time.monotonic() >= safe_deadline:
                 lost.set()
                 return
-            wait_seconds = _LEASE_RENEW_RETRY_SECONDS
+            wait_seconds = min(_LEASE_RENEW_RETRY_SECONDS, safe_deadline - time.monotonic())
             continue
         if not renewed:
             lost.set()
             return
         failures = 0
         wait_seconds = _LEASE_RENEW_SECONDS
+        safe_deadline = time.monotonic() + max(0.0, _LEASE_SECONDS - _LEASE_RENEW_SECONDS)
 
 
 def _retry(

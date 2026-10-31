@@ -12222,7 +12222,7 @@ function hasSubscribers() {
 	return listeners.jobs.size > 0 || listeners.chats.size > 0 || statusListeners.size > 0;
 }
 function retryLiveConnection() {
-	if (!hasSubscribers()) return;
+	if (!hasSubscribers() || observedOffline) return;
 	window.clearTimeout(reconnectTimer);
 	window.clearTimeout(watchdogTimer);
 	reconnectTimer = void 0;
@@ -14564,9 +14564,14 @@ function createJobsPageController(initialProps) {
 			loadDeliveryHealth();
 			loadQueue();
 		});
+		const unsubscribeQueue = subscribeLiveUpdates("chats", () => {
+			loadDeliveryHealth();
+			loadQueue();
+		});
 		return () => {
 			clearInterval(healthTimer);
 			unsubscribe();
+			unsubscribeQueue();
 			window.removeEventListener("beforeunload", onBeforeUnload);
 			window.removeEventListener("resize", onViewportResize);
 			window.visualViewport?.removeEventListener("resize", onViewportResize);
@@ -15594,9 +15599,9 @@ function createChatComposerController(initialProps) {
 		textarea.value.style.height = "auto";
 		const maxHeight = Number.parseFloat(getComputedStyle(textarea.value).maxHeight);
 		const contentHeight = textarea.value.scrollHeight;
-		const nextHeight = Math.min(contentHeight, maxHeight);
+		const nextHeight = Number.isFinite(maxHeight) ? Math.min(contentHeight, maxHeight) : contentHeight;
 		textarea.value.style.height = nextHeight + "px";
-		textarea.value.style.overflowY = contentHeight > maxHeight ? "auto" : "hidden";
+		textarea.value.style.overflowY = Number.isFinite(maxHeight) && contentHeight > maxHeight ? "auto" : "hidden";
 		if (animateCollapse && previousHeight > nextHeight && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) textarea.value.animate([{ height: previousHeight + "px" }, { height: nextHeight + "px" }], {
 			duration: 160,
 			easing: "ease-out"
@@ -15678,7 +15683,7 @@ function createChatComposerController(initialProps) {
 			if (generation === uploadGeneration && key === draftStorageKey.value) {
 				images.value = images.value.filter((image) => !batchRefs.includes(image.ref));
 				rememberComposerImages(key, images.value);
-				if (error instanceof DOMException && error.name === "TimeoutError") feedback.value = "Image upload timed out. The unsent attachments were restored; try again.";
+				if (error instanceof DOMException && error.name === "TimeoutError") feedback.value = "Image upload timed out. Reattach any images that did not upload.";
 				else if (error instanceof Error) feedback.value = error.message;
 				else feedback.value = "Image upload failed.";
 			}

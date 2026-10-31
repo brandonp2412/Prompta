@@ -470,8 +470,9 @@ def test_renewal_thread_survives_transient_database_error(monkeypatch) -> None:
 def test_renewal_thread_marks_lease_lost_on_persistent_failure(monkeypatch) -> None:
     import prompta.delivery_worker as worker
 
-    monkeypatch.setattr(worker, "_LEASE_RENEW_SECONDS", 0.001)
-    monkeypatch.setattr(worker, "_LEASE_RENEW_RETRY_SECONDS", 0.001)
+    monkeypatch.setattr(worker, "_LEASE_SECONDS", 0.03)
+    monkeypatch.setattr(worker, "_LEASE_RENEW_SECONDS", 0.005)
+    monkeypatch.setattr(worker, "_LEASE_RENEW_RETRY_SECONDS", 0.005)
     stop, lost = threading.Event(), threading.Event()
 
     class BrokenQueue:
@@ -483,5 +484,29 @@ def test_renewal_thread_marks_lease_lost_on_persistent_failure(monkeypatch) -> N
 
     queue = BrokenQueue()
     _renew_lease_until_done(queue, "send-1", "worker", stop, lost)
-    assert queue.calls == 3
+    assert queue.calls >= 3
     assert lost.is_set()
+
+
+def test_renewal_recovers_after_more_than_three_temporary_store_failures(monkeypatch) -> None:
+    import prompta.delivery_worker as worker
+
+    monkeypatch.setattr(worker, "_LEASE_SECONDS", 0.3)
+    monkeypatch.setattr(worker, "_LEASE_RENEW_SECONDS", 0.001)
+    monkeypatch.setattr(worker, "_LEASE_RENEW_RETRY_SECONDS", 0.001)
+    stop, lost = threading.Event(), threading.Event()
+
+    class FlakyQueue:
+        calls = 0
+
+        def renew_lease(self, send_id: str, owner: str, *, lease_seconds: float) -> bool:
+            self.calls += 1
+            if self.calls <= 5:
+                raise RuntimeError("temporary lease store failure")
+            stop.set()
+            return True
+
+    queue = FlakyQueue()
+    _renew_lease_until_done(queue, "send-1", "worker", stop, lost)
+    assert queue.calls == 6
+    assert not lost.is_set()

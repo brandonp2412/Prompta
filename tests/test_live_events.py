@@ -98,6 +98,72 @@ def test_sse_stream_signals_cross_process_store_changes_and_reconnects(tmp_path:
             head.close()
 
 
+def test_sse_survives_temporary_jobs_read_failure_and_recovers(tmp_path: Path, monkeypatch) -> None:
+    with live_server(tmp_path) as (app, port, jobs_path):
+        scheduled_jobs = app.jobs.scheduled_jobs
+        remaining_failures = 2
+
+        def flaky_jobs() -> dict[str, object]:
+            nonlocal remaining_failures
+            if remaining_failures:
+                remaining_failures -= 1
+                raise OSError("temporary SQLite read failure")
+            return dict(scheduled_jobs())
+
+        monkeypatch.setattr(app.jobs, "scheduled_jobs", flaky_jobs)
+        client = HTTPConnection("127.0.0.1", port, timeout=6)
+        try:
+            client.request("GET", "/api/events")
+            stream = client.getresponse()
+            assert stream.status == 200
+            assert next_event(stream)[0] == "sync"
+            add_job(jobs_path, "Recovered read", "Private content", 300)
+            assert next_event(stream)[0] == "jobs"
+            assert remaining_failures == 0
+        finally:
+            client.close()
+
+
+def test_slow_sse_database_snapshot_does_not_block_other_http_requests(tmp_path: Path, monkeypatch) -> None:
+    with live_server(tmp_path) as (app, port, _):
+        snapshot = app.live_events.snapshot
+        entered = threading.Event()
+        release = threading.Event()
+        first = True
+
+        def slow_snapshot():
+            nonlocal first
+            if first:
+                first = False
+                entered.set()
+                assert release.wait(3)
+            return snapshot()
+
+        monkeypatch.setattr(app.live_events, "snapshot", slow_snapshot)
+        stream_client = HTTPConnection("127.0.0.1", port, timeout=5)
+        stream_ready = threading.Event()
+
+        def open_stream() -> None:
+            stream_client.request("GET", "/api/events")
+            stream_ready.set()
+
+        reader = threading.Thread(target=open_stream)
+        reader.start()
+        try:
+            assert entered.wait(2)
+            health = HTTPConnection("127.0.0.1", port, timeout=2)
+            try:
+                health.request("GET", "/api/jobs")
+                assert health.getresponse().status == 200
+            finally:
+                health.close()
+        finally:
+            release.set()
+            reader.join(timeout=3)
+            stream_client.close()
+        assert stream_ready.is_set()
+
+
 def test_live_revisions_do_not_depend_on_private_payloads(tmp_path: Path) -> None:
     jobs_path = tmp_path / "jobs.sqlite3"
     app = LiveServer(
@@ -179,6 +245,14 @@ def test_browser_updates_jobs_and_chats_without_timer_polling(tmp_path: Path) ->
                 baseline_gets = sum("/api/jobs" in request for request in requests)
                 page.wait_for_timeout(5500)
                 # Heartbeats and idle time must not cause the old 5-second reload.
+                assert sum("/api/jobs" in request for request in requests) == baseline_gets
+
+                # A queue transition is a chats revision, even when the
+                # scheduled job definitions did not change.
+                app.queue.enqueue_manual("Queued synthetic prompt")
+                expect(page.locator(".delivery-count", has_text="1 pending")).to_be_visible(
+                    timeout=5000
+                )
                 assert sum("/api/jobs" in request for request in requests) == baseline_gets
 
                 page.goto(

@@ -101,9 +101,12 @@ export function createChatComposerController(initialProps: Props) {
     textarea.value.style.height = "auto";
     const maxHeight = Number.parseFloat(getComputedStyle(textarea.value).maxHeight);
     const contentHeight = textarea.value.scrollHeight;
-    const nextHeight = Math.min(contentHeight, maxHeight);
+    const nextHeight = Number.isFinite(maxHeight)
+      ? Math.min(contentHeight, maxHeight)
+      : contentHeight;
     textarea.value.style.height = nextHeight + "px";
-    textarea.value.style.overflowY = contentHeight > maxHeight ? "auto" : "hidden";
+    textarea.value.style.overflowY =
+      Number.isFinite(maxHeight) && contentHeight > maxHeight ? "auto" : "hidden";
     // The transcript grows as the composer shrinks. Ease that movement after
     // a successful send without delaying textarea growth while typing.
     if (
@@ -213,8 +216,7 @@ export function createChatComposerController(initialProps: Props) {
         images.value = images.value.filter((image) => !batchRefs.includes(image.ref));
         rememberComposerImages(key, images.value);
         if (error instanceof DOMException && error.name === "TimeoutError")
-          feedback.value =
-            "Image upload timed out. The unsent attachments were restored; try again.";
+          feedback.value = "Image upload timed out. Reattach any images that did not upload.";
         else if (error instanceof Error) feedback.value = error.message;
         else feedback.value = "Image upload failed.";
       }
