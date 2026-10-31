@@ -108,13 +108,9 @@ export default function ResultMarkdown({
     return items.map((token, index) => {
       switch (token.type) {
         case "heading":
-          return token.depth === 1 ? (
-            <h1 key={index}>{inline(children(token))}</h1>
-          ) : token.depth === 2 ? (
-            <h2 key={index}>{inline(children(token))}</h2>
-          ) : (
-            <h3 key={index}>{inline(children(token))}</h3>
-          );
+          if (token.depth === 1) return <h1 key={index}>{inline(children(token))}</h1>;
+          if (token.depth === 2) return <h2 key={index}>{inline(children(token))}</h2>;
+          return <h3 key={index}>{inline(children(token))}</h3>;
         case "paragraph":
         case "text": {
           const metrics = legacyMetricSummary(token.text);
@@ -147,7 +143,10 @@ export default function ResultMarkdown({
             );
           return <p key={index}>{inline(children(token).length ? children(token) : [token])}</p>;
         }
-        case "code":
+        case "code": {
+          let copyLabel = "Copy code";
+          if (copiedCode === index + ":" + token.text)
+            copyLabel = copyStatus === "copied" ? "Copied" : "Copy failed";
           return (
             <div key={index} className="code-snippet">
               <div className="code-toolbar">
@@ -158,11 +157,7 @@ export default function ResultMarkdown({
                   aria-live="polite"
                   onClick={() => void copyCode(token.text, index)}
                 >
-                  {copiedCode === index + ":" + token.text
-                    ? copyStatus === "copied"
-                      ? "Copied"
-                      : "Copy failed"
-                    : "Copy code"}
+                  {copyLabel}
                 </button>
               </div>
               <pre>
@@ -172,6 +167,7 @@ export default function ResultMarkdown({
               </pre>
             </div>
           );
+        }
         case "list":
           return token.ordered ? (
             <ol key={index} start={token.start || 1}>

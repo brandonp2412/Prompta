@@ -753,7 +753,7 @@ def test_legacy_dom_table_is_rendered_as_table_on_desktop_and_mobile(tmp_path: P
             browser = playwright.chromium.launch(
                 executable_path=chromium_path,
                 headless=True,
-                args=["--no-sandbox", "--single-process", "--no-zygote"],
+                args=["--no-sandbox", "--no-zygote"],
             )
             try:
                 page = browser.new_page(viewport={"width": 1440, "height": 900})
@@ -885,7 +885,7 @@ def test_chats_ui_desktop_mobile_and_no_chatgpt_requests(tmp_path: Path) -> None
             browser = playwright.chromium.launch(
                 executable_path=chromium_path,
                 headless=True,
-                args=["--no-sandbox", "--single-process", "--no-zygote"],
+                args=["--no-sandbox", "--no-zygote"],
             )
             try:
                 context = browser.new_context(
@@ -1088,7 +1088,7 @@ def test_mobile_jobs_editor_navigation_and_touch_targets(tmp_path: Path) -> None
             browser = playwright.chromium.launch(
                 executable_path=chromium_path,
                 headless=True,
-                args=["--no-sandbox", "--single-process", "--no-zygote"],
+                args=["--no-sandbox", "--no-zygote"],
             )
             try:
                 page = browser.new_page(
@@ -1326,7 +1326,7 @@ def test_unread_badges_follow_completed_answers_not_metadata(tmp_path: Path) -> 
             browser = playwright.chromium.launch(
                 executable_path=chromium,
                 headless=True,
-                args=["--no-sandbox", "--single-process", "--no-zygote"],
+                args=["--no-sandbox", "--no-zygote"],
             )
             try:
                 page = browser.new_page(viewport={"width": 1440, "height": 900})

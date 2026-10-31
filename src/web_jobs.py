@@ -125,28 +125,23 @@ class WebJobService:
         if isinstance(command, AddJob):
             name, prompt = command.name, command.prompt
             existing = load_jobs(self.jobs_path).get(name)
-            images = (
-                image_refs(command.images)
-                if "images" in command.model_fields_set
-                else (existing.images if existing else ())
-            )
+            if "images" in command.model_fields_set:
+                images = image_refs(command.images)
+            else:
+                images = existing.images if existing else ()
             for ref in images:
                 self.images.path(ref)
-            mutex_group = (
-                command.mutex_group.strip()
-                if "mutex_group" in command.model_fields_set
-                else (existing.mutex_group if existing else "")
-            )
+            if "mutex_group" in command.model_fields_set:
+                mutex_group = command.mutex_group.strip()
+            else:
+                mutex_group = existing.mutex_group if existing else ""
             once = command.schedule == "once"
-            pin_chat = (
-                (
-                    command.pin_chat
-                    if "pin_chat" in command.model_fields_set
-                    else (existing.pin_chat if existing else False)
-                )
-                if once
-                else False
-            )
+            pin_chat = False
+            if once:
+                if "pin_chat" in command.model_fields_set:
+                    pin_chat = command.pin_chat
+                elif existing:
+                    pin_chat = existing.pin_chat
             daily_at = command.daily_at or None
             if once:
                 daily_at, interval_seconds, exact_interval = None, 0.0, False
@@ -161,7 +156,6 @@ class WebJobService:
             elif daily_at is not None:
                 interval_seconds, exact_interval, run_at_epoch = 0.0, False, None
             else:
-                # The model requires an interval whenever no other cadence is set.
                 assert command.interval_minutes is not None
                 interval_seconds = command.interval_minutes * 60.0
                 exact_interval, run_at_epoch = command.exact_interval, None
