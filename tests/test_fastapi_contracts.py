@@ -207,3 +207,52 @@ async def test_stream_failure_terminates_started_response_without_leaking_detail
     assert frames[-1] == {"type": "http.response.body", "body": b"", "more_body": False}
     assert "private transcript" not in caplog.text
     assert "RuntimeError" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_sse_transport_disconnect_does_not_send_a_second_response(caplog) -> None:
+    import logging
+
+    frames: list[str] = []
+
+    async def stream(scope, receive, send):
+        await send({"type": "http.response.start", "status": 200, "headers": []})
+        await send({"type": "http.response.body", "body": b"data: refresh\\n\\n", "more_body": True})
+
+    async def receive():
+        return {"type": "http.disconnect"}
+
+    async def send(message):
+        frames.append(message["type"])
+        if message["type"] == "http.response.body":
+            raise OSError("client already disconnected")
+
+    with caplog.at_level(logging.ERROR):
+        await RequestBoundary(stream)(
+            {"type": "http", "method": "GET", "path": "/api/events"}, receive, send,
+        )
+    assert frames == ["http.response.start", "http.response.body"]
+    assert "HTTP contract failed" not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_sse_restart_terminator_disconnect_is_not_an_asgi_error(caplog) -> None:
+    frames: list[str] = []
+
+    async def broken(scope, receive, send):
+        await send({"type": "http.response.start", "status": 200, "headers": []})
+        raise RuntimeError("sensitive exception detail")
+
+    async def receive():
+        return {"type": "http.disconnect"}
+
+    async def send(message):
+        frames.append(message["type"])
+        if message["type"] == "http.response.body":
+            raise OSError("stream closed during shutdown")
+
+    await RequestBoundary(broken)(
+        {"type": "http", "method": "GET", "path": "/api/events"}, receive, send,
+    )
+    assert frames == ["http.response.start", "http.response.body"]
+    assert "sensitive exception detail" not in caplog.text

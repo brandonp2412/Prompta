@@ -18,12 +18,10 @@ from patchright.async_api import async_playwright
 
 from .browser_ownership import (
     MAX_OWNED_TAB_AGE_SECONDS,
+    claim_expired_tab,
     forget_owned_tabs,
     owned_tab_records,
-    owned_window_owner_id,
-    owned_window_started_at,
 )
-from .browser_script_loader import load_browser_script
 from .reply_contracts import ManualReplyStore
 
 logger = logging.getLogger(__name__)
@@ -31,6 +29,7 @@ STATE_DIR = Path.home() / ".local/state/prompta"
 STATE_FILE = STATE_DIR / "browser-watchdog.json"
 FAILURE_THRESHOLD = 2
 RESTART_COOLDOWN_SECONDS = 300.0
+MAX_EXPIRED_TABS_PER_TICK = 4
 
 
 @dataclass
@@ -111,8 +110,9 @@ def reap_expired_leases_http(
     *,
     now: float | None = None,
 ) -> int:
-    """Browser HTTP fallback when Playwright/CDP websocket supervision fails."""
+    """Bounded HTTP cleanup when the CDP websocket cannot be used."""
     current = time.time() if now is None else now
+    cutoff = current - MAX_OWNED_TAB_AGE_SECONDS
     with urlopen(f"http://{address}/json/list", timeout=3.0) as response:
         targets = json.load(response)
     if not isinstance(targets, list):
@@ -125,19 +125,28 @@ def reap_expired_leases_http(
         and isinstance(target.get("id"), str)
     }
     leases = owned_tab_records()
-    resolved = set(leases) - active
+    forget_owned_tabs(set(leases) - active)
     closed = 0
-    for target_id, opened_at in leases.items():
-        if target_id not in active or opened_at > current - MAX_OWNED_TAB_AGE_SECONDS:
+    attempts = 0
+    for target_id, last_activity in leases.items():
+        if attempts >= MAX_EXPIRED_TABS_PER_TICK:
+            break
+        if target_id not in active or last_activity > cutoff:
             continue
+        attempts += 1
         try:
-            with urlopen(f"http://{address}/json/close/{quote(target_id, safe='')}", timeout=3.0):
-                pass
-            resolved.add(target_id)
-            closed += 1
-        except OSError as exc:
+            with claim_expired_tab(target_id, cutoff) as mark_closed:
+                if mark_closed is None:
+                    continue
+                with urlopen(
+                    f"http://{address}/json/close/{quote(target_id, safe='')}",
+                    timeout=3.0,
+                ):
+                    pass
+                mark_closed()
+                closed += 1
+        except (OSError, sqlite3.Error) as exc:
             logger.warning("Prompta HTTP expiry failed error_type=%s", type(exc).__name__)
-    forget_owned_tabs(resolved)
     return closed
 
 
@@ -146,18 +155,20 @@ async def reap_expired_owned_tabs(
     *,
     now: float | None = None,
 ) -> int:
-    """Close only Prompta-owned expired targets; never navigate or reload pages."""
+    """Close only ledger-verified expired targets without inspecting other tabs."""
     current = time.time() if now is None else now
-    expired_before = current - MAX_OWNED_TAB_AGE_SECONDS
+    cutoff = current - MAX_OWNED_TAB_AGE_SECONDS
     closed = 0
     async with async_playwright() as playwright:
-        browser = await playwright.chromium.connect_over_cdp(
-            f"http://{address}",
-            timeout=5000,
+        browser = await asyncio.wait_for(
+            playwright.chromium.connect_over_cdp(f"http://{address}", timeout=5000),
+            timeout=6.0,
         )
-        session = await browser.new_browser_cdp_session()
+        session = await asyncio.wait_for(browser.new_browser_cdp_session(), timeout=3.0)
         try:
-            targets = (await session.send("Target.getTargets")).get("targetInfos", [])
+            targets = (await asyncio.wait_for(
+                session.send("Target.getTargets"), timeout=3.0,
+            )).get("targetInfos", [])
             active = {
                 target.get("targetId")
                 for target in targets
@@ -165,68 +176,33 @@ async def reap_expired_owned_tabs(
                 and target.get("type") == "page"
                 and isinstance(target.get("targetId"), str)
             }
-            try:
-                leases = owned_tab_records()
-            except sqlite3.Error as exc:
-                logger.warning(
-                    "Prompta tab lease database unreadable error_type=%s", type(exc).__name__
-                )
-                leases = {}
-            resolved = set(leases) - active
-            for target_id, opened_at in leases.items():
-                if target_id not in active or opened_at > expired_before:
+            leases = owned_tab_records()
+            forget_owned_tabs(set(leases) - active)
+            attempts = 0
+            for target_id, last_activity in leases.items():
+                if attempts >= MAX_EXPIRED_TABS_PER_TICK:
+                    break
+                if target_id not in active or last_activity > cutoff:
                     continue
+                attempts += 1
                 try:
-                    result = await asyncio.wait_for(
-                        session.send("Target.closeTarget", {"targetId": target_id}),
-                        timeout=3.0,
-                    )
-                    if result.get("success") is True:
-                        resolved.add(target_id)
-                        closed += 1
-                except Exception as exc:
-                    logger.warning("Prompta tab expiry failed error_type=%s", type(exc).__name__)
-
-            # Discover tabs created before the lease ledger, or when registering failed.
-            for context in browser.contexts:
-                for page in context.pages:
-                    if page.is_closed():
-                        continue
-                    try:
-                        marker = await asyncio.wait_for(page.evaluate(load_browser_script("get_window_name.js")), timeout=0.5)
-                        started_at = owned_window_started_at(marker)
-                        owner_id = owned_window_owner_id(marker)
-                        if started_at is None or owner_id is None or started_at > expired_before:
-                            continue
-                        page_session = await page.context.new_cdp_session(page)
-                        try:
-                            info = await page_session.send("Target.getTargetInfo")
-                        finally:
-                            await page_session.detach()
-                        target_info = info.get("targetInfo")
-                        target_id = (
-                            target_info.get("targetId") if isinstance(target_info, dict) else None
-                        )
-                        if not isinstance(target_id, str) or target_id in resolved:
-                            continue
-                        # A legacy window marker never overrides a newer verified lease.
-                        if target_id in leases and leases[target_id] > expired_before:
+                    with claim_expired_tab(target_id, cutoff) as mark_closed:
+                        if mark_closed is None:
                             continue
                         result = await asyncio.wait_for(
                             session.send("Target.closeTarget", {"targetId": target_id}),
                             timeout=3.0,
                         )
                         if result.get("success") is True:
-                            resolved.add(target_id)
+                            mark_closed()
                             closed += 1
-                    except Exception as exc:
-                        logger.warning(
-                            "Prompta marker expiry check failed error_type=%s", type(exc).__name__
-                        )
-            forget_owned_tabs(resolved)
+                except Exception as exc:
+                    logger.warning("Prompta tab expiry failed error_type=%s", type(exc).__name__)
         finally:
-            # Stopping Playwright disconnects without closing the shared browser.
-            await session.detach()
+            try:
+                await asyncio.wait_for(session.detach(), timeout=2.0)
+            except Exception as exc:
+                logger.debug("Prompta watchdog detach failed error_type=%s", type(exc).__name__)
     if closed:
         logger.warning("Reaped %d expired Prompta-owned tabs", closed)
     return closed
@@ -289,8 +265,8 @@ def main() -> None:
     except Exception as exc:
         logger.warning("Manual reply lease recovery failed error_type=%s", type(exc).__name__)
     healthy = debugger_responding(address)
-    busy = False if healthy else delivery_in_flight(STATE_DIR / "runtime.sqlite3", now)
-    if healthy:
+    busy = delivery_in_flight(STATE_DIR / "runtime.sqlite3", now)
+    if healthy and not busy:
         try:
             asyncio.run(reap_expired_owned_tabs(address=address, now=now))
         except Exception as exc:

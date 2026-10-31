@@ -242,3 +242,16 @@ def test_migration_cli_upgrades_default_stores_in_a_private_state_directory(tmp_
             assert connection.execute(
                 f"SELECT version_num FROM alembic_{family}_version"
             ).fetchone() == (f"{family}_0002",)
+
+
+def test_alembic_initialization_is_quiet_without_hiding_warnings(tmp_path: Path, caplog) -> None:
+    import logging
+
+    caplog.set_level(logging.INFO)
+    upgrade_path(tmp_path / "quiet.sqlite3", "ownership")
+    messages = [record.message for record in caplog.records]
+    assert not any("Context impl SQLiteImpl" in message for message in messages)
+    assert not any("Will assume non-transactional DDL" in message for message in messages)
+
+    logging.getLogger("alembic.runtime.migration").warning("migration-warning-probe")
+    assert "migration-warning-probe" in [record.message for record in caplog.records]

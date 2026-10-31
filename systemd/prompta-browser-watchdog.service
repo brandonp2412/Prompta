@@ -4,6 +4,7 @@ After=prompta-browser.service
 
 [Service]
 Type=oneshot
+Environment=PYTHONPATH=%h/prompta
 ExecStart=%h/prompta/.venv/bin/python -m prompta.browser_watchdog
 TimeoutStartSec=90
 Slice=prompta.slice

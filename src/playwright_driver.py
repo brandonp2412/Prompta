@@ -35,9 +35,6 @@ from .browser_ownership import (
     OWNED_WINDOW_PREFIX,
     new_owned_window_marker,
     new_page_owner_id,
-    owned_window_owner_alive,
-    owned_window_owner_id,
-    owned_window_started_at,
     record_owned_tab,
     touch_owned_tab,
 )
@@ -168,7 +165,6 @@ class PlaywrightDriver(ModelPickerMixin):
         self._owned_target_ids: dict[str, str] = {}
         self._attached = bool(self.debugger_address)
         self._connected = False
-        self._next_orphan_cleanup_at = 0.0
         self._history_rate_limit_seen = False
         self._flaresolverr_attempted = False
 
@@ -300,24 +296,6 @@ class PlaywrightDriver(ModelPickerMixin):
                 "",
             )
 
-    async def _owned_page_started_at(self, page: Page) -> int | None:
-        if page.is_closed():
-            return None
-        try:
-            name = await page.evaluate(load_browser_script("get_window_name.js"))
-        except PlaywrightError:
-            return None
-        return owned_window_started_at(name, prefix=self.ownership_prefix)
-
-    async def _owned_page_owner_id(self, page: Page) -> str | None:
-        if page.is_closed():
-            return None
-        try:
-            name = await page.evaluate(load_browser_script("get_window_name.js"))
-        except PlaywrightError:
-            return None
-        return owned_window_owner_id(name, prefix=self.ownership_prefix)
-
     async def _lease_owned_page(self, page: Page) -> None:
         try:
             session = await asyncio.wait_for(page.context.new_cdp_session(page), timeout=3.0)
@@ -359,49 +337,6 @@ class PlaywrightDriver(ModelPickerMixin):
             owner_id=self.page_owner_id,
         )
         await page.evaluate(load_browser_script("set_window_name.js"), marker)
-
-    async def cleanup_orphan_pages(
-        self,
-        *,
-        minimum_age_seconds: float = 60.0,
-        interval_seconds: float = 30.0,
-    ) -> int:
-        browser_context = self._browser_context
-        if browser_context is None:
-            return 0
-
-        loop = asyncio.get_running_loop()
-        now_monotonic = loop.time()
-        if now_monotonic < self._next_orphan_cleanup_at:
-            return 0
-        self._next_orphan_cleanup_at = now_monotonic + max(1.0, interval_seconds)
-
-        now = time.time()
-        cutoff = now - max(1.0, minimum_age_seconds)
-        closed = 0
-        for page in list(browser_context.pages):
-            if page in self._page_contexts:
-                continue
-            started_at = await self._owned_page_started_at(page)
-            if started_at is None or started_at > cutoff:
-                continue
-            owner_id = await self._owned_page_owner_id(page)
-            if owner_id is None:
-                # Ownerless markers cannot prove that another live process still
-                # owns the page, so fail safe and leave them alone.
-                continue
-            # A live owner may have renewed verified activity. The independent
-            # watchdog, not an unrelated driver, applies the 45-minute idle TTL.
-            if owner_id != self.page_owner_id and owned_window_owner_alive(owner_id):
-                continue
-            try:
-                await page.close()
-            except PlaywrightError:
-                continue
-            closed += 1
-        if closed:
-            logger.warning("Prompta reaped %d orphaned browser tab(s)", closed)
-        return closed
 
     def _on_request(self, request: Request) -> None:
         capture = self._send_capture
@@ -910,10 +845,6 @@ class PlaywrightDriver(ModelPickerMixin):
                     contexts[0],
                 )
                 self._browser_context = browser_context
-                await self.cleanup_orphan_pages(
-                    minimum_age_seconds=60.0,
-                    interval_seconds=1.0,
-                )
             else:
                 self.profile.mkdir(parents=True, exist_ok=True)
                 self._browser_context = await self._playwright.chromium.launch_persistent_context(

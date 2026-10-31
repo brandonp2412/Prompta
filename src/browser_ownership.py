@@ -4,7 +4,8 @@ import os
 import sqlite3
 import time
 import uuid
-from contextlib import closing
+from collections.abc import Callable, Generator
+from contextlib import closing, contextmanager
 from pathlib import Path
 
 from .schema_migrations import upgrade_path
@@ -123,3 +124,34 @@ def forget_owned_tabs(target_ids: set[str], path: Path = OWNED_TAB_LEDGER) -> No
         connection.executemany(
             "DELETE FROM owned_tabs WHERE target_id = ?", ((target_id,) for target_id in target_ids)
         )
+
+
+@contextmanager
+def claim_expired_tab(
+    target_id: str, cutoff: float, path: Path = OWNED_TAB_LEDGER,
+) -> Generator[Callable[[], None] | None]:
+    """Serialize expiry against verified activity updates until browser close completes."""
+    if not path.exists():
+        yield None
+        return
+    with closing(sqlite3.connect(path, timeout=5.0)) as connection:
+        connection.execute("BEGIN IMMEDIATE")
+        try:
+            row = connection.execute(
+                "SELECT last_activity_at FROM owned_tabs WHERE target_id = ?",
+                (target_id,),
+            ).fetchone()
+            if row is None or float(row[0]) > cutoff:
+                yield None
+            else:
+                def mark_closed() -> None:
+                    connection.execute(
+                        "DELETE FROM owned_tabs WHERE target_id = ? AND last_activity_at <= ?",
+                        (target_id, cutoff),
+                    )
+
+                yield mark_closed
+            connection.commit()
+        except BaseException:
+            connection.rollback()
+            raise
