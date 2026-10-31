@@ -74,14 +74,6 @@ def _dispatch_remote(argv: list[str]) -> int | None:
     return completed.returncode
 
 
-def set_job_paused(path: Path, state_path: Path, name: str, paused: bool) -> bool:
-    return SchedulerRuntime(state_path, path).set_job_paused(name, paused)
-
-
-def set_all_jobs_paused(path: Path, state_path: Path, paused: bool) -> int:
-    return SchedulerRuntime(state_path, path).set_all_jobs_paused(paused)
-
-
 def _cancel_pending_delivery(
     jobs_path: Path,
     state_path: Path,
@@ -548,7 +540,7 @@ def main() -> None:
 
     paused = args.command == "pause"
     if args.name is None:
-        count = set_all_jobs_paused(args.jobs_file, args.state, paused)
+        count = SchedulerRuntime(args.state, args.jobs_file).set_all_jobs_paused(paused)
         _print_notice(
             "Ⅱ" if paused else "▶",
             f"{'Paused' if paused else 'Resumed'} {count} job{'s' if count != 1 else ''}",
@@ -556,7 +548,7 @@ def main() -> None:
         )
         return
 
-    if not set_job_paused(args.jobs_file, args.state, args.name, paused):
+    if not SchedulerRuntime(args.state, args.jobs_file).set_job_paused(args.name, paused):
         parser.error(f"unknown job: {args.name}")
     _print_notice(
         "Ⅱ" if paused else "▶",
