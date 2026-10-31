@@ -19,7 +19,7 @@ git clone https://github.com/brandonp2412/Prompta.git ~/prompta
 cd ~/prompta
 uv sync --locked
 bun install --frozen-lockfile
-buildq --wait -- bun run build
+bun run build
 
 mkdir -p ~/.config/systemd/user
 cp systemd/prompta-*.service systemd/prompta-*.timer systemd/prompta.target ~/.config/systemd/user/
