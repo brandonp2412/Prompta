@@ -17545,6 +17545,9 @@ function ChatsPage(props) {
 	(0, import_react.useLayoutEffect)(() => {
 		model.syncProps(props);
 	});
+	(0, import_react.useLayoutEffect)(() => {
+		if (filtersOpen.value) model.searchInput.peek()?.focus();
+	}, [filtersOpen.value, model]);
 	(0, import_react.useEffect)(() => model.mount(), [model]);
 	(0, import_react.useEffect)(() => {
 		window.addEventListener("keydown", escapeDrawer);

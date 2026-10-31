@@ -113,6 +113,9 @@ export default function ChatsPage(props: Props) {
   useLayoutEffect(() => {
     model.syncProps(props);
   });
+  useLayoutEffect(() => {
+    if (filtersOpen.value) model.searchInput.peek()?.focus();
+  }, [filtersOpen.value, model]);
   useEffect(() => model.mount(), [model]);
   useEffect(() => {
     window.addEventListener("keydown", escapeDrawer);
