@@ -27,7 +27,7 @@ from .strict_types import int_value
 
 logger = logging.getLogger(__name__)
 _GLOBAL_INTERVAL_SECONDS = 90.0
-_MAX_PER_CHAT_INTERVAL_SECONDS = 3600.0
+_MAX_PER_CHAT_INTERVAL_SECONDS = 4 * 3600.0
 _LOOKUP_TIMEOUT_SECONDS = 55.0
 _HISTORY_CLOSE_TIMEOUT_SECONDS = 5.0
 
@@ -200,7 +200,7 @@ class HistoryRecovery:
         conversation_id = str(candidate["conversation_id"])
         prompt = str(candidate["user_text"])
         attempts = int_value(candidate["attempt_count"])
-        delay = min(_MAX_PER_CHAT_INTERVAL_SECONDS, 90.0 * 2 ** min(attempts, 6))
+        delay = min(_MAX_PER_CHAT_INTERVAL_SECONDS, 90.0 * 2 ** min(attempts, 8))
         try:
             if str(UUID(conversation_id)) != conversation_id.lower():
                 logger.warning("Historical recovery skipped invalid conversation identity send_id=%s", send_id)

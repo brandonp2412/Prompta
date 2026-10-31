@@ -18,6 +18,7 @@ ExecStartPre=/usr/bin/mkdir -p %h/.local/state/prompta/tmp
 ExecStart=%h/prompta/.venv/bin/prompta-delivery-worker
 Restart=always
 RestartSec=3
+TimeoutStopSec=50min
 WatchdogSec=45s
 NotifyAccess=main
 NoNewPrivileges=true
