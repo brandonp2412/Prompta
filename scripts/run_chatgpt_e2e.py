@@ -20,7 +20,7 @@ def verify_passive_capture(
         row = results.get(send_id)
         if row is not None and row["status"] == "completed":
             if (
-                str(row["assistant_text"]).strip() == expected
+                str(row["assistant_text"]).strip().replace(r"\_", "_") == expected
                 and row["conversation_id"]
                 and row["message_id"]
             ):
@@ -47,7 +47,7 @@ def run(
     queue = DeliveryQueueStore(state_path.parent / "ui-send-jobs.sqlite3")
     token = uuid.uuid4().hex[:12]
     send_id = "manual-e2e-" + token
-    expected = "PROMPTA_E2E_ACCEPTED_" + token.upper()
+    expected = "PROMPTAE2EACCEPTED" + token.upper()
     prompt = (
         f"Prompta E2E verification {token}. Reply with exactly {expected} "
         "and nothing else."
