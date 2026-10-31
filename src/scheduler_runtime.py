@@ -24,7 +24,6 @@ from .scheduler_policy import (
     failure_retry_remaining as calculate_failure_retry_remaining,
 )
 from .scheduler_policy import (
-    failure_state_updates,
     initial_due_at,
     initial_jitter_window,
     recurring_delay,
@@ -359,9 +358,6 @@ class SchedulerRuntime:
             if backoff.attempts:
                 self.backoffs[str(name)] = backoff
 
-    def persist_backoff(self, name: str, backoff: RateLimitBackoff) -> None:
-        self.update_job_state(name, {"rate_limit_backoff": backoff.snapshot()})
-
     def persist_read_backoff(self) -> None:
         snapshot = self.read_backoff.snapshot()
         self.update_account_state({"read_rate_limit_backoff": snapshot})
@@ -447,23 +443,6 @@ class SchedulerRuntime:
             persisted_retry_until=state.get("failure_retry_until_epoch"),
             in_memory_retry_until=self.failure_retry_until.get(name, 0.0),
             now=now,
-        )
-
-    def mark_failure(
-        self,
-        name: str,
-        message: str,
-        *,
-        retry_until: float | None = None,
-        now: float | None = None,
-    ) -> None:
-        self.update_job_state(
-            name,
-            failure_state_updates(
-                message,
-                status_at=time.time() if now is None else now,
-                retry_until=retry_until,
-            ),
         )
 
     def read_jobs(self) -> dict[str, PromptJob]:

@@ -50,7 +50,7 @@ def test_concurrent_tool_results_without_identity_are_not_misassigned() -> None:
                 "type": "mcpToolCall", "tool": tool, "arguments": {},
             })]},
         })
-    ambiguous = {
+    ambiguous: dict[str, object] = {
         "id": "result-unknown", "author": {"role": "tool"},
         "content": {"parts": ["Unidentified result"]},
     }

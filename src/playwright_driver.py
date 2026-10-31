@@ -445,15 +445,6 @@ class PlaywrightDriver:
         )
         await page.evaluate(load_browser_script("set_window_name.js"), marker)
 
-    async def _is_owned_page(self, page: Page) -> bool:
-        return await self._owned_page_owner_id(page) == self.page_owner_id
-
-    async def _cleanup_stale_owned_pages(self, browser_context: BrowserContext) -> None:
-        await self.cleanup_orphan_pages(
-            minimum_age_seconds=60.0,
-            interval_seconds=1.0,
-        )
-
     async def cleanup_orphan_pages(
         self,
         *,
@@ -1040,7 +1031,9 @@ class PlaywrightDriver:
                     contexts[0],
                 )
                 self._browser_context = browser_context
-                await self._cleanup_stale_owned_pages(browser_context)
+                await self.cleanup_orphan_pages(
+                    minimum_age_seconds=60.0, interval_seconds=1.0,
+                )
             else:
                 self.profile.mkdir(parents=True, exist_ok=True)
                 self._browser_context = await self._playwright.chromium.launch_persistent_context(
