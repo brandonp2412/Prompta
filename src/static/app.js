@@ -16549,10 +16549,10 @@ function ChatRow({ item, model }) {
 	const selected = model.view.value === "chats" && model.selectedRunId.value === item.send_id;
 	const unread = model.isUnread(item);
 	const pinned = model.pinnedIds.value.includes(item.send_id);
-	const hasPreview = item.has_response && !!item.preview.trim();
-	const preview = hasPreview ? plainPreview(item.preview) : "";
 	const rowStatus = item.needs_attention ? "Needs attention" : statusLabel(item.status);
 	const queued = item.status === "queued" && !item.needs_attention;
+	const showPreview = item.has_response && !!item.preview.trim() && !queued && !(item.status === "accepted" && !item.needs_attention);
+	const preview = showPreview ? plainPreview(item.preview) : "";
 	const subtitle = queued ? queuedChatEtaText(item.send_id, model.queueSnapshot.value) : rowStatus;
 	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 		className: [
@@ -16590,7 +16590,7 @@ function ChatRow({ item, model }) {
 						})
 					})
 				]
-			}), hasPreview ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+			}), showPreview ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
 				className: "chat-preview",
 				title: preview,
 				children: [item.needs_attention ? "Needs attention · " : "", preview]
@@ -16640,6 +16640,7 @@ function ChatsSidebar({ model, refs }) {
 	const [approval, setApproval] = (0, import_react.useState)(false);
 	const [settingsError, setSettingsError] = (0, import_react.useState)("");
 	const [settingsReady, setSettingsReady] = (0, import_react.useState)(false);
+	const [settingsLoadKey, setSettingsLoadKey] = (0, import_react.useState)(0);
 	const [saving, setSaving] = (0, import_react.useState)(false);
 	const hasOlderChats = nextOffset.value < total.value;
 	(0, import_react.useEffect)(() => {
@@ -16724,6 +16725,7 @@ function ChatsSidebar({ model, refs }) {
 			return response.json();
 		}).then((data) => {
 			if (controller.signal.aborted) return;
+			if (typeof data?.stage_concurrency?.enabled !== "boolean" || !Number.isInteger(data.stage_concurrency.max_workers) || data.stage_concurrency.max_workers < 1 || data.stage_concurrency.max_workers > 128 || typeof data?.connector_approval?.enabled !== "boolean") throw new Error("Invalid settings response");
 			setConcurrency(data.stage_concurrency);
 			setApproval(data.connector_approval.enabled);
 			setSettingsError("");
@@ -16732,7 +16734,7 @@ function ChatsSidebar({ model, refs }) {
 			if (!controller.signal.aborted) setSettingsError("Could not load settings");
 		});
 		return () => controller.abort();
-	}, [settingsOpen]);
+	}, [settingsOpen, settingsLoadKey]);
 	async function saveSettings() {
 		setSaving(true);
 		setSettingsError("");
@@ -16752,6 +16754,9 @@ function ChatsSidebar({ model, refs }) {
 			setSaving(false);
 		}
 	}
+	let settingsButtonLabel = "Save settings";
+	if (saving) settingsButtonLabel = "Saving…";
+	else if (!settingsReady && settingsError) settingsButtonLabel = "Retry loading settings";
 	function emptyChatsLabel() {
 		if (listError.value) return "Chat list temporarily unavailable";
 		if (search.value || statusFilter.value) return "No matching chats";
@@ -17072,9 +17077,15 @@ function ChatsSidebar({ model, refs }) {
 							type: "button",
 							className: "settings-save",
 							ref: settingsSaveRef,
-							disabled: !settingsReady || saving || concurrency.enabled && (!Number.isInteger(concurrency.max_workers) || concurrency.max_workers < 1 || concurrency.max_workers > 128),
-							onClick: () => void saveSettings(),
-							children: saving ? "Saving…" : "Save settings"
+							disabled: !settingsReady && !settingsError || saving || settingsReady && concurrency.enabled && (!Number.isInteger(concurrency.max_workers) || concurrency.max_workers < 1 || concurrency.max_workers > 128),
+							onClick: () => {
+								if (settingsReady) saveSettings();
+								else {
+									setSettingsError("");
+									setSettingsLoadKey((value) => value + 1);
+								}
+							},
+							children: settingsButtonLabel
 						})
 					]
 				})

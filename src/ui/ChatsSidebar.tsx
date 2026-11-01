@@ -60,6 +60,7 @@ export default function ChatsSidebar({
   const [approval, setApproval] = useState(false);
   const [settingsError, setSettingsError] = useState("");
   const [settingsReady, setSettingsReady] = useState(false);
+  const [settingsLoadKey, setSettingsLoadKey] = useState(0);
   const [saving, setSaving] = useState(false);
   const hasOlderChats = nextOffset.value < total.value;
   useEffect(() => {
@@ -152,6 +153,14 @@ export default function ChatsSidebar({
       })
       .then((data) => {
         if (controller.signal.aborted) return;
+        if (
+          typeof data?.stage_concurrency?.enabled !== "boolean" ||
+          !Number.isInteger(data.stage_concurrency.max_workers) ||
+          data.stage_concurrency.max_workers < 1 ||
+          data.stage_concurrency.max_workers > 128 ||
+          typeof data?.connector_approval?.enabled !== "boolean"
+        )
+          throw new Error("Invalid settings response");
         setConcurrency(data.stage_concurrency);
         setApproval(data.connector_approval.enabled);
         setSettingsError("");
@@ -161,7 +170,7 @@ export default function ChatsSidebar({
         if (!controller.signal.aborted) setSettingsError("Could not load settings");
       });
     return () => controller.abort();
-  }, [settingsOpen]);
+  }, [settingsOpen, settingsLoadKey]);
   async function saveSettings() {
     setSaving(true);
     setSettingsError("");
@@ -182,6 +191,10 @@ export default function ChatsSidebar({
       setSaving(false);
     }
   }
+
+  let settingsButtonLabel = "Save settings";
+  if (saving) settingsButtonLabel = "Saving…";
+  else if (!settingsReady && settingsError) settingsButtonLabel = "Retry loading settings";
 
   function emptyChatsLabel() {
     if (listError.value) return "Chat list temporarily unavailable";
@@ -500,16 +513,23 @@ export default function ChatsSidebar({
                 className="settings-save"
                 ref={settingsSaveRef}
                 disabled={
-                  !settingsReady ||
+                  (!settingsReady && !settingsError) ||
                   saving ||
-                  (concurrency.enabled &&
+                  (settingsReady &&
+                    concurrency.enabled &&
                     (!Number.isInteger(concurrency.max_workers) ||
                       concurrency.max_workers < 1 ||
                       concurrency.max_workers > 128))
                 }
-                onClick={() => void saveSettings()}
+                onClick={() => {
+                  if (settingsReady) void saveSettings();
+                  else {
+                    setSettingsError("");
+                    setSettingsLoadKey((value) => value + 1);
+                  }
+                }}
               >
-                {saving ? "Saving…" : "Save settings"}
+                {settingsButtonLabel}
               </button>
             </section>
           </div>,

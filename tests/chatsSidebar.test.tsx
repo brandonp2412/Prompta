@@ -144,6 +144,30 @@ test("running chats have no Stop button in the sidebar", async () => {
   expect(screen.queryByRole("button", { name: /stop/i })).toBeNull();
 });
 
+test("queued follow-ups show their ETA instead of a stale answer preview", async () => {
+  const { model } = sidebar();
+  await act(async () => {
+    model.queueSnapshot.value = {
+      ...model.queueSnapshot.peek(),
+      waiting_runs: [{ send_id: "7", eta_seconds: 120 }],
+    };
+    model.items.value = [{ ...run(7), status: "queued", preview: "Older completed answer" }];
+  });
+  expect(screen.getByText("Queued · ETA ~2 min")).toBeTruthy();
+  expect(screen.queryByText("Older completed answer")).toBeNull();
+
+  await act(async () => {
+    model.items.value = [{ ...run(7), status: "accepted", preview: "Older completed answer" }];
+  });
+  expect(document.querySelector(".chat-row-meta")?.textContent).toBe("Accepted");
+  expect(screen.queryByText("Older completed answer")).toBeNull();
+
+  await act(async () => {
+    model.items.value = [{ ...run(7), status: "completed", preview: "New completed answer" }];
+  });
+  expect(screen.getByText("New completed answer")).toBeTruthy();
+});
+
 test("settings cannot be saved before a successful load", async () => {
   let resolveSettings: ((response: Response) => void) | undefined;
   const saves: unknown[] = [];
@@ -201,30 +225,70 @@ test("settings cannot be saved before a successful load", async () => {
   });
 });
 
-test("settings remain unsaveable when loading fails", async () => {
-  globalThis.fetch = Object.assign(async () => new Response("Unavailable", { status: 503 }), {
-    preconnect: originalFetch.preconnect,
-  });
+test("a failed settings load can be retried without closing the dialog", async () => {
+  let loads = 0;
+  let saves = 0;
+  globalThis.fetch = Object.assign(
+    async (_input: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === "PUT") {
+        saves++;
+        return Response.json({});
+      }
+      loads++;
+      if (loads === 1) return new Response("Unavailable", { status: 503 });
+      return Response.json({
+        stage_concurrency: { enabled: true, max_workers: 3 },
+        connector_approval: { enabled: false },
+      });
+    },
+    { preconnect: originalFetch.preconnect },
+  );
   sidebar();
   const user = userEvent.setup();
   await user.click(screen.getByRole("button", { name: "Profile" }));
   await user.click(screen.getByRole("button", { name: "Settings" }));
   await screen.findByRole("alert");
-  expect(
-    (screen.getByRole("button", { name: "Save settings" }) as HTMLButtonElement).disabled,
-  ).toBe(true);
+  const retry = screen.getByRole("button", { name: "Retry loading settings" });
+  expect((retry as HTMLButtonElement).disabled).toBe(false);
   expect(
     (screen.getByRole("checkbox", { name: "Limit concurrent jobs and chats" }) as HTMLInputElement)
       .disabled,
   ).toBe(true);
+  await user.click(retry);
+  await waitFor(() =>
+    expect(
+      (screen.getByRole("button", { name: "Save settings" }) as HTMLButtonElement).disabled,
+    ).toBe(false),
+  );
+  expect(loads).toBe(2);
+  expect(screen.queryByRole("alert")).toBeNull();
+  await user.click(screen.getByRole("button", { name: "Save settings" }));
+  expect(saves).toBe(1);
+});
+
+test("malformed settings stay disabled and allow a safe retry", async () => {
+  let loads = 0;
+  globalThis.fetch = Object.assign(
+    async () => {
+      loads++;
+      if (loads === 1) return Response.json({ stage_concurrency: null });
+      return Response.json({
+        stage_concurrency: { enabled: false, max_workers: 2 },
+        connector_approval: { enabled: true },
+      });
+    },
+    { preconnect: originalFetch.preconnect },
+  );
+  sidebar();
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "Profile" }));
+  await user.click(screen.getByRole("button", { name: "Settings" }));
+  await screen.findByRole("alert");
+  expect(screen.getByRole("button", { name: "Retry loading settings" })).toBeTruthy();
+  await user.click(screen.getByRole("button", { name: "Retry loading settings" }));
+  await waitFor(() => expect(screen.getByRole("button", { name: "Save settings" })).toBeTruthy());
+  expect(loads).toBe(2);
   expect(
-    (screen.getByRole("spinbutton", { name: "Maximum workers" }) as HTMLInputElement).disabled,
-  ).toBe(true);
-  expect(
-    (
-      screen.getByRole("checkbox", {
-        name: "Automatically approve trusted connector prompts",
-      }) as HTMLInputElement
-    ).disabled,
-  ).toBe(true);
+    (screen.getByRole("spinbutton", { name: "Maximum workers" }) as HTMLInputElement).value,
+  ).toBe("2");
 });
