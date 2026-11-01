@@ -3,11 +3,16 @@ from __future__ import annotations
 import asyncio
 import os
 import shutil
+import socket
+import subprocess
 from pathlib import Path
+from urllib.error import URLError
+from urllib.request import urlopen
 
 import pytest
 from patchright.async_api import async_playwright as async_patchright
 
+from prompta.browser_ownership import new_owned_window_marker
 from prompta.browser_script_loader import load_browser_script
 from prompta.connector_approval_supervisor import (
     supervise_connector_approvals,
@@ -132,6 +137,97 @@ async def test_fresh_retry_requires_an_active_owned_capture(tmp_path: Path) -> N
     assert await driver.retry_connector_approval_from_owned_tab() is False
     driver._send_capture = {}
     assert await driver.retry_connector_approval_from_owned_tab() is False
+
+
+@pytest.mark.asyncio
+async def test_fresh_approval_attachment_verifies_exact_target_and_owner(tmp_path: Path) -> None:
+    chromium = os.environ.get("PROMPTA_TEST_CHROMIUM") or shutil.which("chromium")
+    if chromium is None:
+        pytest.skip("System Chromium is unavailable")
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1", 0))
+        port = listener.getsockname()[1]
+    process = subprocess.Popen(
+        [chromium, "--headless=new", "--no-sandbox", "--disable-gpu",
+         f"--remote-debugging-port={port}",
+         f"--user-data-dir={tmp_path / 'isolated-browser'}", "about:blank"],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    )
+    address = f"127.0.0.1:{port}"
+    try:
+        for _ in range(60):
+            try:
+                with urlopen(f"http://{address}/json/version", timeout=0.2):
+                    break
+            except (OSError, URLError):
+                await asyncio.sleep(0.1)
+        else:
+            pytest.fail("Isolated CDP browser did not start")
+
+        async with async_patchright() as patchright:
+            browser = await patchright.chromium.connect_over_cdp(f"http://{address}")
+            context = browser.contexts[0]
+            await context.route(
+                "https://chatgpt.com/c/**",
+                lambda route: route.fulfill(
+                    status=200, content_type="text/html",
+                    body='<main><div role="dialog" id="permission">'
+                    '<button id="grant">Always allow</button>'
+                    '<button>Allow once</button><button>Deny</button></div></main>',
+                ),
+            )
+            page = await context.new_page()
+            await page.goto("https://chatgpt.com/c/12345678-1234-4123-8123-123456789abc")
+            await page.evaluate("""() => {
+                window.__grants = 0;
+                document.getElementById('grant').addEventListener('click', event => {
+                    if (!event.isTrusted) return;
+                    window.__grants++;
+                    document.getElementById('permission').remove();
+                });
+            }""")
+            session = await context.new_cdp_session(page)
+            try:
+                target_info = await session.send("Target.getTargetInfo")
+            finally:
+                await session.detach()
+            info = target_info.get("targetInfo")
+            assert isinstance(info, dict)
+            target_id = info.get("targetId")
+            assert isinstance(target_id, str)
+
+            driver = PatchrightDriver(
+                profile=tmp_path, debugger_address=address,
+                ownership_prefix="prompta-delivery:",
+            )
+            driver.context = "captured"
+            driver._pages["captured"] = page
+            driver._owned_target_ids["captured"] = target_id
+            driver._send_capture = {}
+            marker = new_owned_window_marker(
+                prefix="prompta-delivery:", owner_id=driver.page_owner_id,
+            )
+            await page.evaluate("(value) => { window.name = value; }", marker)
+            assert await driver.retry_connector_approval_from_owned_tab() is True
+            assert await page.evaluate("window.__grants") == 1
+
+            # A re-used page with a different ownership marker must be inert.
+            await page.evaluate("""() => {
+                window.name = 'not-a-prompta-owned-tab';
+                const permission = document.createElement('div');
+                permission.setAttribute('role', 'dialog');
+                permission.innerHTML = '<button>Always allow</button><button>Allow once</button>';
+                document.body.appendChild(permission);
+            }""")
+            assert await driver.retry_connector_approval_from_owned_tab() is False
+            assert await page.evaluate("window.__grants") == 1
+    finally:
+        process.terminate()
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait(timeout=5)
 
 
 @pytest.mark.asyncio
