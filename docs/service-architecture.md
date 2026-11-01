@@ -23,9 +23,14 @@ are interrupted. Only after workers stop does it fast-forward and migrate the
 checkout, restart the scheduler/UI/delivery/manual workers, and verify health.
 The persistent browser service and its tabs stay running.
 
-Startup orphan recovery marks captures whose owners have stopped as interrupted.
-The history recovery worker reconciles their responses against verified browser
-history after admission resumes. Uncertain sends are quarantined rather than
+After workers stop, the deployer immediately expires the stopped owners' leases.
+Startup orphan recovery marks these captures interrupted even if a PID has been
+reused. The deploy inventory carries durable priority IDs across subsequent
+rollouts; it is consumed by the history worker so newly interrupted captures
+are tried before the ordinary unresolved backlog. These remain read-only exact
+conversation probes, globally limited to one per 90 seconds and subject to
+per-chat, account-read, and security backoffs. A capture without a verified
+conversation/parent identity remains unresolved rather than being resent. Uncertain sends are quarantined rather than
 resubmitted; recovery never authorizes duplicate prompts. Scheduler and UI
 submissions remain durable while admission is paused. A failed deployment retains
 the pause; investigate and verify services before running

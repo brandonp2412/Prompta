@@ -18,7 +18,7 @@ from pathlib import Path
 from urllib.error import URLError
 from urllib.request import urlopen
 
-from prompta.deployment_gate import DeploymentGate
+from prompta.deployment_gate import DeploymentGate, deployment_recovery_priority
 
 logger = logging.getLogger(__name__)
 SERVICES = (
@@ -59,6 +59,11 @@ def record_interrupted_work(gate: DeploymentGate) -> None:
     """Keep a durable deployment inventory before stopping any owners."""
     state_dir = gate.pause_path.parent
     inventory: dict[str, object] = {"recorded_at": time.time()}
+    previous = deployment_recovery_priority(state_dir)
+    priority: dict[str, list[str]] = {
+        "job_responses": list(previous[0]),
+        "manual_reply_turns": list(previous[1]),
+    }
     for filename, table, key in (
         ("chat-results.sqlite3", "job_responses", "send_id"),
         ("chat-results.sqlite3", "manual_reply_turns", "reply_id"),
@@ -71,6 +76,13 @@ def record_interrupted_work(gate: DeploymentGate) -> None:
                 "'interrupted', 'outcome_unknown')"
             ).fetchall()
         inventory[table] = [{"id": row[0], "status": row[1]} for row in rows]
+        if table in priority:
+            # Only captures owned at deploy time get fast-lane recovery. Older
+            # interrupted/outcome-unknown rows stay in the ordinary paced queue.
+            in_flight = {"accepted", "generating", "partial", "dispatching"}
+            recent = [str(identifier) for identifier, status in rows if status in in_flight]
+            priority[table] = list(dict.fromkeys(recent + priority[table]))[:512]
+    inventory["priority"] = priority
     target = state_dir / "deployment-interrupted.json"
     temporary = target.with_suffix(".tmp")
     temporary.write_text(json.dumps(inventory, indent=2) + "\n", encoding="utf-8")
@@ -118,8 +130,19 @@ def deploy(repo: Path, gate: DeploymentGate) -> bool:
             record_interrupted_work(gate)
             changed = True
             stop_workers()
-            # All owners are stopped. Expire in-flight delivery claims now so
-            # startup reconciliation quarantines uncertain sends immediately.
+            # Every browser-owning process is stopped. Expire all of its
+            # capture leases so the new workers mark them interrupted on boot,
+            # even if an old PID is unexpectedly reused. Nothing is resent.
+            with sqlite3.connect(gate.pause_path.parent / "chat-results.sqlite3") as db:
+                db.execute(
+                    "UPDATE job_responses SET capture_deadline=0 "
+                    "WHERE status IN ('accepted', 'generating')"
+                )
+                db.execute(
+                    "UPDATE manual_reply_turns SET lease_deadline=0 "
+                    "WHERE status IN ('dispatching', 'accepted', 'generating')"
+                )
+            # Unconfirmed deliveries are also quarantined without retry.
             with sqlite3.connect(gate.pause_path.parent / "ui-send-jobs.sqlite3") as db:
                 db.execute(
                     "UPDATE job_deliveries SET lease_expires_at=0 WHERE status='running'"

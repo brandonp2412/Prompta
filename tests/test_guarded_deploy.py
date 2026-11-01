@@ -53,6 +53,23 @@ def test_records_active_work_without_waiting(tmp_path: Path) -> None:
     assert inventory["job_responses"] == [{"id": "fresh-one", "status": "generating"}]
     assert inventory["manual_reply_turns"] == [{"id": "reply-one", "status": "accepted"}]
     assert inventory["job_deliveries"] == [{"id": "fresh-one", "status": "running"}]
+    assert inventory["priority"] == {
+        "job_responses": ["fresh-one"], "manual_reply_turns": ["reply-one"],
+    }
+
+
+def test_next_deploy_keeps_unfinished_recovery_priority(tmp_path: Path) -> None:
+    gate = DeploymentGate(tmp_path / "runtime.sqlite3")
+    make_databases(tmp_path, active=True)
+    deploy_guarded.record_interrupted_work(gate)
+    with sqlite3.connect(tmp_path / "chat-results.sqlite3") as db:
+        db.execute("UPDATE job_responses SET status='interrupted', capture_owner='' ")
+        db.execute("UPDATE manual_reply_turns SET status='interrupted'")
+    deploy_guarded.record_interrupted_work(gate)
+    inventory = json.loads((tmp_path / "deployment-interrupted.json").read_text())
+    assert inventory["priority"] == {
+        "job_responses": ["fresh-one"], "manual_reply_turns": ["reply-one"],
+    }
 
 
 def test_bounded_shutdown_interrupts_busy_workers(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -98,6 +115,9 @@ def test_successful_deploy_restarts_apps_but_not_browser(
     assert not gate.is_paused()
     with sqlite3.connect(tmp_path / "state/ui-send-jobs.sqlite3") as db:
         assert db.execute("SELECT lease_expires_at FROM job_deliveries").fetchone() == (0,)
+    with sqlite3.connect(tmp_path / "state/chat-results.sqlite3") as db:
+        assert db.execute("SELECT capture_deadline FROM job_responses").fetchone() == (0,)
+        assert db.execute("SELECT lease_deadline FROM manual_reply_turns").fetchone() == (0,)
     assert sum(command[:3] == ("systemctl", "--user", "restart") for command in commands) == 4
     assert all("prompta-browser.service" not in command for command in commands)
 

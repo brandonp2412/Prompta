@@ -17,7 +17,7 @@ from uuid import UUID
 from patchright.async_api import Error as PatchrightError
 
 from .browser_script_loader import load_browser_script
-from .deployment_gate import DeploymentGate
+from .deployment_gate import DeploymentGate, deployment_recovery_priority
 from .patchright_driver import BrowserSecurityChallengeError
 from .rate_limit import RateLimitError, is_rate_limited_text
 from .reply_contracts import ManualReplyStore
@@ -188,17 +188,27 @@ class HistoryRecovery:
             or self.results.history_recovery_global_pace_remaining(now=at) > 0
         ):
             return False
-        # User-pinned, already-due chats go first, without increasing scan cadence.
-        pinned = self.results.next_history_recovery(now=at, pinned_only=True)
-        reply = None if pinned is not None else self.replies.next_history_reply_recovery(now=at)
-        candidate = pinned or reply or self.results.next_history_recovery(now=at)
+        # First reconcile conversations whose capture owner was stopped by a
+        # deploy. This is still one verified, read-only lookup per global slot.
+        priority_sends, priority_replies = deployment_recovery_priority(self.results.path.parent)
+        candidate = (
+            self.replies.next_history_reply_recovery(now=at, priority_ids=priority_replies)
+            if priority_replies else None
+        )
+        if candidate is None and priority_sends:
+            candidate = self.results.next_history_recovery(now=at, priority_ids=priority_sends)
+        if candidate is None:
+            # Preserve deliberate pinned-chat priority for the normal backlog.
+            candidate = (self.results.next_history_recovery(now=at, pinned_only=True)
+                         or self.replies.next_history_reply_recovery(now=at)
+                         or self.results.next_history_recovery(now=at))
         if candidate is None:
             return False
         if not self.results.reserve_history_recovery_global_slot(
             now=at, interval=_GLOBAL_INTERVAL_SECONDS,
         ):
             return False
-        reply_id = str(candidate["reply_id"]) if reply is not None else ""
+        reply_id = str(candidate["reply_id"]) if "reply_id" in candidate else ""
         send_id = "reply:" + reply_id if reply_id else str(candidate["send_id"])
         conversation_id = str(candidate["conversation_id"])
         prompt = str(candidate["user_text"])

@@ -8,9 +8,35 @@ owners before updating the checkout; interrupted reads recover from history.
 from __future__ import annotations
 
 import fcntl
+import json
 from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
+
+
+def deployment_recovery_priority(state_dir: Path) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """Read durable, opaque IDs of captures interrupted by prior deploys.
+
+    The inventory contains no prompts. Invalid or absent inventories do not
+    authorize any account reads; candidates must still pass store validation.
+    """
+    try:
+        snapshot = json.loads((state_dir / "deployment-interrupted.json").read_text())
+    except (OSError, ValueError):
+        return (), ()
+    if not isinstance(snapshot, dict) or not isinstance(snapshot.get("priority"), dict):
+        return (), ()
+
+    def ids(table: str) -> tuple[str, ...]:
+        entries = snapshot["priority"].get(table)
+        if not isinstance(entries, list):
+            return ()
+        return tuple(dict.fromkeys(
+            value for value in entries[:512]
+            if isinstance(value, str) and 0 < len(value) <= 200
+        ))
+
+    return ids("job_responses"), ids("manual_reply_turns")
 
 
 class DeploymentGate:

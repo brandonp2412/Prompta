@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import time
+from collections.abc import Collection
 from pathlib import Path
 from typing import Literal, TypedDict
 from uuid import UUID
@@ -589,6 +590,7 @@ class ResponseStore:
 
     def next_history_recovery(
         self, *, now: float | None = None, pinned_only: bool = False,
+        priority_ids: Collection[str] | None = None,
     ) -> dict[str, object] | None:
         """Choose only expired, Prompta-owned conversations with durable identities."""
         at = time.time() if now is None else now
@@ -596,21 +598,25 @@ class ResponseStore:
         joined = results.outerjoin(attempts, results.c.send_id == attempts.c.send_id)
         if pinned_only:
             joined = joined.join(local_chat_pins, results.c.send_id == local_chat_pins.c.send_id)
+        query = select(
+            results.c.send_id, results.c.user_text, results.c.conversation_id,
+            func.coalesce(attempts.c.attempt_count, 0).label("attempt_count"),
+        ).select_from(joined).where(
+            results.c.status.in_(("interrupted", "unavailable")),
+            results.c.conversation_id != "",
+            results.c.capture_owner == "",
+            func.coalesce(attempts.c.next_attempt_at, 0) <= at,
+        )
+        if priority_ids is not None:
+            if not priority_ids:
+                return None
+            query = query.where(results.c.send_id.in_(priority_ids))
+        query = query.order_by(
+            func.coalesce(attempts.c.next_attempt_at, 0),
+            results.c.created_at.desc(),
+        ).limit(1)
         with self.engine.connect() as connection:
-            row = connection.execute(
-                select(
-                    results.c.send_id, results.c.user_text, results.c.conversation_id,
-                    func.coalesce(attempts.c.attempt_count, 0).label("attempt_count"),
-                ).select_from(joined).where(
-                    results.c.status.in_(("interrupted", "unavailable")),
-                    results.c.conversation_id != "",
-                    results.c.capture_owner == "",
-                    func.coalesce(attempts.c.next_attempt_at, 0) <= at,
-                ).order_by(
-                    func.coalesce(attempts.c.next_attempt_at, 0),
-                    results.c.created_at.desc(),
-                ).limit(1)
-            ).mappings().one_or_none()
+            row = connection.execute(query).mappings().one_or_none()
         return dict(row) if row is not None else None
 
     def schedule_history_recovery(

@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import re
 import time
+from collections.abc import Collection
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -594,7 +595,9 @@ class ManualReplyStore(ReplyReadState):
             "due_reply_recovery_probes": due,
         }
 
-    def next_history_reply_recovery(self, *, now: float | None = None) -> dict[str, object] | None:
+    def next_history_reply_recovery(
+        self, *, now: float | None = None, priority_ids: Collection[str] | None = None,
+    ) -> dict[str, object] | None:
         """Only verified Prompta-owned parent chains are eligible."""
         at = time.time() if now is None else now
         attempts = history_recovery_attempts.alias("reply_recovery")
@@ -602,17 +605,23 @@ class ManualReplyStore(ReplyReadState):
         joined = replies.join(results, replies.c.send_id == results.c.send_id).outerjoin(
             attempts, attempts.c.send_id == literal("reply:") + replies.c.reply_id,
         )
+        query = select(
+            replies.c.reply_id, replies.c.conversation_id, replies.c.parent_id,
+            replies.c.user_text, results.c.user_text.label("original_prompt"),
+            func.coalesce(attempts.c.attempt_count, 0).label("attempt_count"),
+        ).select_from(joined).where(
+            *verified,
+            func.coalesce(attempts.c.next_attempt_at, 0) <= at,
+        )
+        if priority_ids is not None:
+            if not priority_ids:
+                return None
+            query = query.where(replies.c.reply_id.in_(priority_ids))
+        query = query.order_by(
+            func.coalesce(attempts.c.next_attempt_at, 0), replies.c.created_at.desc(),
+        ).limit(1)
         with self.engine.connect() as connection:
-            row = connection.execute(select(
-                replies.c.reply_id, replies.c.conversation_id, replies.c.parent_id,
-                replies.c.user_text, results.c.user_text.label("original_prompt"),
-                func.coalesce(attempts.c.attempt_count, 0).label("attempt_count"),
-            ).select_from(joined).where(
-                *verified,
-                func.coalesce(attempts.c.next_attempt_at, 0) <= at,
-            ).order_by(
-                func.coalesce(attempts.c.next_attempt_at, 0), replies.c.created_at.desc(),
-            ).limit(1)).mappings().one_or_none()
+            row = connection.execute(query).mappings().one_or_none()
         return dict(row) if row is not None else None
 
     def recover_historical_reply(
