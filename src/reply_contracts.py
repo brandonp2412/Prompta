@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import re
 import time
 from collections.abc import Collection
@@ -25,7 +24,7 @@ from sqlalchemy.sql.elements import ColumnElement
 from .reply_read_state import ReplyReadState, visible_reply_status
 from .reply_tables import replies
 from .response_capture import CaptureResult
-from .response_store import ResponseStore
+from .response_store import ResponseStore, _alive
 from .response_tables import history_recovery_attempts, local_chat_pins, results
 from .tool_call_store import deserialize_tool_calls, merge_tool_calls
 from .web_models import ReplyRequest
@@ -657,29 +656,25 @@ class ManualReplyStore(ReplyReadState):
 
     def recover_orphans(self, *, now: float | None = None) -> int:
         at = time.time() if now is None else now
+        active = replies.c.status.in_(("dispatching", "accepted", "generating"))
+        with self.engine.connect() as connection:
+            owners = connection.execute(select(replies.c.lease_owner).where(
+                active, replies.c.lease_deadline > at,
+            ).distinct()).scalars().all()
+        dead_owners = [owner for owner in owners if not _alive(str(owner))]
+        stale = replies.c.lease_deadline <= at
+        if dead_owners:
+            stale = or_(stale, replies.c.lease_owner.in_(dead_owners))
         with self.engine.begin() as connection:
             changed = 0
-            rows = connection.execute(select(
-                replies.c.reply_id, replies.c.status, replies.c.lease_owner,
-                replies.c.lease_deadline,
-            ).where(replies.c.status.in_(("dispatching", "accepted", "generating")))).all()
-            for reply_id, status, owner, deadline in rows:
-                try:
-                    os.kill(int(str(owner).split(":", 1)[0]), 0)
-                    alive = True
-                except (ValueError, ProcessLookupError):
-                    alive = False
-                except PermissionError:
-                    alive = True
-                if deadline > at and alive:
-                    continue
-                result = connection.execute(update(replies).where(
-                    replies.c.reply_id == reply_id, replies.c.status == status,
-                    replies.c.lease_owner == owner,
-                ).values(status="outcome_unknown" if status == "dispatching" else "interrupted",
-                         lease_owner="", updated_at=at))
-                changed += result.rowcount
-        return changed
+            for statuses, next_status in (
+                (("dispatching",), "outcome_unknown"),
+                (("accepted", "generating"), "interrupted"),
+            ):
+                changed += connection.execute(update(replies).where(
+                    replies.c.status.in_(statuses), stale,
+                ).values(status=next_status, lease_owner="", updated_at=at)).rowcount
+        return int(changed)
 
     def reply_recovery_metrics(self, *, now: float | None = None) -> dict[str, int]:
         """Count unresolved explicit replies without exposing their text or branch IDs."""

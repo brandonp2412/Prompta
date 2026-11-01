@@ -386,6 +386,44 @@ def test_ambiguous_claim_crash_and_partial_recovery_never_resend(tmp_path: Path)
     assert restored is not None and restored[1]["status"] == "outcome_unknown"
 
 
+def test_reply_orphan_probe_does_not_hold_a_sqlite_writer_lock(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store = seed(tmp_path)
+    store.prepare("run", intent(), now=200)
+    assert store.claim(REPLY_ID, "99999999:dead", deadline=400, now=201)
+
+    def dead_worker(pid: int, signal: int) -> None:
+        assert (pid, signal) == (99999999, 0)
+        # A concurrent store write must succeed during the process-liveness
+        # probe, not wait on an open orphan-recovery transaction.
+        store.responses.ensure_queued("unrelated", "Concurrent prompt", now=202)
+        raise ProcessLookupError
+
+    monkeypatch.setattr(os, "kill", dead_worker)
+    assert store.recover_orphans(now=202) == 1
+    assert store.responses.get("unrelated") is not None
+    turns = store.turns("run")
+    assert turns is not None and turns[-1]["status"] == "outcome_unknown"
+    assert not store.claim(REPLY_ID, "new:owner", deadline=500, now=203)
+
+
+def test_reply_orphan_recovery_preserves_live_accepted_leases(tmp_path: Path) -> None:
+    store = seed(tmp_path)
+    store.prepare("run", intent(), now=200)
+    owner = f"{os.getpid()}:live"
+    assert store.claim(REPLY_ID, owner, deadline=400, now=201)
+    assert store.acknowledge_submission(
+        REPLY_ID, owner, conversation_id=CONVERSATION, parent_id=PARENT, now=202,
+    )
+    assert store.recover_orphans(now=203) == 0
+    turns = store.turns("run")
+    assert turns is not None and turns[-1]["status"] == "accepted"
+    assert store.recover_orphans(now=401) == 1
+    turns = store.turns("run")
+    assert turns is not None and turns[-1]["status"] == "interrupted"
+
+
 def test_capture_deadline_extends_only_verified_live_owner(tmp_path: Path) -> None:
     from prompta.response_store import ResponseStore
 
