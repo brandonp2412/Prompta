@@ -180,6 +180,37 @@ def test_failed_requested_probe_remains_queued_for_eventual_recovery(
     assert store.manual_recovery_pending("incomplete-target") == 0
 
 
+def test_manual_request_survives_temporary_live_capture(
+    tmp_path: Path,
+) -> None:
+    from sqlalchemy import update
+
+    from prompta.response_tables import results
+
+    store = ResponseStore(tmp_path / "chat-results.sqlite3")
+    _expired(store, "temporarily-live")
+    store.queue_manual_recovery("temporarily-live", ["temporarily-live"], now=100)
+    runtime = SchedulerRuntime(tmp_path / "runtime.sqlite3", tmp_path / "jobs.json")
+    worker = HistoryRecovery(store, runtime, FakeHistoryDriver)
+
+    # A surviving capture may temporarily own the turn after the request is
+    # queued. That is not evidence that its answer has been recovered.
+    with store.engine.begin() as connection:
+        connection.execute(update(results).where(
+            results.c.send_id == "temporarily-live",
+        ).values(status="generating", capture_owner="123:live", capture_deadline=500))
+    assert not worker.recover_once(now=150)
+    assert store.manual_recovery_pending("temporarily-live") == 1
+
+    with store.engine.begin() as connection:
+        connection.execute(update(results).where(
+            results.c.send_id == "temporarily-live",
+        ).values(status="interrupted", capture_owner=""))
+    assert worker.recover_once(now=240)
+    assert _status(store, "temporarily-live") == "completed"
+    assert store.manual_recovery_pending("temporarily-live") == 0
+
+
 def test_failed_requested_probe_moves_behind_other_manual_requests(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:

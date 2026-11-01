@@ -312,7 +312,7 @@ class HistoryRecovery:
     def _next_requested_candidate(
         self, requests: list[str], *, now: float,
     ) -> tuple[dict[str, object] | None, str]:
-        """Take the oldest eligible manual request; discard resolved requests."""
+        """Take the oldest eligible request without losing transient in-flight turns."""
         for target in requests:
             reply_id = target.removeprefix("reply:") if target.startswith("reply:") else ""
             candidate = (
@@ -323,7 +323,12 @@ class HistoryRecovery:
             )
             if candidate is not None:
                 return candidate, target
-            self.results.clear_manual_recovery_request(target)
+            # An active capture, queued follow-up, or temporarily unverifiable
+            # parent may become eligible again. Only terminal or missing turns
+            # can consume the user's durable recovery intent.
+            row = self.replies.get(reply_id) if reply_id else self.results.get(target)
+            if row is None or row["status"] in ("completed", "stopped", "cancelled"):
+                self.results.clear_manual_recovery_request(target)
         return None, ""
 
     def recover_once(
