@@ -321,6 +321,7 @@ def create_app(
         # Replace only the two supported sections, preserving unrelated TOML.
         import re
         import tempfile
+
         config_path = DEFAULT_CONFIG_PATH.expanduser()
         config_path.parent.mkdir(parents=True, exist_ok=True)
         original = config_path.read_text() if config_path.exists() else ""
@@ -329,13 +330,25 @@ def create_app(
             "connector_approval": payload.connector_approval.model_dump(),
         }
         for section, values in sections.items():
-            original = re.sub(r"(?m)^\[" + re.escape(section) + r"\]\s*\n(?:(?!\[).*(?:\n|$))*", "", original)
-            original = original.rstrip() + "\n\n[" + section + "]\n" + "".join(
-                key + " = " + (str(value).lower() if isinstance(value, bool) else str(value)) + "\n"
-                for key, value in values.items()
+            original = re.sub(
+                r"(?m)^\[" + re.escape(section) + r"\]\s*\n(?:(?!\[).*(?:\n|$))*", "", original
+            )
+            original = (
+                original.rstrip()
+                + "\n\n["
+                + section
+                + "]\n"
+                + "".join(
+                    key
+                    + " = "
+                    + (str(value).lower() if isinstance(value, bool) else str(value))
+                    + "\n"
+                    for key, value in values.items()
+                )
             )
         # Validate the complete generated configuration before replacing it.
         import tomllib
+
         tomllib.loads(original)
         fd, temporary = tempfile.mkstemp(prefix=".config-", dir=config_path.parent)
         try:

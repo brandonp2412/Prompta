@@ -84,6 +84,13 @@ export default function ChatTranscript({
     <div className="chat-transcript-shell">
       <div
         ref={refs.scrollPane}
+        onScroll={model.onTranscriptScroll}
+        onWheel={model.onTranscriptWheel}
+        onTouchStart={model.onTranscriptTouchStart}
+        onTouchMove={model.onTranscriptTouchMove}
+        onTouchEnd={model.onTranscriptTouchEnd}
+        onTouchCancel={model.onTranscriptTouchEnd}
+        onKeyDown={model.onTranscriptKeyDown}
         inert={switchingChat.value}
         aria-busy={switchingChat.value}
         className={[

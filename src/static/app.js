@@ -12914,6 +12914,48 @@ function createChatsPageController(initialProps) {
 	let detailGeneration = 0;
 	let detailInFlightFor = null;
 	let detailRefreshFor = null;
+	let followingTranscriptTail = true;
+	let transcriptScrollRevision = 0;
+	let previousTranscriptScrollTop = 0;
+	let lastTranscriptTouchY = null;
+	const transcriptTailThreshold = 24;
+	function stopFollowingTranscript() {
+		if (!followingTranscriptTail) return;
+		followingTranscriptTail = false;
+		transcriptScrollRevision += 1;
+	}
+	function onTranscriptScroll(event) {
+		const pane = event.currentTarget;
+		const movement = pane.scrollTop - previousTranscriptScrollTop;
+		previousTranscriptScrollTop = pane.scrollTop;
+		if (movement < -1) stopFollowingTranscript();
+		else if (movement > 1 && pane.scrollHeight - pane.scrollTop - pane.clientHeight <= transcriptTailThreshold && !followingTranscriptTail) {
+			followingTranscriptTail = true;
+			transcriptScrollRevision += 1;
+		}
+	}
+	function onTranscriptWheel(event) {
+		if (event.deltaY < 0) stopFollowingTranscript();
+	}
+	function onTranscriptTouchStart(event) {
+		lastTranscriptTouchY = event.touches.length === 1 ? event.touches[0].clientY : null;
+	}
+	function onTranscriptTouchMove(event) {
+		if (event.touches.length !== 1) return;
+		const y = event.touches[0].clientY;
+		if (lastTranscriptTouchY !== null && y > lastTranscriptTouchY + 1) stopFollowingTranscript();
+		lastTranscriptTouchY = y;
+	}
+	function onTranscriptTouchEnd() {
+		lastTranscriptTouchY = null;
+	}
+	function onTranscriptKeyDown(event) {
+		if ([
+			"ArrowUp",
+			"PageUp",
+			"Home"
+		].includes(event.key)) stopFollowingTranscript();
+	}
 	let searchTimer;
 	let liveRefreshTimer;
 	const newestFirst = (a, b) => (b.activity_at ?? b.created_at) - (a.activity_at ?? a.created_at) || b.created_at - a.created_at || b.send_id.localeCompare(a.send_id);
@@ -13289,11 +13331,14 @@ function createChatsPageController(initialProps) {
 		const generation = ++detailGeneration;
 		const newSelection = detail.value?.send_id !== id;
 		if (newSelection) {
+			followingTranscriptTail = true;
+			transcriptScrollRevision += 1;
 			pendingRevealFor.value = id;
 			detailError.value = "";
 			turnsError.value = "";
 		}
-		const followTail = newSelection || !!scrollPane.value && scrollPane.value.scrollHeight - scrollPane.value.scrollTop - scrollPane.value.clientHeight < 96;
+		const followTail = newSelection || followingTranscriptTail && !!scrollPane.value && scrollPane.value.scrollHeight - scrollPane.value.scrollTop - scrollPane.value.clientHeight <= transcriptTailThreshold;
+		const scrollRevision = transcriptScrollRevision;
 		loadingDetail.value = true;
 		try {
 			const path = "./api/results/" + encodeURIComponent(id);
@@ -13324,17 +13369,23 @@ function createChatsPageController(initialProps) {
 			loadingDetail.value = false;
 			if (view.value === "chats" && selectedRunId.value === id) markRead(body);
 			await tick();
-			if (followTail && !newSelection && scrollPane.value && selectedRunId.value === id) scrollPane.value.scrollTop = scrollPane.value.scrollHeight;
+			if (followTail && !newSelection && followingTranscriptTail && transcriptScrollRevision === scrollRevision && scrollPane.value && selectedRunId.value === id) {
+				scrollPane.value.scrollTop = scrollPane.value.scrollHeight;
+				previousTranscriptScrollTop = scrollPane.value.scrollTop;
+			}
 			const savedTurns = earlyTurns === void 0 ? await replyRequest : earlyTurns;
 			if (generation !== detailGeneration || selectedRunId.value !== id) return;
 			if (earlyTurns === void 0) {
 				const pane = scrollPane.value;
-				const stillFollowing = followTail && !!pane && pane.scrollHeight - pane.scrollTop - pane.clientHeight < 96;
+				const stillFollowing = followTail && followingTranscriptTail && transcriptScrollRevision === scrollRevision && !!pane && pane.scrollHeight - pane.scrollTop - pane.clientHeight <= transcriptTailThreshold;
 				turns.value = recoverVisibleTurns(savedTurns, turns.value, originalTurn, true);
 				turnsError.value = !savedTurns ? "Saved replies are temporarily unavailable; showing the last confirmed turns." : "";
 				if (stillFollowing) {
 					await tick();
-					if (scrollPane.value && selectedRunId.value === id) scrollPane.value.scrollTop = scrollPane.value.scrollHeight;
+					if (followingTranscriptTail && transcriptScrollRevision === scrollRevision && scrollPane.value && selectedRunId.value === id) {
+						scrollPane.value.scrollTop = scrollPane.value.scrollHeight;
+						previousTranscriptScrollTop = scrollPane.value.scrollTop;
+					}
 				}
 			}
 			if (turns.value.some((turn) => [
@@ -13361,6 +13412,8 @@ function createChatsPageController(initialProps) {
 		const pane = scrollPane.peek();
 		if (!pane) return;
 		pane.scrollTop = pane.scrollHeight;
+		previousTranscriptScrollTop = pane.scrollTop;
+		followingTranscriptTail = true;
 		pendingRevealFor.value = null;
 	}
 	function receiptFailureMessage(error, fallback) {
@@ -13887,6 +13940,12 @@ function createChatsPageController(initialProps) {
 		view,
 		selectedRunId,
 		revealSelectedChat,
+		onTranscriptScroll,
+		onTranscriptWheel,
+		onTranscriptTouchStart,
+		onTranscriptTouchMove,
+		onTranscriptTouchEnd,
+		onTranscriptKeyDown,
 		newChatOpen,
 		onSelect,
 		statuses,
@@ -20710,6 +20769,13 @@ function ChatTranscript({ model, refs, conversationUrl }) {
 		className: "chat-transcript-shell",
 		children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 			ref: refs.scrollPane,
+			onScroll: model.onTranscriptScroll,
+			onWheel: model.onTranscriptWheel,
+			onTouchStart: model.onTranscriptTouchStart,
+			onTouchMove: model.onTranscriptTouchMove,
+			onTouchEnd: model.onTranscriptTouchEnd,
+			onTouchCancel: model.onTranscriptTouchEnd,
+			onKeyDown: model.onTranscriptKeyDown,
 			inert: switchingChat.value,
 			"aria-busy": switchingChat.value,
 			className: ["chat-transcript-scroll", switchingChat.value && detail.value?.send_id === selectedRunId.value ? "chat-switch-hidden" : ""].filter(Boolean).join(" "),
