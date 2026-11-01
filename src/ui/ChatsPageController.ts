@@ -1492,8 +1492,11 @@ export function createChatsPageController(initialProps: Props) {
       if (!queueError.value) void loadQueue();
     });
     const unsubscribe = subscribeLiveUpdates("chats", () => {
-      clearTimeout(liveRefreshTimer);
-      liveRefreshTimer = setTimeout(refresh, 100);
+      if (liveRefreshTimer !== undefined) return;
+      liveRefreshTimer = setTimeout(() => {
+        liveRefreshTimer = undefined;
+        refresh();
+      }, 100);
     });
     return () => {
       unsubscribe();
@@ -1504,6 +1507,7 @@ export function createChatsPageController(initialProps: Props) {
       clearInterval(detailPollTimer);
       clearInterval(recoveryHealthTimer);
       clearTimeout(liveRefreshTimer);
+      liveRefreshTimer = undefined;
       clearTimeout(searchTimer);
     };
   };

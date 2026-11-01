@@ -35,6 +35,7 @@ class ResultsPage(TypedDict):
     offset: int
 
 
+HISTORY_READ_INTERVAL_SECONDS = 90.0
 _MAX_TEXT = 2 * 1024 * 1024
 
 

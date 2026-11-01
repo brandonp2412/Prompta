@@ -556,3 +556,69 @@ def test_queued_reply_pump_recovers_missing_parent_in_background(
         time.sleep(0.01)
     dispatcher.pump_queued()
     assert dispatched == [ReplyIntent(queued_id, conversation, parent, "Continue")]
+
+
+def test_queued_recovery_shares_history_account_pacing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from prompta.manual_reply_dispatch import ManualReplyDispatcher
+    from prompta.response_store import HISTORY_READ_INTERVAL_SECONDS
+
+    store = ManualReplyStore(tmp_path / "queued-pacing.sqlite3")
+    conversation = "00000000-0000-4000-8000-000000000001"
+    store.responses.ensure_queued("run", "Original", now=10)
+    assert store.responses.accept("run", "test:owner", deadline=100, now=11)
+    assert store.responses.write(
+        "run", "test:owner", CaptureResult(
+            "dom", "complete", "Answer", conversation, None, None, "rendered:assistant",
+        ), now=12,
+    )
+    store.queue_followup("run", "queued-pacing-111111111", "Continue", now=13)
+    assert store.queued_recovery_candidates() == ["run"]
+    assert store.responses.reserve_history_recovery_global_slot(
+        now=time.time(), interval=HISTORY_READ_INTERVAL_SECONDS,
+    )
+
+    dispatcher = ManualReplyDispatcher(store, tmp_path / "state.sqlite3")
+    recovered: list[str] = []
+    monkeypatch.setattr(dispatcher, "recover", lambda send_id: recovered.append(send_id))
+    dispatcher.pump_queued()
+    assert recovered == []
+    assert not dispatcher._recovery_scheduled
+
+    restarted = ManualReplyDispatcher(store, tmp_path / "state.sqlite3")
+    with pytest.raises(ReplyConflict, match="account read pacing"):
+        restarted.recover("run")
+    assert store.queued_recovery_candidates() == ["run"]
+
+
+def test_queued_recovery_prioritizes_pins_then_rotates_failed_chats(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from prompta.manual_reply_dispatch import ManualReplyDispatcher
+
+    store = ManualReplyStore(tmp_path / "queued-priority.sqlite3")
+    conversation = "00000000-0000-4000-8000-000000000001"
+    for name, created in [("pinned", 10), ("recent", 20)]:
+        store.responses.ensure_queued(name, "Original", now=created)
+        assert store.responses.accept(name, "test:owner", deadline=100, now=created + 1)
+        assert store.responses.write(
+            name, "test:owner", CaptureResult(
+                "dom", "complete", "Answer", conversation, None, None, "rendered:assistant",
+            ), now=created + 2,
+        )
+        store.queue_followup(name, f"{name}-queued-111111111", "Continue", now=created + 3)
+    assert store.responses.set_local_pin("pinned", pinned=True)
+    assert store.queued_recovery_candidates() == ["pinned", "recent"]
+
+    dispatcher = ManualReplyDispatcher(store, tmp_path / "state.sqlite3")
+    recovered: list[str] = []
+    monkeypatch.setattr(dispatcher, "recover", lambda send_id: recovered.append(send_id))
+    for expected in ("pinned", "recent"):
+        dispatcher.pump_queued()
+        for _ in range(100):
+            if not dispatcher._recovery_scheduled:
+                break
+            time.sleep(0.01)
+        assert recovered[-1:] == [expected]
+    assert recovered == ["pinned", "recent"]

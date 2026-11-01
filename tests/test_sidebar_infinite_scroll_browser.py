@@ -8,8 +8,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 import pytest
-from patchright.sync_api import expect
-from patchright.sync_api import Route
+from patchright.sync_api import Route, expect
 from patchright.sync_api import sync_playwright as sync_patchright
 from web_results_support import server
 

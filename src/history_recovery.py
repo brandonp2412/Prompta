@@ -25,12 +25,11 @@ from .patchright_driver import BrowserSecurityChallengeError
 from .rate_limit import RateLimitError, is_rate_limited_text
 from .reply_contracts import ManualReplyStore
 from .response_capture import CaptureResult, normalize_dom_snapshot
-from .response_store import ResponseStore
+from .response_store import HISTORY_READ_INTERVAL_SECONDS, ResponseStore
 from .scheduler_runtime import SchedulerRuntime
 from .strict_types import int_value
 
 logger = logging.getLogger(__name__)
-_GLOBAL_INTERVAL_SECONDS = 90.0
 _LOOKUP_TIMEOUT_SECONDS = 55.0
 _READ_PROBE_SECONDS = 25.0
 _RESUMED_COMPLETION_GRACE_SECONDS = 3.0
@@ -375,7 +374,7 @@ class HistoryRecovery:
         if candidate is None:
             return False
         if not self.results.reserve_history_recovery_global_slot(
-            now=at, interval=_GLOBAL_INTERVAL_SECONDS,
+            now=at, interval=HISTORY_READ_INTERVAL_SECONDS,
         ):
             return False
         reply_id = str(candidate["reply_id"]) if "reply_id" in candidate else ""
@@ -467,7 +466,7 @@ def run_history_recovery(
     while not shutdown.is_set():
         try:
             current = time.monotonic()
-            if current - last_checked_at >= _GLOBAL_INTERVAL_SECONDS:
+            if current - last_checked_at >= HISTORY_READ_INTERVAL_SECONDS:
                 if (
                     results.history_recovery_security_pause_remaining() <= 0
                     and results.history_recovery_global_pace_remaining() <= 0

@@ -293,10 +293,17 @@ class ManualReplyStore(ReplyReadState):
         recovery must verify the identity before any queued send is dispatched.
         """
         with self.engine.connect() as connection:
-            ids = connection.execute(select(replies.c.send_id).where(
-                replies.c.queued_by_user.is_(True),
-                replies.c.status == "queued",
-            ).distinct().order_by(replies.c.send_id)).scalars().all()
+            ids = connection.execute(
+                select(replies.c.send_id)
+                .outerjoin(local_chat_pins, local_chat_pins.c.send_id == replies.c.send_id)
+                .where(replies.c.queued_by_user.is_(True), replies.c.status == "queued")
+                .group_by(replies.c.send_id)
+                .order_by(
+                    local_chat_pins.c.send_id.is_not(None).desc(),
+                    func.max(replies.c.created_at).desc(),
+                    replies.c.send_id.desc(),
+                )
+            ).scalars().all()
         candidates: list[str] = []
         for send_id in ids:
             turns = self.turns(str(send_id)) or []

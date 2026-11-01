@@ -22,6 +22,8 @@ from .patchright_driver import PatchrightDriver, _normalise_composer_text
 from .rate_limit import RateLimitError
 from .reply_contracts import ManualReplyStore, ReplyConflict, ReplyIntent
 from .response_capture import CaptureResult
+from .response_store import HISTORY_READ_INTERVAL_SECONDS
+from .scheduler_runtime import SchedulerRuntime
 from .strict_types import int_value
 
 logger = logging.getLogger(__name__)
@@ -112,7 +114,8 @@ class ManualReplyDispatcher:
         self._active: set[str] = set()
         self._recovering: set[str] = set()
         self._recovery_scheduled: set[str] = set()
-        self._recovery_retry_after: dict[str, float] = {}
+        self.runtime = SchedulerRuntime(state_path, state_path)
+        self._recovery_cursor = 0
         self._lock = threading.Lock()
 
     def submit(self, send_id: str, intent: ReplyIntent) -> dict[str, object]:
@@ -176,13 +179,22 @@ class ManualReplyDispatcher:
         # A queued reply is explicit consent to reopen its exact branch.
         # Recovery runs off the 1s queue-pump path and never dispatches a send;
         # only next_queued_intent can authorize dispatch after verified lineage.
-        for send_id in self.store.queued_recovery_candidates():
+        if self.store.responses.history_recovery_global_pace_remaining() > 0:
+            return
+        candidates = self.store.queued_recovery_candidates()
+        if not candidates or self.store.responses.history_recovery_security_pause_remaining() > 0:
+            return
+        if self.runtime.read_backoff_remaining() > 0:
+            return
+        for offset in range(len(candidates)):
+            index = (self._recovery_cursor + offset) % len(candidates)
+            send_id = candidates[index]
             with self._lock:
                 if (send_id in self._recovery_scheduled or send_id in self._recovering
-                        or time.monotonic() < self._recovery_retry_after.get(send_id, 0)
                         or len(self._recovery_scheduled) >= 1):
                     continue
                 self._recovery_scheduled.add(send_id)
+                self._recovery_cursor = (index + 1) % len(candidates)
             try:
                 threading.Thread(
                     target=self._recover_queued_parent,
@@ -206,7 +218,6 @@ class ManualReplyDispatcher:
         finally:
             with self._lock:
                 self._recovery_scheduled.discard(send_id)
-                self._recovery_retry_after[send_id] = time.monotonic() + 30.0
 
     def recover(self, send_id: str) -> dict[str, str]:
         """Inspect the exact branch after a direct click or a queued reply consent."""
@@ -238,17 +249,23 @@ class ManualReplyDispatcher:
         previous_parent = str(turns[-2]["message_id"] or "") if len(turns) > 1 else ""
         if len(turns) > 1 and not previous_parent:
             raise ReplyConflict("The preceding assistant identity is unavailable")
+        if self.store.responses.history_recovery_security_pause_remaining() > 0:
+            raise ReplyConflict("ChatGPT account read security pause is active")
+        remaining = self.runtime.read_backoff_remaining()
+        if remaining > 0:
+            raise ReplyConflict(
+                f"ChatGPT account read cooldown is active; retry in {int(remaining + 0.999)} seconds"
+            )
+        if not self.store.responses.reserve_history_recovery_global_slot(
+            now=time.time(), interval=HISTORY_READ_INTERVAL_SECONDS,
+        ):
+            raise ReplyConflict("ChatGPT account read pacing is active; retry later")
         sender = BrowserDeliverySender(
             self.state_path,
             debugger_address=os.environ.get(
                 "PROMPTA_CHROME_DEBUGGER_ADDRESS", "127.0.0.1:9223"
             ),
         )
-        remaining = sender.runtime.read_backoff_remaining()
-        if remaining > 0:
-            raise ReplyConflict(
-                f"ChatGPT account read cooldown is active; retry in {int(remaining + 0.999)} seconds"
-            )
         driver = PatchrightDriver(
             profile=sender.profile,
             chrome_path=sender.chrome_path,
