@@ -26,6 +26,9 @@ export type Props = {
   onSend: (text: string, images: string[]) => Promise<SendResult>;
   onFallbackSend?: (text: string, images: string[]) => Promise<SendResult>;
   onNewChat: () => void;
+  onStop?: () => void | Promise<void>;
+  active?: boolean;
+  stopping?: boolean;
   disabled?: boolean;
   sendDisabled?: boolean;
   restoreDraft?: string;
@@ -40,6 +43,9 @@ export function createChatComposerController(initialProps: Props) {
   const onSend = signal(initialProps.onSend);
   const onFallbackSend = signal(initialProps.onFallbackSend);
   const onNewChat = signal(initialProps.onNewChat);
+  const onStop = signal(initialProps.onStop);
+  const active = signal(initialProps.active);
+  const stopping = signal(initialProps.stopping);
   const disabled = signal(initialProps.disabled);
   const sendDisabled = signal(initialProps.sendDisabled);
   const restoreDraft = signal(initialProps.restoreDraft);
@@ -74,6 +80,14 @@ export function createChatComposerController(initialProps: Props) {
     () => mode.value === "fresh" && !disabled.value && !sending.value && !uploading.value,
   );
   const hasDraft = computed(() => !!draft.value.trim());
+  const showStop = computed(
+    () =>
+      mode.value === "reply" &&
+      !!active.value &&
+      !hasDraft.value &&
+      !sending.value &&
+      !uploading.value,
+  );
   const canSend = computed(
     () =>
       !disabled.value &&
@@ -298,10 +312,16 @@ export function createChatComposerController(initialProps: Props) {
     }
   }
 
+  async function stop() {
+    if (!showStop.value || stopping.value || disabled.value) return;
+    await onStop.value?.();
+  }
+
   function keydown(event: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
       event.preventDefault();
-      void submit();
+      if (showStop.value) void stop();
+      else void submit();
     }
   }
 
@@ -405,6 +425,9 @@ export function createChatComposerController(initialProps: Props) {
       if (onSend.peek() !== next.onSend) onSend.value = next.onSend;
       if (onFallbackSend.peek() !== next.onFallbackSend) onFallbackSend.value = next.onFallbackSend;
       if (onNewChat.peek() !== next.onNewChat) onNewChat.value = next.onNewChat;
+      if (onStop.peek() !== next.onStop) onStop.value = next.onStop;
+      if (active.peek() !== next.active) active.value = next.active;
+      if (stopping.peek() !== next.stopping) stopping.value = next.stopping;
       if (disabled.peek() !== next.disabled) disabled.value = next.disabled;
       if (sendDisabled.peek() !== next.sendDisabled) sendDisabled.value = next.sendDisabled;
       if (restoreDraft.peek() !== next.restoreDraft) restoreDraft.value = next.restoreDraft;
@@ -416,6 +439,8 @@ export function createChatComposerController(initialProps: Props) {
   }
   return {
     mode,
+    showStop,
+    stopping,
     onFallbackSend,
     onNewChat,
     disabled,
@@ -436,6 +461,7 @@ export function createChatComposerController(initialProps: Props) {
     canFallback,
     draftChanged,
     addFiles,
+    stop,
     submit,
     keydown,
     pasted,

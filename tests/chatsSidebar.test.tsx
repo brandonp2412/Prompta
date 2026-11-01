@@ -100,3 +100,12 @@ test("new pins appear after existing pins and unpinning preserves remaining orde
   await waitFor(() => expect(model.pinnedIds.value).toEqual(["1", "3"]));
   expect(titles().slice(0, 2)).toEqual(["Chat 1", "Chat 3"]);
 });
+
+test("running chats have no Stop button in the sidebar", async () => {
+  const { model } = sidebar();
+  await act(async () => {
+    model.items.value = [{ ...run(7), status: "generating", has_response: false }];
+  });
+  expect(screen.getByText("Chat 7")).toBeTruthy();
+  expect(screen.queryByRole("button", { name: /stop/i })).toBeNull();
+});

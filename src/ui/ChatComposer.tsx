@@ -27,6 +27,9 @@ export default function ChatComposer(props: Props) {
     canFallback,
     draftChanged,
     addFiles,
+    showStop,
+    stopping,
+    stop,
     submit,
     keydown,
     pasted,
@@ -58,6 +61,12 @@ export default function ChatComposer(props: Props) {
     if (sending.value) return "Sending";
     return mode.value === "fresh" ? "Send fresh chat" : "Send reply";
   }
+  const showNewChat =
+    !showStop.value &&
+    !hasDraft.value &&
+    images.value.length === 0 &&
+    !uploading.value &&
+    !sending.value;
 
   return (
     <>
@@ -65,7 +74,8 @@ export default function ChatComposer(props: Props) {
         aria-label={mode.value === "fresh" ? "New chat composer" : "Reply composer"}
         onSubmit={(event) => {
           event.preventDefault();
-          void submit();
+          if (showStop.value) void stop();
+          else void submit();
         }}
         onDragOver={(event) => {
           event.preventDefault();
@@ -187,7 +197,21 @@ export default function ChatComposer(props: Props) {
                 <></>
               )}
             </div>
-            {!hasDraft.value && images.value.length === 0 && !uploading.value && !sending.value ? (
+            {showStop.value && (
+              <button
+                type="button"
+                disabled={stopping.value || disabled.value}
+                aria-label={stopping.value ? "Stopping chat" : "Stop generating"}
+                title={stopping.value ? "Stopping chat…" : "Stop generating"}
+                className="composer-send composer-stop"
+                onClick={() => void stop()}
+              >
+                <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                  <rect x="7" y="7" width="10" height="10" rx="2"></rect>
+                </svg>
+              </button>
+            )}
+            {showNewChat && (
               <>
                 <button
                   type="button"
@@ -210,7 +234,8 @@ export default function ChatComposer(props: Props) {
                   </svg>
                 </button>
               </>
-            ) : (
+            )}
+            {!showStop.value && !showNewChat && (
               <>
                 <button
                   type="submit"

@@ -141,22 +141,6 @@ export default function ChatsPage(props: Props & { serverName: string }) {
               ☰
             </button>
             <strong>{view.value === "jobs" ? "Jobs" : selectedChatTitle.value}</strong>
-            {view.value === "chats" &&
-              selectedRunId.value &&
-              turns.value.some((turn) =>
-                ["queued", "prepared", "dispatching", "accepted", "generating"].includes(
-                  turn.status,
-                ),
-              ) && (
-                <button
-                  type="button"
-                  className="job-stop"
-                  disabled={!!model.stopping.value}
-                  onClick={() => void model.stopJob(selectedRunId.value!)}
-                >
-                  {model.stopping.value ? "Stopping…" : "Stop"}
-                </button>
-              )}
             {view.value === "chats" && selectedRunId.value && (
               <button
                 type="button"
@@ -250,6 +234,18 @@ export default function ChatsPage(props: Props & { serverName: string }) {
               <ChatComposer
                 mode={selectedRunId.value ? "reply" : "fresh"}
                 chatId={selectedRunId.value ?? undefined}
+                active={Boolean(
+                  selectedRunId.value &&
+                  detail.value?.send_id === selectedRunId.value &&
+                  ["queued", "prepared", "dispatching", "accepted", "generating"].includes(
+                    turns.value.findLast((turn) => turn.status !== "cancelled")?.status ?? "",
+                  ),
+                )}
+                stopping={model.stopping.value === selectedRunId.value}
+                onStop={() => {
+                  const id = selectedRunId.value;
+                  if (id) return model.stopJob(id);
+                }}
                 onSend={selectedRunId.value ? sendReply : sendFresh}
                 onFallbackSend={(text) =>
                   sendFresh(freshContinuationPrompt(text), originalImageRefs())
