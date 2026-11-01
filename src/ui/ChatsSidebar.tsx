@@ -104,6 +104,7 @@ export default function ChatsSidebar({
     const dismissOnEscape = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       event.preventDefault();
+      event.stopPropagation();
       setProfileOpen(false);
       profileTriggerRef.current?.focus();
     };

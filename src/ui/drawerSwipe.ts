@@ -42,6 +42,17 @@ export function createDrawerSwipe({
     if (swipe || !window.matchMedia("(max-width: 680px)").matches || event.touches.length !== 1)
       return;
     const touch = event.touches[0];
+    const target = event.target;
+    // This listener is global; modal and editable gestures belong to their controls.
+    if (
+      target &&
+      "closest" in target &&
+      typeof target.closest === "function" &&
+      target.closest(
+        ".settings-backdrop, .sidebar-profile-menu, input, textarea, select, [contenteditable]:not([contenteditable='false']), pre",
+      )
+    )
+      return;
     if (isList() || (!drawerOpen.value && touch.clientX > 120)) return;
     swipe = {
       identifier: touch.identifier,

@@ -108,6 +108,10 @@ def test_settings_modal_covers_viewport_from_mobile_drawer(
             expect(page.locator(".chats-layout")).to_have_class("chats-layout drawer-open")
             profile = page.get_by_role("button", name="Profile")
             profile.click()
+            page.keyboard.press("Escape")
+            expect(page.locator(".chats-layout")).to_have_class("chats-layout drawer-open")
+            expect(profile).to_be_focused()
+            profile.click()
             page.get_by_role("button", name="Settings", exact=True).click()
             overlay = page.locator(".settings-backdrop")
             expect(overlay).to_be_visible()
@@ -119,6 +123,20 @@ def test_settings_modal_covers_viewport_from_mobile_drawer(
                     Math.abs(r.height - innerHeight) <= 1;
                 }"""
             )
+            # A gesture over the modal must never close the drawer behind it.
+            cdp = page.context.new_cdp_session(page)
+            for index, x in enumerate((width - 12, width - 80, 24)):
+                cdp.send(
+                    "Input.dispatchTouchEvent",
+                    {
+                        "type": "touchStart" if index == 0 else "touchMove",
+                        "touchPoints": [{"x": x, "y": height // 2}],
+                    },
+                )
+                page.wait_for_timeout(35)
+            cdp.send("Input.dispatchTouchEvent", {"type": "touchEnd", "touchPoints": []})
+            expect(overlay).to_be_visible()
+            expect(page.locator(".chats-layout")).to_have_class("chats-layout drawer-open")
             page.keyboard.press("Escape")
             expect(overlay).to_have_count(0)
             expect(page.locator(".chats-layout")).to_have_class("chats-layout drawer-open")
