@@ -118,6 +118,7 @@ def test_recovery_button_lives_after_transcript_and_survives_reload(
                 page.goto(f"http://127.0.0.1:{port}/?view=chats&run=broken-ui")
                 button = page.get_by_role("button", name="Recover chat")
                 expect(button).to_be_visible()
+                assert button.locator("svg[aria-hidden='true']").count() == 1
                 assert page.locator(".chat-detail-content > .chat-manual-recovery").count() == 1
                 button.click()
                 expect(page.get_by_role("button", name="Recovery queued")).to_be_disabled()

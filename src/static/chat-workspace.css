@@ -287,6 +287,10 @@
 .chat-manual-recovery .row-action { min-height: 40px; padding: 8px 14px; border-radius: 11px; }
 .chat-manual-recovery .row-action:disabled { opacity: .6; cursor: default; }
 
+.chat-action-button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; }
+.composer-fallback.chat-action-button { display: flex; width: fit-content; }
+.chat-action-button svg { width: 16px; height: 16px; flex: none; }
+
 .chat-recovery-guidance { display: flex; flex-wrap: wrap; align-items: center; gap: 5px 14px; margin-top: 12px; font-size: .83rem; line-height: 1.45; color: #aaa; }
 .chat-recovery-guidance p { margin: 0; }
 .chat-recovery-guidance a { color: #b8caff; text-decoration: underline; text-underline-offset: 3px; }

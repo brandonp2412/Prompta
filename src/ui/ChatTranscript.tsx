@@ -3,6 +3,7 @@ import { useSignals } from "@preact/signals-react/runtime";
 import type { createChatsPageController } from "./ChatsPageController";
 import ResultMarkdown from "./ResultMarkdown";
 import CopyIcon from "./CopyIcon";
+import { ContinueChatIcon, RecoverChatIcon } from "./ChatActionIcons";
 import ToolCalls from "./ToolCalls";
 import { isVideoAttachment } from "./mediaAttachments";
 import {
@@ -267,12 +268,13 @@ export default function ChatTranscript({
                       ].includes(turn.status) && (
                         <div className="chat-recovery-guidance">
                           <button
-                            className="row-action"
+                            className="row-action chat-action-button"
                             type="button"
                             disabled={startingNewChat.value}
                             aria-busy={startingNewChat.value}
                             onClick={() => void startFailedReplyInNewChat(turn)}
                           >
+                            <ContinueChatIcon />
                             Continue in new chat
                           </button>
                           {turn.status === "outcome_unknown" && (
@@ -288,12 +290,13 @@ export default function ChatTranscript({
                       Boolean(turn.user_text.trim()) && (
                         <div className="chat-recovery-guidance">
                           <button
-                            className="row-action"
+                            className="row-action chat-action-button"
                             type="button"
                             disabled={startingNewChat.value}
                             aria-busy={startingNewChat.value}
                             onClick={() => void continueUnverifiedInNewChat()}
                           >
+                            <ContinueChatIcon />
                             Continue in new chat
                           </button>
                           <p>Original send unverified; continuing starts a separate request.</p>
@@ -331,7 +334,7 @@ export default function ChatTranscript({
                 <div className="chat-manual-recovery">
                   <button
                     type="button"
-                    className="row-action"
+                    className="row-action chat-action-button"
                     disabled={
                       requestingManualRecovery.value ||
                       (detail.value.manual_recovery_pending ?? 0) > 0
@@ -339,6 +342,7 @@ export default function ChatTranscript({
                     aria-busy={requestingManualRecovery.value}
                     onClick={() => void requestManualRecovery(detail.value!.send_id)}
                   >
+                    <RecoverChatIcon />
                     {manualRecoveryLabel()}
                   </button>
                   <span>

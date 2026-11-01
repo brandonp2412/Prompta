@@ -16305,6 +16305,32 @@ function createChatComposerController(initialProps) {
 	};
 }
 //#endregion
+//#region src/ui/ChatActionIcons.tsx
+function ContinueChatIcon() {
+	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("svg", {
+		viewBox: "0 0 24 24",
+		fill: "none",
+		stroke: "currentColor",
+		strokeWidth: "1.8",
+		strokeLinecap: "round",
+		strokeLinejoin: "round",
+		"aria-hidden": "true",
+		children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: "M12 20H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v7" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: "M8 9h8M8 13h4M17 17v6M14 20h6" })]
+	});
+}
+function RecoverChatIcon() {
+	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("svg", {
+		viewBox: "0 0 24 24",
+		fill: "none",
+		stroke: "currentColor",
+		strokeWidth: "1.8",
+		strokeLinecap: "round",
+		strokeLinejoin: "round",
+		"aria-hidden": "true",
+		children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: "M3 11a9 9 0 1 1 2.6 6.4" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: "M3 4v7h7" })]
+	});
+}
+//#endregion
 //#region src/ui/ChatComposer.tsx
 function ChatComposer(props) {
 	const model = (0, import_react.useMemo)(() => createChatComposerController(props), []);
@@ -16501,12 +16527,12 @@ function ChatComposer(props) {
 					]
 				})
 			]
-		}), mode.value === "reply" && (fallbackAvailable.value || offerFreshContinuation.value) && onFallbackSend.value && hasDraft.value ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+		}), mode.value === "reply" && (fallbackAvailable.value || offerFreshContinuation.value) && onFallbackSend.value && hasDraft.value ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
 			type: "button",
 			disabled: !canFallback.value,
 			onClick: () => void submit(true),
-			className: "composer-fallback",
-			children: "Continue in new chat"
+			className: "composer-fallback chat-action-button",
+			children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(ContinueChatIcon, {}), "Continue in new chat"]
 		}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {})]
 	}) });
 }
@@ -20730,13 +20756,13 @@ function ChatTranscript({ model, refs }) {
 							"outcome_unknown"
 						].includes(turn.status) && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 							className: "chat-recovery-guidance",
-							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-								className: "row-action",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+								className: "row-action chat-action-button",
 								type: "button",
 								disabled: startingNewChat.value,
 								"aria-busy": startingNewChat.value,
 								onClick: () => void startFailedReplyInNewChat(turn),
-								children: "Continue in new chat"
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(ContinueChatIcon, {}), "Continue in new chat"]
 							}), turn.status === "outcome_unknown" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "The original reply may still have been delivered." })]
 						}),
 						index === 0 && [
@@ -20745,13 +20771,13 @@ function ChatTranscript({ model, refs }) {
 							"outcome_unknown"
 						].includes(turn.status) && !detail.value?.conversation_id && !turn.conversation_id && !turn.assistant_text.trim() && Boolean(turn.user_text.trim()) && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 							className: "chat-recovery-guidance",
-							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-								className: "row-action",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+								className: "row-action chat-action-button",
 								type: "button",
 								disabled: startingNewChat.value,
 								"aria-busy": startingNewChat.value,
 								onClick: () => void continueUnverifiedInNewChat(),
-								children: "Continue in new chat"
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(ContinueChatIcon, {}), "Continue in new chat"]
 							}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { children: "Original send unverified; continuing starts a separate request." })]
 						}),
 						index === 0 && ["interrupted", "unavailable"].includes(turn.status) && detail.value?.recovery?.eligible === false && (Boolean(turn.assistant_text.trim()) || !turn.user_text.trim()) && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
@@ -20796,13 +20822,13 @@ function ChatTranscript({ model, refs }) {
 					"cancelled"
 				].includes(turn.status))) && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 					className: "chat-manual-recovery",
-					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
 						type: "button",
-						className: "row-action",
+						className: "row-action chat-action-button",
 						disabled: requestingManualRecovery.value || (detail.value.manual_recovery_pending ?? 0) > 0,
 						"aria-busy": requestingManualRecovery.value,
 						onClick: () => void requestManualRecovery(detail.value.send_id),
-						children: manualRecoveryLabel()
+						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(RecoverChatIcon, {}), manualRecoveryLabel()]
 					}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: (detail.value.manual_recovery_pending ?? 0) > 0 ? "Waiting for a permitted read-only check." : "Last resort: check the saved ChatGPT transcript without resending messages." })]
 				})]
 			}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {})
