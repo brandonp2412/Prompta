@@ -140,8 +140,14 @@ export function createChatsPageController(initialProps: Props) {
   let followingTranscriptTail = true;
   let transcriptScrollRevision = 0;
   let previousTranscriptScrollTop = 0;
+  let previousTranscriptScrollExtent = 0;
   let lastTranscriptTouchY: number | null = null;
   const transcriptTailThreshold = 24;
+
+  function rememberTranscriptScroll(pane: HTMLDivElement) {
+    previousTranscriptScrollTop = pane.scrollTop;
+    previousTranscriptScrollExtent = Math.max(0, pane.scrollHeight - pane.clientHeight);
+  }
 
   function stopFollowingTranscript() {
     if (!followingTranscriptTail) return;
@@ -152,11 +158,18 @@ export function createChatsPageController(initialProps: Props) {
   function onTranscriptScroll(event: React.UIEvent<HTMLDivElement>) {
     const pane = event.currentTarget;
     const movement = pane.scrollTop - previousTranscriptScrollTop;
-    previousTranscriptScrollTop = pane.scrollTop;
-    if (movement < -1) stopFollowingTranscript();
+    const extent = Math.max(0, pane.scrollHeight - pane.clientHeight);
+    // A shrinking region can clamp scrollTop upward while the reader remains
+    // at the tail. That is a layout adjustment, not an upward scroll gesture.
+    const layoutClampedToTail =
+      extent < previousTranscriptScrollExtent - 1 &&
+      previousTranscriptScrollExtent - previousTranscriptScrollTop <= transcriptTailThreshold &&
+      extent - pane.scrollTop <= transcriptTailThreshold;
+    rememberTranscriptScroll(pane);
+    if (movement < -1 && !layoutClampedToTail) stopFollowingTranscript();
     else if (
       movement > 1 &&
-      pane.scrollHeight - pane.scrollTop - pane.clientHeight <= transcriptTailThreshold &&
+      extent - pane.scrollTop <= transcriptTailThreshold &&
       !followingTranscriptTail
     ) {
       followingTranscriptTail = true;
@@ -811,7 +824,7 @@ export function createChatsPageController(initialProps: Props) {
         selectedRunId.value === id
       ) {
         scrollPane.value.scrollTop = scrollPane.value.scrollHeight;
-        previousTranscriptScrollTop = scrollPane.value.scrollTop;
+        rememberTranscriptScroll(scrollPane.value);
       }
       const savedTurns = earlyTurns === undefined ? await replyRequest : earlyTurns;
       if (generation !== detailGeneration || selectedRunId.value !== id) return;
@@ -836,7 +849,7 @@ export function createChatsPageController(initialProps: Props) {
             selectedRunId.value === id
           ) {
             scrollPane.value.scrollTop = scrollPane.value.scrollHeight;
-            previousTranscriptScrollTop = scrollPane.value.scrollTop;
+            rememberTranscriptScroll(scrollPane.value);
           }
         }
       }
@@ -867,7 +880,7 @@ export function createChatsPageController(initialProps: Props) {
     if (!pane) return;
     // Called by the transcript layout effect after React commits its DOM.
     pane.scrollTop = pane.scrollHeight;
-    previousTranscriptScrollTop = pane.scrollTop;
+    rememberTranscriptScroll(pane);
     followingTranscriptTail = true;
     pendingRevealFor.value = null;
   }
