@@ -67,6 +67,14 @@ local_chat_reads = Table(
     Column("seen_revision", String(64), nullable=False),
     Column("read_at", Float, nullable=False),
 )
+manual_recovery_requests = Table(
+    "manual_recovery_requests",
+    _SCHEMA,
+    Column("target_id", String, primary_key=True),
+    Column("send_id", String, nullable=False),
+    Column("requested_at", Float, nullable=False),
+)
+
 history_recovery_attempts = Table(
     "history_recovery_attempts",
     _SCHEMA,

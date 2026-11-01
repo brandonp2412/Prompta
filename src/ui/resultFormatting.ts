@@ -34,6 +34,7 @@ export type RunDetail = RunSummary & {
   source: string;
   conversation_id?: string;
   accepted_at: number;
+  manual_recovery_pending?: number;
   recovery?: {
     attempt_count: number;
     last_attempt_at: number;

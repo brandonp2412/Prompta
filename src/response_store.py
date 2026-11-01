@@ -21,6 +21,7 @@ from .response_tables import (
     history_recovery_attempts,
     local_chat_pins,
     local_chat_reads,
+    manual_recovery_requests,
     results,
 )
 from .schema_migrations import upgrade_database
@@ -638,6 +639,39 @@ class ResponseStore:
         with self.engine.begin() as connection:
             connection.execute(stmt)
 
+    def queue_manual_recovery(
+        self, send_id: str, target_ids: Collection[str], *, now: float | None = None,
+    ) -> int:
+        """Durably prioritize one read-only probe per eligible unresolved turn."""
+        at = time.time() if now is None else now
+        with self.engine.begin() as connection:
+            for target_id in set(target_ids):
+                connection.execute(insert(manual_recovery_requests).values(
+                    target_id=target_id, send_id=send_id, requested_at=at,
+                ).on_conflict_do_nothing(index_elements=["target_id"]))
+            return int(connection.execute(select(func.count()).select_from(
+                manual_recovery_requests,
+            ).where(manual_recovery_requests.c.send_id == send_id)).scalar_one())
+
+    def pending_manual_recovery_requests(self) -> list[str]:
+        """Return stable request order; the worker still checks every cooldown."""
+        with self.engine.connect() as connection:
+            return list(connection.execute(select(manual_recovery_requests.c.target_id).order_by(
+                manual_recovery_requests.c.requested_at, manual_recovery_requests.c.target_id,
+            )).scalars())
+
+    def clear_manual_recovery_request(self, target_id: str) -> None:
+        with self.engine.begin() as connection:
+            connection.execute(delete(manual_recovery_requests).where(
+                manual_recovery_requests.c.target_id == target_id,
+            ))
+
+    def manual_recovery_pending(self, send_id: str) -> int:
+        with self.engine.connect() as connection:
+            return int(connection.execute(select(func.count()).select_from(
+                manual_recovery_requests,
+            ).where(manual_recovery_requests.c.send_id == send_id)).scalar_one())
+
     def history_recovery_security_pause_remaining(self, *, now: float | None = None) -> float:
         """Durable global pause prevents repeatedly triggering a browser challenge."""
         at = time.time() if now is None else now
@@ -825,6 +859,7 @@ class ResponseStore:
             "created_at", "accepted_at", "updated_at", "finished_at",
         )}
         detail["tool_calls"] = deserialize_tool_calls(row["tool_calls_json"])
+        detail["manual_recovery_pending"] = self.manual_recovery_pending(send_id)
         # Recovery is read-only and rate-limited. Expose its persisted schedule
         # so users can distinguish a pending check from a silent failure.
         if row["status"] in ("interrupted", "unavailable"):

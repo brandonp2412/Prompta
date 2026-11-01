@@ -9,6 +9,7 @@ from prompta.config import StageConcurrencySettings
 from prompta.jobs import add_job, load_jobs
 from prompta.manual_fire import fire_job_now
 from prompta.scheduler_service import DurableSchedulerProducer
+from prompta.strict_types import string_object_dict
 
 
 def test_scheduler_restart_with_worker_stopped_records_one_pending_delivery(tmp_path: Path) -> None:
@@ -406,7 +407,11 @@ def test_queued_chat_eta_uses_actual_manual_dispatch_priority(tmp_path: Path) ->
             if str(receipt["send_id"]).startswith("scheduled-")
         ],
     ]
-    assert [row["eta_seconds"] for row in snapshot["waiting"]] == [600, 1200]
+    waiting = snapshot["waiting"]
+    assert isinstance(waiting, list) and len(waiting) == 2
+    rows = [string_object_dict(row) for row in waiting]
+    assert all(row is not None for row in rows)
+    assert [row["eta_seconds"] for row in rows if row is not None] == [600, 1200]
 
 
 def test_concurrency_queue_snapshot_includes_all_due_job_types(tmp_path: Path) -> None:

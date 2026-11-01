@@ -115,6 +115,7 @@ export function createChatsPageController(initialProps: Props) {
   const turns = signal<LocalTurn[]>([]);
   const turnsError = signal("");
   const recoveringReply = signal(false);
+  const requestingManualRecovery = signal(false);
   const startingNewChatFromFailure = signal(false);
   const copyState = signal("");
   const scrollPane = signal<HTMLDivElement>();
@@ -888,6 +889,37 @@ export function createChatsPageController(initialProps: Props) {
     };
   }
 
+  async function requestManualRecovery(sendId: string): Promise<void> {
+    if (requestingManualRecovery.value || detail.value?.send_id !== sendId) return;
+    requestingManualRecovery.value = true;
+    try {
+      const response = await localPost(
+        "./api/results/" + encodeURIComponent(sendId) + "/manual-recover",
+        {},
+      );
+      if (!response.ok) {
+        notify(
+          await localRejectionDetail(response, "Manual recovery could not be queued."),
+          "warning",
+        );
+        return;
+      }
+      const body = (await response.json()) as { pending: number };
+      if (detail.value?.send_id === sendId) {
+        detail.value = { ...detail.value, manual_recovery_pending: body.pending };
+      }
+      notify("Read-only recovery queued. Existing cooldowns still apply.", "success");
+      if (selectedRunId.value === sendId) void loadDetail(sendId);
+    } catch {
+      notify(
+        "Recovery request could not be confirmed. Refresh the chat to check its status.",
+        "warning",
+      );
+    } finally {
+      requestingManualRecovery.value = false;
+    }
+  }
+
   async function recoverReply(sendId: string): Promise<{ messageId: string; issue?: string }> {
     if (recoveringReply.value)
       return { messageId: "", issue: "Exact-branch verification is already running." };
@@ -1450,6 +1482,7 @@ export function createChatsPageController(initialProps: Props) {
       if (document.visibilityState !== "visible" || view.value !== "chats" || !selectedRunId.value)
         return;
       if (
+        (detail.value?.manual_recovery_pending ?? 0) > 0 ||
         ["prepared", "dispatching", "accepted", "generating"].includes(
           turns.value.at(-1)?.status ?? "",
         )
@@ -1546,6 +1579,8 @@ export function createChatsPageController(initialProps: Props) {
     turns,
     turnsError,
     recoveringReply,
+    requestingManualRecovery,
+    requestManualRecovery,
     startingNewChatFromFailure,
     copyState,
     scrollPane,

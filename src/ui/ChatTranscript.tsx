@@ -30,6 +30,8 @@ export default function ChatTranscript({
     detail,
     turns,
     startingNewChatFromFailure: startingNewChat,
+    requestingManualRecovery,
+    requestManualRecovery,
     detailError,
     switchingChat,
     startFailedReplyInNewChat,
@@ -43,6 +45,12 @@ export default function ChatTranscript({
   useLayoutEffect(() => {
     model.revealSelectedChat();
   }, [model, detail.value, turns.value]);
+
+  function manualRecoveryLabel() {
+    if (requestingManualRecovery.value) return "Requesting recovery…";
+    if ((detail.value?.manual_recovery_pending ?? 0) > 0) return "Recovery queued";
+    return "Recover chat";
+  }
 
   function copyLabel(id: string) {
     if (copyState.value === id) return "Copied";
@@ -314,6 +322,30 @@ export default function ChatTranscript({
                   </div>
                 </React.Fragment>
               ))}
+              {(detail.value.needs_attention ||
+                turns.value.some(
+                  (turn) => !["completed", "stopped", "cancelled"].includes(turn.status),
+                )) && (
+                <div className="chat-manual-recovery">
+                  <button
+                    type="button"
+                    className="row-action"
+                    disabled={
+                      requestingManualRecovery.value ||
+                      (detail.value.manual_recovery_pending ?? 0) > 0
+                    }
+                    aria-busy={requestingManualRecovery.value}
+                    onClick={() => void requestManualRecovery(detail.value!.send_id)}
+                  >
+                    {manualRecoveryLabel()}
+                  </button>
+                  <span>
+                    {(detail.value.manual_recovery_pending ?? 0) > 0
+                      ? "Waiting for a permitted read-only check."
+                      : "Last resort: check the saved ChatGPT transcript without resending messages."}
+                  </span>
+                </div>
+              )}
             </div>
           </>
         ) : (

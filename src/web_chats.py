@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Annotated
+from uuid import UUID
 
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import Response
@@ -120,6 +121,40 @@ def register_chat_routes(app: FastAPI, local: WebServices) -> None:
     @app.post("/api/results/{send_id}/stop")
     def stop_run(send_id: str, payload: EmptyRequest) -> dict[str, object]:
         return StopJobService(local.state_path).stop(send_id)
+
+    @app.post("/api/results/{send_id}/manual-recover", status_code=202)
+    def manual_recover(send_id: str, payload: EmptyRequest) -> dict[str, object]:
+        """Queue one guarded history read per unfinished, verified turn; never resend."""
+        original = local.results.get(send_id)
+        if original is None:
+            raise HTTPException(404, "Chat not found")
+        conversation_id = str(original["conversation_id"])
+        try:
+            verified = str(UUID(conversation_id)) == conversation_id.lower()
+        except (ValueError, AttributeError):
+            verified = False
+        if not verified:
+            raise HTTPException(409, "No verified ChatGPT conversation for read-only recovery")
+
+        targets: list[str] = []
+        if local.results.next_history_recovery(
+            now=float("inf"), priority_ids=(send_id,),
+        ) is not None:
+            targets.append(send_id)
+        for turn in local.replies.turns(send_id) or []:
+            reply_id = str(turn["reply_id"])
+            if not reply_id or turn["status"] not in ("interrupted", "outcome_unknown"):
+                continue
+            if local.replies.next_history_reply_recovery(
+                now=float("inf"), priority_ids=(reply_id,),
+            ) is not None:
+                targets.append("reply:" + reply_id)
+        if not targets:
+            raise HTTPException(
+                409, "No unfinished turn with a verified, inactive branch is ready for recovery",
+            )
+        pending = local.results.queue_manual_recovery(send_id, targets)
+        return {"ok": True, "pending": pending}
 
     @app.post("/api/results/{send_id}/reply-recover")
     def recover(send_id: str, payload: EmptyRequest) -> dict[str, object]:

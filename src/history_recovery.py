@@ -197,6 +197,30 @@ class HistoryRecovery:
         )
         if candidate is None and priority_sends:
             candidate = self.results.next_history_recovery(now=at, priority_ids=priority_sends)
+        manual_target = ""
+        if candidate is None:
+            for target in self.results.pending_manual_recovery_requests():
+                reply_id = target.removeprefix("reply:") if target.startswith("reply:") else ""
+                if reply_id:
+                    due = self.replies.next_history_reply_recovery(
+                        now=at, priority_ids=(reply_id,),
+                    )
+                    eligible = due or self.replies.next_history_reply_recovery(
+                        now=float("inf"), priority_ids=(reply_id,),
+                    )
+                else:
+                    due = self.results.next_history_recovery(
+                        now=at, priority_ids=(target,),
+                    )
+                    eligible = due or self.results.next_history_recovery(
+                        now=float("inf"), priority_ids=(target,),
+                    )
+                if eligible is None:
+                    self.results.clear_manual_recovery_request(target)
+                elif due is not None:
+                    candidate = due
+                    manual_target = target
+                    break
         if candidate is None:
             # Preserve deliberate pinned-chat priority for the normal backlog.
             candidate = (self.results.next_history_recovery(now=at, pinned_only=True)
@@ -237,6 +261,8 @@ class HistoryRecovery:
                     if stored is not None and stored["status"] == "completed":
                         self.runtime.record_read_success()
                         logger.info("Historical response recovered send_id=%s", send_id)
+                        if manual_target:
+                            self.results.clear_manual_recovery_request(manual_target)
                         return True
         except RateLimitError as exc:
             # The rejected chat gets a durable read-only retry gate as well
@@ -259,6 +285,8 @@ class HistoryRecovery:
         self.results.schedule_history_recovery(
             send_id, now=at, next_attempt_at=at + delay,
         )
+        if manual_target:
+            self.results.clear_manual_recovery_request(manual_target)
         return False
 
 
@@ -283,7 +311,8 @@ def run_history_recovery(
                     and results.history_recovery_global_pace_remaining() <= 0
                 ):
                     # The global pacing clock advances for each attempted scan.
-                    if (results.next_history_recovery() is not None
+                    if (results.pending_manual_recovery_requests()
+                            or results.next_history_recovery() is not None
                             or recovery.replies.next_history_reply_recovery() is not None):
                         with DeploymentGate(results.path).admission() as deploy_allowed:
                             if deploy_allowed:
