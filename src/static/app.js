@@ -21,7 +21,7 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 	enumerable: true
 }) : target, mod));
 //#endregion
-//#region node_modules/scheduler/cjs/scheduler.production.js
+//#region ../../prompta/node_modules/scheduler/cjs/scheduler.production.js
 /**
 * @license React
 * scheduler.production.js
@@ -276,12 +276,12 @@ var require_scheduler_production = /* @__PURE__ */ __commonJSMin(((exports) => {
 	};
 }));
 //#endregion
-//#region node_modules/scheduler/index.js
+//#region ../../prompta/node_modules/scheduler/index.js
 var require_scheduler = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_scheduler_production();
 }));
 //#endregion
-//#region node_modules/react/cjs/react.production.js
+//#region ../../prompta/node_modules/react/cjs/react.production.js
 /**
 * @license React
 * react.production.js
@@ -668,12 +668,12 @@ var require_react_production = /* @__PURE__ */ __commonJSMin(((exports) => {
 	exports.version = "19.3.1";
 }));
 //#endregion
-//#region node_modules/react/index.js
+//#region ../../prompta/node_modules/react/index.js
 var require_react = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_react_production();
 }));
 //#endregion
-//#region node_modules/react-dom/cjs/react-dom.production.js
+//#region ../../prompta/node_modules/react-dom/cjs/react-dom.production.js
 /**
 * @license React
 * react-dom.production.js
@@ -826,7 +826,7 @@ var require_react_dom_production = /* @__PURE__ */ __commonJSMin(((exports) => {
 	exports.version = "19.3.1";
 }));
 //#endregion
-//#region node_modules/react-dom/index.js
+//#region ../../prompta/node_modules/react-dom/index.js
 var require_react_dom = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	function checkDCE() {
 		if (typeof __REACT_DEVTOOLS_GLOBAL_HOOK__ === "undefined" || typeof __REACT_DEVTOOLS_GLOBAL_HOOK__.checkDCE !== "function") return;
@@ -840,7 +840,7 @@ var require_react_dom = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_react_dom_production();
 }));
 //#endregion
-//#region node_modules/react-dom/cjs/react-dom-client.production.js
+//#region ../../prompta/node_modules/react-dom/cjs/react-dom-client.production.js
 /**
 * @license React
 * react-dom-client.production.js
@@ -11415,7 +11415,7 @@ var require_react_dom_client_production = /* @__PURE__ */ __commonJSMin(((export
 	};
 }));
 //#endregion
-//#region node_modules/react-dom/client.js
+//#region ../../prompta/node_modules/react-dom/client.js
 var require_client = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	function checkDCE() {
 		if (typeof __REACT_DEVTOOLS_GLOBAL_HOOK__ === "undefined" || typeof __REACT_DEVTOOLS_GLOBAL_HOOK__.checkDCE !== "function") return;
@@ -11429,7 +11429,7 @@ var require_client = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_react_dom_client_production();
 }));
 //#endregion
-//#region node_modules/@preact/signals-core/dist/signals-core.module.js
+//#region ../../prompta/node_modules/@preact/signals-core/dist/signals-core.module.js
 var import_react = /* @__PURE__ */ __toESM(require_react());
 var import_client = require_client();
 var i$1 = Symbol.for("preact-signals");
@@ -11841,7 +11841,7 @@ function x$2(i, t) {
 	return n;
 }
 //#endregion
-//#region node_modules/use-sync-external-store/cjs/use-sync-external-store-shim.production.js
+//#region ../../prompta/node_modules/use-sync-external-store/cjs/use-sync-external-store-shim.production.js
 /**
 * @license React
 * use-sync-external-store-shim.production.js
@@ -11901,7 +11901,7 @@ var require_use_sync_external_store_shim_production = /* @__PURE__ */ __commonJS
 	exports.useSyncExternalStore = void 0 !== React.useSyncExternalStore ? React.useSyncExternalStore : shim;
 }));
 //#endregion
-//#region node_modules/@preact/signals-react/runtime/dist/runtime.module.js
+//#region ../../prompta/node_modules/@preact/signals-react/runtime/dist/runtime.module.js
 var import_shim = (/* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_use_sync_external_store_shim_production();
 })))();
@@ -14979,7 +14979,7 @@ function createJobsPageController(initialProps) {
 	};
 }
 //#endregion
-//#region node_modules/react/cjs/react-jsx-runtime.production.js
+//#region ../../prompta/node_modules/react/cjs/react-jsx-runtime.production.js
 /**
 * @license React
 * react-jsx-runtime.production.js
@@ -15905,6 +15905,9 @@ function createChatComposerController(initialProps) {
 	const onSend = y$2(initialProps.onSend);
 	const onFallbackSend = y$2(initialProps.onFallbackSend);
 	const onNewChat = y$2(initialProps.onNewChat);
+	const onStop = y$2(initialProps.onStop);
+	const active = y$2(initialProps.active);
+	const stopping = y$2(initialProps.stopping);
 	const disabled = y$2(initialProps.disabled);
 	const sendDisabled = y$2(initialProps.sendDisabled);
 	const restoreDraft = y$2(initialProps.restoreDraft);
@@ -15934,6 +15937,7 @@ function createChatComposerController(initialProps) {
 	});
 	const canAttach = O(() => mode.value === "fresh" && !disabled.value && !sending.value && !uploading.value);
 	const hasDraft = O(() => !!draft.value.trim());
+	const showStop = O(() => mode.value === "reply" && !!active.value && !hasDraft.value && !sending.value && !uploading.value);
 	const canSend = O(() => !disabled.value && !sendDisabled.value && !sending.value && !uploading.value && hasDraft.value);
 	const canFallback = O(() => mode.value === "reply" && !disabled.value && !sending.value && !uploading.value && hasDraft.value && (fallbackAvailable.value || offerFreshContinuation.value) && !!onFallbackSend.value);
 	function resizeTextarea() {
@@ -16081,10 +16085,15 @@ function createChatComposerController(initialProps) {
 			if (generation === submissionGeneration && draftStorageKey.value === submittedKey) sending.value = false;
 		}
 	}
+	async function stop() {
+		if (!showStop.value || stopping.value || disabled.value) return;
+		await onStop.value?.();
+	}
 	function keydown(event) {
 		if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
 			event.preventDefault();
-			submit();
+			if (showStop.value) stop();
+			else submit();
 		}
 	}
 	function pasted(event) {
@@ -16167,6 +16176,9 @@ function createChatComposerController(initialProps) {
 			if (onSend.peek() !== next.onSend) onSend.value = next.onSend;
 			if (onFallbackSend.peek() !== next.onFallbackSend) onFallbackSend.value = next.onFallbackSend;
 			if (onNewChat.peek() !== next.onNewChat) onNewChat.value = next.onNewChat;
+			if (onStop.peek() !== next.onStop) onStop.value = next.onStop;
+			if (active.peek() !== next.active) active.value = next.active;
+			if (stopping.peek() !== next.stopping) stopping.value = next.stopping;
 			if (disabled.peek() !== next.disabled) disabled.value = next.disabled;
 			if (sendDisabled.peek() !== next.sendDisabled) sendDisabled.value = next.sendDisabled;
 			if (restoreDraft.peek() !== next.restoreDraft) restoreDraft.value = next.restoreDraft;
@@ -16176,6 +16188,8 @@ function createChatComposerController(initialProps) {
 	}
 	return {
 		mode,
+		showStop,
+		stopping,
 		onFallbackSend,
 		onNewChat,
 		disabled,
@@ -16196,6 +16210,7 @@ function createChatComposerController(initialProps) {
 		canFallback,
 		draftChanged,
 		addFiles,
+		stop,
 		submit,
 		keydown,
 		pasted,
@@ -16209,7 +16224,7 @@ function createChatComposerController(initialProps) {
 function ChatComposer(props) {
 	const model = (0, import_react.useMemo)(() => createChatComposerController(props), []);
 	N$1();
-	const { mode, onFallbackSend, onNewChat, disabled, draft, images, uploading, sending, feedback, fallbackAvailable, offerFreshContinuation, dragging, fileInput, draftStorageKey, canAttach, hasDraft, canSend, canFallback, draftChanged, addFiles, submit, keydown, pasted, dropped } = model;
+	const { mode, onFallbackSend, onNewChat, disabled, draft, images, uploading, sending, feedback, fallbackAvailable, offerFreshContinuation, dragging, fileInput, draftStorageKey, canAttach, hasDraft, canSend, canFallback, draftChanged, addFiles, showStop, stopping, stop, submit, keydown, pasted, dropped } = model;
 	const refs = (0, import_react.useMemo)(() => ({
 		textarea: (element) => {
 			if (model.textarea.peek() !== (element ?? void 0)) model.textarea.value = element ?? void 0;
@@ -16233,11 +16248,13 @@ function ChatComposer(props) {
 		if (sending.value) return "Sending";
 		return mode.value === "fresh" ? "Send fresh chat" : "Send reply";
 	}
+	const showNewChat = !showStop.value && !hasDraft.value && images.value.length === 0 && !uploading.value && !sending.value;
 	return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("form", {
 		"aria-label": mode.value === "fresh" ? "New chat composer" : "Reply composer",
 		onSubmit: (event) => {
 			event.preventDefault();
-			submit();
+			if (showStop.value) stop();
+			else submit();
 		},
 		onDragOver: (event) => {
 			event.preventDefault();
@@ -16298,15 +16315,69 @@ function ChatComposer(props) {
 					}),
 					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 						className: "composer-actions",
-						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-							className: "composer-attach",
-							children: [mode.value === "fresh" ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+						children: [
+							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								className: "composer-attach",
+								children: [mode.value === "fresh" ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+									type: "button",
+									"aria-label": "Attach photos or videos",
+									title: "Attach photos or videos",
+									disabled: !canAttach.value,
+									onClick: () => fileInput.value?.click(),
+									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("svg", {
+										viewBox: "0 0 24 24",
+										fill: "none",
+										stroke: "currentColor",
+										strokeWidth: "1.8",
+										strokeLinecap: "round",
+										strokeLinejoin: "round",
+										"aria-hidden": "true",
+										children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: "m20.5 11.5-8.7 8.7a5.5 5.5 0 0 1-7.8-7.8l9.4-9.4a3.7 3.7 0 0 1 5.2 5.2l-9.4 9.4a1.9 1.9 0 0 1-2.7-2.7l8.6-8.6" })
+									}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: images.value.length ? `Add attachments (${images.value.length}/4)` : "Attach photos or videos" })]
+								}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+									ref: refs.fileInput,
+									type: "file",
+									accept: attachmentAccept,
+									multiple: true,
+									"aria-label": "Choose photos or videos",
+									disabled: !canAttach.value,
+									onChange: (event) => {
+										addFiles(Array.from(event.currentTarget.files || []));
+										event.currentTarget.value = "";
+									}
+								})] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {}), uploading.value ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("small", {
+									role: "status",
+									children: "Uploading attachments…"
+								}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {})]
+							}),
+							showStop.value && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 								type: "button",
-								"aria-label": "Attach photos or videos",
-								title: "Attach photos or videos",
-								disabled: !canAttach.value,
-								onClick: () => fileInput.value?.click(),
-								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("svg", {
+								disabled: stopping.value || disabled.value,
+								"aria-label": stopping.value ? "Stopping chat" : "Stop generating",
+								title: stopping.value ? "Stopping chat…" : "Stop generating",
+								className: "composer-send composer-stop",
+								onClick: () => void stop(),
+								children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("svg", {
+									viewBox: "0 0 24 24",
+									fill: "currentColor",
+									"aria-hidden": "true",
+									children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("rect", {
+										x: "7",
+										y: "7",
+										width: "10",
+										height: "10",
+										rx: "2"
+									})
+								})
+							}),
+							showNewChat && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+								type: "button",
+								disabled: disabled.value || uploading.value,
+								onClick: onNewChat.value,
+								"aria-label": "New chat",
+								title: "New chat",
+								className: "composer-send composer-new-chat",
+								children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("svg", {
 									viewBox: "0 0 24 24",
 									fill: "none",
 									stroke: "currentColor",
@@ -16314,65 +16385,35 @@ function ChatComposer(props) {
 									strokeLinecap: "round",
 									strokeLinejoin: "round",
 									"aria-hidden": "true",
-									children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: "m20.5 11.5-8.7 8.7a5.5 5.5 0 0 1-7.8-7.8l9.4-9.4a3.7 3.7 0 0 1 5.2 5.2l-9.4 9.4a1.9 1.9 0 0 1-2.7-2.7l8.6-8.6" })
-								}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: images.value.length ? `Add attachments (${images.value.length}/4)` : "Attach photos or videos" })]
-							}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
-								ref: refs.fileInput,
-								type: "file",
-								accept: attachmentAccept,
-								multiple: true,
-								"aria-label": "Choose photos or videos",
-								disabled: !canAttach.value,
-								onChange: (event) => {
-									addFiles(Array.from(event.currentTarget.files || []));
-									event.currentTarget.value = "";
-								}
-							})] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {}), uploading.value ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("small", {
-								role: "status",
-								children: "Uploading attachments…"
-							}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {})]
-						}), !hasDraft.value && images.value.length === 0 && !uploading.value && !sending.value ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-							type: "button",
-							disabled: disabled.value || uploading.value,
-							onClick: onNewChat.value,
-							"aria-label": "New chat",
-							title: "New chat",
-							className: "composer-send composer-new-chat",
-							children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("svg", {
-								viewBox: "0 0 24 24",
-								fill: "none",
-								stroke: "currentColor",
-								strokeWidth: "1.8",
-								strokeLinecap: "round",
-								strokeLinejoin: "round",
-								"aria-hidden": "true",
-								children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: "M12 5H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7M16 4l4 4M9 15l3.5-.7L21 5.8a2.1 2.1 0 0 0-3-3l-8.5 8.5L9 15Z" })
-							})
-						}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-							type: "submit",
-							disabled: !canSend.value,
-							"aria-label": sendLabel(),
-							className: "composer-send",
-							children: sending.value ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("svg", {
-								viewBox: "0 0 24 24",
-								fill: "none",
-								stroke: "currentColor",
-								strokeWidth: "2.4",
-								strokeLinecap: "round",
-								"aria-hidden": "true",
-								className: "composer-send-spinner",
-								children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: "M12 3a9 9 0 1 1-9 9" })
-							}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("svg", {
-								viewBox: "0 0 24 24",
-								fill: "none",
-								stroke: "currentColor",
-								strokeWidth: "2.7",
-								strokeLinecap: "round",
-								strokeLinejoin: "round",
-								"aria-hidden": "true",
-								children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: "M12 19V5m-6 6 6-6 6 6" })
+									children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: "M12 5H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7M16 4l4 4M9 15l3.5-.7L21 5.8a2.1 2.1 0 0 0-3-3l-8.5 8.5L9 15Z" })
+								})
+							}) }),
+							!showStop.value && !showNewChat && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+								type: "submit",
+								disabled: !canSend.value,
+								"aria-label": sendLabel(),
+								className: "composer-send",
+								children: sending.value ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("svg", {
+									viewBox: "0 0 24 24",
+									fill: "none",
+									stroke: "currentColor",
+									strokeWidth: "2.4",
+									strokeLinecap: "round",
+									"aria-hidden": "true",
+									className: "composer-send-spinner",
+									children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: "M12 3a9 9 0 1 1-9 9" })
+								}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("svg", {
+									viewBox: "0 0 24 24",
+									fill: "none",
+									stroke: "currentColor",
+									strokeWidth: "2.7",
+									strokeLinecap: "round",
+									strokeLinejoin: "round",
+									"aria-hidden": "true",
+									children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: "M12 19V5m-6 6 6-6 6 6" })
+								}) })
 							}) })
-						}) })]
+						]
 					})
 				]
 			}),
@@ -16407,78 +16448,63 @@ function ChatRow({ item, model }) {
 			selected ? "chosen" : "",
 			unread ? "unread" : ""
 		].filter(Boolean).join(" "),
-		children: [
-			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("a", {
-				href: chatUrl(item.send_id),
-				onClick: (event) => {
-					if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-					event.preventDefault();
-					model.selectRun(item);
-				},
-				"aria-current": selected ? "true" : void 0,
-				className: "chat-row",
-				children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
-					className: "chat-row-top",
-					children: [
-						unread && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-							title: "Unread reply",
-							className: "unread-indicator",
-							children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-								className: "sr-only",
-								children: "Unread reply"
-							})
-						}),
-						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("strong", { children: item.title || "Untitled run" }),
-						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-							title: rowStatus,
-							className: "result-dot status-" + (item.needs_attention ? "interrupted" : item.status),
-							children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-								className: "sr-only",
-								children: rowStatus
-							})
+		children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("a", {
+			href: chatUrl(item.send_id),
+			onClick: (event) => {
+				if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+				event.preventDefault();
+				model.selectRun(item);
+			},
+			"aria-current": selected ? "true" : void 0,
+			className: "chat-row",
+			children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+				className: "chat-row-top",
+				children: [
+					unread && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+						title: "Unread reply",
+						className: "unread-indicator",
+						children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+							className: "sr-only",
+							children: "Unread reply"
 						})
-					]
-				}), hasPreview ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
-					className: "chat-preview",
-					title: preview,
-					children: [item.needs_attention ? "Needs attention · " : "", preview]
-				}) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-					className: "chat-row-meta",
-					children: rowStatus
-				})]
-			}),
-			[
-				"queued",
-				"accepted",
-				"generating"
-			].includes(item.status) && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-				type: "button",
-				className: "job-stop",
-				disabled: !!model.stopping.value,
-				"aria-label": "Stop " + (item.title || "job"),
-				onClick: () => void model.stopJob(item.send_id),
-				children: model.stopping.value === item.send_id ? "Stopping…" : "Stop"
-			}),
-			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-				type: "button",
-				disabled: !model.pinsReady.value,
-				title: pinned ? "Unpin local chat" : "Pin local chat",
-				"aria-label": (pinned ? "Unpin " : "Pin ") + item.title,
-				"aria-pressed": pinned,
-				onClick: () => model.togglePin(item),
-				className: ["chat-pin", pinned ? "active" : ""].filter(Boolean).join(" "),
-				children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("svg", {
-					viewBox: "0 0 24 24",
-					fill: "none",
-					stroke: "currentColor",
-					strokeWidth: "1.8",
-					strokeLinecap: "round",
-					strokeLinejoin: "round",
-					"aria-hidden": "true",
-					children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: "M9 3h6l-1 6 3 3v2H7v-2l3-3-1-6ZM12 14v7" })
-				})
+					}),
+					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("strong", { children: item.title || "Untitled run" }),
+					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+						title: rowStatus,
+						className: "result-dot status-" + (item.needs_attention ? "interrupted" : item.status),
+						children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+							className: "sr-only",
+							children: rowStatus
+						})
+					})
+				]
+			}), hasPreview ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+				className: "chat-preview",
+				title: preview,
+				children: [item.needs_attention ? "Needs attention · " : "", preview]
+			}) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+				className: "chat-row-meta",
+				children: rowStatus
+			})]
+		}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+			type: "button",
+			disabled: !model.pinsReady.value,
+			title: pinned ? "Unpin local chat" : "Pin local chat",
+			"aria-label": (pinned ? "Unpin " : "Pin ") + item.title,
+			"aria-pressed": pinned,
+			onClick: () => model.togglePin(item),
+			className: ["chat-pin", pinned ? "active" : ""].filter(Boolean).join(" "),
+			children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("svg", {
+				viewBox: "0 0 24 24",
+				fill: "none",
+				stroke: "currentColor",
+				strokeWidth: "1.8",
+				strokeLinecap: "round",
+				strokeLinejoin: "round",
+				"aria-hidden": "true",
+				children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: "M9 3h6l-1 6 3 3v2H7v-2l3-3-1-6ZM12 14v7" })
 			})
-		]
+		})]
 	});
 }
 //#endregion
@@ -16693,18 +16719,13 @@ function ChatsSidebar({ model, refs }) {
 					children: "Retry read status"
 				})]
 			}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {}),
-			model.stopError.value && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
-				role: "alert",
-				className: "result-error",
-				children: model.stopError.value
-			}),
 			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 				ref: refs.listPane,
 				className: "chats-list",
 				children: [
-					visibleWaiting.value.length ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: visibleWaiting.value.map((waiting) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+					visibleWaiting.value.length ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: visibleWaiting.value.map((waiting) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 						className: "chat-entry queue-waiting",
-						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+						children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
 							type: "button",
 							onClick: showJobs,
 							title: "Open Jobs for " + waiting.name,
@@ -16735,14 +16756,7 @@ function ChatsSidebar({ model, refs }) {
 									")"
 								]
 							})]
-						}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-							type: "button",
-							className: "job-stop",
-							disabled: !!model.stopping.value,
-							"aria-label": "Stop " + waiting.name,
-							onClick: () => void model.stopJob(waiting.name, true),
-							children: model.stopping.value === waiting.name ? "Stopping…" : "Stop"
-						})]
+						})
 					}, waiting.name)) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {}),
 					pinned.value.length ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: pinned.value.map((item) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ChatRow, {
 						item,
@@ -16771,7 +16785,7 @@ function ChatsSidebar({ model, refs }) {
 	});
 }
 //#endregion
-//#region node_modules/marked/lib/marked.esm.js
+//#region ../../prompta/node_modules/marked/lib/marked.esm.js
 /**
 * marked v16.4.2 - a markdown parser
 * Copyright (c) 2018-2025, MarkedJS. (MIT License)
@@ -18312,7 +18326,7 @@ x.lex;
 * @public
 */
 //#endregion
-//#region node_modules/prismjs/components/prism-typescript.js
+//#region ../../prompta/node_modules/prismjs/components/prism-typescript.js
 var import_prism = /* @__PURE__ */ __toESM((/* @__PURE__ */ __commonJSMin(((exports, module) => {
 	var Prism = function(_self) {
 		var lang = /(?:^|\s)lang(?:uage)?-([\w-]+)(?=\s|$)/i;
@@ -19775,7 +19789,7 @@ highlight: function highlight(container) {
 	Prism.languages.ts = Prism.languages.typescript;
 })(Prism);
 //#endregion
-//#region node_modules/prismjs/components/prism-python.js
+//#region ../../prompta/node_modules/prismjs/components/prism-python.js
 Prism.languages.python = {
 	"comment": {
 		pattern: /(^|[^\\])#.*/,
@@ -19837,7 +19851,7 @@ Prism.languages.python = {
 Prism.languages.python["string-interpolation"].inside["interpolation"].inside.rest = Prism.languages.python;
 Prism.languages.py = Prism.languages.python;
 //#endregion
-//#region node_modules/prismjs/components/prism-bash.js
+//#region ../../prompta/node_modules/prismjs/components/prism-bash.js
 (function(Prism) {
 	var envVars = "\\b(?:BASH|BASHOPTS|BASH_ALIASES|BASH_ARGC|BASH_ARGV|BASH_CMDS|BASH_COMPLETION_COMPAT_DIR|BASH_LINENO|BASH_REMATCH|BASH_SOURCE|BASH_VERSINFO|BASH_VERSION|COLORTERM|COLUMNS|COMP_WORDBREAKS|DBUS_SESSION_BUS_ADDRESS|DEFAULTS_PATH|DESKTOP_SESSION|DIRSTACK|DISPLAY|EUID|GDMSESSION|GDM_LANG|GNOME_KEYRING_CONTROL|GNOME_KEYRING_PID|GPG_AGENT_INFO|GROUPS|HISTCONTROL|HISTFILE|HISTFILESIZE|HISTSIZE|HOME|HOSTNAME|HOSTTYPE|IFS|INSTANCE|JOB|LANG|LANGUAGE|LC_ADDRESS|LC_ALL|LC_IDENTIFICATION|LC_MEASUREMENT|LC_MONETARY|LC_NAME|LC_NUMERIC|LC_PAPER|LC_TELEPHONE|LC_TIME|LESSCLOSE|LESSOPEN|LINES|LOGNAME|LS_COLORS|MACHTYPE|MAILCHECK|MANDATORY_PATH|NO_AT_BRIDGE|OLDPWD|OPTERR|OPTIND|ORBIT_SOCKETDIR|OSTYPE|PAPERSIZE|PATH|PIPESTATUS|PPID|PS1|PS2|PS3|PS4|PWD|RANDOM|REPLY|SECONDS|SELINUX_INIT|SESSION|SESSIONTYPE|SESSION_MANAGER|SHELL|SHELLOPTS|SHLVL|SSH_AUTH_SOCK|TERM|UID|UPSTART_EVENTS|UPSTART_INSTANCE|UPSTART_JOB|UPSTART_SESSION|USER|WINDOWID|XAUTHORITY|XDG_CONFIG_DIRS|XDG_CURRENT_DESKTOP|XDG_DATA_DIRS|XDG_GREETER_DATA_DIR|XDG_MENU_PREFIX|XDG_RUNTIME_DIR|XDG_SEAT|XDG_SEAT_PATH|XDG_SESSION_DESKTOP|XDG_SESSION_ID|XDG_SESSION_PATH|XDG_SESSION_TYPE|XDG_VTNR|XMODIFIERS)\\b";
 	var commandAfterHeredoc = {
@@ -20018,7 +20032,7 @@ Prism.languages.py = Prism.languages.python;
 	Prism.languages.shell = Prism.languages.bash;
 })(Prism);
 //#endregion
-//#region node_modules/prismjs/components/prism-json.js
+//#region ../../prompta/node_modules/prismjs/components/prism-json.js
 Prism.languages.json = {
 	"property": {
 		pattern: /(^|[^\\])"(?:\\.|[^\\"\r\n])*"(?=\s*:)/,
@@ -20846,19 +20860,6 @@ function ChatsPage(props) {
 								children: "☰"
 							}),
 							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("strong", { children: view.value === "jobs" ? "Jobs" : selectedChatTitle.value }),
-							view.value === "chats" && selectedRunId.value && turns.value.some((turn) => [
-								"queued",
-								"prepared",
-								"dispatching",
-								"accepted",
-								"generating"
-							].includes(turn.status)) && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-								type: "button",
-								className: "job-stop",
-								disabled: !!model.stopping.value,
-								onClick: () => void model.stopJob(selectedRunId.value),
-								children: model.stopping.value ? "Stopping…" : "Stop"
-							}),
 							view.value === "chats" && selectedRunId.value && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 								type: "button",
 								className: "chat-share",
@@ -20928,6 +20929,18 @@ function ChatsPage(props) {
 					view.value === "chats" && Boolean(selectedRunId.value || newChatOpen.value) ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ChatComposer, {
 						mode: selectedRunId.value ? "reply" : "fresh",
 						chatId: selectedRunId.value ?? void 0,
+						active: Boolean(selectedRunId.value && detail.value?.send_id === selectedRunId.value && [
+							"queued",
+							"prepared",
+							"dispatching",
+							"accepted",
+							"generating"
+						].includes(turns.value.findLast((turn) => turn.status !== "cancelled")?.status ?? "")),
+						stopping: model.stopping.value === selectedRunId.value,
+						onStop: () => {
+							const id = selectedRunId.value;
+							if (id) return model.stopJob(id);
+						},
 						onSend: selectedRunId.value ? sendReply : sendFresh,
 						onFallbackSend: (text) => sendFresh(freshContinuationPrompt(text), originalImageRefs()),
 						offerFreshContinuation: Boolean(selectedRunId.value && detail.value?.send_id === selectedRunId.value && !detail.value.conversation_id && !turns.value.at(-1)?.conversation_id && [
