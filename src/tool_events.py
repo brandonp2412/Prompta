@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from typing import Final
 
 _MAX_TOOLS: Final = 128
@@ -88,6 +89,7 @@ def normalize_dom_tool_calls(value: object) -> tuple[dict[str, object], ...]:
         if status not in ("running", "completed", "error", "observed"):
             status = "observed"
         calls.append({
+            "observed_at": time.time(),
             "id": f"dom-tool-{len(calls)}", "connector": "", "action": label,
             "status": status, "arguments": "", "result": "", "error": "",
         })
@@ -107,6 +109,7 @@ def summarize_stream_tool_calls(
         connector = _text(call.get("connector"))[:100]
         status = _text(call.get("status"))
         summaries.append({
+            **({"observed_at": call["observed_at"]} if "observed_at" in call else {}),
             "id": identifier,
             "connector": re.sub(r"https?://\S+|\b[\w.+-]+@[\w.-]+\.[a-z]{2,}\b",
                                 "[redacted]", connector, flags=re.I),
@@ -194,6 +197,7 @@ class ToolEventCollector:
             # Replayed invocation snapshots cannot reopen a finished tool.
             status = str(existing["status"])
         entry: dict[str, object] = {
+            "observed_at": existing["observed_at"] if existing is not None else time.time(),
             "id": identifier, "connector": connector[:100], "action": action[:120],
             "status": status[:30], "arguments": _display(arguments),
             "result": _display(result), "error": _display(parsed.get("error"), 2000),

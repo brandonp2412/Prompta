@@ -766,7 +766,7 @@ class ResponseStore:
         """List only locally persisted Prompta runs; never touch browser state."""
         if status and status not in (
             "queued", "accepted", "generating", "completed", "interrupted", "unavailable",
-            "outcome_unknown", "needs_attention",
+            "outcome_unknown", "stopped", "needs_attention",
         ):
             raise ValueError("Invalid result status")
         if len(query) > 200 or not 1 <= limit <= 100 or not 0 <= offset <= 100_000:

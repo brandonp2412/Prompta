@@ -440,6 +440,9 @@ class ManualReplyDispatcher:
             observed_tool_calls: tuple[dict[str, object], ...] = ()
             try:
                 while asyncio.get_running_loop().time() < deadline and driver.is_connected:
+                    current = self.store.get(reply_id)
+                    if current is not None and current["status"] == "stopped":
+                        break
                     update = await driver.wait_capture_update(
                         timeout=min(
                             5.0,

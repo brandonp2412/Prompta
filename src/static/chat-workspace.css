@@ -819,3 +819,11 @@
   .response-generation-spark, .response-generation-dots i { animation: none; }
   .assistant-group .tool-type-group > summary::after { transition: none; }
 }
+
+.assistant-group .tool-call-time { color: #98a6b8; font-size: .7rem; white-space: nowrap; margin-left: auto; }
+.assistant-group .tool-call-summary { flex-wrap: wrap; }
+.assistant-group .tool-call-body .token.builtin,
+.assistant-group .tool-call-body .token.variable { color: #88c5f6; }
+
+.job-stop { flex: none; align-self: center; min-height: 36px; padding: 6px 9px; border: 1px solid #684047; border-radius: 8px; background: #39262b; color: #ffc0c2; font-size: .75rem; cursor: pointer; }
+.job-stop:disabled { opacity: .55; cursor: wait; }

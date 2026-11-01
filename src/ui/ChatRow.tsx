@@ -65,6 +65,17 @@ export default function ChatRow({ item, model }: Props) {
           <span className="chat-row-meta">{rowStatus}</span>
         )}
       </a>
+      {["queued", "accepted", "generating"].includes(item.status) && (
+        <button
+          type="button"
+          className="job-stop"
+          disabled={!!model.stopping.value}
+          aria-label={"Stop " + (item.title || "job")}
+          onClick={() => void model.stopJob(item.send_id)}
+        >
+          {model.stopping.value === item.send_id ? "Stopping…" : "Stop"}
+        </button>
+      )}
       <button
         type="button"
         disabled={!model.pinsReady.value}

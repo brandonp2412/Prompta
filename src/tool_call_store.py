@@ -54,7 +54,12 @@ def merge_tool_calls(previous: object, incoming: tuple[dict[str, object], ...]) 
     upgraded_ids: set[str] = set()
     for call in merged:
         if str(call.get("id", "")).startswith("dom-tool-"):
-            call = next((stream for stream in stream_calls if same_activity(call, stream)), call)
+            matched = next((stream for stream in stream_calls if same_activity(call, stream)), None)
+            if matched is not None:
+                observed_at = call.get("observed_at")
+                call = {**matched}
+                if observed_at:
+                    call["observed_at"] = observed_at
         identifier = str(call.get("id"))
         if identifier not in upgraded_ids:
             upgraded.append(call)
@@ -80,6 +85,8 @@ def merge_tool_calls(previous: object, incoming: tuple[dict[str, object], ...]) 
                     refreshed[field] = old[field]
             if old.get("status") in ("completed", "error") and call.get("status") == "running":
                 refreshed["status"] = old["status"]
+            if old.get("observed_at"):
+                refreshed["observed_at"] = old["observed_at"]
             merged[index] = refreshed
         elif len(merged) < 128:
             by_id[identifier] = len(merged)

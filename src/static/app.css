@@ -842,6 +842,7 @@ button:disabled { cursor: default; opacity: 0.45; }
   .chats-sidebar {
     display: flex; position: fixed; z-index: 12; top: 0; bottom: 0; left: 0;
     width: min(340px, calc(100% - 44px)); height: 100dvh;
+    will-change: transform; contain: layout paint;
     transform: translate3d(-100%, 0, 0); visibility: hidden; box-shadow: 9px 0 25px #0005;
     transition: transform .24s cubic-bezier(.2, .8, .2, 1), visibility 0s linear .24s;
   }

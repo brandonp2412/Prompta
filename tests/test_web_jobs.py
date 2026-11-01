@@ -399,3 +399,18 @@ def test_editing_while_delivery_pending_never_sends_second_copy(tmp_path: Path) 
     )
     assert producer.tick(now=1001.0) == 0
     assert len(DeliveryQueueStore(queue_path).records()) == 1
+
+
+def test_stop_pauses_scheduled_job_and_cancels_its_pending_delivery(tmp_path: Path) -> None:
+    state = tmp_path / "runtime.sqlite3"
+    service = WebJobService(state, state, "host")
+    add_job(state, "audit", "Run audit", 2400)
+    queue = DeliveryQueueStore(tmp_path / "ui-send-jobs.sqlite3")
+    queued = queue.enqueue_manual("Run audit", request_id="c" * 32)
+    send_id = str(queued["send_id"])
+    service.runtime.update_job_state("audit", {"last_delivery_send_id": send_id})
+    result = service.apply("stop", {"name": "audit"})
+    assert result["jobs"][0]["paused"] is True
+    delivery = queue.get(send_id)
+    assert delivery is not None and delivery["status"] == "cancelled"
+    assert service.apply("stop", {"name": "audit"})["ok"] is True

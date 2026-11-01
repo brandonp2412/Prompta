@@ -12042,7 +12042,7 @@ function N$1(n, t) {
 }
 //#endregion
 //#region src/ui/drawerSwipe.ts
-function createDrawerSwipe({ drawerOpen, drawerProgress, isList, drawerWidth, clock = performance }) {
+function createDrawerSwipe({ drawerOpen, drawerProgress, isList, drawerWidth, drawerPosition, clock = performance }) {
 	let swipe = null;
 	const clampDrawer = (value) => Math.max(0, Math.min(1, value));
 	function cancelSwipe() {
@@ -12059,6 +12059,7 @@ function createDrawerSwipe({ drawerOpen, drawerProgress, isList, drawerWidth, cl
 			y: touch.clientY,
 			opening: !drawerOpen.value,
 			width: drawerWidth(),
+			progress: clampDrawer(drawerPosition?.() ?? (drawerOpen.value ? 1 : 0)),
 			locked: false,
 			rejected: false,
 			lastX: touch.clientX,
@@ -12095,21 +12096,23 @@ function createDrawerSwipe({ drawerOpen, drawerProgress, isList, drawerWidth, cl
 		}
 		gesture.lastX = touch.clientX;
 		gesture.lastTime = now;
-		drawerProgress.value = clampDrawer((gesture.opening ? 0 : 1) + dx / gesture.width);
+		drawerProgress.value = clampDrawer(gesture.progress + dx / gesture.width);
 	}
 	function finishSwipe(event) {
 		const gesture = swipe;
 		if (!gesture) return;
 		const touch = Array.from(event.changedTouches).find((item) => item.identifier === gesture.identifier);
 		if (!touch) return;
-		if (gesture.locked) {
-			const dx = touch.clientX - gesture.x;
-			const progress = clampDrawer((gesture.opening ? 0 : 1) + dx / gesture.width);
-			if (Math.abs(dx) >= 30 && Math.abs(gesture.velocityX) >= .45 && clock.now() - gesture.lastTime < 120) drawerOpen.value = gesture.velocityX > 0;
-			else if (gesture.opening) drawerOpen.value = progress >= .35;
-			else drawerOpen.value = progress > .65;
-		}
-		cancelSwipe();
+		r(() => {
+			if (gesture.locked) {
+				const dx = touch.clientX - gesture.x;
+				const progress = clampDrawer(gesture.progress + dx / gesture.width);
+				if (Math.abs(dx) >= 30 && Math.abs(gesture.velocityX) >= .45 && clock.now() - gesture.lastTime < 120) drawerOpen.value = gesture.velocityX > 0;
+				else if (gesture.opening) drawerOpen.value = progress >= .35;
+				else drawerOpen.value = progress > .65;
+			}
+			cancelSwipe();
+		});
 	}
 	return {
 		cancelSwipe,
@@ -12894,11 +12897,12 @@ function createChatsPageController(initialProps) {
 		return pinnedIds.value.map((id) => byId.get(id)).filter((item) => !!item).filter((item) => !filtered || items.value.some((listed) => listed.send_id === item.send_id)).filter((item) => !queuedWaitingChat(item));
 	});
 	const replyBlockedReason = O(() => {
-		const latest = turns.value.at(-1);
+		const latest = turns.value.findLast((turn) => turn.status !== "cancelled");
 		if (!detail.value || detail.value.send_id !== selectedRunId.value || !latest) return "Loading reply availability…";
 		if (latest.status === "prepared" || latest.status === "preflight_failed") return latest.reply_id && latest.conversation_id && latest.parent_id ? "" : "The saved reply target is incomplete. Try again after refreshing.";
 		if ([
 			"completed",
+			"stopped",
 			"interrupted",
 			"unavailable",
 			"outcome_unknown",
@@ -13588,7 +13592,7 @@ function createChatsPageController(initialProps) {
 			ok: false,
 			message: "The selected chat is still loading. Nothing was sent."
 		};
-		const latest = turns.value.at(-1);
+		const latest = turns.value.findLast((turn) => turn.status !== "cancelled");
 		if (latest && [
 			"queued",
 			"accepted",
@@ -13612,7 +13616,8 @@ function createChatsPageController(initialProps) {
 			"completed",
 			"interrupted",
 			"unavailable",
-			"outcome_unknown"
+			"outcome_unknown",
+			"stopped"
 		].includes(latest.status)) return {
 			ok: false,
 			message: "Wait for the current response to finish."
@@ -13734,6 +13739,25 @@ function createChatsPageController(initialProps) {
 			copyState.value = "error:" + key;
 		}
 	}
+	const stopping = y$2("");
+	const stopError = y$2("");
+	async function stopJob(id, scheduled = false) {
+		if (stopping.value) return;
+		stopping.value = id;
+		stopError.value = "";
+		try {
+			const response = scheduled ? await localPost("./api/jobs", {
+				action: "stop",
+				name: id
+			}) : await localPost("./api/results/" + encodeURIComponent(id) + "/stop", {});
+			if (!response.ok) throw new Error(await localRejectionDetail(response, "Could not stop this job."));
+			refresh();
+		} catch (error) {
+			stopError.value = error instanceof Error ? error.message : "Could not stop this job. Try again.";
+		} finally {
+			stopping.value = "";
+		}
+	}
 	function refresh() {
 		if (!queueError.value) loadQueue();
 		loadList();
@@ -13766,6 +13790,11 @@ function createChatsPageController(initialProps) {
 		drawerOpen,
 		drawerProgress,
 		isList: () => view.value === "chats" && !selectedRunId.value && !newChatOpen.value,
+		drawerPosition: () => {
+			const bounds = sidebarPane.value?.getBoundingClientRect();
+			if (bounds?.width) return 1 + bounds.x / bounds.width;
+			return drawerOpen.value ? 1 : 0;
+		},
 		drawerWidth: () => sidebarPane.value?.getBoundingClientRect().width || Math.min(340, innerWidth - 44)
 	});
 	function selectRun(item) {
@@ -13891,6 +13920,9 @@ function createChatsPageController(initialProps) {
 		pinsReady,
 		pinError,
 		readError,
+		stopping,
+		stopError,
+		stopJob,
 		markingAllRead,
 		drawerOpen,
 		drawerProgress,
@@ -13975,6 +14007,8 @@ function chatUrl(id) {
 //#region src/ui/resultFormatting.ts
 function responseBadge(status) {
 	switch (status) {
+		case "cancelled":
+		case "stopped": return "Stopped";
 		case "completed": return "Final";
 		case "generating": return "Live";
 		case "interrupted": return "Interrupted";
@@ -14010,6 +14044,8 @@ function turnStatus(status) {
 		case "interrupted": return "Response capture interrupted";
 		case "unavailable": return "Response unavailable";
 		case "queued": return "Waiting for job dispatch";
+		case "cancelled":
+		case "stopped": return "Stopped";
 		case "completed": return "Completed";
 	}
 }
@@ -14022,11 +14058,21 @@ var dateOptions = {
 function dateGroup(epoch) {
 	return new Intl.DateTimeFormat("en-NZ", dateOptions).format(epoch * 1e3);
 }
+function nzTime(epoch) {
+	if (epoch <= 0) return "Time unavailable";
+	return new Intl.DateTimeFormat("en-NZ", {
+		...dateOptions,
+		hour: "numeric",
+		minute: "2-digit",
+		hour12: true
+	}).format(epoch * 1e3);
+}
 function statusLabel(status) {
 	switch (status) {
 		case "queued": return "Queued";
 		case "accepted": return "Accepted";
 		case "generating": return "Generating";
+		case "stopped": return "Stopped";
 		case "completed": return "Completed";
 		case "interrupted": return "Interrupted";
 		case "unavailable": return "Unavailable";
@@ -14209,7 +14255,8 @@ function formatDate(epoch) {
 		month: "short",
 		day: "numeric",
 		hour: "numeric",
-		minute: "2-digit"
+		minute: "2-digit",
+		hour12: true
 	});
 }
 function scheduleText(job) {
@@ -15523,6 +15570,17 @@ function JobsTable({ model }) {
 								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 									type: "button",
 									disabled: saving.value,
+									className: "row-action danger-text",
+									title: "Stop current work and pause future runs",
+									onClick: () => void command({
+										action: "stop",
+										name: job.name
+									}, "Stopped " + job.name + "."),
+									children: "Stop"
+								}),
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+									type: "button",
+									disabled: saving.value,
 									onClick: () => void remove(job),
 									className: "row-action danger-text",
 									children: "Remove"
@@ -16349,63 +16407,78 @@ function ChatRow({ item, model }) {
 			selected ? "chosen" : "",
 			unread ? "unread" : ""
 		].filter(Boolean).join(" "),
-		children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("a", {
-			href: chatUrl(item.send_id),
-			onClick: (event) => {
-				if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-				event.preventDefault();
-				model.selectRun(item);
-			},
-			"aria-current": selected ? "true" : void 0,
-			className: "chat-row",
-			children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
-				className: "chat-row-top",
-				children: [
-					unread && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-						title: "Unread reply",
-						className: "unread-indicator",
-						children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-							className: "sr-only",
-							children: "Unread reply"
+		children: [
+			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("a", {
+				href: chatUrl(item.send_id),
+				onClick: (event) => {
+					if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+					event.preventDefault();
+					model.selectRun(item);
+				},
+				"aria-current": selected ? "true" : void 0,
+				className: "chat-row",
+				children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+					className: "chat-row-top",
+					children: [
+						unread && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+							title: "Unread reply",
+							className: "unread-indicator",
+							children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+								className: "sr-only",
+								children: "Unread reply"
+							})
+						}),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("strong", { children: item.title || "Untitled run" }),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+							title: rowStatus,
+							className: "result-dot status-" + (item.needs_attention ? "interrupted" : item.status),
+							children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+								className: "sr-only",
+								children: rowStatus
+							})
 						})
-					}),
-					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("strong", { children: item.title || "Untitled run" }),
-					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-						title: rowStatus,
-						className: "result-dot status-" + (item.needs_attention ? "interrupted" : item.status),
-						children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-							className: "sr-only",
-							children: rowStatus
-						})
-					})
-				]
-			}), hasPreview ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
-				className: "chat-preview",
-				title: preview,
-				children: [item.needs_attention ? "Needs attention · " : "", preview]
-			}) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-				className: "chat-row-meta",
-				children: rowStatus
-			})]
-		}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-			type: "button",
-			disabled: !model.pinsReady.value,
-			title: pinned ? "Unpin local chat" : "Pin local chat",
-			"aria-label": (pinned ? "Unpin " : "Pin ") + item.title,
-			"aria-pressed": pinned,
-			onClick: () => model.togglePin(item),
-			className: ["chat-pin", pinned ? "active" : ""].filter(Boolean).join(" "),
-			children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("svg", {
-				viewBox: "0 0 24 24",
-				fill: "none",
-				stroke: "currentColor",
-				strokeWidth: "1.8",
-				strokeLinecap: "round",
-				strokeLinejoin: "round",
-				"aria-hidden": "true",
-				children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: "M9 3h6l-1 6 3 3v2H7v-2l3-3-1-6ZM12 14v7" })
+					]
+				}), hasPreview ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+					className: "chat-preview",
+					title: preview,
+					children: [item.needs_attention ? "Needs attention · " : "", preview]
+				}) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+					className: "chat-row-meta",
+					children: rowStatus
+				})]
+			}),
+			[
+				"queued",
+				"accepted",
+				"generating"
+			].includes(item.status) && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+				type: "button",
+				className: "job-stop",
+				disabled: !!model.stopping.value,
+				"aria-label": "Stop " + (item.title || "job"),
+				onClick: () => void model.stopJob(item.send_id),
+				children: model.stopping.value === item.send_id ? "Stopping…" : "Stop"
+			}),
+			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+				type: "button",
+				disabled: !model.pinsReady.value,
+				title: pinned ? "Unpin local chat" : "Pin local chat",
+				"aria-label": (pinned ? "Unpin " : "Pin ") + item.title,
+				"aria-pressed": pinned,
+				onClick: () => model.togglePin(item),
+				className: ["chat-pin", pinned ? "active" : ""].filter(Boolean).join(" "),
+				children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("svg", {
+					viewBox: "0 0 24 24",
+					fill: "none",
+					stroke: "currentColor",
+					strokeWidth: "1.8",
+					strokeLinecap: "round",
+					strokeLinejoin: "round",
+					"aria-hidden": "true",
+					children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: "M9 3h6l-1 6 3 3v2H7v-2l3-3-1-6ZM12 14v7" })
+				})
 			})
-		})]
+		]
 	});
 }
 //#endregion
@@ -16620,17 +16693,18 @@ function ChatsSidebar({ model, refs }) {
 					children: "Retry read status"
 				})]
 			}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {}),
+			model.stopError.value && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+				role: "alert",
+				className: "result-error",
+				children: model.stopError.value
+			}),
 			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 				ref: refs.listPane,
 				className: "chats-list",
 				children: [
-					visibleWaiting.value.length ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-						"aria-live": "polite",
-						className: "chats-date queue-heading",
-						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: ["Waiting to start · ", visibleWaiting.value.length] }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: queueSnapshot.value.max_workers === null ? "Stage capacity" : `${queueSnapshot.value.occupied_slots}/${queueSnapshot.value.max_workers} global slots` })]
-					}), visibleWaiting.value.map((waiting) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+					visibleWaiting.value.length ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: visibleWaiting.value.map((waiting) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 						className: "chat-entry queue-waiting",
-						children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
 							type: "button",
 							onClick: showJobs,
 							title: "Open Jobs for " + waiting.name,
@@ -16661,8 +16735,15 @@ function ChatsSidebar({ model, refs }) {
 									")"
 								]
 							})]
-						})
-					}, waiting.name))] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {}),
+						}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+							type: "button",
+							className: "job-stop",
+							disabled: !!model.stopping.value,
+							"aria-label": "Stop " + waiting.name,
+							onClick: () => void model.stopJob(waiting.name, true),
+							children: model.stopping.value === waiting.name ? "Stopping…" : "Stop"
+						})]
+					}, waiting.name)) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {}),
 					pinned.value.length ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: pinned.value.map((item) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ChatRow, {
 						item,
 						model
@@ -20193,7 +20274,7 @@ function nestedArguments(value) {
 function codeFromArguments(value, call) {
 	const identity = `${call.connector} ${call.action}`.toLowerCase();
 	const python = /python|execute_python/.test(identity);
-	const shell = /serena|shell|bash|terminal|exec_command|run_command|execute_command/.test(identity);
+	const shell = /serena|shell|bash|terminal|exec_command|run_command|execute_command|command|exec|bash/.test(identity);
 	const javascript = /javascript|run_code|browser_evaluate/.test(identity);
 	if (!python && !shell && !javascript) return null;
 	for (const args of nestedArguments(value)) {
@@ -20206,7 +20287,7 @@ function codeFromArguments(value, call) {
 			};
 		}
 		if (shell || language === "bash" || language === "shell") {
-			const code = args.command ?? args.cmd ?? args.shell_command ?? args.script;
+			const code = args.command ?? args.cmd ?? args.shell_command ?? args.script ?? args.code;
 			if (typeof code === "string" && code.trim()) return {
 				text: code,
 				language: "bash"
@@ -20240,7 +20321,7 @@ function toolPayload(value, call, input) {
 			text: value,
 			language: "python"
 		};
-		if (/serena|shell|bash|terminal|exec_command|run_command|execute_command/.test(identity)) return {
+		if (/serena|shell|bash|terminal|exec_command|run_command|execute_command|command|exec|bash/.test(identity)) return {
 			text: value,
 			language: "bash"
 		};
@@ -20282,7 +20363,7 @@ function status(call) {
 	if (call.status === "observed") return "Observed";
 	return "Completed";
 }
-function ToolCalls({ calls }) {
+function ToolCalls({ calls, turnTimestamp }) {
 	if (!calls.length) return null;
 	const groups = /* @__PURE__ */ new Map();
 	for (const call of calls) {
@@ -20379,6 +20460,12 @@ function ToolCalls({ calls }) {
 									className: "tool-call-name",
 									children: title(call)
 								}),
+								call.observed_at || turnTimestamp ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("time", {
+									className: "tool-call-time",
+									dateTime: (/* @__PURE__ */ new Date((call.observed_at || turnTimestamp || 0) * 1e3)).toISOString(),
+									title: (call.observed_at ? "First observed: " : "Conversation turn: ") + nzTime(call.observed_at || turnTimestamp || 0),
+									children: chatMessageTime(call.observed_at || turnTimestamp || 0)
+								}) : null,
 								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
 									className: "tool-call-status",
 									children: status(call)
@@ -20527,7 +20614,10 @@ function ChatTranscript({ model, refs }) {
 								children: responseBadge(turn.status)
 							})
 						}),
-						turn.tool_calls?.length ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ToolCalls, { calls: turn.tool_calls }) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {}),
+						turn.tool_calls?.length ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ToolCalls, {
+							calls: turn.tool_calls,
+							turnTimestamp: turn.created_at || detail.value.created_at
+						}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {}),
 						turn.assistant_text ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
 							/* @__PURE__ */ (0, import_jsx_runtime.jsx)(ResultMarkdown, {
 								source: turn.assistant_text,
@@ -20739,6 +20829,11 @@ function ChatsPage(props) {
 			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 				className: "chats-detail",
 				children: [
+					model.stopError.value && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+						role: "alert",
+						className: "result-error",
+						children: model.stopError.value
+					}),
 					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 						className: "workspace-header",
 						children: [
@@ -20751,6 +20846,19 @@ function ChatsPage(props) {
 								children: "☰"
 							}),
 							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("strong", { children: view.value === "jobs" ? "Jobs" : selectedChatTitle.value }),
+							view.value === "chats" && selectedRunId.value && turns.value.some((turn) => [
+								"queued",
+								"prepared",
+								"dispatching",
+								"accepted",
+								"generating"
+							].includes(turn.status)) && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+								type: "button",
+								className: "job-stop",
+								disabled: !!model.stopping.value,
+								onClick: () => void model.stopJob(selectedRunId.value),
+								children: model.stopping.value ? "Stopping…" : "Stop"
+							}),
 							view.value === "chats" && selectedRunId.value && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 								type: "button",
 								className: "chat-share",

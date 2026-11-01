@@ -86,3 +86,8 @@ test("JavaScript browser code and non-JSON output retain their content", () => {
     language: "",
   });
 });
+
+
+test("command tools extract code as Bash", () => {
+  expect(toolPayload('{"code":"echo hello | head -1"}', { connector: "Nox", action: "command" }, true)).toEqual({ text: "echo hello | head -1", language: "bash" });
+});

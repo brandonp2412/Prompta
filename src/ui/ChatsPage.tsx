@@ -125,6 +125,11 @@ export default function ChatsPage(props: Props & { serverName: string }) {
         <ChatsSidebar model={model} refs={refs} />
 
         <div className="chats-detail">
+          {model.stopError.value && (
+            <p role="alert" className="result-error">
+              {model.stopError.value}
+            </p>
+          )}
           <div className="workspace-header">
             <button
               type="button"
@@ -136,6 +141,22 @@ export default function ChatsPage(props: Props & { serverName: string }) {
               ☰
             </button>
             <strong>{view.value === "jobs" ? "Jobs" : selectedChatTitle.value}</strong>
+            {view.value === "chats" &&
+              selectedRunId.value &&
+              turns.value.some((turn) =>
+                ["queued", "prepared", "dispatching", "accepted", "generating"].includes(
+                  turn.status,
+                ),
+              ) && (
+                <button
+                  type="button"
+                  className="job-stop"
+                  disabled={!!model.stopping.value}
+                  onClick={() => void model.stopJob(selectedRunId.value!)}
+                >
+                  {model.stopping.value ? "Stopping…" : "Stop"}
+                </button>
+              )}
             {view.value === "chats" && selectedRunId.value && (
               <button
                 type="button"

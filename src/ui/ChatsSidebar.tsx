@@ -275,17 +275,14 @@ export default function ChatsSidebar({
       ) : (
         <></>
       )}
+      {model.stopError.value && (
+        <p role="alert" className="result-error">
+          {model.stopError.value}
+        </p>
+      )}
       <div ref={refs.listPane} className="chats-list">
         {visibleWaiting.value.length ? (
           <>
-            <div aria-live="polite" className="chats-date queue-heading">
-              <span>Waiting to start · {visibleWaiting.value.length}</span>
-              <span>
-                {queueSnapshot.value.max_workers === null
-                  ? "Stage capacity"
-                  : `${queueSnapshot.value.occupied_slots}/${queueSnapshot.value.max_workers} global slots`}
-              </span>
-            </div>
             {visibleWaiting.value.map((waiting) => (
               <div key={waiting.name} className="chat-entry queue-waiting">
                 <button
@@ -304,6 +301,15 @@ export default function ChatsSidebar({
                     {queueEtaText(waiting)} · {waiting.reason === "stage" ? "stage" : "global"}{" "}
                     limit ({waiting.occupied}/{waiting.limit})
                   </span>
+                </button>
+                <button
+                  type="button"
+                  className="job-stop"
+                  disabled={!!model.stopping.value}
+                  aria-label={"Stop " + waiting.name}
+                  onClick={() => void model.stopJob(waiting.name, true)}
+                >
+                  {model.stopping.value === waiting.name ? "Stopping…" : "Stop"}
                 </button>
               </div>
             ))}

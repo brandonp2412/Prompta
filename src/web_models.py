@@ -107,7 +107,7 @@ class ResultsQuery(BaseModel):
     q: Annotated[str, StringConstraints(strip_whitespace=True, max_length=200)] = ""
     status: Literal[
         "", "queued", "accepted", "generating", "completed", "interrupted", "unavailable",
-        "needs_attention",
+        "stopped", "needs_attention",
     ] = ""
 
 
@@ -143,7 +143,7 @@ class RunOnce(RequestModel):
 
 
 class NamedJobAction(RequestModel):
-    action: Literal["remove", "pause", "resume", "fire_now"]
+    action: Literal["remove", "pause", "resume", "fire_now", "stop"]
     name: NonBlank
     request_id: RequestId | None = None
 

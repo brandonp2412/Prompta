@@ -2,6 +2,7 @@ export type ResultStatus =
   | "queued"
   | "accepted"
   | "generating"
+  | "stopped"
   | "completed"
   | "interrupted"
   | "unavailable"
@@ -51,6 +52,7 @@ export function recoveryProgress(recovery: RunDetail["recovery"], now: number): 
 }
 
 export type CapturedToolCall = {
+  observed_at?: number;
   id: string;
   connector: string;
   action: string;
@@ -68,7 +70,13 @@ export type LocalTurn = {
   user_text: string;
   assistant_text: string;
   tool_calls?: CapturedToolCall[];
-  status: ResultStatus | "prepared" | "preflight_failed" | "dispatching" | "outcome_unknown";
+  status:
+    | ResultStatus
+    | "cancelled"
+    | "prepared"
+    | "preflight_failed"
+    | "dispatching"
+    | "outcome_unknown";
   queued_by_user?: boolean;
   created_at: number;
   updated_at: number;
@@ -76,6 +84,9 @@ export type LocalTurn = {
 
 export function responseBadge(status: LocalTurn["status"]): string {
   switch (status) {
+    case "cancelled":
+    case "stopped":
+      return "Stopped";
     case "completed":
       return "Final";
     case "generating":
@@ -140,6 +151,9 @@ export function turnStatus(status: LocalTurn["status"]): string {
       return "Response unavailable";
     case "queued":
       return "Waiting for job dispatch";
+    case "cancelled":
+    case "stopped":
+      return "Stopped";
     case "completed":
       return "Completed";
   }
@@ -174,6 +188,8 @@ export function statusLabel(status: ResultStatus): string {
       return "Accepted";
     case "generating":
       return "Generating";
+    case "stopped":
+      return "Stopped";
     case "completed":
       return "Completed";
     case "interrupted":

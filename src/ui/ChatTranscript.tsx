@@ -216,7 +216,10 @@ export default function ChatTranscript({
                     )}
                     {turn.tool_calls?.length ? (
                       <>
-                        <ToolCalls calls={turn.tool_calls}></ToolCalls>
+                        <ToolCalls
+                          calls={turn.tool_calls}
+                          turnTimestamp={turn.created_at || detail.value!.created_at}
+                        ></ToolCalls>
                       </>
                     ) : (
                       <></>

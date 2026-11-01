@@ -434,6 +434,9 @@ class BrowserDeliverySender:
             self.results.mark_generating(send_id, owner)
         try:
             while (remaining := deadline - asyncio.get_running_loop().time()) > 0:
+                current = self.results.get(send_id)
+                if current is not None and current["status"] == "stopped":
+                    break
                 if not driver.is_connected:
                     break
                 # Waiting is local: queue entries are emitted by the existing

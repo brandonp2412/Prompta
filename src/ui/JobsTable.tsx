@@ -150,6 +150,17 @@ export default function JobsTable({ model }: { model: Controller }) {
                 <button
                   type="button"
                   disabled={saving.value}
+                  className="row-action danger-text"
+                  title="Stop current work and pause future runs"
+                  onClick={() =>
+                    void command({ action: "stop", name: job.name }, "Stopped " + job.name + ".")
+                  }
+                >
+                  Stop
+                </button>
+                <button
+                  type="button"
+                  disabled={saving.value}
                   onClick={() => void remove(job)}
                   className="row-action danger-text"
                 >

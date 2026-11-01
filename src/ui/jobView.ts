@@ -29,6 +29,7 @@ export function formatDate(epoch: number) {
     day: "numeric",
     hour: "numeric",
     minute: "2-digit",
+    hour12: true,
   });
 }
 

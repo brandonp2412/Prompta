@@ -32,9 +32,10 @@ function nestedArguments(value: unknown): Record<string, unknown>[] {
 function codeFromArguments(value: unknown, call: ToolIdentity): ToolPayload | null {
   const identity = `${call.connector} ${call.action}`.toLowerCase();
   const python = /python|execute_python/.test(identity);
-  const shell = /serena|shell|bash|terminal|exec_command|run_command|execute_command/.test(
-    identity,
-  );
+  const shell =
+    /serena|shell|bash|terminal|exec_command|run_command|execute_command|command|exec|bash/.test(
+      identity,
+    );
   const javascript = /javascript|run_code|browser_evaluate/.test(identity);
   if (!python && !shell && !javascript) return null;
 
@@ -45,7 +46,7 @@ function codeFromArguments(value: unknown, call: ToolIdentity): ToolPayload | nu
       if (typeof code === "string" && code.trim()) return { text: code, language: "python" };
     }
     if (shell || language === "bash" || language === "shell") {
-      const code = args.command ?? args.cmd ?? args.shell_command ?? args.script;
+      const code = args.command ?? args.cmd ?? args.shell_command ?? args.script ?? args.code;
       if (typeof code === "string" && code.trim()) return { text: code, language: "bash" };
     }
     if (javascript || language === "javascript") {
@@ -68,7 +69,11 @@ export function toolPayload(value: string, call: ToolIdentity, input: boolean): 
   if (input) {
     const identity = `${call.connector} ${call.action}`.toLowerCase();
     if (/python|execute_python/.test(identity)) return { text: value, language: "python" };
-    if (/serena|shell|bash|terminal|exec_command|run_command|execute_command/.test(identity))
+    if (
+      /serena|shell|bash|terminal|exec_command|run_command|execute_command|command|exec|bash/.test(
+        identity,
+      )
+    )
       return { text: value, language: "bash" };
     if (/javascript|run_code|browser_evaluate/.test(identity))
       return { text: value, language: "javascript" };

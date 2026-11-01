@@ -380,7 +380,7 @@ def test_dom_capture_matches_chatgpt_table_code_and_checklist(
                 assert styles["widthRatio"] >= 0.96
                 assert styles["countAlign"] == "right"
                 assert styles["leftBorder"] == "0px"
-                assert styles["surface"] == "rgb(8, 8, 8)"
+                assert styles["surface"] == "rgb(33, 33, 33)"
                 assert not styles["overflow"]
                 if screenshot_dir := os.environ.get("PROMPTA_RESPONSE_SCREENSHOT_DIR"):
                     destination = Path(screenshot_dir)

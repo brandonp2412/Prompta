@@ -7,6 +7,7 @@ from fastapi.responses import Response
 
 from .image_store import image_refs
 from .reply_contracts import ReplyConflict, ReplyIntent
+from .stop_jobs import StopJobService
 from .web_models import (
     EmptyRequest,
     FollowupRequest,
@@ -115,6 +116,10 @@ def register_chat_routes(app: FastAPI, local: WebServices) -> None:
             else []
         )
         return record
+
+    @app.post("/api/results/{send_id}/stop")
+    def stop_run(send_id: str, payload: EmptyRequest) -> dict[str, object]:
+        return StopJobService(local.state_path).stop(send_id)
 
     @app.post("/api/results/{send_id}/reply-recover")
     def recover(send_id: str, payload: EmptyRequest) -> dict[str, object]:

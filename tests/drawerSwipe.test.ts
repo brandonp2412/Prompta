@@ -23,7 +23,7 @@ function event(x: number, y = 100, identifier = 1) {
   };
 }
 
-function setup(open = false, list = false) {
+function setup(open = false, list = false, position?: number) {
   let time = 0;
   const drawerOpen = { value: open };
   const drawerProgress = { value: null as number | null };
@@ -32,6 +32,7 @@ function setup(open = false, list = false) {
     drawerProgress,
     isList: () => list,
     drawerWidth: () => 320,
+    drawerPosition: () => position ?? (drawerOpen.value ? 1 : 0),
     clock: { now: () => time },
   });
   return { drawerOpen, drawerProgress, ...swipe, advance: (ms: number) => { time += ms; } };
@@ -105,6 +106,16 @@ describe("drawer swipe", () => {
     expect(ui.drawerProgress.value).toBeCloseTo(35 / 320);
     ui.advance(10);
     ui.finishSwipe(event(55).value);
+    expect(ui.drawerOpen.value).toBe(true);
+  });
+
+  test("continues from the visible position when reversing an unfinished animation", () => {
+    const ui = setup(false, false, 0.4);
+    ui.startSwipe(event(20).value);
+    ui.advance(20);
+    ui.moveSwipe(event(52).value);
+    expect(ui.drawerProgress.value).toBeCloseTo(0.5);
+    ui.finishSwipe(event(52).value);
     expect(ui.drawerOpen.value).toBe(true);
   });
 

@@ -7,11 +7,15 @@ from datetime import datetime
 from pathlib import Path
 from typing import TypedDict
 
+from sqlalchemy import select
+
 from .delivery_queue import DeliveryQueueStore
 from .image_store import ImageStore, image_refs
 from .jobs import PromptJob, add_job, clear_jobs, load_jobs, remove_job
 from .manual_fire import fire_job_now
+from .response_tables import results
 from .scheduler_runtime import SchedulerRuntime
+from .stop_jobs import StopJobService
 from .strict_types import float_value, string_object_dict
 from .web_models import (
     JOB_ACTION,
@@ -233,6 +237,20 @@ class WebJobService:
                         )
                 else:
                     fire_job_now(job, runtime=runtime, queue=queue, request_id=request_id)
+            elif command.action == "stop":
+                if not runtime.set_job_paused(name, True):
+                    raise ValueError("Unknown job: " + name)
+                send_id = str(runtime.job_state(name).get("last_delivery_send_id") or "")
+                stopper = StopJobService(self.state_path)
+                with stopper.results.engine.connect() as connection:
+                    pending = set(connection.execute(select(results.c.send_id).where(
+                        results.c.job_name == name,
+                        results.c.status.in_(("queued", "accepted", "generating")),
+                    )).scalars())
+                if send_id:
+                    pending.add(send_id)
+                for pending_id in pending:
+                    stopper.stop(str(pending_id))
             elif command.action == "remove":
                 remove_job(self.jobs_path, name)
                 self._cancel_pending_delivery(name, error="scheduled job removed")

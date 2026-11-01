@@ -1,9 +1,12 @@
+import { batch } from "@preact/signals-core";
+
 type Swipe = {
   identifier: number;
   x: number;
   y: number;
   opening: boolean;
   width: number;
+  progress: number;
   locked: boolean;
   rejected: boolean;
   lastX: number;
@@ -16,12 +19,14 @@ export function createDrawerSwipe({
   drawerProgress,
   isList,
   drawerWidth,
+  drawerPosition,
   clock = performance,
 }: {
   drawerOpen: { value: boolean };
   drawerProgress: { value: number | null };
   isList: () => boolean;
   drawerWidth: () => number;
+  drawerPosition?: () => number;
   clock?: { now: () => number };
 }) {
   let swipe: Swipe | null = null;
@@ -44,6 +49,7 @@ export function createDrawerSwipe({
       y: touch.clientY,
       opening: !drawerOpen.value,
       width: drawerWidth(),
+      progress: clampDrawer(drawerPosition?.() ?? (drawerOpen.value ? 1 : 0)),
       locked: false,
       rejected: false,
       lastX: touch.clientX,
@@ -84,7 +90,7 @@ export function createDrawerSwipe({
     }
     gesture.lastX = touch.clientX;
     gesture.lastTime = now;
-    drawerProgress.value = clampDrawer((gesture.opening ? 0 : 1) + dx / gesture.width);
+    drawerProgress.value = clampDrawer(gesture.progress + dx / gesture.width);
   }
 
   function finishSwipe(event: TouchEvent) {
@@ -94,18 +100,20 @@ export function createDrawerSwipe({
       (item) => item.identifier === gesture.identifier,
     );
     if (!touch) return;
-    if (gesture.locked) {
-      const dx = touch.clientX - gesture.x;
-      const progress = clampDrawer((gesture.opening ? 0 : 1) + dx / gesture.width);
-      const fling =
-        Math.abs(dx) >= 30 &&
-        Math.abs(gesture.velocityX) >= 0.45 &&
-        clock.now() - gesture.lastTime < 120;
-      if (fling) drawerOpen.value = gesture.velocityX > 0;
-      else if (gesture.opening) drawerOpen.value = progress >= 0.35;
-      else drawerOpen.value = progress > 0.65;
-    }
-    cancelSwipe();
+    batch(() => {
+      if (gesture.locked) {
+        const dx = touch.clientX - gesture.x;
+        const progress = clampDrawer(gesture.progress + dx / gesture.width);
+        const fling =
+          Math.abs(dx) >= 30 &&
+          Math.abs(gesture.velocityX) >= 0.45 &&
+          clock.now() - gesture.lastTime < 120;
+        if (fling) drawerOpen.value = gesture.velocityX > 0;
+        else if (gesture.opening) drawerOpen.value = progress >= 0.35;
+        else drawerOpen.value = progress > 0.65;
+      }
+      cancelSwipe();
+    });
   }
 
   return { cancelSwipe, startSwipe, moveSwipe, finishSwipe };

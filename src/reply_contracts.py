@@ -30,7 +30,7 @@ from .web_models import ReplyRequest
 
 ReplyStatus = Literal[
     "queued", "prepared", "preflight_failed", "dispatching", "outcome_unknown", "accepted",
-    "generating", "completed", "interrupted",
+    "generating", "completed", "interrupted", "stopped", "cancelled",
 ]
 
 
@@ -65,13 +65,13 @@ def _recovery_conditions() -> tuple[
         prior.c.message_id == replies.c.parent_id,
         prior.c.reply_id != replies.c.reply_id,
         prior.c.message_id != "",
-        prior.c.status.in_(("completed", "interrupted")),
+        prior.c.status.in_(("completed", "interrupted", "stopped")),
     ).exists()
     verified = (
         *outstanding,
         replies.c.conversation_id != "",
         replies.c.conversation_id == results.c.conversation_id,
-        results.c.status.in_(("completed", "interrupted", "unavailable")),
+        results.c.status.in_(("completed", "interrupted", "unavailable", "stopped")),
         or_(replies.c.parent_id == results.c.message_id, verified_parent),
     )
     return outstanding, verified
@@ -118,7 +118,7 @@ class ManualReplyStore(ReplyReadState):
             original = connection.execute(select(results).where(
                 results.c.send_id == send_id
             )).mappings().one_or_none()
-            if original is None or original["status"] not in ("completed", "interrupted", "unavailable"):
+            if original is None or original["status"] not in ("completed", "interrupted", "unavailable", "stopped"):
                 raise ReplyConflict("A terminal, persisted Prompta run is required")
             conversation_id = str(original["conversation_id"])
             parent_id = str(original["message_id"])
@@ -128,7 +128,9 @@ class ManualReplyStore(ReplyReadState):
                 replies.c.send_id == send_id
             ).order_by(replies.c.created_at, replies.c.reply_id)).mappings().all()
             for turn in previous:
-                if turn["status"] not in ("completed", "interrupted") or not turn["message_id"]:
+                if turn["status"] == "cancelled":
+                    continue
+                if turn["status"] not in ("completed", "interrupted", "stopped") or not turn["message_id"]:
                     raise ReplyConflict("An unresolved reply already occupies this branch")
                 if turn["conversation_id"] != conversation_id or turn["parent_id"] != parent_id:
                     raise ReplyConflict("Persisted branch lineage is inconsistent")
@@ -240,7 +242,7 @@ class ManualReplyStore(ReplyReadState):
                     results.c.send_id == send_id,
                 )).mappings().one_or_none()
                 if (original is None or original["status"] not in
-                        ("completed", "interrupted", "unavailable") or
+                        ("completed", "interrupted", "unavailable", "stopped") or
                         not original["conversation_id"] or not original["message_id"]):
                     continue
                 conversation_id = str(original["conversation_id"])
@@ -250,10 +252,12 @@ class ManualReplyStore(ReplyReadState):
                 ).order_by(replies.c.created_at, replies.c.reply_id)).mappings().all()
                 eligible = False
                 for previous in predecessors:
+                    if previous["status"] == "cancelled":
+                        continue
                     if previous["reply_id"] == reply_id:
                         eligible = True
                         break
-                    if (previous["status"] not in ("completed", "interrupted")
+                    if (previous["status"] not in ("completed", "interrupted", "stopped")
                             or not previous["message_id"]
                             or previous["conversation_id"] != conversation_id
                             or previous["parent_id"] != parent_id):
@@ -331,7 +335,7 @@ class ManualReplyStore(ReplyReadState):
                 return False
             changed = connection.execute(update(results).where(
                 results.c.send_id == send_id,
-                results.c.status.in_(("completed", "interrupted", "unavailable")),
+                results.c.status.in_(("completed", "interrupted", "unavailable", "stopped")),
                 results.c.conversation_id == conversation_id,
                 results.c.message_id == "",
                 results.c.assistant_text == original_answer,
@@ -356,7 +360,7 @@ class ManualReplyStore(ReplyReadState):
             connection.exec_driver_sql("BEGIN IMMEDIATE")
             original = connection.execute(select(results.c.conversation_id).where(
                 results.c.send_id == send_id,
-                results.c.status.in_(("completed", "interrupted", "unavailable")),
+                results.c.status.in_(("completed", "interrupted", "unavailable", "stopped")),
             )).scalar_one_or_none()
             if original != conversation_id:
                 return False
@@ -372,7 +376,7 @@ class ManualReplyStore(ReplyReadState):
                 or row["user_text"] != user_text
                 or row["assistant_text"] != assistant_text
                 or row["message_id"]
-                or row["status"] not in ("completed", "interrupted", "outcome_unknown")
+                or row["status"] not in ("completed", "interrupted", "outcome_unknown", "stopped")
                 or row["lease_owner"]
             ):
                 return False
@@ -386,7 +390,7 @@ class ManualReplyStore(ReplyReadState):
                 return False
             changed = connection.execute(update(replies).where(
                 replies.c.reply_id == reply_id,
-                replies.c.status.in_(("completed", "interrupted", "outcome_unknown")),
+                replies.c.status.in_(("completed", "interrupted", "outcome_unknown", "stopped")),
                 replies.c.message_id == "",
                 replies.c.lease_owner == "",
             ).values(message_id=message_id.lower(), status=case(
@@ -640,7 +644,7 @@ class ManualReplyStore(ReplyReadState):
                 results.c.send_id == row["send_id"],
                 results.c.conversation_id == capture.conversation_id,
             )).mappings().one_or_none()
-            if original is None or original["status"] not in ("completed", "interrupted", "unavailable"):
+            if original is None or original["status"] not in ("completed", "interrupted", "unavailable", "stopped"):
                 return False
             if original["message_id"] != row["parent_id"]:
                 verified_predecessor = connection.execute(select(replies.c.reply_id).where(
@@ -648,7 +652,7 @@ class ManualReplyStore(ReplyReadState):
                     replies.c.reply_id != reply_id,
                     replies.c.conversation_id == capture.conversation_id,
                     replies.c.message_id == row["parent_id"],
-                    replies.c.status.in_(("completed", "interrupted")),
+                    replies.c.status.in_(("completed", "interrupted", "stopped")),
                 ).limit(1)).first()
                 if verified_predecessor is None:
                     return False

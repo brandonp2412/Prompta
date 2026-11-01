@@ -1,3 +1,4 @@
+import { chatMessageTime, nzTime } from "./resultFormatting";
 import type { CapturedToolCall } from "./resultFormatting";
 import { highlightedCode } from "./CodeHighlight";
 import { toolPayload } from "./ToolCallFormatting";
@@ -45,7 +46,13 @@ function status(call: CapturedToolCall): string {
   return "Completed";
 }
 
-export default function ToolCalls({ calls }: { calls: CapturedToolCall[] }) {
+export default function ToolCalls({
+  calls,
+  turnTimestamp,
+}: {
+  calls: CapturedToolCall[];
+  turnTimestamp?: number;
+}) {
   if (!calls.length) return null;
   const groups = new Map<string, CapturedToolCall[]>();
   for (const call of calls) {
@@ -102,6 +109,20 @@ export default function ToolCalls({ calls }: { calls: CapturedToolCall[] }) {
                     {statusMark[status(call)]}
                   </span>
                   <span className="tool-call-name">{title(call)}</span>
+                  {call.observed_at || turnTimestamp ? (
+                    <time
+                      className="tool-call-time"
+                      dateTime={new Date(
+                        (call.observed_at || turnTimestamp || 0) * 1000,
+                      ).toISOString()}
+                      title={
+                        (call.observed_at ? "First observed: " : "Conversation turn: ") +
+                        nzTime(call.observed_at || turnTimestamp || 0)
+                      }
+                    >
+                      {chatMessageTime(call.observed_at || turnTimestamp || 0)}
+                    </time>
+                  ) : null}
                   <span className="tool-call-status">{status(call)}</span>
                 </summary>
                 {(call.arguments || call.result || call.error) && (

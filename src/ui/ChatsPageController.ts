@@ -163,7 +163,7 @@ export function createChatsPageController(initialProps: Props) {
       .filter((item) => !queuedWaitingChat(item));
   });
   const replyBlockedReason = computed((): string => {
-    const latest = turns.value.at(-1);
+    const latest = turns.value.findLast((turn) => turn.status !== "cancelled");
     if (!detail.value || detail.value.send_id !== selectedRunId.value || !latest)
       return "Loading reply availability…";
     if (latest.status === "prepared" || latest.status === "preflight_failed") {
@@ -176,6 +176,7 @@ export function createChatsPageController(initialProps: Props) {
     if (
       [
         "completed",
+        "stopped",
         "interrupted",
         "unavailable",
         "outcome_unknown",
@@ -1128,7 +1129,7 @@ export function createChatsPageController(initialProps: Props) {
     if (!sendId || detail.value?.send_id !== sendId) {
       return { ok: false, message: "The selected chat is still loading. Nothing was sent." };
     }
-    const latest = turns.value.at(-1);
+    const latest = turns.value.findLast((turn) => turn.status !== "cancelled");
     if (latest && ["queued", "accepted", "generating", "dispatching"].includes(latest.status)) {
       return queueEarlyReply(sendId, text);
     }
@@ -1154,7 +1155,9 @@ export function createChatsPageController(initialProps: Props) {
     }
     if (
       !latest ||
-      !["completed", "interrupted", "unavailable", "outcome_unknown"].includes(latest.status)
+      !["completed", "interrupted", "unavailable", "outcome_unknown", "stopped"].includes(
+        latest.status,
+      )
     ) {
       return { ok: false, message: "Wait for the current response to finish." };
     }
@@ -1320,6 +1323,28 @@ export function createChatsPageController(initialProps: Props) {
     }
   }
 
+  const stopping = signal("");
+  const stopError = signal("");
+
+  async function stopJob(id: string, scheduled = false) {
+    if (stopping.value) return;
+    stopping.value = id;
+    stopError.value = "";
+    try {
+      const response = scheduled
+        ? await localPost("./api/jobs", { action: "stop", name: id })
+        : await localPost("./api/results/" + encodeURIComponent(id) + "/stop", {});
+      if (!response.ok)
+        throw new Error(await localRejectionDetail(response, "Could not stop this job."));
+      refresh();
+    } catch (error) {
+      stopError.value =
+        error instanceof Error ? error.message : "Could not stop this job. Try again.";
+    } finally {
+      stopping.value = "";
+    }
+  }
+
   function refresh() {
     if (!queueError.value) void loadQueue();
     void loadList();
@@ -1357,6 +1382,11 @@ export function createChatsPageController(initialProps: Props) {
     drawerOpen,
     drawerProgress,
     isList: () => view.value === "chats" && !selectedRunId.value && !newChatOpen.value,
+    drawerPosition: () => {
+      const bounds = sidebarPane.value?.getBoundingClientRect();
+      if (bounds?.width) return 1 + bounds.x / bounds.width;
+      return drawerOpen.value ? 1 : 0;
+    },
     drawerWidth: () =>
       sidebarPane.value?.getBoundingClientRect().width || Math.min(340, innerWidth - 44),
   });
@@ -1498,6 +1528,9 @@ export function createChatsPageController(initialProps: Props) {
     pinsReady,
     pinError,
     readError,
+    stopping,
+    stopError,
+    stopJob,
     markingAllRead,
     drawerOpen,
     drawerProgress,

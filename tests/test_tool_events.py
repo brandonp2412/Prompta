@@ -391,3 +391,17 @@ def test_durable_stream_summary_preserves_redacted_bounded_payload() -> None:
     assert summary["result"] == "42"
     assert len(str(summary["error"])) < 2100
     assert "PRIVATE" not in str(summary)
+
+
+def test_tool_observation_time_survives_progress_and_dom_upgrade() -> None:
+    dom: tuple[dict[str, object], ...] = (
+        {"id": "dom-tool-0", "action": "Used Search", "observed_at": 123.0},
+    )
+    stream: tuple[dict[str, object], ...] = (
+        {"id": "search-1", "connector": "Search", "action": "find", "status": "running"},
+    )
+    first = merge_tool_calls("[]", dom)
+    upgraded = merge_tool_calls(first, stream)
+    assert json.loads(upgraded)[0]["observed_at"] == 123.0
+    completed = merge_tool_calls(upgraded, ({**stream[0], "status": "completed"},))
+    assert json.loads(completed)[0]["observed_at"] == 123.0
