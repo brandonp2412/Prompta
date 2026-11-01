@@ -101,6 +101,61 @@ def test_timeout_and_crash_keep_partial_without_fake_completion(tmp_path: Path) 
     assert not store.write("crash", "99999999:dead", _capture("Late", "complete"), now=111)
 
 
+def test_orphan_recovery_batches_stale_captures_and_keeps_live_leases(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from prompta import response_store
+
+    store = ResponseStore(tmp_path / "chat-results.sqlite3")
+    live_owner = f"{os.getpid()}:live"
+    dead_owner = "99999999:dead"
+    oversized_owner = f"{'9' * 200}:invalid"
+    for send_id, owner, deadline in (
+        ("expired", live_owner, 150),
+        ("dead-1", dead_owner, 250),
+        ("dead-2", dead_owner, 250),
+        ("invalid-pid", oversized_owner, 250),
+        ("live", live_owner, 250),
+    ):
+        store.ensure_queued(send_id, "prompt", now=100)
+        assert store.accept(send_id, owner, deadline=deadline, now=101)
+
+    original_alive = response_store._alive
+    checked: list[str] = []
+    updates: list[str] = []
+
+    def check_owner(owner: str) -> bool:
+        checked.append(owner)
+        return original_alive(owner)
+
+    def record_sql(
+        _connection: object, _cursor: object, statement: str,
+        _parameters: object, _context: object, _executemany: bool,
+    ) -> None:
+        if statement.lstrip().upper().startswith("UPDATE"):
+            updates.append(statement)
+
+    monkeypatch.setattr(response_store, "_alive", check_owner)
+    event.listen(store.engine, "before_cursor_execute", record_sql)
+    try:
+        assert store.recover_orphans(now=200) == 4
+    finally:
+        event.remove(store.engine, "before_cursor_execute", record_sql)
+
+    assert updates and len(updates) == 1
+    assert checked.count(dead_owner) == 1
+    assert checked.count(live_owner) == 1
+    assert checked.count(oversized_owner) == 1
+    for send_id in ("expired", "dead-1", "dead-2", "invalid-pid"):
+        row = store.get(send_id)
+        assert row is not None and row["status"] == "interrupted"
+        assert row["capture_owner"] == ""
+    alive = store.get("live")
+    assert alive is not None and alive["status"] == "accepted"
+    assert alive["capture_owner"] == live_owner
+    assert store.recover_orphans(now=200) == 0
+
+
 def test_empty_answer_cannot_be_completed(tmp_path: Path) -> None:
     store = ResponseStore(tmp_path / "chat-results.sqlite3")
     store.ensure_queued("s", "prompt", now=10)

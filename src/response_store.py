@@ -46,7 +46,7 @@ def _alive(owner: str) -> bool:
         if number <= 0:
             return False
         os.kill(number, 0)
-    except (ValueError, ProcessLookupError):
+    except (ValueError, OverflowError, ProcessLookupError):
         return False
     except PermissionError:
         return True
@@ -370,20 +370,28 @@ class ResponseStore:
 
     def recover_orphans(self, *, now: float | None = None) -> int:
         at = time.time() if now is None else now
+        capturing = results.c.status.in_(("accepted", "generating"))
+        # Process checks must not hold a SQLite writer lock. A single owner
+        # can have multiple captures, so inspect each live lease owner once.
+        with self.engine.connect() as connection:
+            owners = connection.execute(
+                select(results.c.capture_owner).where(
+                    capturing, results.c.capture_deadline > at,
+                ).distinct()
+            ).scalars().all()
+        dead_owners = [owner for owner in owners if not _alive(str(owner))]
+        stale = results.c.capture_deadline <= at
+        if dead_owners:
+            stale = or_(stale, results.c.capture_owner.in_(dead_owners))
+        # Recheck lease deadlines/owners in the UPDATE so concurrent renewal
+        # or replacement cannot be interrupted by an earlier snapshot.
         with self.engine.begin() as connection:
-            rows = connection.execute(select(results.c.send_id, results.c.capture_owner,
-                results.c.capture_deadline).where(results.c.status.in_(("accepted", "generating")))).all()
-            recovered = 0
-            for send_id, owner, deadline in rows:
-                if deadline > at and _alive(str(owner)):
-                    continue
-                changed = connection.execute(update(results).where(
-                    results.c.send_id == send_id,
-                    results.c.capture_owner == owner,
-                    results.c.status.in_(("accepted", "generating")),
-                ).values(status="interrupted", updated_at=at, finished_at=at, capture_owner=""))
-                recovered += changed.rowcount
-        return recovered
+            changed = connection.execute(update(results).where(
+                capturing, stale,
+            ).values(
+                status="interrupted", updated_at=at, finished_at=at, capture_owner="",
+            ))
+        return int(changed.rowcount)
 
     def active_capture_send_ids(self, *, now: float) -> set[str]:
         """Live owned fresh-chat captures, including one-offs and scheduled jobs.
