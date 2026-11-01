@@ -294,6 +294,41 @@ test("malformed settings stay disabled and allow a safe retry", async () => {
 });
 
 
+test("a server-confirmed read clears a stale optimistic unread badge", async () => {
+  globalThis.fetch = Object.assign(async () => Response.json({}), {
+    preconnect: originalFetch.preconnect,
+  });
+  const { model } = sidebar();
+  const initial = { ...run(7), last_reply_revision: "revision-one" };
+  await act(async () => {
+    model.items.value = [initial];
+  });
+  expect(document.querySelector(".unread-indicator")).not.toBeNull();
+
+  // This tab optimistically marks revision one read.
+  await act(async () => {
+    model.selectRun(initial);
+  });
+  expect(document.querySelector(".unread-indicator")).toBeNull();
+
+  // Another tab has since read revision two. The old optimistic revision
+  // must not make the authoritative, fully-read server row look unread.
+  await act(async () => {
+    model.items.value = [
+      { ...initial, last_reply_revision: "revision-two", last_read_revision: "revision-two" },
+    ];
+  });
+  expect(document.querySelector(".unread-indicator")).toBeNull();
+
+  // A genuinely newer response must still be flagged as unread.
+  await act(async () => {
+    model.items.value = [
+      { ...initial, last_reply_revision: "revision-three", last_read_revision: "revision-two" },
+    ];
+  });
+  expect(document.querySelector(".unread-indicator")).not.toBeNull();
+});
+
 test("maximum workers can be cleared and replaced without submitting an invalid value", async () => {
   const saves: unknown[] = [];
   globalThis.fetch = Object.assign(
