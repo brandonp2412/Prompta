@@ -82,6 +82,18 @@ def test_response_is_unboxed_and_preserves_markdown(
                     expect(response.locator(".response-generation-title")).to_have_text(
                         "Generating response"
                     )
+                    # The live state comes after partial content and actions.
+                    assert response.evaluate(
+                        """node => {
+                            const indicator = node.querySelector('.response-generation');
+                            const markdown = node.querySelector('.result-markdown');
+                            const actions = node.querySelector('.response-actions');
+                            return indicator && markdown && actions &&
+                                Boolean(indicator.compareDocumentPosition(markdown) & Node.DOCUMENT_POSITION_PRECEDING) &&
+                                Boolean(indicator.compareDocumentPosition(actions) & Node.DOCUMENT_POSITION_PRECEDING) &&
+                                indicator.closest('.response-header') === node.lastElementChild;
+                        }"""
+                    )
                     assert response.locator(".response-generation-spark").evaluate(
                         "node => getComputedStyle(node).animationName"
                     ) == "response-orbit"
