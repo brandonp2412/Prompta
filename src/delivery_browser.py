@@ -466,26 +466,24 @@ class BrowserDeliverySender:
                 now = asyncio.get_running_loop().time()
                 if now >= next_recovery_probe and driver.is_connected:
                     next_recovery_probe = now + _PASSIVE_RECOVERY_PROBE_SECONDS
-                    if self.runtime.read_backoff_remaining() <= 0:
-                        # A lost callback can be recovered from the original
-                        # tab's semantic observer without opening a tab, reading
-                        # history, issuing a request, or resending a prompt.
-                        try:
-                            snapshot = await asyncio.wait_for(
-                                driver.observed_assistant_response(),
-                                timeout=min(5.0, max(0.01, deadline - now)),
-                            )
-                            if snapshot.text and (
-                                update is None
-                                or snapshot.status == "complete"
-                                or len(snapshot.text) > len(update.text)
-                            ):
-                                update = snapshot
-                        except Exception as exc:
-                            logger.info(
-                                "Passive recovery snapshot unavailable error_type=%s",
-                                type(exc).__name__,
-                            )
+                    # A local owned-tab snapshot issues no account history read.
+                    # It remains safe even while network history probes are 429-limited.
+                    try:
+                        snapshot = await asyncio.wait_for(
+                            driver.observed_assistant_response(),
+                            timeout=min(5.0, max(0.01, deadline - now)),
+                        )
+                        if snapshot.text and (
+                            update is None
+                            or snapshot.status == "complete"
+                            or len(snapshot.text) > len(update.text)
+                        ):
+                            update = snapshot
+                    except Exception as exc:
+                        logger.info(
+                            "Passive recovery snapshot unavailable error_type=%s",
+                            type(exc).__name__,
+                        )
                     # A conversation route can appear after the initial
                     # acceptance check. Bind only this live capture lease.
                     try:
@@ -612,9 +610,10 @@ class BrowserDeliverySender:
                         ):
                             deadline = now + MAX_OWNED_TAB_AGE_SECONDS
                     if pending.status == "complete" and (pending.message_id or pending.observer_id):
-                        self.runtime.record_read_success()
+                        # Same-tab completion is not proof that account history
+                        # reads have recovered from ChatGPT's 429 cooldown.
                         return
-                if 0 < deadline - now <= 2.0 and self.runtime.read_backoff_remaining() <= 0:
+                if 0 < deadline - now <= 2.0:
                     # At most one DOM fallback read, inside the hard tab TTL.
                     try:
                         snapshot = await asyncio.wait_for(

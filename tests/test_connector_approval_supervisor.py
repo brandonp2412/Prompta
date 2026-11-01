@@ -140,7 +140,9 @@ async def test_fresh_retry_requires_an_active_owned_capture(tmp_path: Path) -> N
 
 
 @pytest.mark.asyncio
-async def test_fresh_approval_attachment_verifies_exact_target_and_owner(tmp_path: Path) -> None:
+async def test_fresh_approval_attachment_verifies_exact_target_and_owner(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
     chromium = os.environ.get("PROMPTA_TEST_CHROMIUM") or shutil.which("chromium")
     if chromium is None:
         pytest.skip("System Chromium is unavailable")
@@ -210,6 +212,29 @@ async def test_fresh_approval_attachment_verifies_exact_target_and_owner(tmp_pat
             await page.evaluate("(value) => { window.name = value; }", marker)
             assert await driver.retry_connector_approval_from_owned_tab() is True
             assert await page.evaluate("window.__grants") == 1
+
+            # A stale original channel must not lose the answer on this exact tab.
+            await page.evaluate("""() => {
+                window.__promptaPassiveResponseObserver = {
+                    read: () => ({
+                        message_id: 'owned-answer',
+                        branch_message_id: '11111111-1111-4111-8111-111111111111',
+                        text: 'Recovered through fresh CDP',
+                        complete: true,
+                        ambiguous: false,
+                        pathname: location.pathname,
+                    }),
+                };
+            }""")
+
+            async def stale_eval(_script: str, *, main_world: bool = False) -> object:
+                raise RuntimeError("stale original browser channel")
+
+            monkeypatch.setattr(driver, "eval", stale_eval)
+            snapshot = await driver.observed_assistant_response()
+            assert snapshot.status == "complete"
+            assert snapshot.text == "Recovered through fresh CDP"
+            assert snapshot.conversation_id == "12345678-1234-4123-8123-123456789abc"
 
             # A re-used page with a different ownership marker must be inert.
             await page.evaluate("""() => {
