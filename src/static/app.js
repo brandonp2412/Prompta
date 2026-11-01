@@ -21,7 +21,7 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 	enumerable: true
 }) : target, mod));
 //#endregion
-//#region ../prompta/node_modules/scheduler/cjs/scheduler.production.js
+//#region ../../prompta/node_modules/scheduler/cjs/scheduler.production.js
 /**
 * @license React
 * scheduler.production.js
@@ -276,12 +276,12 @@ var require_scheduler_production = /* @__PURE__ */ __commonJSMin(((exports) => {
 	};
 }));
 //#endregion
-//#region ../prompta/node_modules/scheduler/index.js
+//#region ../../prompta/node_modules/scheduler/index.js
 var require_scheduler = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_scheduler_production();
 }));
 //#endregion
-//#region ../prompta/node_modules/react/cjs/react.production.js
+//#region ../../prompta/node_modules/react/cjs/react.production.js
 /**
 * @license React
 * react.production.js
@@ -668,12 +668,12 @@ var require_react_production = /* @__PURE__ */ __commonJSMin(((exports) => {
 	exports.version = "19.3.1";
 }));
 //#endregion
-//#region ../prompta/node_modules/react/index.js
+//#region ../../prompta/node_modules/react/index.js
 var require_react = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_react_production();
 }));
 //#endregion
-//#region ../prompta/node_modules/react-dom/cjs/react-dom.production.js
+//#region ../../prompta/node_modules/react-dom/cjs/react-dom.production.js
 /**
 * @license React
 * react-dom.production.js
@@ -826,7 +826,7 @@ var require_react_dom_production = /* @__PURE__ */ __commonJSMin(((exports) => {
 	exports.version = "19.3.1";
 }));
 //#endregion
-//#region ../prompta/node_modules/react-dom/index.js
+//#region ../../prompta/node_modules/react-dom/index.js
 var require_react_dom = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	function checkDCE() {
 		if (typeof __REACT_DEVTOOLS_GLOBAL_HOOK__ === "undefined" || typeof __REACT_DEVTOOLS_GLOBAL_HOOK__.checkDCE !== "function") return;
@@ -840,7 +840,7 @@ var require_react_dom = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_react_dom_production();
 }));
 //#endregion
-//#region ../prompta/node_modules/react-dom/cjs/react-dom-client.production.js
+//#region ../../prompta/node_modules/react-dom/cjs/react-dom-client.production.js
 /**
 * @license React
 * react-dom-client.production.js
@@ -11415,7 +11415,7 @@ var require_react_dom_client_production = /* @__PURE__ */ __commonJSMin(((export
 	};
 }));
 //#endregion
-//#region ../prompta/node_modules/react-dom/client.js
+//#region ../../prompta/node_modules/react-dom/client.js
 var require_client = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	function checkDCE() {
 		if (typeof __REACT_DEVTOOLS_GLOBAL_HOOK__ === "undefined" || typeof __REACT_DEVTOOLS_GLOBAL_HOOK__.checkDCE !== "function") return;
@@ -11429,7 +11429,7 @@ var require_client = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_react_dom_client_production();
 }));
 //#endregion
-//#region ../prompta/node_modules/@preact/signals-core/dist/signals-core.module.js
+//#region ../../prompta/node_modules/@preact/signals-core/dist/signals-core.module.js
 var import_react = /* @__PURE__ */ __toESM(require_react());
 var import_client = require_client();
 var i$1 = Symbol.for("preact-signals");
@@ -11841,7 +11841,7 @@ function x$2(i, t) {
 	return n;
 }
 //#endregion
-//#region ../prompta/node_modules/use-sync-external-store/cjs/use-sync-external-store-shim.production.js
+//#region ../../prompta/node_modules/use-sync-external-store/cjs/use-sync-external-store-shim.production.js
 /**
 * @license React
 * use-sync-external-store-shim.production.js
@@ -11901,7 +11901,7 @@ var require_use_sync_external_store_shim_production = /* @__PURE__ */ __commonJS
 	exports.useSyncExternalStore = void 0 !== React.useSyncExternalStore ? React.useSyncExternalStore : shim;
 }));
 //#endregion
-//#region ../prompta/node_modules/@preact/signals-react/runtime/dist/runtime.module.js
+//#region ../../prompta/node_modules/@preact/signals-react/runtime/dist/runtime.module.js
 var import_shim = (/* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_use_sync_external_store_shim_production();
 })))();
@@ -12879,6 +12879,71 @@ function createChatsPageController(initialProps) {
 	let detailGeneration = 0;
 	let detailInFlightFor = null;
 	let detailRefreshFor = null;
+	const recentDetails = /* @__PURE__ */ new Map();
+	const prefetchingDetails = /* @__PURE__ */ new Set();
+	let hoverPrefetchTimer;
+	let hoveredRunId = null;
+	function rememberDetail(body, confirmedTurns) {
+		const existing = recentDetails.get(body.send_id);
+		if (existing && existing.detail.updated_at > body.updated_at) return;
+		recentDetails.delete(body.send_id);
+		recentDetails.set(body.send_id, {
+			detail: body,
+			turns: confirmedTurns,
+			at: Date.now()
+		});
+		if (recentDetails.size > 12) {
+			const oldest = recentDetails.keys().next().value;
+			if (oldest) recentDetails.delete(oldest);
+		}
+	}
+	function cachedDetail(id) {
+		const cached = recentDetails.get(id);
+		if (!cached) return null;
+		const active = [
+			"queued",
+			"accepted",
+			"generating",
+			"dispatching"
+		].includes(cached.turns.at(-1)?.status ?? cached.detail.status);
+		if (Date.now() - cached.at > (active ? 1e4 : 12e4)) return null;
+		recentDetails.delete(id);
+		recentDetails.set(id, cached);
+		return cached;
+	}
+	async function prefetchRun(id) {
+		if (id === selectedRunId.peek() || cachedDetail(id) || prefetchingDetails.has(id)) return;
+		prefetchingDetails.add(id);
+		try {
+			const path = "./api/results/" + encodeURIComponent(id);
+			const [primary, replies] = await Promise.all([localGet(path), localGet(path + "/turns").catch(() => null)]);
+			if (!primary.ok) return;
+			const body = await primary.json();
+			const saved = replies?.ok ? await replies.json() : null;
+			const original = {
+				reply_id: "",
+				user_text: body.user_text,
+				assistant_text: body.assistant_text,
+				tool_calls: body.tool_calls,
+				status: body.status,
+				created_at: body.created_at,
+				updated_at: body.updated_at
+			};
+			rememberDetail(body, recoverVisibleTurns(Array.isArray(saved?.turns) ? saved.turns : null, [], original, false));
+		} catch {} finally {
+			prefetchingDetails.delete(id);
+		}
+	}
+	function hintRun(id) {
+		clearTimeout(hoverPrefetchTimer);
+		hoveredRunId = id;
+		hoverPrefetchTimer = setTimeout(() => void prefetchRun(id), 90);
+	}
+	function cancelHintRun(id) {
+		if (hoveredRunId !== id) return;
+		clearTimeout(hoverPrefetchTimer);
+		hoveredRunId = null;
+	}
 	let followingTranscriptTail = true;
 	let transcriptScrollRevision = 0;
 	let previousTranscriptScrollTop = 0;
@@ -13336,6 +13401,7 @@ function createChatsPageController(initialProps) {
 				updated_at: body.updated_at
 			};
 			turns.value = recoverVisibleTurns(earlyTurns ?? null, turns.value, originalTurn, !newSelection);
+			rememberDetail(body, turns.value);
 			turnsError.value = earlyTurns === null ? "Saved replies are temporarily unavailable; showing the last confirmed turns." : "";
 			detailError.value = "";
 			loadingDetail.value = false;
@@ -13351,6 +13417,7 @@ function createChatsPageController(initialProps) {
 				const pane = scrollPane.value;
 				const stillFollowing = followTail && followingTranscriptTail && transcriptScrollRevision === scrollRevision && !!pane && pane.scrollHeight - pane.scrollTop - pane.clientHeight <= transcriptTailThreshold;
 				turns.value = recoverVisibleTurns(savedTurns, turns.value, originalTurn, true);
+				rememberDetail(body, turns.value);
 				turnsError.value = !savedTurns ? "Saved replies are temporarily unavailable; showing the last confirmed turns." : "";
 				if (stillFollowing) {
 					await tick();
@@ -13881,6 +13948,7 @@ function createChatsPageController(initialProps) {
 			clearTimeout(liveRefreshTimer);
 			liveRefreshTimer = void 0;
 			clearTimeout(searchTimer);
+			clearTimeout(hoverPrefetchTimer);
 		};
 	};
 	function mount() {
@@ -13906,7 +13974,19 @@ function createChatsPageController(initialProps) {
 	function syncProps(next) {
 		r(() => {
 			if (view.peek() !== next.view) view.value = next.view;
-			if (selectedRunId.peek() !== next.selectedRunId) selectedRunId.value = next.selectedRunId;
+			if (selectedRunId.peek() !== next.selectedRunId) {
+				const cached = next.view === "chats" && next.selectedRunId ? cachedDetail(next.selectedRunId) : null;
+				if (cached) {
+					detail.value = cached.detail;
+					turns.value = cached.turns;
+					detailError.value = "";
+					turnsError.value = "";
+					pendingRevealFor.value = next.selectedRunId;
+					followingTranscriptTail = true;
+					transcriptScrollRevision += 1;
+				}
+				selectedRunId.value = next.selectedRunId;
+			}
 			if (newChatOpen.peek() !== next.newChatOpen) newChatOpen.value = next.newChatOpen;
 			if (onSelect.peek() !== next.onSelect) onSelect.value = next.onSelect;
 			if (onNavigate.peek() !== next.onNavigate) onNavigate.value = next.onNavigate;
@@ -13984,6 +14064,9 @@ function createChatsPageController(initialProps) {
 		loadList,
 		loadMore,
 		loadDetail,
+		prefetchRun,
+		hintRun,
+		cancelHintRun,
 		sendFresh,
 		freshContinuationPrompt,
 		startFailedReplyInNewChat,
@@ -15010,7 +15093,7 @@ function createJobsPageController(initialProps) {
 	};
 }
 //#endregion
-//#region ../prompta/node_modules/react/cjs/react-jsx-runtime.production.js
+//#region ../../prompta/node_modules/react/cjs/react-jsx-runtime.production.js
 /**
 * @license React
 * react-jsx-runtime.production.js
@@ -16554,6 +16637,10 @@ function ChatRow({ item, model }) {
 				event.preventDefault();
 				model.selectRun(item);
 			},
+			onPointerEnter: () => model.hintRun(item.send_id),
+			onPointerLeave: () => model.cancelHintRun(item.send_id),
+			onFocus: () => void model.prefetchRun(item.send_id),
+			onPointerDown: () => void model.prefetchRun(item.send_id),
 			"aria-current": selected ? "true" : void 0,
 			className: "chat-row",
 			children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
@@ -17064,7 +17151,7 @@ function ChatsSidebar({ model, refs }) {
 	});
 }
 //#endregion
-//#region ../prompta/node_modules/marked/lib/marked.esm.js
+//#region ../../prompta/node_modules/marked/lib/marked.esm.js
 /**
 * marked v16.4.2 - a markdown parser
 * Copyright (c) 2018-2025, MarkedJS. (MIT License)
@@ -18605,7 +18692,7 @@ x.lex;
 * @public
 */
 //#endregion
-//#region ../prompta/node_modules/prismjs/components/prism-typescript.js
+//#region ../../prompta/node_modules/prismjs/components/prism-typescript.js
 var import_prism = /* @__PURE__ */ __toESM((/* @__PURE__ */ __commonJSMin(((exports, module) => {
 	var Prism = function(_self) {
 		var lang = /(?:^|\s)lang(?:uage)?-([\w-]+)(?=\s|$)/i;
@@ -20068,7 +20155,7 @@ highlight: function highlight(container) {
 	Prism.languages.ts = Prism.languages.typescript;
 })(Prism);
 //#endregion
-//#region ../prompta/node_modules/prismjs/components/prism-python.js
+//#region ../../prompta/node_modules/prismjs/components/prism-python.js
 Prism.languages.python = {
 	"comment": {
 		pattern: /(^|[^\\])#.*/,
@@ -20130,7 +20217,7 @@ Prism.languages.python = {
 Prism.languages.python["string-interpolation"].inside["interpolation"].inside.rest = Prism.languages.python;
 Prism.languages.py = Prism.languages.python;
 //#endregion
-//#region ../prompta/node_modules/prismjs/components/prism-bash.js
+//#region ../../prompta/node_modules/prismjs/components/prism-bash.js
 (function(Prism) {
 	var envVars = "\\b(?:BASH|BASHOPTS|BASH_ALIASES|BASH_ARGC|BASH_ARGV|BASH_CMDS|BASH_COMPLETION_COMPAT_DIR|BASH_LINENO|BASH_REMATCH|BASH_SOURCE|BASH_VERSINFO|BASH_VERSION|COLORTERM|COLUMNS|COMP_WORDBREAKS|DBUS_SESSION_BUS_ADDRESS|DEFAULTS_PATH|DESKTOP_SESSION|DIRSTACK|DISPLAY|EUID|GDMSESSION|GDM_LANG|GNOME_KEYRING_CONTROL|GNOME_KEYRING_PID|GPG_AGENT_INFO|GROUPS|HISTCONTROL|HISTFILE|HISTFILESIZE|HISTSIZE|HOME|HOSTNAME|HOSTTYPE|IFS|INSTANCE|JOB|LANG|LANGUAGE|LC_ADDRESS|LC_ALL|LC_IDENTIFICATION|LC_MEASUREMENT|LC_MONETARY|LC_NAME|LC_NUMERIC|LC_PAPER|LC_TELEPHONE|LC_TIME|LESSCLOSE|LESSOPEN|LINES|LOGNAME|LS_COLORS|MACHTYPE|MAILCHECK|MANDATORY_PATH|NO_AT_BRIDGE|OLDPWD|OPTERR|OPTIND|ORBIT_SOCKETDIR|OSTYPE|PAPERSIZE|PATH|PIPESTATUS|PPID|PS1|PS2|PS3|PS4|PWD|RANDOM|REPLY|SECONDS|SELINUX_INIT|SESSION|SESSIONTYPE|SESSION_MANAGER|SHELL|SHELLOPTS|SHLVL|SSH_AUTH_SOCK|TERM|UID|UPSTART_EVENTS|UPSTART_INSTANCE|UPSTART_JOB|UPSTART_SESSION|USER|WINDOWID|XAUTHORITY|XDG_CONFIG_DIRS|XDG_CURRENT_DESKTOP|XDG_DATA_DIRS|XDG_GREETER_DATA_DIR|XDG_MENU_PREFIX|XDG_RUNTIME_DIR|XDG_SEAT|XDG_SEAT_PATH|XDG_SESSION_DESKTOP|XDG_SESSION_ID|XDG_SESSION_PATH|XDG_SESSION_TYPE|XDG_VTNR|XMODIFIERS)\\b";
 	var commandAfterHeredoc = {
@@ -20311,7 +20398,7 @@ Prism.languages.py = Prism.languages.python;
 	Prism.languages.shell = Prism.languages.bash;
 })(Prism);
 //#endregion
-//#region ../prompta/node_modules/prismjs/components/prism-json.js
+//#region ../../prompta/node_modules/prismjs/components/prism-json.js
 Prism.languages.json = {
 	"property": {
 		pattern: /(^|[^\\])"(?:\\.|[^\\"\r\n])*"(?=\s*:)/,

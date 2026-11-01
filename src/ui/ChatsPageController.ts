@@ -117,6 +117,77 @@ export function createChatsPageController(initialProps: Props) {
   let detailGeneration = 0;
   let detailInFlightFor: string | null = null;
   let detailRefreshFor: string | null = null;
+  const recentDetails = new Map<string, { detail: RunDetail; turns: LocalTurn[]; at: number }>();
+  const prefetchingDetails = new Set<string>();
+  let hoverPrefetchTimer: ReturnType<typeof setTimeout> | undefined;
+  let hoveredRunId: string | null = null;
+
+  function rememberDetail(body: RunDetail, confirmedTurns: LocalTurn[]) {
+    const existing = recentDetails.get(body.send_id);
+    if (existing && existing.detail.updated_at > body.updated_at) return;
+    recentDetails.delete(body.send_id);
+    recentDetails.set(body.send_id, { detail: body, turns: confirmedTurns, at: Date.now() });
+    if (recentDetails.size > 12) {
+      const oldest = recentDetails.keys().next().value;
+      if (oldest) recentDetails.delete(oldest);
+    }
+  }
+
+  function cachedDetail(id: string) {
+    const cached = recentDetails.get(id);
+    if (!cached) return null;
+    const active = ["queued", "accepted", "generating", "dispatching"].includes(
+      cached.turns.at(-1)?.status ?? cached.detail.status,
+    );
+    if (Date.now() - cached.at > (active ? 10_000 : 120_000)) return null;
+    recentDetails.delete(id);
+    recentDetails.set(id, cached);
+    return cached;
+  }
+
+  async function prefetchRun(id: string) {
+    if (id === selectedRunId.peek() || cachedDetail(id) || prefetchingDetails.has(id)) return;
+    prefetchingDetails.add(id);
+    try {
+      const path = "./api/results/" + encodeURIComponent(id);
+      const [primary, replies] = await Promise.all([
+        localGet(path),
+        localGet(path + "/turns").catch(() => null),
+      ]);
+      if (!primary.ok) return;
+      const body = (await primary.json()) as RunDetail;
+      const saved = replies?.ok ? ((await replies.json()) as { turns?: LocalTurn[] }) : null;
+      const original: LocalTurn = {
+        reply_id: "",
+        user_text: body.user_text,
+        assistant_text: body.assistant_text,
+        tool_calls: body.tool_calls,
+        status: body.status,
+        created_at: body.created_at,
+        updated_at: body.updated_at,
+      };
+      rememberDetail(
+        body,
+        recoverVisibleTurns(Array.isArray(saved?.turns) ? saved.turns : null, [], original, false),
+      );
+    } catch {
+      // Preloading is opportunistic. Normal chat selection owns error reporting.
+    } finally {
+      prefetchingDetails.delete(id);
+    }
+  }
+  function hintRun(id: string) {
+    clearTimeout(hoverPrefetchTimer);
+    hoveredRunId = id;
+    hoverPrefetchTimer = setTimeout(() => void prefetchRun(id), 90);
+  }
+
+  function cancelHintRun(id: string) {
+    if (hoveredRunId !== id) return;
+    clearTimeout(hoverPrefetchTimer);
+    hoveredRunId = null;
+  }
+
   // A live update must never reclaim scrolling after the reader moves toward history.
   // Track intent separately from the distance to the bottom: an upward gesture can
   // begin within the old 96px auto-follow threshold or while a fetch is in flight.
@@ -786,6 +857,7 @@ export function createChatsPageController(initialProps: Props) {
         originalTurn,
         !newSelection,
       );
+      rememberDetail(body, turns.value);
       turnsError.value =
         earlyTurns === null
           ? "Saved replies are temporarily unavailable; showing the last confirmed turns."
@@ -816,6 +888,7 @@ export function createChatsPageController(initialProps: Props) {
           !!pane &&
           pane.scrollHeight - pane.scrollTop - pane.clientHeight <= transcriptTailThreshold;
         turns.value = recoverVisibleTurns(savedTurns, turns.value, originalTurn, true);
+        rememberDetail(body, turns.value);
         turnsError.value = !savedTurns
           ? "Saved replies are temporarily unavailable; showing the last confirmed turns."
           : "";
@@ -1509,6 +1582,7 @@ export function createChatsPageController(initialProps: Props) {
       clearTimeout(liveRefreshTimer);
       liveRefreshTimer = undefined;
       clearTimeout(searchTimer);
+      clearTimeout(hoverPrefetchTimer);
     };
   };
   function mount() {
@@ -1536,7 +1610,20 @@ export function createChatsPageController(initialProps: Props) {
   function syncProps(next: Props) {
     batch(() => {
       if (view.peek() !== next.view) view.value = next.view;
-      if (selectedRunId.peek() !== next.selectedRunId) selectedRunId.value = next.selectedRunId;
+      if (selectedRunId.peek() !== next.selectedRunId) {
+        const cached =
+          next.view === "chats" && next.selectedRunId ? cachedDetail(next.selectedRunId) : null;
+        if (cached) {
+          detail.value = cached.detail;
+          turns.value = cached.turns;
+          detailError.value = "";
+          turnsError.value = "";
+          pendingRevealFor.value = next.selectedRunId;
+          followingTranscriptTail = true;
+          transcriptScrollRevision += 1;
+        }
+        selectedRunId.value = next.selectedRunId;
+      }
       if (newChatOpen.peek() !== next.newChatOpen) newChatOpen.value = next.newChatOpen;
       if (onSelect.peek() !== next.onSelect) onSelect.value = next.onSelect;
       if (onNavigate.peek() !== next.onNavigate) onNavigate.value = next.onNavigate;
@@ -1614,6 +1701,9 @@ export function createChatsPageController(initialProps: Props) {
     loadList,
     loadMore,
     loadDetail,
+    prefetchRun,
+    hintRun,
+    cancelHintRun,
     sendFresh,
     freshContinuationPrompt,
     startFailedReplyInNewChat,

@@ -58,6 +58,10 @@ export default function ChatRow({ item, model }: Props) {
           event.preventDefault();
           model.selectRun(item);
         }}
+        onPointerEnter={() => model.hintRun(item.send_id)}
+        onPointerLeave={() => model.cancelHintRun(item.send_id)}
+        onFocus={() => void model.prefetchRun(item.send_id)}
+        onPointerDown={() => void model.prefetchRun(item.send_id)}
         aria-current={selected ? "true" : undefined}
         className="chat-row"
       >
