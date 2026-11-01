@@ -328,26 +328,6 @@ export default function ChatTranscript({
                           <p>No verified ChatGPT chat for read-only recovery.</p>
                         </div>
                       )}
-                    {["interrupted", "unavailable", "outcome_unknown"].includes(turn.status) &&
-                    exactConversationUrl(turn.conversation_id || detail.value!.conversation_id) ? (
-                      <>
-                        <div className="chat-recovery-guidance">
-                          <a
-                            href={
-                              exactConversationUrl(
-                                turn.conversation_id || detail.value!.conversation_id,
-                              ) ?? undefined
-                            }
-                            target="_blank"
-                            rel="noopener noreferrer"
-                          >
-                            Open exact chat in ChatGPT
-                          </a>
-                        </div>
-                      </>
-                    ) : (
-                      <></>
-                    )}
                   </div>
                 </React.Fragment>
               ))}

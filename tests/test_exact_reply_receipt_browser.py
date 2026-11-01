@@ -45,7 +45,7 @@ def test_lost_reply_post_receipt_reconciles_without_a_second_post(
 
             page.route(f"**/api/results/{SEND_ID}/reply-send", lose_response)
             page.goto(f"http://127.0.0.1:{port}/?view=chats&run={SEND_ID}")
-            expect(page.get_by_role("link", name="Open exact chat in ChatGPT")).to_have_attribute(
+            expect(page.get_by_role("link", name="Open in ChatGPT")).to_have_attribute(
                 "href", "https://chatgpt.com/c/" + CONVERSATION,
             )
             field = page.get_by_role("textbox", name="Message for current chat")
