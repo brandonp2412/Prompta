@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 import logging
+import subprocess
+from pathlib import Path
 
-from prompta.logging_config import JournalSeverityFormatter
+import pytest
+
+from prompta.logging_config import JournalSeverityFormatter, _release, configure_logging
 
 
 def test_journal_formatter_preserves_severity_and_release() -> None:
@@ -18,6 +22,29 @@ def test_journal_formatter_preserves_severity_and_release() -> None:
         message = formatter.format(record)
         assert message.startswith(f"<{priority}>")
         assert "component=delivery_worker release=abc123 safe log" in message
+
+
+def test_release_label_matches_checked_out_commit() -> None:
+    repo = Path(__file__).resolve().parents[1]
+    result = subprocess.run(
+        ["git", "rev-parse", "--short=12", "HEAD"],
+        cwd=repo,
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+    assert _release() == result.stdout.strip()
+
+
+def test_nonjournal_logging_does_not_spawn_git(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("JOURNAL_STREAM", raising=False)
+    monkeypatch.delenv("PROMPTA_RELEASE_SHA", raising=False)
+
+    def unexpected_run(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("Git should not be needed outside journald")
+
+    monkeypatch.setattr("subprocess.run", unexpected_run)
+    configure_logging("test")
 
 
 def test_plain_formatter_has_no_journal_priority_prefix() -> None:
