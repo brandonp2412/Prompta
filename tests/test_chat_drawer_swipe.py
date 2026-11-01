@@ -57,12 +57,13 @@ def test_touch_swipes_open_and_close_sidebar_without_network_mutation(tmp_path: 
 
             swipe((20, 80, 150, 230))
             expect(page.locator(".chats-layout.drawer-open")).to_be_visible()
-            button = page.get_by_role("button", name="Mark all local chats as read")
-            expect(button).to_be_visible()
-            expect(button).to_have_text("")
-            bounds = button.bounding_box()
+            search = page.get_by_role("button", name="Search chats")
+            expect(search).to_be_visible()
+            bounds = search.bounding_box()
             assert bounds is not None and bounds["x"] >= 0
-            button.click()
+            search.click()
+            expect(page.get_by_role("searchbox", name="Search chats")).to_be_visible()
+            search.click()
             swipe((230, 180, 100, 20))
             expect(page.locator(".chats-layout.drawer-open")).to_have_count(0)
             assert posts == []
