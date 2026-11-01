@@ -30,6 +30,7 @@ from .core import DEFAULT_JOBS_PATH, DEFAULT_STATE_PATH
 from .delivery_queue import DeliveryQueueStore
 from .image_store import ImageStore
 from .live_events import LocalEventSignals
+from .logging_config import configure_logging
 from .manual_reply_dispatch import ManualReplyDispatcher
 from .reply_contracts import ManualReplyStore, ReplyConflict
 from .response_store import ResponseStore
@@ -378,6 +379,7 @@ def serve(
         host=host,
         port=port,
         access_log=False,
+        log_config=None,
     )
 
 
@@ -388,7 +390,7 @@ def main() -> None:
     parser.add_argument("--state", type=Path, default=DEFAULT_STATE_PATH)
     parser.add_argument("--jobs-file", type=Path, default=DEFAULT_JOBS_PATH)
     args = parser.parse_args()
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    configure_logging("ui")
     serve(host=args.host, port=args.port, state_path=args.state, jobs_path=args.jobs_file)
 
 

@@ -13,6 +13,7 @@ import time
 from pathlib import Path
 from types import FrameType
 
+from .logging_config import configure_logging
 from .manual_reply_dispatch import ManualReplyDispatcher
 from .persistence import DEFAULT_RUNTIME_PATH
 from .reply_contracts import ManualReplyStore
@@ -47,7 +48,7 @@ def run(state_path: Path = DEFAULT_RUNTIME_PATH, *, stop: threading.Event | None
 
 
 def main() -> None:
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    configure_logging("manual_reply_worker")
     shutdown = threading.Event()
 
     def request_stop(_signum: int, _frame: FrameType | None) -> None:

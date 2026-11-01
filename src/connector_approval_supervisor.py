@@ -45,6 +45,19 @@ async def trusted_approval_retry(page: Page) -> object:
         return "stuck"
 
 
+def _error_classes(exc: BaseException) -> str:
+    """Identify exception causes without logging browser data or exception text."""
+    classes: list[str] = []
+    current: BaseException | None = exc
+    for _ in range(3):
+        if current is None:
+            break
+        kind = type(current)
+        classes.append(f"{kind.__module__}.{kind.__name__}")
+        current = current.__cause__ or current.__context__
+    return ">".join(classes)
+
+
 async def supervise_connector_approvals(
     evaluate: Callable[[str], Awaitable[object]],
     *,
@@ -56,11 +69,15 @@ async def supervise_connector_approvals(
 ) -> int:
     """Click scoped permissions until expiry or loss of ownership.
 
-    A confirmed grant is followed by an immediate scan because another tool
-    permission can appear without a new response/capture event.
+    Healthy checks remain fast. A failed browser pipe is given progressively
+    longer recovery opportunities; repeatedly writing to it floods the journal.
     """
     loop = asyncio.get_running_loop()
     grants = 0
+    failures = 0
+    consecutive_failures = 0
+    last_error_classes = ""
+    stuck_reported = False
     while (remaining := deadline - loop.time()) > 0:
         if not active():
             break
@@ -70,21 +87,56 @@ async def supervise_connector_approvals(
                 result = await asyncio.wait_for(
                     trusted_retry(), timeout=min(4.0, max(0.1, deadline - loop.time()))
                 )
-            if result == "progress":
-                continue  # A persistent-grant checkbox was selected; click Allow next.
-            if result is True:
-                grants += 1
-                logger.info("ChatGPT connector grant dismissed source=%s count=%d", source, grants)
-                continue
-            if result == "stuck":
-                logger.warning("ChatGPT connector grant did not dismiss source=%s", source)
         except asyncio.CancelledError:
             raise
         except Exception as exc:
-            logger.info(
-                "ChatGPT connector permission check unavailable source=%s error_type=%s",
-                source,
-                type(exc).__name__,
+            failures += 1
+            consecutive_failures += 1
+            last_error_classes = _error_classes(exc)
+            delay = min(
+                30.0, max(1.0, poll_interval_seconds) * (2 ** min(consecutive_failures - 1, 5))
             )
+            if consecutive_failures == 1:
+                logger.warning(
+                    "event=connector_approval_check_failed source=%s error_classes=%s retry_seconds=%.1f",
+                    source,
+                    last_error_classes,
+                    delay,
+                )
+            await asyncio.sleep(min(delay, max(0.0, deadline - loop.time())))
+            continue
+
+        if consecutive_failures:
+            logger.info(
+                "event=connector_approval_check_recovered source=%s failed_checks=%d",
+                source,
+                consecutive_failures,
+            )
+            consecutive_failures = 0
+        if result == "progress":
+            continue  # A persistent-grant checkbox was selected; click Allow next.
+        if result is True:
+            grants += 1
+            stuck_reported = False
+            logger.info("ChatGPT connector grant dismissed source=%s count=%d", source, grants)
+            continue
+        if result == "stuck":
+            if not stuck_reported:
+                logger.warning("event=connector_approval_stuck source=%s", source)
+                stuck_reported = True
+        else:
+            stuck_reported = False
         await asyncio.sleep(min(poll_interval_seconds, max(0.0, deadline - loop.time())))
+    if consecutive_failures:
+        logger.warning(
+            "event=connector_approval_check_unavailable source=%s failed_checks=%d "
+            "error_classes=%s",
+            source,
+            consecutive_failures,
+            last_error_classes,
+        )
+    elif failures:
+        logger.info(
+            "event=connector_approval_check_summary source=%s failed_checks=%d", source, failures
+        )
     return grants

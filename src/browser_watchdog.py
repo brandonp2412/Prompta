@@ -24,6 +24,7 @@ from .browser_ownership import (
     owned_tab_records,
 )
 from .deployment_gate import DeploymentGate
+from .logging_config import configure_logging
 from .reply_contracts import ManualReplyStore
 
 logger = logging.getLogger(__name__)
@@ -54,7 +55,8 @@ async def renderer_responding(address: str) -> bool:
     try:
         async with async_patchright() as patchright:
             browser = await patchright.chromium.connect_over_cdp(
-                f"http://{address}", timeout=5000,
+                f"http://{address}",
+                timeout=5000,
             )
             page = await browser.contexts[0].new_page()
             try:
@@ -194,9 +196,12 @@ async def reap_expired_owned_tabs(
         )
         session = await asyncio.wait_for(browser.new_browser_cdp_session(), timeout=3.0)
         try:
-            targets = (await asyncio.wait_for(
-                session.send("Target.getTargets"), timeout=3.0,
-            )).get("targetInfos", [])
+            targets = (
+                await asyncio.wait_for(
+                    session.send("Target.getTargets"),
+                    timeout=3.0,
+                )
+            ).get("targetInfos", [])
             active = {
                 target.get("targetId")
                 for target in targets
@@ -283,7 +288,7 @@ def decide_restart(
 
 
 def main() -> None:
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
+    configure_logging("browser_watchdog")
     gate = DeploymentGate(STATE_DIR / "runtime.sqlite3")
     # Serialize probes and restarts against every worker browser operation.
     with gate.lock_path.open("a+b") as handle:
@@ -335,7 +340,9 @@ def check_browser() -> None:
             == 0
         )
         if not active:
-            logger.info("Browser service %s is intentionally inactive; not restarting it", browser_service)
+            logger.info(
+                "Browser service %s is intentionally inactive; not restarting it", browser_service
+            )
             state.consecutive_failures = 0
             save_state(STATE_FILE, state)
             return
