@@ -87,6 +87,7 @@ export function createChatsPageController(initialProps: Props) {
   const items = signal<RunSummary[]>([]);
   const pinnedItems = signal<RunSummary[]>([]);
   const pinnedIds = signal<string[]>([]);
+  const enteringNewChatId = signal<string | null>(null);
   let legacyPinIds: string[] = [];
   let confirmedPins: RunSummary[] = [];
   const pinsReady = signal(false);
@@ -934,6 +935,12 @@ export function createChatsPageController(initialProps: Props) {
       }
       acknowledgeFreshQueueRequest(request.fingerprint, request.requestId);
       // A confirmed queue receipt is enough to navigate; never send again.
+      if (!request.reused) {
+        // Fresh UI chats are locally pinned by the enqueue transaction. Reserve
+        // their position before either GET can render the new row elsewhere.
+        if (!pinnedIds.peek().includes(sendId)) pinnedIds.value = [...pinnedIds.peek(), sendId];
+        enteringNewChatId.value = sendId;
+      }
       search.value = "";
       statusFilter.value = "";
       onQueued.value(sendId);
@@ -1584,6 +1591,7 @@ export function createChatsPageController(initialProps: Props) {
     recoveryReplyBacklog,
     items,
     pinnedIds,
+    enteringNewChatId,
     pinsReady,
     pinError,
     readError,
