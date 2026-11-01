@@ -21,9 +21,11 @@ type TranscriptRefs = {
 export default function ChatTranscript({
   model,
   refs,
+  conversationUrl,
 }: {
   model: ReturnType<typeof createChatsPageController>;
   refs: TranscriptRefs;
+  conversationUrl: string | null;
 }) {
   useSignals();
   const {
@@ -351,6 +353,29 @@ export default function ChatTranscript({
                       : "Last resort: check the saved ChatGPT transcript without resending messages."}
                   </span>
                 </div>
+              )}
+              {conversationUrl && (
+                <a
+                  className="chat-open-chatgpt chat-open-chatgpt-footer"
+                  href={conversationUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  aria-label="Open in ChatGPT"
+                  title="Open in ChatGPT"
+                >
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.8"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                  >
+                    <path d="M14 4h6v6m0-6-9 9M20 14v4a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h4" />
+                  </svg>
+                  <span className="chat-open-chatgpt-label">ChatGPT</span>
+                </a>
               )}
             </div>
           </>

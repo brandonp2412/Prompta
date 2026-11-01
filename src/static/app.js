@@ -21,7 +21,7 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 	enumerable: true
 }) : target, mod));
 //#endregion
-//#region node_modules/scheduler/cjs/scheduler.production.js
+//#region ../../prompta/node_modules/scheduler/cjs/scheduler.production.js
 /**
 * @license React
 * scheduler.production.js
@@ -276,12 +276,12 @@ var require_scheduler_production = /* @__PURE__ */ __commonJSMin(((exports) => {
 	};
 }));
 //#endregion
-//#region node_modules/scheduler/index.js
+//#region ../../prompta/node_modules/scheduler/index.js
 var require_scheduler = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_scheduler_production();
 }));
 //#endregion
-//#region node_modules/react/cjs/react.production.js
+//#region ../../prompta/node_modules/react/cjs/react.production.js
 /**
 * @license React
 * react.production.js
@@ -668,12 +668,12 @@ var require_react_production = /* @__PURE__ */ __commonJSMin(((exports) => {
 	exports.version = "19.3.1";
 }));
 //#endregion
-//#region node_modules/react/index.js
+//#region ../../prompta/node_modules/react/index.js
 var require_react = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_react_production();
 }));
 //#endregion
-//#region node_modules/react-dom/cjs/react-dom.production.js
+//#region ../../prompta/node_modules/react-dom/cjs/react-dom.production.js
 /**
 * @license React
 * react-dom.production.js
@@ -826,7 +826,7 @@ var require_react_dom_production = /* @__PURE__ */ __commonJSMin(((exports) => {
 	exports.version = "19.3.1";
 }));
 //#endregion
-//#region node_modules/react-dom/index.js
+//#region ../../prompta/node_modules/react-dom/index.js
 var require_react_dom = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	function checkDCE() {
 		if (typeof __REACT_DEVTOOLS_GLOBAL_HOOK__ === "undefined" || typeof __REACT_DEVTOOLS_GLOBAL_HOOK__.checkDCE !== "function") return;
@@ -840,7 +840,7 @@ var require_react_dom = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_react_dom_production();
 }));
 //#endregion
-//#region node_modules/react-dom/cjs/react-dom-client.production.js
+//#region ../../prompta/node_modules/react-dom/cjs/react-dom-client.production.js
 /**
 * @license React
 * react-dom-client.production.js
@@ -11415,7 +11415,7 @@ var require_react_dom_client_production = /* @__PURE__ */ __commonJSMin(((export
 	};
 }));
 //#endregion
-//#region node_modules/react-dom/client.js
+//#region ../../prompta/node_modules/react-dom/client.js
 var require_client = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	function checkDCE() {
 		if (typeof __REACT_DEVTOOLS_GLOBAL_HOOK__ === "undefined" || typeof __REACT_DEVTOOLS_GLOBAL_HOOK__.checkDCE !== "function") return;
@@ -11429,7 +11429,7 @@ var require_client = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_react_dom_client_production();
 }));
 //#endregion
-//#region node_modules/@preact/signals-core/dist/signals-core.module.js
+//#region ../../prompta/node_modules/@preact/signals-core/dist/signals-core.module.js
 var import_react = /* @__PURE__ */ __toESM(require_react());
 var import_client = require_client();
 var i$1 = Symbol.for("preact-signals");
@@ -11841,7 +11841,7 @@ function x$2(i, t) {
 	return n;
 }
 //#endregion
-//#region node_modules/use-sync-external-store/cjs/use-sync-external-store-shim.production.js
+//#region ../../prompta/node_modules/use-sync-external-store/cjs/use-sync-external-store-shim.production.js
 /**
 * @license React
 * use-sync-external-store-shim.production.js
@@ -11901,7 +11901,7 @@ var require_use_sync_external_store_shim_production = /* @__PURE__ */ __commonJS
 	exports.useSyncExternalStore = void 0 !== React.useSyncExternalStore ? React.useSyncExternalStore : shim;
 }));
 //#endregion
-//#region node_modules/@preact/signals-react/runtime/dist/runtime.module.js
+//#region ../../prompta/node_modules/@preact/signals-react/runtime/dist/runtime.module.js
 var import_shim = (/* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_use_sync_external_store_shim_production();
 })))();
@@ -15072,7 +15072,7 @@ function createJobsPageController(initialProps) {
 	};
 }
 //#endregion
-//#region node_modules/react/cjs/react-jsx-runtime.production.js
+//#region ../../prompta/node_modules/react/cjs/react-jsx-runtime.production.js
 /**
 * @license React
 * react-jsx-runtime.production.js
@@ -16856,7 +16856,7 @@ function ChatsSidebar({ model, refs }) {
 	});
 }
 //#endregion
-//#region node_modules/marked/lib/marked.esm.js
+//#region ../../prompta/node_modules/marked/lib/marked.esm.js
 /**
 * marked v16.4.2 - a markdown parser
 * Copyright (c) 2018-2025, MarkedJS. (MIT License)
@@ -18397,7 +18397,7 @@ x.lex;
 * @public
 */
 //#endregion
-//#region node_modules/prismjs/components/prism-typescript.js
+//#region ../../prompta/node_modules/prismjs/components/prism-typescript.js
 var import_prism = /* @__PURE__ */ __toESM((/* @__PURE__ */ __commonJSMin(((exports, module) => {
 	var Prism = function(_self) {
 		var lang = /(?:^|\s)lang(?:uage)?-([\w-]+)(?=\s|$)/i;
@@ -19860,7 +19860,7 @@ highlight: function highlight(container) {
 	Prism.languages.ts = Prism.languages.typescript;
 })(Prism);
 //#endregion
-//#region node_modules/prismjs/components/prism-python.js
+//#region ../../prompta/node_modules/prismjs/components/prism-python.js
 Prism.languages.python = {
 	"comment": {
 		pattern: /(^|[^\\])#.*/,
@@ -19922,7 +19922,7 @@ Prism.languages.python = {
 Prism.languages.python["string-interpolation"].inside["interpolation"].inside.rest = Prism.languages.python;
 Prism.languages.py = Prism.languages.python;
 //#endregion
-//#region node_modules/prismjs/components/prism-bash.js
+//#region ../../prompta/node_modules/prismjs/components/prism-bash.js
 (function(Prism) {
 	var envVars = "\\b(?:BASH|BASHOPTS|BASH_ALIASES|BASH_ARGC|BASH_ARGV|BASH_CMDS|BASH_COMPLETION_COMPAT_DIR|BASH_LINENO|BASH_REMATCH|BASH_SOURCE|BASH_VERSINFO|BASH_VERSION|COLORTERM|COLUMNS|COMP_WORDBREAKS|DBUS_SESSION_BUS_ADDRESS|DEFAULTS_PATH|DESKTOP_SESSION|DIRSTACK|DISPLAY|EUID|GDMSESSION|GDM_LANG|GNOME_KEYRING_CONTROL|GNOME_KEYRING_PID|GPG_AGENT_INFO|GROUPS|HISTCONTROL|HISTFILE|HISTFILESIZE|HISTSIZE|HOME|HOSTNAME|HOSTTYPE|IFS|INSTANCE|JOB|LANG|LANGUAGE|LC_ADDRESS|LC_ALL|LC_IDENTIFICATION|LC_MEASUREMENT|LC_MONETARY|LC_NAME|LC_NUMERIC|LC_PAPER|LC_TELEPHONE|LC_TIME|LESSCLOSE|LESSOPEN|LINES|LOGNAME|LS_COLORS|MACHTYPE|MAILCHECK|MANDATORY_PATH|NO_AT_BRIDGE|OLDPWD|OPTERR|OPTIND|ORBIT_SOCKETDIR|OSTYPE|PAPERSIZE|PATH|PIPESTATUS|PPID|PS1|PS2|PS3|PS4|PWD|RANDOM|REPLY|SECONDS|SELINUX_INIT|SESSION|SESSIONTYPE|SESSION_MANAGER|SHELL|SHELLOPTS|SHLVL|SSH_AUTH_SOCK|TERM|UID|UPSTART_EVENTS|UPSTART_INSTANCE|UPSTART_JOB|UPSTART_SESSION|USER|WINDOWID|XAUTHORITY|XDG_CONFIG_DIRS|XDG_CURRENT_DESKTOP|XDG_DATA_DIRS|XDG_GREETER_DATA_DIR|XDG_MENU_PREFIX|XDG_RUNTIME_DIR|XDG_SEAT|XDG_SEAT_PATH|XDG_SESSION_DESKTOP|XDG_SESSION_ID|XDG_SESSION_PATH|XDG_SESSION_TYPE|XDG_VTNR|XMODIFIERS)\\b";
 	var commandAfterHeredoc = {
@@ -20103,7 +20103,7 @@ Prism.languages.py = Prism.languages.python;
 	Prism.languages.shell = Prism.languages.bash;
 })(Prism);
 //#endregion
-//#region node_modules/prismjs/components/prism-json.js
+//#region ../../prompta/node_modules/prismjs/components/prism-json.js
 Prism.languages.json = {
 	"property": {
 		pattern: /(^|[^\\])"(?:\\.|[^\\"\r\n])*"(?=\s*:)/,
@@ -20618,7 +20618,7 @@ function ToolCalls({ calls, turnTimestamp }) {
 }
 //#endregion
 //#region src/ui/ChatTranscript.tsx
-function ChatTranscript({ model, refs }) {
+function ChatTranscript({ model, refs, conversationUrl }) {
 	N$1();
 	const { selectedRunId, expandedPrompts, detail, turns, startingNewChatFromFailure: startingNewChat, requestingManualRecovery, requestManualRecovery, detailError, switchingChat, startFailedReplyInNewChat, continueUnverifiedInNewChat, retryFailedTurn, copyText, togglePrompt, copyState } = model;
 	(0, import_react.useLayoutEffect)(() => {
@@ -20647,190 +20647,214 @@ function ChatTranscript({ model, refs }) {
 			className: ["chat-transcript-scroll", switchingChat.value && detail.value?.send_id === selectedRunId.value ? "chat-switch-hidden" : ""].filter(Boolean).join(" "),
 			children: detail.value ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 				className: "chat-detail-content",
-				children: [turns.value.map((turn, index) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_react.Fragment, { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-					className: "message-group user-group",
-					children: [
-						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-							className: "message-role",
-							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
-								className: "sr-only",
-								children: ["You ", index === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: "· Job prompt" }) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: ["· Reply ", index] })]
-							}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("time", {
-								dateTime: (/* @__PURE__ */ new Date((turn.created_at || detail.value.created_at) * 1e3)).toISOString(),
-								className: "message-timestamp",
-								children: chatMessageTime(turn.created_at || detail.value.created_at)
-							})]
-						}),
-						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-							className: "prompt-bubble",
-							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-								className: ["prompt-message", turn.user_text.length > 280 && !expandedPrompts.value[(detail.value?.send_id ?? "") + ":" + index] ? "collapsed" : ""].filter(Boolean).join(" "),
-								children: turn.user_text
-							}), turn.user_text.length > 280 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
-								type: "button",
-								"aria-expanded": Boolean(expandedPrompts.value[(detail.value?.send_id ?? "") + ":" + index]),
-								onClick: (event) => void togglePrompt((detail.value?.send_id ?? "") + ":" + index, event),
-								className: "prompt-expand",
-								children: [expandedPrompts.value[(detail.value?.send_id ?? "") + ":" + index] ? "Show less" : "Show full prompt", /* @__PURE__ */ (0, import_jsx_runtime.jsx)("svg", {
-									viewBox: "0 0 24 24",
-									fill: "none",
-									stroke: "currentColor",
-									strokeWidth: "2",
-									strokeLinecap: "round",
-									"aria-hidden": "true",
-									className: ["", expandedPrompts.value[(detail.value?.send_id ?? "") + ":" + index] ? "rotated" : ""].filter(Boolean).join(" "),
-									children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: "m6 9 6 6 6-6" })
+				children: [
+					turns.value.map((turn, index) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_react.Fragment, { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+						className: "message-group user-group",
+						children: [
+							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								className: "message-role",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+									className: "sr-only",
+									children: ["You ", index === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: "· Job prompt" }) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: ["· Reply ", index] })]
+								}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("time", {
+									dateTime: (/* @__PURE__ */ new Date((turn.created_at || detail.value.created_at) * 1e3)).toISOString(),
+									className: "message-timestamp",
+									children: chatMessageTime(turn.created_at || detail.value.created_at)
 								})]
-							}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {})]
-						}),
-						index === 0 && detail.value.images?.length ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-							"aria-label": "Attached files",
-							className: "chat-attachments",
-							children: detail.value.images.map((attachment, __index) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_react.Fragment, { children: isVideoAttachment(attachment.name) ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("video", {
-								src: attachment.url,
-								controls: true,
-								playsInline: true,
-								preload: "metadata",
-								"aria-label": attachment.name
-							}) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("a", {
-								href: attachment.url,
-								target: "_blank",
-								rel: "noopener noreferrer",
-								title: attachment.name,
-								children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("img", {
-									src: attachment.url,
-									alt: attachment.name,
-									loading: "lazy"
-								})
-							}) }, attachment.url))
-						}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {})
-					]
-				}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-					"aria-label": "Assistant response " + (index + 1),
-					className: ["message-group assistant-group response-" + turn.status].filter(Boolean).join(" "),
-					children: [
-						turn.status !== "generating" && turn.status !== "completed" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-							className: "message-role response-header",
-							children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-								role: "status",
-								className: "response-state",
-								children: responseBadge(turn.status)
-							})
-						}),
-						turn.tool_calls?.length ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ToolCalls, {
-							calls: turn.tool_calls,
-							turnTimestamp: turn.created_at || detail.value.created_at
-						}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {}),
-						turn.assistant_text ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
-							/* @__PURE__ */ (0, import_jsx_runtime.jsx)(ResultMarkdown, {
-								source: turn.assistant_text,
-								captureSource: index === 0 ? detail.value.source : ""
 							}),
-							turn.status !== "completed" && turn.status !== "generating" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
-								className: "partial-note",
-								children: partialResponseLabel(turn.status)
-							}) : null,
-							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-								className: "response-actions",
-								children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								className: "prompt-bubble",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+									className: ["prompt-message", turn.user_text.length > 280 && !expandedPrompts.value[(detail.value?.send_id ?? "") + ":" + index] ? "collapsed" : ""].filter(Boolean).join(" "),
+									children: turn.user_text
+								}), turn.user_text.length > 280 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
 									type: "button",
-									"aria-label": "Copy assistant reply " + (index + 1),
-									onClick: () => copyText(formatStoredResponse(turn.assistant_text, index === 0 ? detail.value?.source ?? "" : ""), turn.reply_id || selectedRunId.value || ""),
-									className: "copy-message",
-									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(CopyIcon, {}), copyLabel(turn.reply_id || detail.value.send_id)]
+									"aria-expanded": Boolean(expandedPrompts.value[(detail.value?.send_id ?? "") + ":" + index]),
+									onClick: (event) => void togglePrompt((detail.value?.send_id ?? "") + ":" + index, event),
+									className: "prompt-expand",
+									children: [expandedPrompts.value[(detail.value?.send_id ?? "") + ":" + index] ? "Show less" : "Show full prompt", /* @__PURE__ */ (0, import_jsx_runtime.jsx)("svg", {
+										viewBox: "0 0 24 24",
+										fill: "none",
+										stroke: "currentColor",
+										strokeWidth: "2",
+										strokeLinecap: "round",
+										"aria-hidden": "true",
+										className: ["", expandedPrompts.value[(detail.value?.send_id ?? "") + ":" + index] ? "rotated" : ""].filter(Boolean).join(" "),
+										children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: "m6 9 6 6 6-6" })
+									})]
+								}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {})]
+							}),
+							index === 0 && detail.value.images?.length ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+								"aria-label": "Attached files",
+								className: "chat-attachments",
+								children: detail.value.images.map((attachment, __index) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_react.Fragment, { children: isVideoAttachment(attachment.name) ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("video", {
+									src: attachment.url,
+									controls: true,
+									playsInline: true,
+									preload: "metadata",
+									"aria-label": attachment.name
+								}) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("a", {
+									href: attachment.url,
+									target: "_blank",
+									rel: "noopener noreferrer",
+									title: attachment.name,
+									children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("img", {
+										src: attachment.url,
+										alt: attachment.name,
+										loading: "lazy"
+									})
+								}) }, attachment.url))
+							}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {})
+						]
+					}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+						"aria-label": "Assistant response " + (index + 1),
+						className: ["message-group assistant-group response-" + turn.status].filter(Boolean).join(" "),
+						children: [
+							turn.status !== "generating" && turn.status !== "completed" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+								className: "message-role response-header",
+								children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+									role: "status",
+									className: "response-state",
+									children: responseBadge(turn.status)
+								})
+							}),
+							turn.tool_calls?.length ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ToolCalls, {
+								calls: turn.tool_calls,
+								turnTimestamp: turn.created_at || detail.value.created_at
+							}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {}),
+							turn.assistant_text ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)(ResultMarkdown, {
+									source: turn.assistant_text,
+									captureSource: index === 0 ? detail.value.source : ""
+								}),
+								turn.status !== "completed" && turn.status !== "generating" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+									className: "partial-note",
+									children: partialResponseLabel(turn.status)
+								}) : null,
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+									className: "response-actions",
+									children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+										type: "button",
+										"aria-label": "Copy assistant reply " + (index + 1),
+										onClick: () => copyText(formatStoredResponse(turn.assistant_text, index === 0 ? detail.value?.source ?? "" : ""), turn.reply_id || selectedRunId.value || ""),
+										className: "copy-message",
+										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(CopyIcon, {}), copyLabel(turn.reply_id || detail.value.send_id)]
+									})
+								})
+							] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [turn.status !== "generating" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+								className: "no-response",
+								children: index > 0 && turn.status === "queued" ? "Follow-up queued · waiting for the preceding response" : turnStatus(turn.status)
+							}), turn.status === "preflight_failed" && turn.reply_id && turn.conversation_id && turn.parent_id ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+								type: "button",
+								onClick: () => void retryFailedTurn(turn),
+								className: "row-action",
+								children: "Retry unsent reply"
+							}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {})] }),
+							index === turns.value.length - 1 && turns.value.some((saved) => saved.assistant_text.trim()) && [
+								"preflight_failed",
+								"interrupted",
+								"unavailable",
+								"outcome_unknown"
+							].includes(turn.status) && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								className: "chat-recovery-guidance",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+									className: "row-action chat-action-button",
+									type: "button",
+									disabled: startingNewChat.value,
+									"aria-busy": startingNewChat.value,
+									onClick: () => void startFailedReplyInNewChat(turn),
+									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(ContinueChatIcon, {}), "Continue in new chat"]
+								}), turn.status === "outcome_unknown" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "The original reply may still have been delivered." })]
+							}),
+							index === 0 && [
+								"interrupted",
+								"unavailable",
+								"outcome_unknown"
+							].includes(turn.status) && !detail.value?.conversation_id && !turn.conversation_id && !turn.assistant_text.trim() && Boolean(turn.user_text.trim()) && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								className: "chat-recovery-guidance",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+									className: "row-action chat-action-button",
+									type: "button",
+									disabled: startingNewChat.value,
+									"aria-busy": startingNewChat.value,
+									onClick: () => void continueUnverifiedInNewChat(),
+									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(ContinueChatIcon, {}), "Continue in new chat"]
+								}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { children: "Original send unverified; continuing starts a separate request." })]
+							}),
+							index === 0 && ["interrupted", "unavailable"].includes(turn.status) && detail.value?.recovery?.eligible === false && (Boolean(turn.assistant_text.trim()) || !turn.user_text.trim()) && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+								className: "chat-recovery-guidance",
+								role: "status",
+								children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { children: "No verified ChatGPT chat for read-only recovery." })
+							}),
+							turn.status === "generating" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+								className: "message-role response-header response-generation-footer",
+								children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+									className: "response-generation",
+									role: "status",
+									children: [
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+											className: "response-generation-spark",
+											"aria-hidden": "true"
+										}),
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+											className: "response-state",
+											children: responseBadge(turn.status)
+										}),
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+											className: "response-generation-title",
+											children: "Generating response"
+										}),
+										/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+											className: "response-generation-dots",
+											"aria-hidden": "true",
+											children: [
+												/* @__PURE__ */ (0, import_jsx_runtime.jsx)("i", {}),
+												/* @__PURE__ */ (0, import_jsx_runtime.jsx)("i", {}),
+												/* @__PURE__ */ (0, import_jsx_runtime.jsx)("i", {})
+											]
+										})
+									]
 								})
 							})
-						] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [turn.status !== "generating" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
-							className: "no-response",
-							children: index > 0 && turn.status === "queued" ? "Follow-up queued · waiting for the preceding response" : turnStatus(turn.status)
-						}), turn.status === "preflight_failed" && turn.reply_id && turn.conversation_id && turn.parent_id ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+						]
+					})] }, turn.reply_id || detail.value.send_id)),
+					(detail.value.needs_attention || turns.value.some((turn) => ![
+						"completed",
+						"stopped",
+						"cancelled"
+					].includes(turn.status))) && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+						className: "chat-manual-recovery",
+						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
 							type: "button",
-							onClick: () => void retryFailedTurn(turn),
-							className: "row-action",
-							children: "Retry unsent reply"
-						}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {})] }),
-						index === turns.value.length - 1 && turns.value.some((saved) => saved.assistant_text.trim()) && [
-							"preflight_failed",
-							"interrupted",
-							"unavailable",
-							"outcome_unknown"
-						].includes(turn.status) && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-							className: "chat-recovery-guidance",
-							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
-								className: "row-action chat-action-button",
-								type: "button",
-								disabled: startingNewChat.value,
-								"aria-busy": startingNewChat.value,
-								onClick: () => void startFailedReplyInNewChat(turn),
-								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(ContinueChatIcon, {}), "Continue in new chat"]
-							}), turn.status === "outcome_unknown" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "The original reply may still have been delivered." })]
-						}),
-						index === 0 && [
-							"interrupted",
-							"unavailable",
-							"outcome_unknown"
-						].includes(turn.status) && !detail.value?.conversation_id && !turn.conversation_id && !turn.assistant_text.trim() && Boolean(turn.user_text.trim()) && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-							className: "chat-recovery-guidance",
-							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
-								className: "row-action chat-action-button",
-								type: "button",
-								disabled: startingNewChat.value,
-								"aria-busy": startingNewChat.value,
-								onClick: () => void continueUnverifiedInNewChat(),
-								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(ContinueChatIcon, {}), "Continue in new chat"]
-							}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { children: "Original send unverified; continuing starts a separate request." })]
-						}),
-						index === 0 && ["interrupted", "unavailable"].includes(turn.status) && detail.value?.recovery?.eligible === false && (Boolean(turn.assistant_text.trim()) || !turn.user_text.trim()) && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-							className: "chat-recovery-guidance",
-							role: "status",
-							children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { children: "No verified ChatGPT chat for read-only recovery." })
-						}),
-						turn.status === "generating" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-							className: "message-role response-header response-generation-footer",
-							children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-								className: "response-generation",
-								role: "status",
-								children: [
-									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-										className: "response-generation-spark",
-										"aria-hidden": "true"
-									}),
-									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-										className: "response-state",
-										children: responseBadge(turn.status)
-									}),
-									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-										className: "response-generation-title",
-										children: "Generating response"
-									}),
-									/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
-										className: "response-generation-dots",
-										"aria-hidden": "true",
-										children: [
-											/* @__PURE__ */ (0, import_jsx_runtime.jsx)("i", {}),
-											/* @__PURE__ */ (0, import_jsx_runtime.jsx)("i", {}),
-											/* @__PURE__ */ (0, import_jsx_runtime.jsx)("i", {})
-										]
-									})
-								]
-							})
-						})
-					]
-				})] }, turn.reply_id || detail.value.send_id)), (detail.value.needs_attention || turns.value.some((turn) => ![
-					"completed",
-					"stopped",
-					"cancelled"
-				].includes(turn.status))) && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-					className: "chat-manual-recovery",
-					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
-						type: "button",
-						className: "row-action chat-action-button",
-						disabled: requestingManualRecovery.value || (detail.value.manual_recovery_pending ?? 0) > 0,
-						"aria-busy": requestingManualRecovery.value,
-						onClick: () => void requestManualRecovery(detail.value.send_id),
-						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(RecoverChatIcon, {}), manualRecoveryLabel()]
-					}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: (detail.value.manual_recovery_pending ?? 0) > 0 ? "Waiting for a permitted read-only check." : "Last resort: check the saved ChatGPT transcript without resending messages." })]
-				})]
+							className: "row-action chat-action-button",
+							disabled: requestingManualRecovery.value || (detail.value.manual_recovery_pending ?? 0) > 0,
+							"aria-busy": requestingManualRecovery.value,
+							onClick: () => void requestManualRecovery(detail.value.send_id),
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(RecoverChatIcon, {}), manualRecoveryLabel()]
+						}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: (detail.value.manual_recovery_pending ?? 0) > 0 ? "Waiting for a permitted read-only check." : "Last resort: check the saved ChatGPT transcript without resending messages." })]
+					}),
+					conversationUrl && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("a", {
+						className: "chat-open-chatgpt chat-open-chatgpt-footer",
+						href: conversationUrl,
+						target: "_blank",
+						rel: "noopener noreferrer",
+						"aria-label": "Open in ChatGPT",
+						title: "Open in ChatGPT",
+						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("svg", {
+							viewBox: "0 0 24 24",
+							fill: "none",
+							stroke: "currentColor",
+							strokeWidth: "1.8",
+							strokeLinecap: "round",
+							strokeLinejoin: "round",
+							"aria-hidden": "true",
+							children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: "M14 4h6v6m0-6-9 9M20 14v4a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h4" })
+						}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+							className: "chat-open-chatgpt-label",
+							children: "ChatGPT"
+						})]
+					})
+				]
 			}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {})
 		}), switchingChat.value ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 			role: "status",
@@ -20994,7 +21018,7 @@ function ChatsPage(props) {
 								})
 							}),
 							view.value === "chats" && selectedRunId.value && conversationUrl && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("a", {
-								className: "chat-open-chatgpt",
+								className: "chat-open-chatgpt chat-open-chatgpt-header",
 								href: conversationUrl,
 								target: "_blank",
 								rel: "noopener noreferrer",
@@ -21032,7 +21056,8 @@ function ChatsPage(props) {
 						})
 					}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ChatTranscript, {
 						model,
-						refs
+						refs,
+						conversationUrl
 					}) }) }) }),
 					view.value === "chats" && Boolean(selectedRunId.value || newChatOpen.value) ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ChatComposer, {
 						mode: selectedRunId.value ? "reply" : "fresh",
