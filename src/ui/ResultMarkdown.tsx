@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { marked, type Token, type Tokens } from "marked";
 import { highlightedCode } from "./CodeHighlight";
+import { notify } from "./toast";
 import {
   formatStoredResponse,
   isFlattenedDomResponse,
@@ -88,10 +89,12 @@ export default function ResultMarkdown({
       if (generation.current !== current) return;
       setCopiedCode(key);
       setCopyStatus("copied");
+      notify("Code copied", "success");
     } catch {
       if (generation.current !== current) return;
       setCopiedCode(key);
       setCopyStatus("failed");
+      notify("Could not copy code", "error");
     }
     timer.current = setTimeout(() => {
       if (generation.current === current) {

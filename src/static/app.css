@@ -1217,43 +1217,42 @@ select:focus-visible {
   .jobs-workspace .editor-body textarea { flex: none; height: min(38dvh, 420px); min-height: 220px; }
 }
 
-/* Keep recovery feedback visible without moving the chat or job workspace. */
-.live-updates-warning {
+/* One shared, non-layout-shifting feedback surface. */
+.toast-viewport {
   position: fixed;
-  z-index: 100;
-  bottom: calc(env(safe-area-inset-bottom) + 20px);
+  z-index: 200;
+  bottom: calc(env(safe-area-inset-bottom) + 18px);
   left: 50%;
   transform: translateX(-50%);
-  width: max-content;
-  max-width: calc(100vw - 32px);
-  padding: 10px 16px;
-  border: 1px solid #9a6c2c;
-  border-radius: 14px;
-  background: #30271c;
-  color: #ffe7ba;
-  box-shadow: 0 8px 24px #0005;
-  font-size: 14px;
-  line-height: 1.3;
-  text-align: center;
+  width: min(440px, calc(100vw - 24px));
+  pointer-events: none;
+}
+.toast-viewport.chat-view { bottom: calc(env(safe-area-inset-bottom) + 108px); }
+.toast-card {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
-  justify-content: center;
-  gap: 7px 12px;
+  gap: 12px;
+  padding: 13px 12px 13px 15px;
+  background: #272727;
+  border: 1px solid #555;
+  border-radius: 16px;
+  box-shadow: 0 14px 42px #0009;
+  color: #f5f5f5;
+  font-size: .9rem;
+  line-height: 1.4;
+  pointer-events: auto;
+  animation: toast-appear 180ms ease-out;
 }
-.live-updates-warning button {
-  min-height: 36px;
-  padding: 6px 12px;
-  border: 1px solid #c7a468;
-  border-radius: 9px;
-  background: #49351d;
-  color: #fff1d8;
-  font: inherit;
-  font-weight: 650;
-  cursor: pointer;
-}
-.live-updates-warning button:hover { background: #664822; }
-.live-updates-warning button:focus-visible { outline: 2px solid #fff1d8; outline-offset: 2px; }
-.live-updates-warning.chat-view {
-  bottom: calc(env(safe-area-inset-bottom) + 150px);
-}
+.toast-card.error { border-color: #a75a5a; background: #352324; }
+.toast-card.warning { border-color: #9b783a; background: #332b1e; }
+.toast-card.success { border-color: #4e8c71; background: #20342a; }
+.toast-symbol { display: grid; place-items: center; flex: 0 0 24px; height: 24px; border-radius: 50%; background: #ffffff18; font-weight: 750; }
+.toast-message { min-width: 0; flex: 1; overflow-wrap: anywhere; }
+.toast-action, .toast-close { flex: none; cursor: pointer; font: inherit; color: #fff; }
+.toast-action { padding: 7px 10px; border: 1px solid #ffffff55; border-radius: 9px; background: #ffffff13; font-weight: 650; }
+.toast-action:hover, .toast-close:hover { background: #ffffff24; }
+.toast-close { display: grid; place-items: center; width: 32px; height: 32px; border: 0; border-radius: 9px; background: transparent; font-size: 1.3rem; line-height: 1; }
+.toast-action:focus-visible, .toast-close:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+@keyframes toast-appear { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+@media (prefers-reduced-motion: reduce) { .toast-card { animation: none; } }
+@media (max-width: 680px) { .toast-viewport.chat-view { bottom: calc(env(safe-area-inset-bottom) + 98px); } }

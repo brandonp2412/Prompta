@@ -1,7 +1,8 @@
-import React from "react";
+import React, { useEffect } from "react";
 import { useSignals } from "@preact/signals-react/runtime";
 import type { createJobsPageController } from "./JobsPageController";
 import { attachmentAccept, isVideoAttachment } from "./mediaAttachments";
+import { notify, useToastSignal } from "./toast";
 
 type Controller = ReturnType<typeof createJobsPageController>;
 
@@ -17,6 +18,7 @@ type EditorRefs = {
 
 export default function JobEditor({ model, refs }: { model: Controller; refs: EditorRefs }) {
   useSignals();
+  useToastSignal(model.editorError);
   const {
     saving,
     editing,
@@ -42,11 +44,12 @@ export default function JobEditor({ model, refs }: { model: Controller; refs: Ed
     addImages,
     submit,
   } = model;
+  useEffect(() => {
+    if (duplicateName.value) notify("This job already exists. Choose another name.", "error");
+  }, [duplicateName.value]);
 
   function editorFeedback(): { text: string; error: boolean } {
-    if (editorError.value) return { text: editorError.value, error: true };
-    if (duplicateName.value)
-      return { text: "This job already exists. Choose another name.", error: true };
+    if (editorError.value || duplicateName.value) return { text: "", error: false };
     if (dirty.value) return { text: "Unsaved changes", error: false };
     if (editing.value) return { text: "No changes", error: false };
     return { text: "", error: false };

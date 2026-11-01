@@ -3,6 +3,7 @@ import { afterEach, expect, test } from "bun:test";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import ChatComposer from "../src/ui/ChatComposer";
+import { activeToast } from "../src/ui/toast";
 
 afterEach(() => {
   cleanup();
@@ -41,7 +42,8 @@ test("explicit fallback remains usable while exact sending is paused", async () 
   await user.click(screen.getByRole("button", { name: "Continue in new chat" }));
   await waitFor(() => expect(submitted).toEqual(["Continue with this answer"]));
   expect(screen.getByRole("textbox").textContent).toBe("");
-  await screen.findByText("New chat queued.");
+  await waitFor(() => expect(activeToast.peek()?.message).toBe("New chat queued."));
+  expect(document.querySelector(".composer-feedback")).toBeNull();
 });
 
 test("globally disabled composer preserves the draft and blocks fallback", async () => {

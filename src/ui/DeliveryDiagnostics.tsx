@@ -55,7 +55,7 @@ export default function DeliveryDiagnostics({ model }: { model: Controller }) {
         )}
       </summary>
       {error && (
-        <p role="alert">
+        <p>
           {error}{" "}
           <button type="button" onClick={() => void model.loadDeliveryHealth()}>
             Retry

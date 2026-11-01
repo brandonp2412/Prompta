@@ -46,6 +46,7 @@ def test_code_copy_reports_success_failure_and_resets(
             expect(button).to_have_text("Copy code")
             button.click()
             expect(button).to_have_text("Copied")
+            expect(page.locator(".toast-card.success")).to_contain_text("Code copied")
             expect(button).to_have_text("Copy code", timeout=4000)
 
             page.evaluate(
@@ -54,7 +55,24 @@ def test_code_copy_reports_success_failure_and_resets(
             , isolated_context=False)
             button.click()
             expect(button).to_have_text("Copy failed")
+            expect(page.locator(".toast-card.error")).to_contain_text("Could not copy code")
+            toast_box = page.locator(".toast-card").bounding_box()
+            assert toast_box is not None and toast_box["y"] > 400
             expect(button).to_have_text("Copy code", timeout=4000)
+            page.evaluate(
+                "Object.defineProperty(navigator, 'clipboard', {configurable: true, "
+                "value: {writeText: async () => {}}})",
+                isolated_context=False,
+            )
+            page.get_by_role("button", name="Share chat").click()
+            expect(page.locator(".toast-card.success")).to_contain_text("Chat link copied")
+            page.evaluate(
+                "Object.defineProperty(navigator, 'clipboard', {configurable: true, "
+                "value: {writeText: async () => {throw new Error('denied')}}})",
+                isolated_context=False,
+            )
+            page.get_by_role("button", name="Share chat").click()
+            expect(page.locator(".toast-card.error")).to_contain_text("Could not copy chat link")
             assert page.evaluate("document.documentElement.scrollWidth <= innerWidth", isolated_context=False)
         finally:
             browser.close()

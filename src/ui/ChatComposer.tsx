@@ -3,9 +3,11 @@ import { useSignals } from "@preact/signals-react/runtime";
 import { createChatComposerController, type Props } from "./ChatComposerController";
 import { rememberComposerImages } from "./composerDraftMemory";
 import { attachmentAccept, isVideoAttachment } from "./mediaAttachments";
+import { feedbackTone, useToastSignal } from "./toast";
 export default function ChatComposer(props: Props) {
   const model = useMemo(() => createChatComposerController(props), []);
   useSignals();
+  useToastSignal(model.feedback, { tone: feedbackTone });
   const {
     mode,
     onFallbackSend,
@@ -15,7 +17,6 @@ export default function ChatComposer(props: Props) {
     images,
     uploading,
     sending,
-    feedback,
     fallbackAvailable,
     offerFreshContinuation,
     dragging,
@@ -277,15 +278,6 @@ export default function ChatComposer(props: Props) {
             )}
           </div>
         </div>
-        {feedback.value ? (
-          <>
-            <p role="status" className="composer-feedback">
-              {feedback.value}
-            </p>
-          </>
-        ) : (
-          <></>
-        )}
         {mode.value === "reply" &&
         (fallbackAvailable.value || offerFreshContinuation.value) &&
         onFallbackSend.value &&

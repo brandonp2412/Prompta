@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import ChatsPage from "./ChatsPage";
+import ToastHost from "./ToastHost";
+import { notify, dismissToast } from "./toast";
 import { retryLiveConnection, subscribeLiveStatus } from "./liveUpdates";
 
 type View = "jobs" | "chats";
@@ -29,6 +31,20 @@ export default function App({ serverName }: { serverName: string }) {
     };
   }, []);
 
+  useEffect(() => {
+    if (!updatesDelayed) return;
+    const id = notify(
+      "Live updates delayed. Checking automatically.",
+      "warning",
+      {
+        label: "Refresh now",
+        onClick: retryLiveConnection,
+      },
+      0,
+    );
+    return () => dismissToast(id);
+  }, [updatesDelayed]);
+
   function navigate(nextView: View, run: string | null = null) {
     const url = new URL(window.location.href);
     for (const name of ["new", "edit", "run", "draft"]) url.searchParams.delete(name);
@@ -49,17 +65,7 @@ export default function App({ serverName }: { serverName: string }) {
 
   return (
     <main className="jobs-app">
-      {updatesDelayed && (
-        <div
-          className={"live-updates-warning" + (route.view === "chats" ? " chat-view" : "")}
-          role="status"
-        >
-          <span>Live updates delayed. Checking automatically.</span>
-          <button type="button" onClick={retryLiveConnection}>
-            Refresh now
-          </button>
-        </div>
-      )}
+      <ToastHost chatView={route.view === "chats"} />
       <ChatsPage
         serverName={serverName}
         view={route.view}

@@ -556,13 +556,6 @@
 .workspace-header .chat-open-chatgpt-label { margin: 0; color: inherit; font-size: inherit; }
 .chat-open-chatgpt:hover { background: #303030; color: #d4dfff; }
 .chat-open-chatgpt:focus-visible { outline: 2px solid #b8caff; outline-offset: -3px; }
-.share-toast {
-  position: fixed; z-index: 30; top: 72px; right: 24px;
-  padding: 12px 18px; border: 1px solid #505050; border-radius: 12px;
-  background: #303030; color: #f5f5f5; box-shadow: 0 8px 24px #0005;
-  font-size: .88rem; pointer-events: none;
-}
-
 .tool-type-group { min-width: 0; }
 .tool-type-group > summary { padding: 9px 8px; cursor: pointer; overflow-wrap: anywhere; font-size: .84rem; color: #ccc; }
 .tool-call > summary { cursor: pointer; }

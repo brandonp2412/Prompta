@@ -29,11 +29,9 @@ export default function ChatTranscript({
     expandedPrompts,
     detail,
     turns,
-    turnsError,
     startingNewChatFromFailure: startingNewChat,
     detailError,
     switchingChat,
-    loadDetail,
     startFailedReplyInNewChat,
     continueUnverifiedInNewChat,
     retryFailedTurn,
@@ -67,40 +65,9 @@ export default function ChatTranscript({
           .filter(Boolean)
           .join(" ")}
       >
-        {detailError.value ? (
-          <>
-            <div role="alert" className="result-error recovery-error">
-              <span>{detailError.value}</span>
-              <button
-                type="button"
-                onClick={() => selectedRunId.value && void loadDetail(selectedRunId.value)}
-              >
-                Retry chat
-              </button>
-            </div>
-          </>
-        ) : (
-          <></>
-        )}
-
         {detail.value ? (
           <>
             <div className="chat-detail-content">
-              {turnsError.value ? (
-                <>
-                  <div role="alert" className="result-error recovery-error">
-                    <span>{turnsError.value}</span>
-                    <button
-                      type="button"
-                      onClick={() => selectedRunId.value && void loadDetail(selectedRunId.value)}
-                    >
-                      Retry replies
-                    </button>
-                  </div>
-                </>
-              ) : (
-                <></>
-              )}
               {turns.value.map((turn, index) => (
                 <React.Fragment key={turn.reply_id || detail.value!.send_id}>
                   <div className="message-group user-group">
@@ -364,15 +331,7 @@ export default function ChatTranscript({
           >
             {detailError.value ? (
               <>
-                <div className="result-error recovery-error">
-                  <span>{detailError.value}</span>
-                  <button
-                    type="button"
-                    onClick={() => selectedRunId.value && void loadDetail(selectedRunId.value)}
-                  >
-                    Retry chat
-                  </button>
-                </div>
+                <span className="sr-only">Chat unavailable</span>
               </>
             ) : (
               <>

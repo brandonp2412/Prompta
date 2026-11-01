@@ -4,14 +4,23 @@ import { createJobsPageController, type Props } from "./JobsPageController";
 import JobEditor from "./JobEditor";
 import DeliveryDiagnostics from "./DeliveryDiagnostics";
 import JobsTable from "./JobsTable";
+import { useToastSignal, feedbackTone } from "./toast";
 
 export default function JobsPage(props: Props) {
   const model = useMemo(() => createJobsPageController(props), []);
   useSignals();
+  useToastSignal(model.jobsLoadError, {
+    action: { label: "Retry jobs", onClick: () => void model.load() },
+  });
+  useToastSignal(model.deliveryHealthError);
+  useToastSignal(model.queueError, {
+    action: { label: "Retry", onClick: () => void model.loadQueue() },
+  });
+  useToastSignal(model.status, {
+    tone: feedbackTone,
+    when: (message) => /failed|could not|uncertain/i.test(message),
+  });
   const {
-    jobsLoadError,
-    queueError,
-    loadQueue,
     filterOptions,
     jobs,
     activeFilters,
@@ -98,7 +107,7 @@ export default function JobsPage(props: Props) {
 
               <div className="toolbar-actions">
                 <span role="status" aria-live="polite" className="status-line">
-                  {status.value}
+                  {/failed|could not|uncertain/i.test(status.value) ? "" : status.value}
                 </span>
 
                 <button
@@ -189,24 +198,6 @@ export default function JobsPage(props: Props) {
                 </button>
               </div>
             </div>
-
-            {jobsLoadError.value && (
-              <div role="alert" className="result-error recovery-error jobs-recovery-error">
-                <span>{jobsLoadError.value}</span>
-                <button type="button" onClick={() => void load()}>
-                  Retry jobs
-                </button>
-              </div>
-            )}
-
-            {queueError.value && (
-              <div role="status" className="result-error recovery-error jobs-recovery-error">
-                <span>{queueError.value}</span>
-                <button type="button" onClick={() => void loadQueue()}>
-                  Retry queue estimates
-                </button>
-              </div>
-            )}
 
             <DeliveryDiagnostics model={model} />
 

@@ -3,6 +3,7 @@ import { createDrawerSwipe } from "./drawerSwipe";
 import { signal, computed, effect, batch } from "@preact/signals-react";
 import { untracked as untrack } from "@preact/signals-core";
 import { subscribeLiveUpdates } from "./liveUpdates";
+import { notify } from "./toast";
 import { emptyQueueSnapshot, isQueueSnapshot, type QueueSnapshot } from "./queueStatus";
 import { recoverVisibleTurns } from "./turnRecovery";
 import { nextResultPageOffset, reconcileResultPage } from "./resultListRefresh";
@@ -1318,8 +1319,10 @@ export function createChatsPageController(initialProps: Props) {
     try {
       await navigator.clipboard.writeText(value);
       copyState.value = key;
+      notify("Message copied", "success");
     } catch {
       copyState.value = "error:" + key;
+      notify("Could not copy message", "error");
     }
   }
 

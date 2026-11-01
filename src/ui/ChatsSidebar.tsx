@@ -20,15 +20,10 @@ export default function ChatsSidebar({
 }) {
   useSignals();
   const {
-    retryPins,
     view,
-    selectedRunId,
     statuses,
     queueSnapshot,
-    queueError,
     items,
-    pinError,
-    readError,
     markingAllRead,
     drawerOpen,
     filtersOpen,
@@ -36,17 +31,13 @@ export default function ChatsSidebar({
     statusFilter,
     loadingList,
     listError,
-    morePageFailed,
     pinned,
     visibleWaiting,
     unpinned,
-    retryReadSync,
     markAllRead,
-    loadQueue,
     loadingMore,
     nextOffset,
     total,
-    loadList,
     loadMore,
     applyFilter,
     searchChanged,
@@ -219,57 +210,6 @@ export default function ChatsSidebar({
                 ))}
               </select>
             </label>
-          </div>
-        </>
-      ) : (
-        <></>
-      )}
-      {queueError.value ? (
-        <>
-          <div role="alert" className="result-error recovery-error">
-            <span>{queueError.value}</span>
-            <button type="button" onClick={() => void loadQueue()}>
-              Retry queue status
-            </button>
-          </div>
-        </>
-      ) : (
-        <></>
-      )}
-      {listError.value ? (
-        <>
-          <div role="alert" className="result-error recovery-error">
-            <span>{listError.value}</span>
-            <button
-              type="button"
-              onClick={() => (morePageFailed.value ? void loadMore() : void loadList())}
-            >
-              {morePageFailed.value ? "Retry older chats" : "Retry chats"}
-            </button>
-          </div>
-        </>
-      ) : (
-        <></>
-      )}
-      {pinError.value ? (
-        <>
-          <div role="alert" className="result-error recovery-error">
-            <span>{pinError.value}</span>
-            <button type="button" onClick={retryPins}>
-              Retry pins
-            </button>
-          </div>
-        </>
-      ) : (
-        <></>
-      )}
-      {readError.value && (view.value !== "chats" || !selectedRunId.value) ? (
-        <>
-          <div role="alert" className="result-error recovery-error">
-            <span>{readError.value}</span>
-            <button type="button" onClick={() => void retryReadSync()}>
-              Retry read status
-            </button>
           </div>
         </>
       ) : (

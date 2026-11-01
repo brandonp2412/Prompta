@@ -135,7 +135,8 @@ test("Chats labels the last confirmed queue position as stale during an outage",
       await model.loadQueue();
     });
     expect(model.visibleWaiting.value[0]?.position).toBe(2);
-    expect(screen.getByText(/Showing the last confirmed positions and ETAs/)).toBeTruthy();
+    expect(model.queueError.value).toContain("Showing the last confirmed positions and ETAs");
+    expect(document.querySelector(".recovery-error")).toBeNull();
     expect(screen.getByText("#2 of 1")).toBeTruthy();
     response = Response.json(snapshot(1));
     await act(async () => {

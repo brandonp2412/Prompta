@@ -55,8 +55,10 @@ def test_deployed_capture_is_recovered_before_older_backlog_without_resending(
     monkeypatch.setattr(worker, "_read_original_response", read)
     assert worker.recover_once(now=150)
     assert observed == ["Original prompt"]
-    assert store.get("deployment-capture")["status"] == "completed"
-    assert store.get("ordinary-newer")["status"] == "interrupted"
+    recovered = store.get("deployment-capture")
+    pending = store.get("ordinary-newer")
+    assert recovered is not None and recovered["status"] == "completed"
+    assert pending is not None and pending["status"] == "interrupted"
     assert not worker.recover_once(now=151)  # account-wide 90-second slot
 
 
@@ -66,7 +68,8 @@ def test_deployment_priority_never_bypasses_per_chat_backoff(tmp_path: Path) -> 
     _expired(store, "ordinary-newer")
     store.schedule_history_recovery("deployment-capture", now=100, next_attempt_at=500)
     assert store.next_history_recovery(now=150, priority_ids=["deployment-capture"]) is None
-    assert store.next_history_recovery(now=150)["send_id"] == "ordinary-newer"
+    candidate = store.next_history_recovery(now=150)
+    assert candidate is not None and candidate["send_id"] == "ordinary-newer"
 
 
 def test_only_verified_incomplete_conversations_are_recovery_candidates(tmp_path: Path) -> None:

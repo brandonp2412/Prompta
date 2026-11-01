@@ -1,4 +1,4 @@
-import React, { useEffect, useLayoutEffect, useMemo, useState, useRef } from "react";
+import React, { useEffect, useLayoutEffect, useMemo } from "react";
 import { useSignals } from "@preact/signals-react/runtime";
 import { createChatsPageController, type Props } from "./ChatsPageController";
 import { chatUrl } from "./chatUrl";
@@ -7,30 +7,58 @@ import JobsPage from "./JobsPage";
 import ChatComposer from "./ChatComposer";
 import ChatsSidebar from "./ChatsSidebar";
 import ChatTranscript from "./ChatTranscript";
+import { notify, useToastSignal } from "./toast";
 export default function ChatsPage(props: Props & { serverName: string }) {
   const model = useMemo(() => createChatsPageController(props), []);
   useSignals();
-  const [shareNotice, setShareNotice] = useState("");
-  const shareTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  useEffect(() => () => clearTimeout(shareTimer.current), []);
+  useToastSignal(model.stopError);
+  useToastSignal(model.readError, {
+    action: { label: "Retry", onClick: () => void model.retryReadSync() },
+  });
+  useToastSignal(model.queueError, {
+    action: { label: "Retry", onClick: () => void model.loadQueue() },
+  });
+  useToastSignal(model.listError, {
+    action: {
+      label: "Retry",
+      onClick: () => void (model.morePageFailed.peek() ? model.loadMore() : model.loadList()),
+    },
+  });
+  useToastSignal(model.pinError, {
+    action: { label: "Retry", onClick: () => model.retryPins() },
+  });
+  useToastSignal(model.detailError, {
+    action: {
+      label: "Retry chat",
+      onClick: () => {
+        const id = model.selectedRunId.peek();
+        if (id) void model.loadDetail(id);
+      },
+    },
+  });
+  useToastSignal(model.turnsError, {
+    action: {
+      label: "Retry replies",
+      onClick: () => {
+        const id = model.selectedRunId.peek();
+        if (id) void model.loadDetail(id);
+      },
+    },
+  });
   async function shareChat() {
     const id = model.selectedRunId.peek();
     if (!id) return;
-    clearTimeout(shareTimer.current);
-    setShareNotice("");
     try {
       await navigator.clipboard.writeText(chatUrl(id));
-      if (window.matchMedia("(min-width: 681px)").matches) setShareNotice("Chat link copied");
+      notify("Chat link copied", "success");
     } catch {
-      setShareNotice("Could not copy chat link");
+      notify("Could not copy chat link", "error");
     }
-    shareTimer.current = setTimeout(() => setShareNotice(""), 2500);
   }
   const {
     view,
     selectedRunId,
     newChatOpen,
-    readError,
     drawerOpen,
     filtersOpen,
     detail,
@@ -39,7 +67,6 @@ export default function ChatsPage(props: Props & { serverName: string }) {
     jobsWorkspace,
     replyBlockedReason,
     selectedChatTitle,
-    retryReadSync,
     sendFresh,
     freshContinuationPrompt,
     originalImageRefs,
@@ -114,11 +141,6 @@ export default function ChatsPage(props: Props & { serverName: string }) {
   }, [model]);
   return (
     <>
-      {shareNotice && (
-        <div className="share-toast" role="status">
-          {shareNotice}
-        </div>
-      )}
       <DrawerLayout model={model}>
         <button
           type="button"
@@ -130,11 +152,6 @@ export default function ChatsPage(props: Props & { serverName: string }) {
         <ChatsSidebar model={model} refs={refs} />
 
         <div className="chats-detail">
-          {model.stopError.value && (
-            <p role="alert" className="result-error">
-              {model.stopError.value}
-            </p>
-          )}
           <div className="workspace-header">
             <button
               type="button"
@@ -215,18 +232,6 @@ export default function ChatsPage(props: Props & { serverName: string }) {
                     </>
                   ) : (
                     <>
-                      {readError.value ? (
-                        <>
-                          <div role="alert" className="result-error recovery-error">
-                            <span>{readError.value}</span>
-                            <button type="button" onClick={() => void retryReadSync()}>
-                              Retry read status
-                            </button>
-                          </div>
-                        </>
-                      ) : (
-                        <></>
-                      )}
                       <ChatTranscript model={model} refs={refs} />
                     </>
                   )}
