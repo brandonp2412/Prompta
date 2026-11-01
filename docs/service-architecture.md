@@ -16,25 +16,21 @@
 On Nox, update production using `./.venv/bin/python -m scripts.deploy_guarded` from
 `~/prompta`. This is the standard release path; avoid direct `git pull` plus
 `systemctl restart` for application services. The command fetches GitHub main,
-creates a private deployment pause marker, waits for browser-operation locks and
-all durable in-flight capture/reply/delivery leases to drain, then fast-forwards,
-migrates, restarts only scheduler/UI/delivery/manual workers, verifies health,
-and releases the queue. The persistent browser service and tabs are untouched.
+creates a private deployment pause marker and records active fresh captures,
+explicit replies, and deliveries in `deployment-interrupted.json` in the state
+directory. Application workers get five seconds to stop before remaining reads
+are interrupted. Only after workers stop does it fast-forward and migrate the
+checkout, restart the scheduler/UI/delivery/manual workers, and verify health.
+The persistent browser service and its tabs stay running.
 
-Scheduler and UI enqueue work durably while paused. The delivery worker, manual
-reply worker and read-only historical recovery all honour the same marker; an
-admitted browser operation holds a shared flock for its lifetime. The deploy
-creates the marker before waiting for the exclusive flock, closing the race
-between the final idle check and a new send. Existing passive captures may run
-past the initial delivery call, so the deployment also checks their SQLite
-capture leases. If draining exceeds 60 minutes or the stores cannot be verified,
-the deployment defers without changing services and removes its own pause.
-After a failed update the pause stays in place; investigate before using
-`python -m scripts.deploy_guarded --resume`. Worker systemd shutdown allowances
-are unbounded so an operator-initiated stop does not forcibly kill a capture.
-For the **first** rollout of the gate, stop legacy workers gracefully before
-updating checkout code: they cannot honor a marker until restarted on this
-version.
+Startup orphan recovery marks captures whose owners have stopped as interrupted.
+The history recovery worker reconciles their responses against verified browser
+history after admission resumes. Uncertain sends are quarantined rather than
+resubmitted; recovery never authorizes duplicate prompts. Scheduler and UI
+submissions remain durable while admission is paused. A failed deployment retains
+the pause; investigate and verify services before running
+`python -m scripts.deploy_guarded --resume`. The interruption inventory remains
+available after deployment for diagnosis.
 
 ## HTTP API
 

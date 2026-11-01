@@ -186,7 +186,7 @@ def test_local_pins_persist_in_sqlite_and_never_change_chatgpt_pins(tmp_path: Pa
         assert post_json(port, "/api/local-chat-pins", {"send_id": "a", "pinned": True})[0] == 200
         assert post_json(port, "/api/local-chat-pins", {"send_id": "b", "pinned": False})[0] == 200
         assert post_json(port, "/api/local-chat-pins", {"send_id": "c", "pinned": True})[0] == 200
-        expected = ["c", "a"]
+        expected = ["a", "c"]
         assert pin_ids(get(port, "/api/local-chat-pins")[1]) == expected
         fresh_store = ResponseStore(path)
         assert [row["send_id"] for row in fresh_store.local_pinned_runs()] == expected
@@ -414,7 +414,7 @@ def test_mark_all_as_read_button_persists_across_tabs_and_reload(tmp_path: Path)
                     page.wait_for_function(
                         "() => document.querySelectorAll('.unread-indicator').length >= 20"
                     )
-                assert page.locator(".unread-indicator").count() < 65
+                assert page.locator(".unread-indicator").count() == 65
 
                 for _ in range(6):
                     mobile.locator(".chats-list").evaluate(

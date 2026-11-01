@@ -49,6 +49,10 @@ export default function ChatComposer(props: Props) {
     model.syncProps(props);
   });
   useEffect(() => model.mount(), [model]);
+  useEffect(() => {
+    if (props.mode === "fresh" && window.matchMedia("(min-width: 681px)").matches)
+      model.textarea.peek()?.focus();
+  }, [model, props.mode, props.chatId]);
 
   function sendLabel() {
     if (sending.value) return "Sending";

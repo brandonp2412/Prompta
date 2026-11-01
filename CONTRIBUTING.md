@@ -9,9 +9,12 @@ uv run --no-sync ruff check .
 uv run --no-sync ty check
 uv run --no-sync pytest -q
 bun run check
+bun run test
 ```
 
 Python uses strict Ruff and Ty checks. The UI uses React 19, strict TypeScript, signal-backed controllers, and Vite. Fix types and behavior at the source.
+
+UI behavior tests use React Testing Library and user-event with Happy DOM. `bun run test` runs pure utility tests separately from DOM tests so browser-global stubs cannot leak between them, then runs the browser-script and lint tests under Node. Strict TypeScript checks include the React tests.
 
 React components own markup; signal-backed controllers preserve view state. Use stable keyed lists and preserve component identity during navigation and refresh. Render Markdown through structured tokens. Keep browser effects in typed helpers. `bun run lint:dom` and the browser continuity tests check these boundaries.
 
@@ -48,7 +51,7 @@ The migration environment requires a caller-owned serialized connection; use
 
 Commit validated changes. Acquire the checkout's `.git/prompta-main-merge.lock` with `flock` before updating against `main`, integrating, or pushing. Hold it through the push, then deploy `main` to the configured production host.
 
-On the production host, update the configured checkout. Adding Python modules requires `buildq --wait -- uv sync --locked --reinstall-package prompta` to refresh strict editable imports. Verify imports, take private SQLite backups, and run `buildq --wait -- .venv/bin/prompta-migrate` before restarting affected services. Allow active delivery and reply captures to finish; the manual-reply worker drains captures on shutdown. Check service health and `GET /api/health` after deployment. Documentation changes take effect when the checkout updates.
+On Nox, run `./.venv/bin/python -m scripts.deploy_guarded` from the configured checkout. It records ongoing work, pauses new admissions, stops application workers within a bounded shutdown window, fast-forwards main, migrates, restarts workers, verifies health, and resumes history recovery. It preserves the browser service. See [deployment details](docs/service-architecture.md#guarded-production-deployments). Adding Python modules requires `buildq --wait -- uv sync --locked --reinstall-package prompta` to refresh strict editable imports.
 
 For a deliberate live delivery/capture check that creates a real ChatGPT chat:
 

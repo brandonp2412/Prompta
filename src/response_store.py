@@ -452,14 +452,20 @@ class ResponseStore:
         if not send_id or len(send_id) > 200 or "/" in send_id:
             raise ValueError("Invalid local run ID")
         with self.engine.begin() as connection:
+            connection.exec_driver_sql("BEGIN IMMEDIATE")
             exists = connection.execute(
                 select(results.c.send_id).where(results.c.send_id == send_id)
             ).scalar_one_or_none()
             if exists is None:
                 return False
             if pinned:
+                # Keep existing display order and append below its last sort key.
+                last_position = connection.execute(
+                    select(func.min(local_chat_pins.c.pinned_at))
+                ).scalar_one_or_none()
+                position = time.time() if last_position is None else float(last_position) - 0.001
                 connection.execute(
-                    insert(local_chat_pins).values(send_id=send_id, pinned_at=time.time())
+                    insert(local_chat_pins).values(send_id=send_id, pinned_at=position)
                     .on_conflict_do_nothing(index_elements=["send_id"])
                 )
             else:
@@ -763,7 +769,7 @@ class ResponseStore:
             "outcome_unknown", "needs_attention",
         ):
             raise ValueError("Invalid result status")
-        if len(query) > 200 or not 1 <= limit <= 50 or not 0 <= offset <= 100_000:
+        if len(query) > 200 or not 1 <= limit <= 100 or not 0 <= offset <= 100_000:
             raise ValueError("Invalid results pagination or search")
         criteria = []
         if status == "needs_attention":

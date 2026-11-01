@@ -1,7 +1,7 @@
 from __future__ import annotations
 
+import json
 import sqlite3
-import threading
 from pathlib import Path
 
 import pytest
@@ -14,27 +14,27 @@ def make_databases(state_dir: Path, *, active: bool = False) -> None:
     with sqlite3.connect(state_dir / "chat-results.sqlite3") as db:
         db.execute(
             "CREATE TABLE job_responses "
-            "(status TEXT, capture_deadline REAL, capture_owner TEXT)"
+            "(status TEXT, capture_deadline REAL, capture_owner TEXT, send_id TEXT)"
         )
         db.execute(
             "CREATE TABLE manual_reply_turns "
-            "(status TEXT, lease_deadline REAL)"
+            "(status TEXT, lease_deadline REAL, reply_id TEXT)"
         )
         db.execute(
-            "INSERT INTO job_responses VALUES (?, 200, 'capture-owner')",
+            "INSERT INTO job_responses VALUES (?, 200, 'capture-owner', 'fresh-one')",
             ("generating" if active else "completed",),
         )
         db.execute(
-            "INSERT INTO manual_reply_turns VALUES (?, 200)",
+            "INSERT INTO manual_reply_turns VALUES (?, 200, 'reply-one')",
             ("accepted" if active else "completed",),
         )
     with sqlite3.connect(state_dir / "ui-send-jobs.sqlite3") as db:
         db.execute(
             "CREATE TABLE job_deliveries "
-            "(status TEXT, lease_owner TEXT, lease_expires_at REAL)"
+            "(status TEXT, lease_owner TEXT, lease_expires_at REAL, send_id TEXT)"
         )
         db.execute(
-            "INSERT INTO job_deliveries VALUES (?, 'delivery-owner', 200)",
+            "INSERT INTO job_deliveries VALUES (?, 'delivery-owner', 200, 'fresh-one')",
             ("running" if active else "completed",),
         )
     with sqlite3.connect(state_dir / "runtime.sqlite3") as db:
@@ -45,63 +45,17 @@ def make_databases(state_dir: Path, *, active: bool = False) -> None:
         )
 
 
-def test_waits_for_admitted_operation_and_blocks_new_work(tmp_path: Path) -> None:
-    gate = DeploymentGate(tmp_path / "runtime.sqlite3")
-    make_databases(tmp_path)
-    entered = threading.Event()
-    release = threading.Event()
-
-    def running_capture() -> None:
-        with gate.admission() as allowed:
-            assert allowed
-            entered.set()
-            assert release.wait(2.0)
-
-    worker = threading.Thread(target=running_capture)
-    worker.start()
-    try:
-        assert entered.wait(2.0)
-        deploy_guarded.request_pause(gate)
-        assert gate.is_paused()
-        assert not deploy_guarded.wait_until_idle(gate, timeout=0.02, poll=0.005)
-    finally:
-        release.set()
-        worker.join(timeout=2.0)
-    assert not worker.is_alive()
-    with gate.admission() as allowed:
-        assert not allowed
-    assert deploy_guarded.wait_until_idle(gate, timeout=1.0, poll=0.005)
-
-
-def test_active_leases_block_even_after_dispatch_returns(tmp_path: Path) -> None:
+def test_records_active_work_without_waiting(tmp_path: Path) -> None:
     gate = DeploymentGate(tmp_path / "runtime.sqlite3")
     make_databases(tmp_path, active=True)
-    assert deploy_guarded.active_work(tmp_path, now=100) == (1, 1, 1, True)
-    deploy_guarded.request_pause(gate)
-    assert not deploy_guarded.wait_until_idle(gate, timeout=0.02, poll=0.005)
-    with sqlite3.connect(tmp_path / "chat-results.sqlite3") as db:
-        db.execute("UPDATE job_responses SET status='completed'")
-        db.execute("UPDATE manual_reply_turns SET status='completed'")
-    with sqlite3.connect(tmp_path / "ui-send-jobs.sqlite3") as db:
-        db.execute("UPDATE job_deliveries SET status='completed'")
-    with sqlite3.connect(tmp_path / "runtime.sqlite3") as db:
-        db.execute("UPDATE service_health SET activity=''")
-    assert deploy_guarded.wait_until_idle(gate, timeout=0.1, poll=0.005)
+    deploy_guarded.record_interrupted_work(gate)
+    inventory = json.loads((tmp_path / "deployment-interrupted.json").read_text())
+    assert inventory["job_responses"] == [{"id": "fresh-one", "status": "generating"}]
+    assert inventory["manual_reply_turns"] == [{"id": "reply-one", "status": "accepted"}]
+    assert inventory["job_deliveries"] == [{"id": "fresh-one", "status": "running"}]
 
 
-def test_missing_database_fails_closed(tmp_path: Path) -> None:
-    gate = DeploymentGate(tmp_path / "runtime.sqlite3")
-    deploy_guarded.request_pause(gate)
-    assert not deploy_guarded.wait_until_idle(gate, timeout=0.02, poll=0.005)
-
-
-def test_timeout_defers_without_updating_or_leaving_paused(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    gate = DeploymentGate(tmp_path / "state/runtime.sqlite3")
-    make_databases(tmp_path / "state", active=True)
-    repo = tmp_path / "repo"
-    (repo / ".git").mkdir(parents=True)
+def test_bounded_shutdown_interrupts_busy_workers(monkeypatch: pytest.MonkeyPatch) -> None:
     commands: list[tuple[str, ...]] = []
 
     def fake_run(args: list[str], **_kwargs: object) -> object:
@@ -109,12 +63,10 @@ def test_timeout_defers_without_updating_or_leaving_paused(
         return type("Result", (), {"returncode": 0})()
 
     monkeypatch.setattr(deploy_guarded.subprocess, "run", fake_run)
-    assert not deploy_guarded.deploy(repo, gate, wait_seconds=0.02)
-    assert not gate.is_paused()
-    assert commands == [
-        ("git", "fetch", "origin", "main"),
-        ("git", "diff", "--quiet"),
-    ]
+    deploy_guarded.stop_workers(timeout=0)
+    assert commands[0][2:4] == ("stop", "--no-block")
+    assert commands[1][2:4] == ("kill", "--signal=SIGKILL")
+    assert commands[2][2] == "stop"
 
 
 def test_refuses_to_take_over_existing_pause(tmp_path: Path) -> None:
@@ -129,7 +81,7 @@ def test_successful_deploy_restarts_apps_but_not_browser(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     gate = DeploymentGate(tmp_path / "state/runtime.sqlite3")
-    make_databases(tmp_path / "state")
+    make_databases(tmp_path / "state", active=True)
     repo = tmp_path / "repo"
     (repo / ".git").mkdir(parents=True)
     (repo / ".venv/bin").mkdir(parents=True)
@@ -141,8 +93,11 @@ def test_successful_deploy_restarts_apps_but_not_browser(
 
     monkeypatch.setattr(deploy_guarded.subprocess, "run", fake_run)
     monkeypatch.setattr(deploy_guarded, "verify_services", lambda: True)
-    assert deploy_guarded.deploy(repo, gate, wait_seconds=0.2)
+    monkeypatch.setattr(deploy_guarded, "stop_workers", lambda: None)
+    assert deploy_guarded.deploy(repo, gate)
     assert not gate.is_paused()
+    with sqlite3.connect(tmp_path / "state/ui-send-jobs.sqlite3") as db:
+        assert db.execute("SELECT lease_expires_at FROM job_deliveries").fetchone() == (0,)
     assert sum(command[:3] == ("systemctl", "--user", "restart") for command in commands) == 4
     assert all("prompta-browser.service" not in command for command in commands)
 
@@ -151,7 +106,7 @@ def test_post_update_failure_keeps_admission_paused(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     gate = DeploymentGate(tmp_path / "state/runtime.sqlite3")
-    make_databases(tmp_path / "state")
+    make_databases(tmp_path / "state", active=True)
     repo = tmp_path / "repo"
     (repo / ".git").mkdir(parents=True)
     (repo / ".venv/bin").mkdir(parents=True)
@@ -162,6 +117,32 @@ def test_post_update_failure_keeps_admission_paused(
         return type("Result", (), {"returncode": 0})()
 
     monkeypatch.setattr(deploy_guarded.subprocess, "run", fake_run)
+    monkeypatch.setattr(deploy_guarded, "stop_workers", lambda: None)
     with pytest.raises(RuntimeError, match="migrations did not complete"):
-        deploy_guarded.deploy(repo, gate, wait_seconds=0.2)
+        deploy_guarded.deploy(repo, gate)
     assert gate.is_paused()
+
+
+def test_stopped_capture_recovers_from_verified_history_without_resending(tmp_path: Path) -> None:
+    from prompta.response_capture import CaptureResult
+    from prompta.response_store import ResponseStore
+
+    store = ResponseStore(tmp_path / "chat-results.sqlite3")
+    conversation = "12345678-1234-4123-8123-123456789abc"
+    store.ensure_queued("manual-deploy", "Original prompt", now=10)
+    assert store.accept("manual-deploy", "999999999:stopped", deadline=10000, now=11)
+    assert store.bind_conversation_route(
+        "manual-deploy", "999999999:stopped", "/c/" + conversation, now=12
+    )
+    assert store.recover_orphans(now=13) == 1
+    candidate = store.next_history_recovery(now=14)
+    assert candidate is not None and candidate["send_id"] == "manual-deploy"
+    assert store.recover_historical_response(
+        "manual-deploy",
+        CaptureResult("dom", "complete", "Recovered answer", conversation, None, None, "turn"),
+        now=15,
+    )
+    record = store.detail("manual-deploy")
+    assert record is not None
+    assert record["status"] == "completed"
+    assert record["assistant_text"] == "Recovered answer"

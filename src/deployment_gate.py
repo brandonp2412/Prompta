@@ -1,8 +1,8 @@
 """Cooperative deployment pause for all browser-owning worker operations.
 
-A shared flock spans each browser operation. A deploy creates the pause marker
-before waiting for an exclusive flock, so work already admitted can drain but
-no new browser operation can pass the marker check.
+A shared flock spans each browser operation. The pause marker prevents new
+admissions during deployment. Deployment records current work and stops its
+owners before updating the checkout; interrupted reads recover from history.
 """
 
 from __future__ import annotations

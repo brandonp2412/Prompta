@@ -43,7 +43,9 @@ export default function ChatsSidebar({
     retryReadSync,
     markAllRead,
     loadQueue,
-    maybeLoadMore,
+    loadingMore,
+    nextOffset,
+    total,
     loadList,
     loadMore,
     applyFilter,
@@ -273,7 +275,7 @@ export default function ChatsSidebar({
       ) : (
         <></>
       )}
-      <div ref={refs.listPane} onScroll={maybeLoadMore} className="chats-list">
+      <div ref={refs.listPane} className="chats-list">
         {visibleWaiting.value.length ? (
           <>
             <div aria-live="polite" className="chats-date queue-heading">
@@ -337,6 +339,16 @@ export default function ChatsSidebar({
             )}
           </>
         )}
+        {nextOffset.value < total.value ? (
+          <button
+            type="button"
+            disabled={loadingList.value || loadingMore.value}
+            onClick={() => void loadMore()}
+            className="btn ghost"
+          >
+            {loadingMore.value ? "Loading chats…" : "Load more chats"}
+          </button>
+        ) : null}
       </div>
     </aside>
   );

@@ -1,4 +1,4 @@
-"""Deploy Prompta without interrupting owned browser captures or replies.
+"""Deploy Prompta promptly and recover interrupted captures from browser history.
 
 Run from the installed Prompta checkout: python scripts/deploy_guarded.py
 Queued submissions stay durable. The browser service is deliberately untouched.
@@ -30,81 +30,52 @@ SERVICES = (
 DEFAULT_STATE = Path.home() / ".local/state/prompta/runtime.sqlite3"
 
 
-def active_work(state_dir: Path, now: float) -> tuple[int, int, int, bool]:
-    """Fail closed on missing/corrupt databases, never guess that work is idle."""
-    results = state_dir / "chat-results.sqlite3"
-    runtime = state_dir / "runtime.sqlite3"
-    deliveries = state_dir / "ui-send-jobs.sqlite3"
-    with sqlite3.connect(f"file:{results}?mode=ro", uri=True, timeout=3) as db:
-        captures = db.execute(
-            "SELECT count(*) FROM job_responses WHERE capture_deadline > ? "
-            "AND capture_owner IS NOT NULL "
-            "AND status IN ('accepted', 'generating', 'partial')",
-            (now,),
-        ).fetchone()
-        replies = db.execute(
-            "SELECT count(*) FROM manual_reply_turns WHERE lease_deadline > ? "
-            "AND status IN ('dispatching', 'accepted', 'generating', 'partial')",
-            (now,),
-        ).fetchone()
-    with sqlite3.connect(f"file:{deliveries}?mode=ro", uri=True, timeout=3) as db:
-        sends = db.execute(
-            "SELECT count(*) FROM job_deliveries WHERE status = 'running' "
-            "AND lease_owner != '' AND lease_expires_at > ?",
-            (now,),
-        ).fetchone()
-    with sqlite3.connect(f"file:{runtime}?mode=ro", uri=True, timeout=3) as db:
-        rows = db.execute(
-            "SELECT activity FROM service_health "
-            "WHERE service IN ('delivery_worker', 'ui', 'manual_reply_worker')"
-        ).fetchall()
-    busy = any(
-        isinstance(row[0], str)
-        and (row[0].startswith("dispatch:") or row[0].startswith("reply:"))
-        for row in rows
-    )
-    return (
-        int(captures[0]) if captures else 0,
-        int(replies[0]) if replies else 0,
-        int(sends[0]) if sends else 0,
-        busy,
-    )
-
-
 def request_pause(gate: DeploymentGate) -> None:
     descriptor = os.open(gate.pause_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
     with os.fdopen(descriptor, "w", encoding="utf-8") as marker:
         marker.write(f"pid={os.getpid()} time={time.time():.0f}\n")
 
 
-def wait_until_idle(gate: DeploymentGate, *, timeout: float, poll: float = 2.0) -> bool:
-    """Wait until admitted operations and persistent leases are both drained."""
+def stop_workers(*, timeout: float = 5.0) -> None:
+    """Give workers a bounded shutdown window, then interrupt outstanding reads."""
+    subprocess.run(["systemctl", "--user", "stop", "--no-block", *SERVICES], check=True)
     deadline = time.monotonic() + timeout
-    with gate.lock_path.open("a+b") as lock:
-        while time.monotonic() < deadline:
-            try:
-                fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-            except BlockingIOError:
-                logger.info("Waiting for currently admitted browser operations")
-            else:
-                try:
-                    captures, replies, sends, busy = active_work(
-                        gate.pause_path.parent, time.time()
-                    )
-                    if not (captures or replies or sends or busy):
-                        return True
-                    logger.info(
-                        "Deployment draining captures=%d replies=%d sends=%d busy=%s",
-                        captures, replies, sends, busy,
-                    )
-                except (OSError, sqlite3.Error) as exc:
-                    logger.warning(
-                        "Unable to verify idle state error_type=%s", type(exc).__name__
-                    )
-                finally:
-                    fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
-            time.sleep(min(poll, max(0.0, deadline - time.monotonic())))
-    return False
+    while time.monotonic() < deadline:
+        if all(subprocess.run(
+            ["systemctl", "--user", "show", "--property=ActiveState", "--value", unit],
+            check=True, capture_output=True, text=True, timeout=3,
+        ).stdout.strip() in {"inactive", "failed"} for unit in SERVICES):
+            break
+        time.sleep(0.25)
+    else:
+        subprocess.run(
+            ["systemctl", "--user", "kill", "--signal=SIGKILL", *SERVICES], check=False,
+        )
+    # Wait for the stop jobs to complete before changing the loaded checkout.
+    subprocess.run(["systemctl", "--user", "stop", *SERVICES], check=True, timeout=15)
+
+
+def record_interrupted_work(gate: DeploymentGate) -> None:
+    """Keep a durable deployment inventory before stopping any owners."""
+    state_dir = gate.pause_path.parent
+    inventory: dict[str, object] = {"recorded_at": time.time()}
+    for filename, table, key in (
+        ("chat-results.sqlite3", "job_responses", "send_id"),
+        ("chat-results.sqlite3", "manual_reply_turns", "reply_id"),
+        ("ui-send-jobs.sqlite3", "job_deliveries", "send_id"),
+    ):
+        with sqlite3.connect(f"file:{state_dir / filename}?mode=ro", uri=True, timeout=3) as db:
+            rows = db.execute(
+                f"SELECT {key}, status FROM {table} WHERE status IN "
+                "('running', 'dispatching', 'accepted', 'generating', 'partial', "
+                "'interrupted', 'outcome_unknown')"
+            ).fetchall()
+        inventory[table] = [{"id": row[0], "status": row[1]} for row in rows]
+    target = state_dir / "deployment-interrupted.json"
+    temporary = target.with_suffix(".tmp")
+    temporary.write_text(json.dumps(inventory, indent=2) + "\n", encoding="utf-8")
+    temporary.replace(target)
+    logger.info("Recorded interrupted work in %s", target)
 
 
 def verify_services(*, timeout: float = 45.0) -> bool:
@@ -129,8 +100,8 @@ def verify_services(*, timeout: float = 45.0) -> bool:
     return False
 
 
-def deploy(repo: Path, gate: DeploymentGate, *, wait_seconds: float) -> bool:
-    """A failed pre-deployment drain resumes old workers; post-update errors stay paused."""
+def deploy(repo: Path, gate: DeploymentGate) -> bool:
+    """Stop owners before updating; startup recovery reconciles durable captures."""
     merge_lock = repo / ".git/prompta-main-merge.lock"
     with merge_lock.open("a+b") as merge_handle:
         fcntl.flock(merge_handle.fileno(), fcntl.LOCK_EX)
@@ -144,10 +115,15 @@ def deploy(repo: Path, gate: DeploymentGate, *, wait_seconds: float) -> bool:
         changed = False
         success = False
         try:
-            if not wait_until_idle(gate, timeout=wait_seconds):
-                logger.warning("Deployment deferred; current work was not interrupted")
-                return False
+            record_interrupted_work(gate)
             changed = True
+            stop_workers()
+            # All owners are stopped. Expire in-flight delivery claims now so
+            # startup reconciliation quarantines uncertain sends immediately.
+            with sqlite3.connect(gate.pause_path.parent / "ui-send-jobs.sqlite3") as db:
+                db.execute(
+                    "UPDATE job_deliveries SET lease_expires_at=0 WHERE status='running'"
+                )
             subprocess.run(["git", "merge", "--ff-only", "origin/main"], cwd=repo, check=True)
             subprocess.run([str(repo / ".venv/bin/prompta-migrate")], cwd=repo, check=True)
             # The browser process, its tabs and profile are never restarted here.
@@ -155,7 +131,7 @@ def deploy(repo: Path, gate: DeploymentGate, *, wait_seconds: float) -> bool:
                 subprocess.run(["systemctl", "--user", "restart", unit], check=True)
             if not verify_services():
                 raise RuntimeError("Deployment health verification failed; admission stays paused")
-            logger.info("Guarded deployment verified; resuming durable queues")
+            logger.info("Deployment verified; resuming durable queues and history recovery")
             success = True
             return True
         finally:
@@ -171,7 +147,6 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repo", type=Path, default=Path.home() / "prompta")
     parser.add_argument("--state", type=Path, default=DEFAULT_STATE)
-    parser.add_argument("--wait-minutes", type=float, default=60.0)
     parser.add_argument(
         "--resume", action="store_true",
         help="Remove a leftover pause only after separately verifying services are healthy",
@@ -184,9 +159,7 @@ def main() -> None:
             raise SystemExit("Services are not healthy; refusing to resume")
         gate.pause_path.unlink(missing_ok=True)
         return
-    if args.wait_minutes <= 0:
-        parser.error("--wait-minutes must be positive")
-    if not deploy(args.repo.resolve(), gate, wait_seconds=args.wait_minutes * 60.0):
+    if not deploy(args.repo.resolve(), gate):
         raise SystemExit(2)
 
 

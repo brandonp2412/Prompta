@@ -22,7 +22,7 @@ from prompta.response_capture import CaptureResult
 
 
 @pytest.mark.parametrize("width,height", [(360, 800), (390, 844), (412, 915)])
-def test_sidebar_infinite_scroll_search_focus_and_wide_mobile_swipe(
+def test_sidebar_load_more_search_focus_and_wide_mobile_swipe(
     tmp_path: Path,
     width: int,
     height: int,
@@ -31,7 +31,7 @@ def test_sidebar_infinite_scroll_search_focus_and_wide_mobile_swipe(
     if not chromium_path or not Path(chromium_path).is_file():
         pytest.skip("Visual Chromium binary unavailable")
     with server(tmp_path) as (app, port), sync_patchright() as patchright:
-        for index in range(65):
+        for index in range(165):
             completed_run(app, f"scroll-{index:03}", f"Scroll entry {index:03}", 1000 + index)
         browser = patchright.chromium.launch(
             executable_path=chromium_path,
@@ -49,8 +49,7 @@ def test_sidebar_infinite_scroll_search_focus_and_wide_mobile_swipe(
             observed: list[tuple[str, str]] = []
             page.on("request", lambda request: observed.append((request.method, request.url)))
             page.goto(f"http://{host}/?view=chats", wait_until="networkidle")
-            # Tall viewports may prefetch a second page before the first scroll.
-            page.wait_for_function("() => document.querySelectorAll('.chat-entry').length >= 20")
+            page.wait_for_function("() => document.querySelectorAll('.chat-entry').length === 100")
             expect(page.locator(".chats-pagination, .chats-heading, .chats-date")).to_have_count(0)
             nav = page.locator(".sidebar-actions")
             jobs_button = nav.get_by_role("button", name="Jobs")
@@ -73,15 +72,13 @@ def test_sidebar_infinite_scroll_search_focus_and_wide_mobile_swipe(
             nav.get_by_role("button", name="Search chats").click()
             for _ in range(4):
                 previous = page.locator(".chat-entry").count()
-                if previous == 65:
+                if previous == 165:
                     break
-                page.locator(".chats-list").evaluate(
-                    "element => element.scrollTop = element.scrollHeight - element.clientHeight - 600"
-                )
+                page.get_by_role("button", name="Load more chats").click()
                 page.wait_for_function(
                     f"() => document.querySelectorAll('.chat-entry').length > {previous}"
                 )
-            expect(page.locator(".chat-entry")).to_have_count(65)
+            expect(page.locator(".chat-entry")).to_have_count(165)
             assert page.locator(".chat-row-top strong").last.inner_text() == "Scroll entry 000"
 
             page.locator(".chat-row").first.click()

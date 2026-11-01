@@ -102,7 +102,7 @@ class ReadImport(RequestModel):
 class ResultsQuery(BaseModel):
     # Query strings require numeric decoding; JSON bodies remain strictly typed.
     model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
-    limit: Annotated[int, Field(ge=1, le=50)] = 20
+    limit: Annotated[int, Field(ge=1, le=100)] = 20
     offset: Annotated[int, Field(ge=0, le=100_000)] = 0
     q: Annotated[str, StringConstraints(strip_whitespace=True, max_length=200)] = ""
     status: Literal[

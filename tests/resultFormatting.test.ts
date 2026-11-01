@@ -55,7 +55,7 @@ test("preflight failure does not incorrectly blame browser verification", () => 
     "Not sent · preflight check failed. Tap Send to retry.",
   );
   expect(turnStatus("prepared")).toBe("Pending");
-  expect(turnStatus("outcome_unknown")).toContain("no automatic retry");
+  expect(turnStatus("outcome_unknown")).toContain("no automatic resend");
 });
 
 test("markdown hyperlinks cannot execute script schemes", () => {
@@ -151,7 +151,7 @@ test("transcript badges map every local reply state", () => {
   expect(responseBadge("generating")).toBe("Live");
   expect(responseBadge("interrupted")).toBe("Interrupted");
   expect(responseBadge("unavailable")).toBe("Unavailable");
-  expect(responseBadge("outcome_unknown")).toBe("Uncertain");
+  expect(responseBadge("outcome_unknown")).toBe("Send unverified");
   expect(responseBadge("preflight_failed")).toBe("Not sent");
   expect(responseBadge("dispatching")).toBe("Sending");
   expect(responseBadge("accepted")).toBe("Waiting");

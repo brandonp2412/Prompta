@@ -53,7 +53,7 @@ export function createChatsPageController(initialProps: Props) {
   const onNewChat = signal(initialProps.onNewChat);
   const onQueued = signal(initialProps.onQueued);
 
-  const pageSize = 20;
+  const pageSize = 100;
   const preferencesKey = "prompta.local-sidebar.v1";
   const readSyncKey = "prompta.local-read-sync.v1";
   const statuses: { value: ChatListStatus; label: string }[] = [
@@ -436,7 +436,7 @@ export function createChatsPageController(initialProps: Props) {
     pinWriteError = false;
     pinError.value = "";
     if (next) {
-      pinnedIds.value = [item.send_id, ...pinnedIds.value];
+      pinnedIds.value = [...pinnedIds.value, item.send_id];
       pinnedItems.value = [
         item,
         ...pinnedItems.value.filter((pinnedItem) => pinnedItem.send_id !== item.send_id),
@@ -458,7 +458,7 @@ export function createChatsPageController(initialProps: Props) {
         );
         if (!response.ok) throw new Error("Local pin update failed");
         confirmedPins = next
-          ? [item, ...confirmedPins.filter((confirmed) => confirmed.send_id !== item.send_id)]
+          ? [...confirmedPins.filter((confirmed) => confirmed.send_id !== item.send_id), item]
           : confirmedPins.filter((confirmed) => confirmed.send_id !== item.send_id);
         pinWriteError = false;
         pinError.value = "";
@@ -467,7 +467,7 @@ export function createChatsPageController(initialProps: Props) {
         // this one pin/unpin without risking a second write.
         if (await pinReceiptConfirmed(item.send_id, next)) {
           confirmedPins = next
-            ? [item, ...confirmedPins.filter((confirmed) => confirmed.send_id !== item.send_id)]
+            ? [...confirmedPins.filter((confirmed) => confirmed.send_id !== item.send_id), item]
             : confirmedPins.filter((confirmed) => confirmed.send_id !== item.send_id);
           pinWriteError = false;
           pinError.value = "";
@@ -585,21 +585,6 @@ export function createChatsPageController(initialProps: Props) {
     ].sort(newestFirst);
   }
 
-  function maybeLoadMore() {
-    if (
-      loadingList.value ||
-      loadingMore.value ||
-      Boolean(listError.value) ||
-      morePageFailed.value ||
-      nextOffset.value >= total.value ||
-      !listPane.value
-    )
-      return;
-    const pane = listPane.value;
-    const prefetchDistance = Math.max(800, pane.clientHeight * 2);
-    if (pane.scrollTop + pane.clientHeight >= pane.scrollHeight - prefetchDistance) void loadMore();
-  }
-
   async function loadList(reset = false) {
     if (!reset && listInFlight) {
       // EventSource and periodic repairs must not repeatedly supersede a slow
@@ -637,7 +622,6 @@ export function createChatsPageController(initialProps: Props) {
       if (generation === listGeneration) {
         loadingList.value = false;
         await tick();
-        maybeLoadMore();
         listInFlight = false;
         if (listRefreshPending) {
           listRefreshPending = false;
@@ -679,8 +663,6 @@ export function createChatsPageController(initialProps: Props) {
       if (generation === listGeneration) {
         loadingMore.value = false;
         await tick();
-        // On a tall viewport, continue until the rail actually overflows.
-        if (!listError.value) maybeLoadMore();
       }
     }
   }
@@ -1536,6 +1518,9 @@ export function createChatsPageController(initialProps: Props) {
     jobsWorkspace,
     searchInput,
     loadingList,
+    loadingMore,
+    nextOffset,
+    total,
     listError,
     morePageFailed,
     detailError,
@@ -1550,7 +1535,6 @@ export function createChatsPageController(initialProps: Props) {
     markAllRead,
     togglePin,
     loadQueue,
-    maybeLoadMore,
     loadList,
     loadMore,
     loadDetail,
