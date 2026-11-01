@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import time
 from pathlib import Path
 
 import pytest
@@ -92,6 +93,45 @@ def test_refuses_to_take_over_existing_pause(tmp_path: Path) -> None:
     with pytest.raises(FileExistsError):
         deploy_guarded.request_pause(gate)
     assert gate.is_paused()
+
+
+def test_wait_for_idle_checks_live_leases_not_stale_statuses(tmp_path: Path) -> None:
+    gate = DeploymentGate(tmp_path / "runtime.sqlite3")
+    make_databases(tmp_path, active=True)
+    with sqlite3.connect(tmp_path / "chat-results.sqlite3") as db:
+        db.execute("UPDATE job_responses SET capture_deadline=?", (time.time() + 60,))
+        db.execute("UPDATE manual_reply_turns SET lease_deadline=?", (time.time() + 60,))
+    with sqlite3.connect(tmp_path / "ui-send-jobs.sqlite3") as db:
+        db.execute("UPDATE job_deliveries SET lease_expires_at=?", (time.time() + 60,))
+    assert not deploy_guarded.wait_for_idle(gate, timeout=0)
+    with sqlite3.connect(tmp_path / "chat-results.sqlite3") as db:
+        db.execute("UPDATE job_responses SET capture_deadline=0")
+        db.execute("UPDATE manual_reply_turns SET lease_deadline=0")
+    with sqlite3.connect(tmp_path / "ui-send-jobs.sqlite3") as db:
+        db.execute("UPDATE job_deliveries SET lease_expires_at=0")
+    assert deploy_guarded.wait_for_idle(gate, timeout=0)
+
+
+def test_busy_deployment_aborts_without_stopping_workers(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    state = tmp_path / "state"
+    state.mkdir()
+    gate = DeploymentGate(state / "runtime.sqlite3")
+    repo = tmp_path / "repo"
+    (repo / ".git").mkdir(parents=True)
+    commands: list[tuple[str, ...]] = []
+
+    def fake_run(args: list[str], **_kwargs: object) -> object:
+        commands.append(tuple(args))
+        return type("Result", (), {"returncode": 0})()
+
+    monkeypatch.setattr(deploy_guarded.subprocess, "run", fake_run)
+    monkeypatch.setattr(deploy_guarded, "wait_for_idle", lambda _gate: False)
+    assert not deploy_guarded.deploy(repo, gate)
+    assert not gate.is_paused()
+    assert not (state / "deployment-interrupted.json").exists()
+    assert all(command[0] == "git" for command in commands)
 
 
 def test_successful_deploy_restarts_apps_but_not_browser(
