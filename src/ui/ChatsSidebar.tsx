@@ -40,6 +40,7 @@ export default function ChatsSidebar({
     nextOffset,
     total,
     loadMore,
+    retryOlderChats,
     applyFilter,
     searchChanged,
     clearSearch,
@@ -363,7 +364,7 @@ export default function ChatsSidebar({
           <button
             type="button"
             disabled={loadingList.value || loadingMore.value}
-            onClick={() => void loadMore()}
+            onClick={() => void retryOlderChats()}
             className="btn ghost"
           >
             Retry loading older chats

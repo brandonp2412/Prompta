@@ -368,3 +368,97 @@ test("maximum workers can be cleared and replaced without submitting an invalid 
     },
   ]);
 });
+
+test("an invalid older-page offset retries from the first page instead of the same hole", async () => {
+  const offsets: number[] = [];
+  let stalePage = true;
+  globalThis.fetch = Object.assign(
+    async (input: RequestInfo | URL) => {
+      const url = new URL(String(input), "http://localhost");
+      const offset = Number(url.searchParams.get("offset"));
+      offsets.push(offset);
+      if (offset === 100 && stalePage) return Response.json({ items: [], total: 150 });
+      return Response.json({
+        items:
+          offset === 0
+            ? Array.from({ length: 100 }, (_, i) => run(i))
+            : Array.from({ length: 50 }, (_, i) => run(100 + i)),
+        total: 150,
+      });
+    },
+    { preconnect: originalFetch.preconnect },
+  );
+  const { model } = sidebar();
+  await act(async () => {
+    await model.loadList(true);
+    await model.loadMore();
+  });
+  expect(offsets).toEqual([0, 100]);
+  const retry = screen.getByRole("button", { name: "Retry loading older chats" });
+  expect(retry).toBeTruthy();
+  // The stalled sentinel must not issue more requests before a deliberate retry.
+  const pane = document.querySelector(".chats-list");
+  if (!pane) throw new Error("Chat list missing");
+  fireEvent.scroll(pane, { target: { scrollTop: 10000 } });
+  expect(offsets).toEqual([0, 100]);
+
+  stalePage = false;
+  await userEvent.setup().click(retry);
+  expect(offsets).toEqual([0, 100, 0]);
+  expect(screen.queryByRole("button", { name: "Retry loading older chats" })).toBeNull();
+  await act(async () => {
+    await model.loadMore();
+  });
+  expect(offsets).toEqual([0, 100, 0, 100]);
+  expect(screen.getByText("Chat 149")).toBeTruthy();
+});
+
+test("a failed first-page resync keeps older-page retry available", async () => {
+  const offsets: number[] = [];
+  let failRefresh = false;
+  globalThis.fetch = Object.assign(
+    async (input: RequestInfo | URL) => {
+      const offset = Number(new URL(String(input), "http://localhost").searchParams.get("offset"));
+      offsets.push(offset);
+      if (offset === 0 && failRefresh) return new Response("Unavailable", { status: 503 });
+      if (offset === 100) return Response.json({ items: [], total: 150 });
+      return Response.json({ items: Array.from({ length: 100 }, (_, i) => run(i)), total: 150 });
+    },
+    { preconnect: originalFetch.preconnect },
+  );
+  const { model } = sidebar();
+  await act(async () => {
+    await model.loadList(true);
+    await model.loadMore();
+  });
+  failRefresh = true;
+  await userEvent.setup().click(screen.getByRole("button", { name: "Retry loading older chats" }));
+  expect(offsets).toEqual([0, 100, 0]);
+  await waitFor(() =>
+    expect((screen.getByRole("button", { name: "Retry loading older chats" }) as HTMLButtonElement).disabled).toBe(false),
+  );
+  failRefresh = false;
+  await userEvent.setup().click(screen.getByRole("button", { name: "Retry loading older chats" }));
+  expect(offsets).toEqual([0, 100, 0, 0]);
+});
+
+test("a status change consumes pending search debounce without a duplicate fetch", async () => {
+  const requests: string[] = [];
+  globalThis.fetch = Object.assign(
+    async (input: RequestInfo | URL) => {
+      requests.push(String(input));
+      return Response.json({ items: [], total: 0 });
+    },
+    { preconnect: originalFetch.preconnect },
+  );
+  const { model } = sidebar();
+  await act(async () => {
+    model.search.value = "queued";
+    model.searchChanged();
+    model.statusFilter.value = "queued";
+    model.applyFilter();
+  });
+  await new Promise((resolve) => setTimeout(resolve, 350));
+  expect(requests.filter((request) => new URL(request, "http://localhost").searchParams.get("q") === "queued")).toHaveLength(1);
+  expect(requests.some((request) => new URL(request, "http://localhost").searchParams.get("status") === "queued")).toBe(true);
+});

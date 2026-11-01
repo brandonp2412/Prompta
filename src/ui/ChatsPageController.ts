@@ -108,6 +108,7 @@ export function createChatsPageController(initialProps: Props) {
   const total = signal(0);
   const nextOffset = signal(0);
   const loadingMore = signal(false);
+  let olderPageChanged = false;
   const search = signal("");
   const statusFilter = signal<ChatListStatus>("");
   const detail = signal<RunDetail | null>(null);
@@ -667,7 +668,7 @@ export function createChatsPageController(initialProps: Props) {
     loadingMore.value = false; // A fresh first-page response supersedes an in-flight append.
     // A search/filter fetch can fail or time out. Keep the last confirmed rail
     // and its scroll position until the new result page is actually available.
-    loadingList.value = items.value.length === 0;
+    loadingList.value = reset || items.value.length === 0;
     try {
       const response = await localGet("./api/results?" + resultsParams(0));
       if (!response.ok) throw new Error("Results could not be loaded");
@@ -682,17 +683,19 @@ export function createChatsPageController(initialProps: Props) {
         : Math.min(body.total, Math.max(nextOffset.value, body.items.length));
       if (reset && listPane.value) listPane.value.scrollTop = 0;
       listError.value = "";
-      if (reset) morePageFailed.value = false;
+      if (reset) {
+        morePageFailed.value = false;
+        olderPageChanged = false;
+      }
     } catch {
       if (generation === listGeneration) {
-        if (reset) morePageFailed.value = false;
         listError.value = "Local results are temporarily unavailable.";
       }
     } finally {
       if (generation === listGeneration) {
-        loadingList.value = false;
         await tick();
         listInFlight = false;
+        loadingList.value = false;
         if (listRefreshPending) {
           listRefreshPending = false;
           void loadList();
@@ -714,18 +717,21 @@ export function createChatsPageController(initialProps: Props) {
       const next = nextResultPageOffset(offset, body.items.length, body.total);
       if (next === null) {
         // Avoid a request storm when concurrent deletions invalidate the offset.
-        // An explicit Retry can revisit this page after the list settles.
+        // Retrying this invalid offset cannot make progress; restart at page one.
+        olderPageChanged = true;
         morePageFailed.value = true;
-        listError.value = "Older chats changed while loading. Retry this page to resync.";
+        listError.value = "Older chats changed while loading. Retry to refresh the list.";
         return;
       }
       items.value = mergeRuns(items.value, body.items);
       total.value = body.total;
       nextOffset.value = next;
       morePageFailed.value = false;
+      olderPageChanged = false;
       listError.value = "";
     } catch {
       if (generation === listGeneration) {
+        olderPageChanged = false;
         morePageFailed.value = true;
         listError.value = "More local chats could not be loaded.";
       }
@@ -735,6 +741,11 @@ export function createChatsPageController(initialProps: Props) {
         await tick();
       }
     }
+  }
+
+  async function retryOlderChats() {
+    if (olderPageChanged) await loadList(true);
+    else await loadMore();
   }
 
   async function loadDetail(id: string) {
@@ -1401,6 +1412,7 @@ export function createChatsPageController(initialProps: Props) {
   }
 
   function applyFilter() {
+    clearTimeout(searchTimer);
     void loadList(true);
   }
 
@@ -1630,6 +1642,7 @@ export function createChatsPageController(initialProps: Props) {
     loadQueue,
     loadList,
     loadMore,
+    retryOlderChats,
     loadDetail,
     sendFresh,
     freshContinuationPrompt,
