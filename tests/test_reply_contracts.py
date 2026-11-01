@@ -99,7 +99,7 @@ def test_early_followups_wait_for_verified_parent_and_dispatch_in_order(tmp_path
     ]
 
 
-def test_queued_dispatch_scans_many_blocked_chats_in_three_selects(tmp_path: Path) -> None:
+def test_queued_dispatch_scans_many_blocked_chats_in_two_selects(tmp_path: Path) -> None:
     store = seed(tmp_path)
     for index in range(12):
         send_id = f"missing-parent-{index}"
@@ -131,7 +131,7 @@ def test_queued_dispatch_scans_many_blocked_chats_in_three_selects(tmp_path: Pat
         event.remove(store.engine, "before_cursor_execute", count_select)
 
     assert ready == ("run", ReplyIntent(ready_id, CONVERSATION, PARENT, "Ready to send"))
-    assert len(selects) == 3  # Preflight read avoids writer locks when idle.
+    assert len(selects) == 2  # One read-only lineage check, then one under the writer lock.
     for index in range(12):
         blocked = store.get(f"blocked-followup-{index:016d}")
         assert blocked is not None
@@ -154,6 +154,33 @@ def test_blocked_queued_reply_scan_does_not_wait_for_a_writer(tmp_path: Path) ->
         writer.close()
 
     queued = store.get("queued-1111111111111111")
+    assert queued is not None and queued["status"] == "queued"
+
+
+def test_queued_reply_with_unresolved_predecessor_never_takes_writer_lock(
+    tmp_path: Path,
+) -> None:
+    store = seed(tmp_path)
+    first = "queued-first-111111111111"
+    second = "queued-second-22222222222"
+    store.queue_followup("run", first, "First follow-up", now=200)
+    store.queue_followup("run", second, "Second follow-up", now=201)
+    ready = store.next_queued_intent(now=202)
+    assert ready == ("run", ReplyIntent(first, CONVERSATION, PARENT, "First follow-up"))
+    assert store.claim(first, "active:worker", deadline=400, now=203)
+
+    # The first follow-up is in flight. An unrelated writer must never
+    # stall the one-second pump while the second waits for its answer.
+    writer = sqlite3.connect(store.responses.path, timeout=0.1, isolation_level=None)
+    try:
+        writer.execute("BEGIN IMMEDIATE")
+        assert store.next_queued_intent(now=204) is None
+        assert store.next_queued_intent(exclude={second}, now=204) is None
+    finally:
+        writer.rollback()
+        writer.close()
+
+    queued = store.get(second)
     assert queued is not None and queued["status"] == "queued"
 
 

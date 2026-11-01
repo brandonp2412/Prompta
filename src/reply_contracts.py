@@ -19,7 +19,7 @@ from sqlalchemy import (
     update,
 )
 from sqlalchemy.dialects.sqlite import insert
-from sqlalchemy.engine import RowMapping
+from sqlalchemy.engine import Connection, RowMapping
 from sqlalchemy.sql.elements import ColumnElement
 
 from .reply_read_state import ReplyReadState, visible_reply_status
@@ -230,88 +230,92 @@ class ManualReplyStore(ReplyReadState):
         assert row is not None
         return row
 
+    @staticmethod
+    def _ready_queued_intent(
+        connection: Connection, exclude: set[str] | None,
+    ) -> tuple[str, ReplyIntent, str] | None:
+        """Read-only lineage check; only verified predecessors allow dispatch."""
+        waiting = replies.alias("waiting")
+        queued_chats = select(waiting.c.send_id).where(
+            waiting.c.queued_by_user.is_(True),
+            waiting.c.status.in_(("queued", "prepared")),
+        )
+        rows = connection.execute(
+            select(
+                replies.c.reply_id, replies.c.send_id, replies.c.status,
+                replies.c.conversation_id, replies.c.parent_id, replies.c.message_id,
+                replies.c.user_text, replies.c.queued_by_user, replies.c.created_at,
+                results.c.conversation_id.label("original_conversation_id"),
+                results.c.message_id.label("original_message_id"),
+            )
+            .join(results, results.c.send_id == replies.c.send_id)
+            .where(
+                replies.c.send_id.in_(queued_chats),
+                results.c.status.in_(("completed", "interrupted", "unavailable", "stopped")),
+                results.c.conversation_id != "",
+                results.c.message_id != "",
+            )
+            .order_by(replies.c.send_id, replies.c.created_at, replies.c.reply_id)
+        ).mappings()
+        by_send: dict[str, list[RowMapping]] = {}
+        candidates: list[RowMapping] = []
+        for row in rows:
+            by_send.setdefault(str(row["send_id"]), []).append(row)
+            if row["queued_by_user"] and row["status"] in ("queued", "prepared"):
+                candidates.append(row)
+        for row in sorted(candidates, key=lambda item: (item["created_at"], item["reply_id"])):
+            reply_id = str(row["reply_id"])
+            if exclude and reply_id in exclude:
+                continue
+            send_id = str(row["send_id"])
+            conversation_id = str(row["original_conversation_id"])
+            parent_id = str(row["original_message_id"])
+            for previous in by_send[send_id]:
+                if previous["status"] == "cancelled":
+                    continue
+                if previous["reply_id"] == reply_id:
+                    if row["status"] == "queued" or (
+                        row["conversation_id"], row["parent_id"]
+                    ) == (conversation_id, parent_id):
+                        return send_id, ReplyIntent(
+                            reply_id, conversation_id, parent_id, str(row["user_text"]),
+                        ), str(row["status"])
+                    break
+                if (previous["status"] not in ("completed", "interrupted", "stopped")
+                        or not previous["message_id"]
+                        or previous["conversation_id"] != conversation_id
+                        or previous["parent_id"] != parent_id):
+                    break
+                parent_id = str(previous["message_id"])
+        return None
+
     def next_queued_intent(
         self, *, exclude: set[str] | None = None, now: float | None = None,
     ) -> tuple[str, ReplyIntent] | None:
-        """Bind one explicitly queued turn only after verified, ordered predecessors."""
+        """Bind one explicit intent after a read-only preflight and atomic recheck."""
         at = time.time() if now is None else now
-        eligible = (
-            replies.c.queued_by_user.is_(True),
-            replies.c.status.in_(("queued", "prepared")),
-            results.c.status.in_(("completed", "interrupted", "unavailable", "stopped")),
-            results.c.conversation_id != "",
-            results.c.message_id != "",
-        )
-        # The one-second pump must not take SQLite's writer lock while idle.
-        # Re-check under BEGIN IMMEDIATE before preparing anything: this
-        # preflight is only a hint, never authorization to dispatch.
+        # Blocked follow-ups are common while a parent is generating or
+        # awaiting recovery. Never acquire SQLite's writer lock for those.
         with self.engine.connect() as connection:
-            pending = connection.execute(
-                select(replies.c.reply_id)
-                .join(results, results.c.send_id == replies.c.send_id)
-                .where(*eligible).limit(1)
-            ).first()
-        if pending is None:
-            return None
+            if self._ready_queued_intent(connection, exclude) is None:
+                return None
         with self.engine.begin() as connection:
             connection.exec_driver_sql("BEGIN IMMEDIATE")
-            # Load eligible source rows and predecessor chains together,
-            # retaining the atomic claim boundary for concurrent workers.
-            candidates = connection.execute(
-                select(
-                    replies,
-                    results.c.conversation_id.label("original_conversation_id"),
-                    results.c.message_id.label("original_message_id"),
-                )
-                .join(results, results.c.send_id == replies.c.send_id)
-                .where(*eligible)
-                .order_by(replies.c.created_at, replies.c.reply_id)
-            ).mappings().all()
-            if not candidates:
+            # A capture or another worker may have changed the lineage since
+            # the preflight. This is the authoritative dispatch decision.
+            ready = self._ready_queued_intent(connection, exclude)
+            if ready is None:
                 return None
-            predecessor_rows = connection.execute(
-                select(replies)
-                .where(replies.c.send_id.in_({str(row["send_id"]) for row in candidates}))
-                .order_by(replies.c.send_id, replies.c.created_at, replies.c.reply_id)
-            ).mappings()
-            predecessors_by_send: dict[str, list[RowMapping]] = {}
-            for predecessor in predecessor_rows:
-                predecessors_by_send.setdefault(str(predecessor["send_id"]), []).append(predecessor)
-            for row in candidates:
-                reply_id = str(row["reply_id"])
-                if exclude and reply_id in exclude:
-                    continue
-                send_id = str(row["send_id"])
-                conversation_id = str(row["original_conversation_id"])
-                parent_id = str(row["original_message_id"])
-                eligible = False
-                for previous in predecessors_by_send[send_id]:
-                    if previous["status"] == "cancelled":
-                        continue
-                    if previous["reply_id"] == reply_id:
-                        eligible = True
-                        break
-                    if (previous["status"] not in ("completed", "interrupted", "stopped")
-                            or not previous["message_id"]
-                            or previous["conversation_id"] != conversation_id
-                            or previous["parent_id"] != parent_id):
-                        break
-                    parent_id = str(previous["message_id"])
-                if not eligible:
-                    continue
-                if row["status"] == "queued":
-                    connection.execute(update(replies).where(
-                        replies.c.reply_id == reply_id, replies.c.status == "queued",
-                    ).values(status="prepared", conversation_id=conversation_id,
-                             parent_id=parent_id, updated_at=at))
-                elif (row["conversation_id"], row["parent_id"]) != (
-                    conversation_id, parent_id,
-                ):
-                    continue
-                return send_id, ReplyIntent(
-                    reply_id, conversation_id, parent_id, str(row["user_text"]),
-                )
-        return None
+            send_id, intent, status = ready
+            if status == "queued":
+                connection.execute(update(replies).where(
+                    replies.c.reply_id == intent.reply_id,
+                    replies.c.status == "queued",
+                ).values(
+                    status="prepared", conversation_id=intent.conversation_id,
+                    parent_id=intent.parent_id, updated_at=at,
+                ))
+            return send_id, intent
 
     def queued_recovery_candidates(self) -> list[str]:
         """Find queued chats needing a verified parent, with two bounded DB reads."""
