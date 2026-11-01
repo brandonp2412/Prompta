@@ -292,3 +292,44 @@ test("malformed settings stay disabled and allow a safe retry", async () => {
     (screen.getByRole("spinbutton", { name: "Maximum workers" }) as HTMLInputElement).value,
   ).toBe("2");
 });
+
+
+test("maximum workers can be cleared and replaced without submitting an invalid value", async () => {
+  const saves: unknown[] = [];
+  globalThis.fetch = Object.assign(
+    async (_input: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === "PUT") {
+        saves.push(JSON.parse(String(init.body)));
+        return Response.json({});
+      }
+      return Response.json({
+        stage_concurrency: { enabled: true, max_workers: 3 },
+        connector_approval: { enabled: false },
+      });
+    },
+    { preconnect: originalFetch.preconnect },
+  );
+  sidebar();
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "Profile" }));
+  await user.click(screen.getByRole("button", { name: "Settings" }));
+  const workers = (await screen.findByRole("spinbutton", {
+    name: "Maximum workers",
+  })) as HTMLInputElement;
+  const save = screen.getByRole("button", { name: "Save settings" }) as HTMLButtonElement;
+  await waitFor(() => expect(save.disabled).toBe(false));
+
+  await user.clear(workers);
+  expect(workers.value).toBe("");
+  expect(save.disabled).toBe(true);
+  await user.type(workers, "12");
+  expect(workers.value).toBe("12");
+  expect(save.disabled).toBe(false);
+  await user.click(save);
+  expect(saves).toEqual([
+    {
+      stage_concurrency: { enabled: true, max_workers: 12 },
+      connector_approval: { enabled: false },
+    },
+  ]);
+});

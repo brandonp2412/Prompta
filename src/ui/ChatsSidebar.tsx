@@ -56,12 +56,20 @@ export default function ChatsSidebar({
   const settingsSaveRef = useRef<HTMLButtonElement>(null);
   const settingsApprovalRef = useRef<HTMLInputElement>(null);
   const listEndRef = useRef<HTMLDivElement>(null);
-  const [concurrency, setConcurrency] = useState({ enabled: true, max_workers: 3 });
+  const [concurrency, setConcurrency] = useState<{ enabled: boolean; max_workers: number | "" }>({
+    enabled: true,
+    max_workers: 3,
+  });
   const [approval, setApproval] = useState(false);
   const [settingsError, setSettingsError] = useState("");
   const [settingsReady, setSettingsReady] = useState(false);
   const [settingsLoadKey, setSettingsLoadKey] = useState(0);
   const [saving, setSaving] = useState(false);
+  const validWorkerCount =
+    typeof concurrency.max_workers === "number" &&
+    Number.isInteger(concurrency.max_workers) &&
+    concurrency.max_workers >= 1 &&
+    concurrency.max_workers <= 128;
   const hasOlderChats = nextOffset.value < total.value;
   useEffect(() => {
     if (
@@ -173,6 +181,7 @@ export default function ChatsSidebar({
     return () => controller.abort();
   }, [settingsOpen, settingsLoadKey]);
   async function saveSettings() {
+    if (!settingsReady || !validWorkerCount || saving) return;
     setSaving(true);
     setSettingsError("");
     try {
@@ -488,9 +497,13 @@ export default function ChatsSidebar({
                   max="128"
                   disabled={!settingsReady || saving || !concurrency.enabled}
                   value={concurrency.max_workers}
-                  onChange={(event) =>
-                    setConcurrency({ ...concurrency, max_workers: Number(event.target.value) })
-                  }
+                  onChange={(event) => {
+                    const value = event.currentTarget.value;
+                    setConcurrency({
+                      ...concurrency,
+                      max_workers: value === "" ? "" : Number(value),
+                    });
+                  }}
                 />
               </label>
               <p>
@@ -516,11 +529,7 @@ export default function ChatsSidebar({
                 disabled={
                   (!settingsReady && !settingsError) ||
                   saving ||
-                  (settingsReady &&
-                    concurrency.enabled &&
-                    (!Number.isInteger(concurrency.max_workers) ||
-                      concurrency.max_workers < 1 ||
-                      concurrency.max_workers > 128))
+                  (settingsReady && !validWorkerCount)
                 }
                 onClick={() => {
                   if (settingsReady) void saveSettings();

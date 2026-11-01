@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 
@@ -194,6 +195,63 @@ def test_settings_load_retry_recovers_without_reopening(
             expect(page.get_by_role("button", name="Save settings")).to_be_enabled()
             expect(page.get_by_role("alert")).to_have_count(0)
             assert len(requests) == 2
+            assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+        finally:
+            browser.close()
+
+
+@pytest.mark.parametrize("width,height", [(320, 700), (390, 844), (1440, 900)])
+def test_settings_worker_count_can_be_retyped_without_saving_zero(
+    tmp_path: Path, width: int, height: int
+) -> None:
+    chromium = Path(os.environ.get("PROMPTA_TEST_CHROMIUM", "/usr/bin/chromium"))
+    if not chromium.is_file():
+        pytest.skip("Chromium unavailable")
+
+    with server(tmp_path) as (_app, port), sync_patchright() as patchright:
+        browser = patchright.chromium.launch(
+            executable_path=str(chromium), headless=True, args=["--no-sandbox", "--no-zygote"]
+        )
+        try:
+            page = browser.new_page(viewport={"width": width, "height": height})
+            page.route("**/api/events", lambda route: route.abort())
+            saved: list[dict[str, object]] = []
+
+            def settings_response(route: object) -> None:
+                from patchright.sync_api import Route
+
+                assert isinstance(route, Route)
+                if route.request.method == "PUT":
+                    saved.append(json.loads(route.request.post_data or "{}"))
+                    route.fulfill(status=200, content_type="application/json", body="{}")
+                else:
+                    route.fulfill(
+                        status=200,
+                        content_type="application/json",
+                        body='{"stage_concurrency":{"enabled":true,"max_workers":3},"connector_approval":{"enabled":false}}',
+                    )
+
+            page.route("**/api/settings", settings_response)
+            page.goto(f"http://127.0.0.1:{port}/?view=chats", wait_until="domcontentloaded")
+            page.get_by_role("button", name="Profile").click()
+            page.get_by_role("button", name="Settings", exact=True).click()
+            workers = page.get_by_role("spinbutton", name="Maximum workers")
+            save = page.get_by_role("button", name="Save settings")
+            expect(workers).to_have_value("3")
+            workers.fill("")
+            expect(workers).to_have_value("")
+            expect(save).to_be_disabled()
+            workers.fill("12")
+            expect(workers).to_have_value("12")
+            expect(save).to_be_enabled()
+            save.click()
+            expect(page.get_by_role("dialog", name="Prompta settings")).to_have_count(0)
+            assert saved == [
+                {
+                    "stage_concurrency": {"enabled": True, "max_workers": 12},
+                    "connector_approval": {"enabled": False},
+                }
+            ]
             assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
         finally:
             browser.close()
