@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { marked, type Token, type Tokens } from "marked";
 import { highlightedCode } from "./CodeHighlight";
 import { notify } from "./toast";
+import CopyIcon from "./CopyIcon";
 import {
   formatStoredResponse,
   isFlattenedDomResponse,
@@ -202,6 +203,7 @@ export default function ResultMarkdown({
                   aria-live="polite"
                   onClick={() => void copyCode(token.text, index)}
                 >
+                  <CopyIcon />
                   {copyLabel}
                 </button>
               </div>

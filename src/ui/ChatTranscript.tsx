@@ -2,6 +2,7 @@ import React, { useLayoutEffect } from "react";
 import { useSignals } from "@preact/signals-react/runtime";
 import type { createChatsPageController } from "./ChatsPageController";
 import ResultMarkdown from "./ResultMarkdown";
+import CopyIcon from "./CopyIcon";
 import ToolCalls from "./ToolCalls";
 import { isVideoAttachment } from "./mediaAttachments";
 import {
@@ -223,6 +224,7 @@ export default function ChatTranscript({
                             }
                             className="copy-message"
                           >
+                            <CopyIcon />
                             {copyLabel(turn.reply_id || detail.value!.send_id)}
                           </button>
                         </div>

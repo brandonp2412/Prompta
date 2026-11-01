@@ -892,7 +892,8 @@ button:disabled { cursor: default; opacity: 0.45; }
 
 /* Stage 4: local multi-turn transcript, with no remote history access. */
 .chat-detail-content .message-role { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.copy-message, .code-toolbar button { border: 0; background: transparent; color: #aaa; font: inherit; font-size: .75rem; cursor: pointer; padding: 5px 8px; border-radius: 7px; }
+.copy-message, .code-toolbar button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; border: 0; background: transparent; color: #aaa; font: inherit; font-size: .75rem; cursor: pointer; padding: 5px 8px; border-radius: 7px; }
+.copy-icon { width: 15px; height: 15px; flex: none; }
 .copy-message:hover, .code-toolbar button:hover { color: #fff; background: #353535; }
 .chat-attachments { margin: 12px 0 0 auto; max-width: 92%; display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
 .chat-attachments a { display: block; border-radius: 12px; overflow: hidden; background: #272727; border: 1px solid #414141; }
