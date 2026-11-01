@@ -1,21 +1,14 @@
-"""One-shot guarded rollout of live connector approval supervision on test host.
+"""Read-only lease inspection for retired connector approval rollout.
 
-Used when a deployment lands while delivery captures or manual replies are active.
-Do not restart their processes until all leased in-flight work has drained.
+Use scripts.deploy_guarded for any application deployment.
 """
 
 from __future__ import annotations
 
-import logging
 import sqlite3
-import subprocess
-import time
 from pathlib import Path
 
-logger = logging.getLogger(__name__)
 STATE_DIR = Path.home() / ".local/state/prompta"
-POLL_SECONDS = 20
-MAX_WAIT_SECONDS = 6 * 60 * 60
 
 
 def active_work(now: float) -> tuple[int, int, bool]:
@@ -45,30 +38,9 @@ def active_work(now: float) -> tuple[int, int, bool]:
 
 
 def main() -> None:
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-    deadline = time.monotonic() + MAX_WAIT_SECONDS
-    while time.monotonic() < deadline:
-        try:
-            jobs, replies, busy = active_work(time.time())
-            if not jobs and not replies and not busy:
-                # Double-check immediately before the restart to minimize races
-                # with a newly accepted send or manual reply.
-                jobs, replies, busy = active_work(time.time())
-                if not jobs and not replies and not busy:
-                    for service in ("prompta-delivery-worker.service", "prompta-ui.service"):
-                        subprocess.run(["systemctl", "--user", "restart", service], check=True)
-                    logger.info("Live approval supervisor deployed after in-flight work drained")
-                    return
-            logger.info(
-                "Deferring live approval rollout active_captures=%d active_replies=%d busy=%s",
-                jobs,
-                replies,
-                busy,
-            )
-        except (OSError, sqlite3.Error, subprocess.CalledProcessError) as exc:
-            logger.warning("Live approval rollout check failed type=%s", type(exc).__name__)
-        time.sleep(POLL_SECONDS)
-    raise SystemExit("Live approval rollout timed out; services left uninterrupted")
+    raise SystemExit(
+        "Legacy approval rollout disabled; use .venv/bin/python -m scripts.deploy_guarded"
+    )
 
 
 if __name__ == "__main__":

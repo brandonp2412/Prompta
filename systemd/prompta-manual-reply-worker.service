@@ -24,7 +24,7 @@ MemoryHigh=512M
 MemoryMax=1G
 TasksMax=256
 # Preserve a verified, long-running reply across deployments and UI reloads.
-TimeoutStopSec=3000s
+TimeoutStopSec=infinity
 
 [Install]
 WantedBy=prompta.target

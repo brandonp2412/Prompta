@@ -24,6 +24,7 @@ from .delivery_browser import (
     SendNotAcceptedError,
 )
 from .delivery_queue import DeliveryQueueStore
+from .deployment_gate import DeploymentGate
 from .history_recovery import run_history_recovery
 from .persistence import DEFAULT_RUNTIME_PATH
 from .rate_limit import RateLimitError
@@ -398,6 +399,7 @@ def run(
     runtime = SchedulerRuntime(state_path, state_path)
     health = ServiceHealthStore(state_path)
     admission = DeliveryAdmission(runtime)
+    deployment_gate = DeploymentGate(state_path)
     sender = BrowserDeliverySender(
         state_path,
         profile=chrome_profile,
@@ -444,16 +446,21 @@ def run(
                     time.sleep(min(1.0, max(0.1, retry_after)) if retry_after > 0 else 1.0)
                     continue
 
-                record = queue.claim_next(
-                    owner,
-                    lease_seconds=_LEASE_SECONDS,
-                    manual_only=not hours_allowed,
-                )
+                if deployment_gate.is_paused():
+                    time.sleep(1.0)
+                    continue
+                with deployment_gate.admission() as deploy_allowed:
+                    if not deploy_allowed:
+                        continue
+                    record = queue.claim_next(
+                        owner,
+                        lease_seconds=_LEASE_SECONDS,
+                        manual_only=not hours_allowed,
+                    )
+                    if record is not None:
+                        _deliver_one(queue, sender, runtime, health, owner, record)
                 if record is None:
                     time.sleep(0.5)
-                    continue
-
-                _deliver_one(queue, sender, runtime, health, owner, record)
             except OperationalError as exc:
                 if not _sqlite_busy(exc):
                     raise

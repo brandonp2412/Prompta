@@ -41,3 +41,9 @@ def test_rollout_waits_for_live_capture_and_manual_reply_leases(
         db.execute("UPDATE service_health SET activity=''")
 
     assert rollout.active_work(100) == (0, 0, False)
+
+
+def test_legacy_rollout_cannot_restart_services() -> None:
+    rollout = importlib.import_module("scripts.approval_rollout_when_idle")
+    with pytest.raises(SystemExit, match="Legacy approval rollout disabled"):
+        rollout.main()
