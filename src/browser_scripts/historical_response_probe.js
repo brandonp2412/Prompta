@@ -56,7 +56,7 @@
     'button[data-testid="copy-turn-action-button"], button[aria-label="Copy"]'
   )].some(visible));
   const streaming = turns.some((turn) => !!turn.querySelector('[data-is-streaming="true"], .result-streaming'));
-  const generating = [...document.querySelectorAll(
+  const generating = users.length === 1 && [...document.querySelectorAll(
     'button[data-testid="stop-button"], button[aria-label="Stop generating"], button[aria-label="Stop streaming"]'
   )].some(visible);
   const lastTextIndex = segments.findLastIndex(Boolean);

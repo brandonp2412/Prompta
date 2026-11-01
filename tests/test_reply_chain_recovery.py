@@ -368,7 +368,7 @@ def test_attention_filter_surfaces_uncertain_followups_and_clears_after_recovery
     assert responses.recovery_metrics(now=20)["attention_chats"] == 1
     replies.annotate_response_markers(page["items"])
     assert page["items"][0]["needs_attention"] is True
-    assert page["items"][0]["status"] == "completed"
+    assert page["items"][0]["status"] == "outcome_unknown"
 
     assert replies.recover_historical_reply(
         reply_id,
@@ -395,8 +395,8 @@ def test_attention_filter_surfaces_uncertain_followups_and_clears_after_recovery
             .where(result_table.c.send_id == "chain-run")
             .values(status="unavailable")
         )
-    assert responses.page(status="needs_attention")["total"] == 1
-    assert responses.recovery_metrics(now=30)["attention_chats"] == 1
+    assert responses.page(status="needs_attention")["total"] == 0
+    assert responses.recovery_metrics(now=30)["attention_chats"] == 0
 
     with responses.engine.begin() as connection:
         connection.execute(
@@ -405,9 +405,11 @@ def test_attention_filter_surfaces_uncertain_followups_and_clears_after_recovery
             .values(status="outcome_unknown")
         )
     page = responses.page(status="needs_attention")
-    assert page["total"] == 1
-    replies.annotate_response_markers(page["items"])
-    assert page["items"][0]["needs_attention"] is True
+    assert page["total"] == 0
+    completed_page = responses.page()
+    replies.annotate_response_markers(completed_page["items"])
+    assert completed_page["items"][0]["needs_attention"] is False
+    assert completed_page["items"][0]["status"] == "completed"
 
 
 def test_mark_all_read_tracks_only_the_latest_completed_revision(tmp_path: Path) -> None:

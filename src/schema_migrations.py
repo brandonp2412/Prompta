@@ -13,7 +13,7 @@ from alembic import command
 from alembic.config import Config
 from alembic.migration import MigrationContext
 from alembic.script import ScriptDirectory
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, inspect
 from sqlalchemy.engine import Engine
 
 SchemaFamily = Literal["runtime", "results", "ownership"]
@@ -44,6 +44,26 @@ def upgrade_database(engine: Engine, family: SchemaFamily) -> None:
         head = ScriptDirectory.from_config(config).get_current_head()
         if current == head:
             return
+        if family == "results" and current is None:
+            # Adopt only a fully materialized versionless results store. A
+            # partially upgraded database must still fail safely during
+            # migrations instead of silently skipping missing columns.
+            from .reply_tables import _SCHEMA as reply_schema
+            from .response_tables import _SCHEMA as response_schema
+
+            inspector = inspect(connection)
+            existing = set(inspector.get_table_names())
+            expected_tables = (*response_schema.tables.values(), *reply_schema.tables.values())
+            if expected_tables and all(
+                table.name in existing and
+                {column.name for column in table.columns} <= {
+                    column["name"] for column in inspector.get_columns(table.name)
+                }
+                for table in expected_tables
+            ):
+                config.attributes["connection"] = connection
+                command.stamp(config, "head")
+                return
         config.attributes["connection"] = connection
         command.upgrade(config, "head")
 

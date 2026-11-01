@@ -19,6 +19,7 @@ replies = Table(
     Column("queued_by_user", Boolean, nullable=False, server_default="0"),
     Column("lease_owner", String, nullable=False, default=""),
     Column("lease_deadline", Float, nullable=False, default=0),
+    Column("live_observed_at", Float, nullable=False, server_default="0"),
     Column("created_at", Float, nullable=False),
     Column("updated_at", Float, nullable=False),
 )

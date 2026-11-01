@@ -9,7 +9,10 @@ from sqlalchemy import (
     String,
     Table,
     Text,
+    and_,
+    cast,
     column,
+    func,
     or_,
     select,
     table,
@@ -37,22 +40,27 @@ results = Table(
     Column("capture_deadline", Float, nullable=False, default=0),
 )
 Index("job_responses_active", results.c.status, results.c.capture_deadline)
-_reply_attention = table("manual_reply_turns", column("send_id"), column("status"))
+_reply_attention = table(
+    "manual_reply_turns", column("send_id"), column("reply_id"),
+    column("status"), column("created_at"), column("live_observed_at"),
+)
+_latest_reply = (select(_reply_attention.c.status)
+                 .where(_reply_attention.c.send_id == results.c.send_id)
+                 .order_by(_reply_attention.c.created_at.desc(),
+                           _reply_attention.c.reply_id.desc())
+                 .limit(1).scalar_subquery())
+_latest_live_at = (select(_reply_attention.c.live_observed_at)
+                   .where(_reply_attention.c.send_id == results.c.send_id)
+                   .order_by(_reply_attention.c.created_at.desc(),
+                             _reply_attention.c.reply_id.desc())
+                   .limit(1).scalar_subquery())
+_live_cutoff = cast(func.strftime("%s", "now"), Float) - 10 * 60
 _attention_filter = or_(
-    results.c.status.in_(("interrupted", "unavailable", "outcome_unknown")),
-    select(_reply_attention.c.send_id)
-    .where(
-        _reply_attention.c.send_id == results.c.send_id,
-        _reply_attention.c.status.in_(
-            (
-                "preflight_failed",
-                "outcome_unknown",
-                "interrupted",
-                "unavailable",
-            )
-        ),
-    )
-    .exists(),
+    and_(_latest_reply.is_(None),
+         results.c.status.in_(("interrupted", "unavailable", "outcome_unknown"))),
+    _latest_reply.in_(("preflight_failed", "unavailable")),
+    and_(_latest_reply.in_(("outcome_unknown", "interrupted")),
+         _latest_live_at <= _live_cutoff),
 )
 local_chat_pins = Table(
     "local_chat_pins",

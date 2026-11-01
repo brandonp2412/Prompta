@@ -21,7 +21,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.sqlite import insert
 from sqlalchemy.sql.elements import ColumnElement
 
-from .reply_read_state import ReplyReadState
+from .reply_read_state import ReplyReadState, visible_reply_status
 from .reply_tables import replies
 from .response_capture import CaptureResult
 from .response_store import ResponseStore
@@ -92,6 +92,12 @@ class ManualReplyStore(ReplyReadState):
             "reply_id", "send_id", "conversation_id", "parent_id", "message_id",
             "user_text", "assistant_text", "status", "queued_by_user", "created_at", "updated_at",
         )}
+        observed_at = row["live_observed_at"]
+        public["status"] = visible_reply_status(
+            str(row["status"]),
+            float(observed_at) if isinstance(observed_at, (int, float)) else 0.0,
+            now=time.time(),
+        )
         public["tool_calls"] = deserialize_tool_calls(row["tool_calls_json"])
         return public
 
@@ -719,7 +725,9 @@ class ManualReplyStore(ReplyReadState):
                 assistant_text=text,
                 tool_calls_json=merge_tool_calls(row["tool_calls_json"], capture.tool_calls),
                 message_id=capture.message_id or row["message_id"],
-                status="completed" if complete else row["status"], updated_at=at,
+                status="completed" if complete else row["status"],
+                live_observed_at=at if capture.verified_generating and not complete else 0,
+                updated_at=at,
             ))
         return changed.rowcount == 1
 

@@ -36,6 +36,7 @@ class CaptureResult:
     observer_id: str | None = None
     tool_calls: tuple[dict[str, object], ...] = ()
     ended_without_answer: bool = False
+    verified_generating: bool = False
 
 
 def conversation_id_from_path(path: object) -> str | None:
@@ -379,4 +380,5 @@ def normalize_dom_snapshot(
         "dom", status, text, conversation_id_from_path(record.get("pathname")),
         branch_id, _string(record.get("verified_parent_id")), identity,
         tool_calls=normalize_dom_tool_calls(record.get("tool_calls")),
+        verified_generating=record.get("generating") is True and record.get("complete") is not True,
     )
