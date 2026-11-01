@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 
@@ -82,6 +83,7 @@ def test_deploy_recovery_handles_two_sequential_approvals_without_resend(
         return None
 
     monkeypatch.setattr(recovery_module.asyncio, "sleep", no_delay)
+    monkeypatch.setattr(recovery_module, "_RESUMED_COMPLETION_GRACE_SECONDS", 0.0)
     worker = HistoryRecovery(store, runtime, lambda: driver, approval_enabled=True)
     assert worker.recover_once(now=100)
     row = store.get("deployment-capture")
@@ -90,6 +92,44 @@ def test_deploy_recovery_handles_two_sequential_approvals_without_resend(
     assert driver.grants == 2 and driver.approval_checks == 3
     assert driver.closed
     assert driver.visited == ["connect", "https://chatgpt.com/c/" + CONVERSATION]
+
+
+def test_approval_after_a_transient_complete_snapshot_is_still_handled(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class LateApproval(ChainedApprovalDriver):
+        async def eval(self, expression: str) -> object:
+            if "return await " in expression:
+                self.approval_checks += 1
+                if self.approval_checks in (1, 3):
+                    self.grants += 1
+                    return True
+                return False
+            return {
+                "verified": True, "ambiguous": False,
+                "pathname": "/c/" + CONVERSATION, "message_id": "assistant-turn",
+                "text": "Final after both grants",
+                "complete": True,  # The first final-looking view is premature.
+            }
+
+    async def no_delay(_seconds: float) -> None:
+        return None
+
+    monkeypatch.setattr(recovery_module.asyncio, "sleep", no_delay)
+    monkeypatch.setattr(recovery_module, "_RESUMED_COMPLETION_GRACE_SECONDS", 0.01)
+    driver = LateApproval()
+    worker = HistoryRecovery(
+        ResponseStore(tmp_path / "chat-results.sqlite3"),
+        SchedulerRuntime(tmp_path / "runtime.sqlite3", tmp_path / "jobs.json"),
+        lambda: driver, approval_enabled=True,
+    )
+    result = asyncio.run(worker._read_original_response(
+        CONVERSATION, "Original prompt", resume_approvals=True,
+    ))
+    assert result is not None and result.status == "complete"
+    assert driver.grants == 2
+    assert driver.approval_checks >= 4
+    assert driver.closed
 
 
 @pytest.mark.parametrize(

@@ -34,6 +34,7 @@ _GLOBAL_INTERVAL_SECONDS = 90.0
 _MAX_PER_CHAT_INTERVAL_SECONDS = 4 * 3600.0
 _LOOKUP_TIMEOUT_SECONDS = 55.0
 _READ_PROBE_SECONDS = 25.0
+_RESUMED_COMPLETION_GRACE_SECONDS = 3.0
 _HISTORY_CLOSE_TIMEOUT_SECONDS = 5.0
 _SECURITY_PAUSE_BASE_SECONDS = 30 * 60.0
 _SECURITY_PAUSE_CAP_SECONDS = 4 * 3600.0
@@ -178,6 +179,7 @@ class HistoryRecovery:
     ) -> CaptureResult | None:
         driver = self.driver_factory()
         last_partial: CaptureResult | None = None
+        complete_since: float | None = None
         approval_script = (
             _guarded_approval_script(script, single_user_only=single_user_only)
             if resume_approvals else ""
@@ -228,11 +230,14 @@ class HistoryRecovery:
                     if payload.get("rate_limited") is True:
                         raise RateLimitError()
                     if payload.get("ambiguous") is True:
+                        complete_since = None
                         # Hydration and streaming can transiently render two
                         # candidate nodes. Keep observing this same permitted
                         # tab until the deadline, without navigating again.
                         await asyncio.sleep(2.0)
                         continue
+                    if payload.get("verified") is not True:
+                        complete_since = None
                     if payload.get("verified") is True:
                         result = normalize_dom_snapshot(payload)
                         if result.conversation_id == conversation_id:
@@ -262,10 +267,24 @@ class HistoryRecovery:
                                     else result
                                 )
                             if awaiting_permission:
+                                complete_since = None
                                 await asyncio.sleep(0.2 if grant is True or grant == "progress" else 2.0)
                                 continue  # Catch successive permissions or hydrate controls.
                             if result.status == "complete" and (result.text or result.tool_calls):
+                                if approval_script:
+                                    # A copy-ready response can be followed by another
+                                    # tool permission after a delayed continuation.
+                                    # Require stable finality while watching this
+                                    # same exact tab, without another navigation.
+                                    now = asyncio.get_running_loop().time()
+                                    if complete_since is None:
+                                        complete_since = now
+                                    if now - complete_since < _RESUMED_COMPLETION_GRACE_SECONDS:
+                                        last_partial = replace(result, status="partial")
+                                        await asyncio.sleep(1.0)
+                                        continue
                                 return result
+                            complete_since = None
                 await asyncio.sleep(2.0)
             return last_partial
         finally:
