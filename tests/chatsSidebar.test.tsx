@@ -135,6 +135,57 @@ test("new pins appear after existing pins and unpinning preserves remaining orde
   expect(titles().slice(0, 2)).toEqual(["Chat 1", "Chat 3"]);
 });
 
+test("fresh chats enter their final pinned position without a second jump", async () => {
+  const { model } = sidebar();
+  let acceptedId = "";
+  let finishPins: ((response: Response) => void) | undefined;
+  globalThis.fetch = Object.assign(
+    async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      const url = new URL(String(input), "http://localhost");
+      if (url.pathname.endsWith("/api/chats") && init?.method === "POST") {
+        const payload = JSON.parse(String(init.body)) as { request_id: string };
+        acceptedId = "manual-" + payload.request_id;
+        return Response.json({ send_id: acceptedId, status: "queued" }, { status: 202 });
+      }
+      if (url.pathname.endsWith("/api/results"))
+        return Response.json({
+          items: [{ ...run(3), send_id: acceptedId }, run(2), run(1)],
+          total: 3,
+        });
+      if (url.pathname.endsWith("/api/local-chat-pins"))
+        return new Promise((resolve) => {
+          finishPins = resolve;
+        });
+      throw new Error("Unexpected URL: " + url.pathname);
+    },
+    { preconnect: originalFetch.preconnect },
+  );
+  await act(async () => {
+    model.items.value = [run(2), run(1)];
+    model.pinnedIds.value = ["1"];
+    model.pinsReady.value = true;
+  });
+
+  await act(async () => {
+    expect((await model.sendFresh("New chat insertion regression", [])).ok).toBe(true);
+  });
+  const fresh = await screen.findByText("Chat 3");
+  const row = fresh.closest(".chat-entry");
+  expect(row?.classList.contains("arriving")).toBe(true);
+  const titles = () =>
+    Array.from(document.querySelectorAll(".chat-row-top strong"), (element) => element.textContent);
+  expect(titles()).toEqual(["Chat 1", "Chat 3", "Chat 2"]);
+  expect(model.pinnedIds.value).toEqual(["1", acceptedId]);
+
+  await act(async () => {
+    finishPins?.(Response.json({ items: [run(1), { ...run(3), send_id: acceptedId }] }));
+  });
+  expect(titles()).toEqual(["Chat 1", "Chat 3", "Chat 2"]);
+  expect(fresh.closest(".chat-entry")).toBe(row);
+  fireEvent.animationEnd(row!);
+  expect(row?.classList.contains("arriving")).toBe(false);
+});
+
 test("running chats have no Stop button in the sidebar", async () => {
   const { model } = sidebar();
   await act(async () => {
@@ -292,7 +343,6 @@ test("malformed settings stay disabled and allow a safe retry", async () => {
     (screen.getByRole("spinbutton", { name: "Maximum workers" }) as HTMLInputElement).value,
   ).toBe("2");
 });
-
 
 test("a server-confirmed read clears a stale optimistic unread badge", async () => {
   globalThis.fetch = Object.assign(async () => Response.json({}), {
