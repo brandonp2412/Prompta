@@ -305,7 +305,7 @@ class HistoryRecovery:
         """Attempt at most one due chat; all retries are read-only and persisted."""
         at = time.time() if now is None else now
         if (
-            _read_backoff_remaining(self.runtime) > 0
+            (not owned_tab_recovery and _read_backoff_remaining(self.runtime) > 0)
             or self.results.history_recovery_security_pause_remaining(now=at) > 0
             or self.results.history_recovery_global_pace_remaining(now=at) > 0
         ):
@@ -394,7 +394,10 @@ class HistoryRecovery:
                     # Report success only after durable storage is terminal.
                     stored = self.replies.get(reply_id) if reply_id else self.results.get(send_id)
                     if stored is not None and stored["status"] == "completed":
-                        self.runtime.record_read_success()
+                        # A local surviving-tab DOM check does not prove that
+                        # account-wide HTTP history reads have recovered from 429.
+                        if not owned_tab_recovery:
+                            self.runtime.record_read_success()
                         logger.info("Historical response recovered send_id=%s", send_id)
                         if manual_target:
                             self.results.clear_manual_recovery_request(manual_target)
@@ -442,8 +445,7 @@ def run_history_recovery(
             current = time.monotonic()
             if current - last_checked_at >= _GLOBAL_INTERVAL_SECONDS:
                 if (
-                    _read_backoff_remaining(runtime) <= 0
-                    and results.history_recovery_security_pause_remaining() <= 0
+                    results.history_recovery_security_pause_remaining() <= 0
                     and results.history_recovery_global_pace_remaining() <= 0
                 ):
                     # The global pacing clock advances for each attempted scan.
@@ -472,7 +474,7 @@ def run_history_recovery(
                                         preferred_send_id=owned_candidate.send_id,
                                         owned_tab_recovery=True,
                                     )
-                                else:
+                                elif _read_backoff_remaining(runtime) <= 0:
                                     recovery.recover_once()
         except Exception as exc:
             last_checked_at = time.monotonic()

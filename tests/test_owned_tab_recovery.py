@@ -7,6 +7,7 @@ from typing import Self
 
 import pytest
 
+import prompta.history_recovery as history_recovery
 import prompta.owned_tab_recovery as owned
 from prompta.history_recovery import HistoryRecovery
 from prompta.response_capture import CaptureResult
@@ -122,6 +123,9 @@ def test_targeted_owned_recovery_persists_exact_response_without_resending(
         ),
         approval_enabled=True,
     )
+    monkeypatch.setattr(history_recovery, "_read_backoff_remaining", lambda _: 500.0)
+    read_successes: list[bool] = []
+    monkeypatch.setattr(runtime, "record_read_success", lambda: read_successes.append(True))
     observed: list[tuple[str, str, bool]] = []
 
     async def probe(conversation: str, prompt: str, *, resume_approvals: bool) -> CaptureResult:
@@ -131,6 +135,7 @@ def test_targeted_owned_recovery_persists_exact_response_without_resending(
     monkeypatch.setattr(worker, "_read_original_response", probe)
     assert worker.recover_once(now=150, preferred_send_id="target", owned_tab_recovery=True)
     assert observed == [(CONV, "Original prompt", True)]
+    assert read_successes == []  # Local DOM success cannot clear the HTTP 429 gate.
     target = store.get("target")
     other = store.get("other")
     assert target is not None and target["status"] == "completed"
