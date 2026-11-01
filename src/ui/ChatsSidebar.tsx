@@ -320,9 +320,18 @@ export default function ChatsSidebar({
                       #{waiting.position} of {queueSnapshot.value.waiting.length}
                     </span>
                   </span>
-                  <span className="queue-subtitle" title={queueEtaExplanation(queueSnapshot.value)}>
-                    {queueEtaText(waiting)} · {waiting.reason === "stage" ? "stage" : "global"}{" "}
-                    limit ({waiting.occupied}/{waiting.limit})
+                  <span
+                    className="queue-subtitle"
+                    title={
+                      queueEtaText(waiting) ? queueEtaExplanation(queueSnapshot.value) : undefined
+                    }
+                  >
+                    {[
+                      queueEtaText(waiting),
+                      `${waiting.reason === "stage" ? "stage" : "global"} limit (${waiting.occupied}/${waiting.limit})`,
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")}
                   </span>
                 </button>
               </div>

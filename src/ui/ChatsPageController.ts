@@ -577,8 +577,8 @@ export function createChatsPageController(initialProps: Props) {
       if (generation === queueGeneration) {
         queueError.value =
           queueSnapshot.value === emptyQueueSnapshot
-            ? "Waiting-job status is temporarily unavailable."
-            : "Queue status is temporarily unavailable. Showing the last confirmed positions and ETAs.";
+            ? "Waiting-job status could not be loaded."
+            : "Queue status could not be refreshed. Showing the last confirmed values.";
       }
     } finally {
       queueInFlight = false;

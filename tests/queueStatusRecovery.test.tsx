@@ -99,7 +99,7 @@ test("malformed successful queue responses do not crash job rendering", async ()
     });
     expect(model.queueSnapshot.value).toBeNull();
     expect(screen.queryByText(/Queue #/)).toBeNull();
-    expect(model.queueError.value).toContain("temporarily unavailable");
+    expect(model.queueError.value).toContain("Queue status could not be refreshed");
   } finally {
     globalThis.fetch = original;
   }
@@ -135,7 +135,7 @@ test("Chats labels the last confirmed queue position as stale during an outage",
       await model.loadQueue();
     });
     expect(model.visibleWaiting.value[0]?.position).toBe(2);
-    expect(model.queueError.value).toContain("Showing the last confirmed positions and ETAs");
+    expect(model.queueError.value).toContain("Showing the last confirmed values");
     expect(document.querySelector(".recovery-error")).toBeNull();
     expect(screen.getByText("#2 of 1")).toBeTruthy();
     response = Response.json(snapshot(1));
@@ -165,7 +165,7 @@ test("an unavailable queue estimate clears its old position and recovers", async
       await model.loadQueue();
     });
     expect(model.queueSnapshot.value).toBeNull();
-    expect(model.queueError.value).toContain("temporarily unavailable");
+    expect(model.queueError.value).toContain("Queue status could not be refreshed");
 
     response = Response.json(snapshot(1));
     await act(async () => {

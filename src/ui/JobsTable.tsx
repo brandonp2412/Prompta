@@ -50,6 +50,7 @@ export default function JobsTable({ model }: { model: Controller }) {
 
         {visibleJobs.value.map((job) => {
           const waiting = queueSnapshot.value?.waiting.find((item) => item.name === job.name);
+          const eta = waiting ? queueEtaText(waiting) : "";
           return (
             <div key={job.name} role="row" className={`job-row job-state-${jobFilter(job)}`}>
               <div role="cell" className="job-main">
@@ -90,11 +91,10 @@ export default function JobsTable({ model }: { model: Controller }) {
                   <span
                     className="job-queue-eta"
                     role="status"
-                    title={queueEtaExplanation(queueSnapshot.value)}
+                    title={eta ? queueEtaExplanation(queueSnapshot.value) : undefined}
                   >
                     Queue #{waiting.position} of {queueSnapshot.value.waiting.length}
-                    {" · "}
-                    {queueEtaText(waiting)}
+                    {eta ? " · " + eta : ""}
                   </span>
                 )}
                 {job.status_message && <span className="job-message">{job.status_message}</span>}

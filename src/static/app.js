@@ -21,7 +21,7 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 	enumerable: true
 }) : target, mod));
 //#endregion
-//#region node_modules/scheduler/cjs/scheduler.production.js
+//#region ../../prompta/node_modules/scheduler/cjs/scheduler.production.js
 /**
 * @license React
 * scheduler.production.js
@@ -276,12 +276,12 @@ var require_scheduler_production = /* @__PURE__ */ __commonJSMin(((exports) => {
 	};
 }));
 //#endregion
-//#region node_modules/scheduler/index.js
+//#region ../../prompta/node_modules/scheduler/index.js
 var require_scheduler = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_scheduler_production();
 }));
 //#endregion
-//#region node_modules/react/cjs/react.production.js
+//#region ../../prompta/node_modules/react/cjs/react.production.js
 /**
 * @license React
 * react.production.js
@@ -668,12 +668,12 @@ var require_react_production = /* @__PURE__ */ __commonJSMin(((exports) => {
 	exports.version = "19.3.1";
 }));
 //#endregion
-//#region node_modules/react/index.js
+//#region ../../prompta/node_modules/react/index.js
 var require_react = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_react_production();
 }));
 //#endregion
-//#region node_modules/react-dom/cjs/react-dom.production.js
+//#region ../../prompta/node_modules/react-dom/cjs/react-dom.production.js
 /**
 * @license React
 * react-dom.production.js
@@ -826,7 +826,7 @@ var require_react_dom_production = /* @__PURE__ */ __commonJSMin(((exports) => {
 	exports.version = "19.3.1";
 }));
 //#endregion
-//#region node_modules/react-dom/index.js
+//#region ../../prompta/node_modules/react-dom/index.js
 var require_react_dom = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	function checkDCE() {
 		if (typeof __REACT_DEVTOOLS_GLOBAL_HOOK__ === "undefined" || typeof __REACT_DEVTOOLS_GLOBAL_HOOK__.checkDCE !== "function") return;
@@ -840,7 +840,7 @@ var require_react_dom = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_react_dom_production();
 }));
 //#endregion
-//#region node_modules/react-dom/cjs/react-dom-client.production.js
+//#region ../../prompta/node_modules/react-dom/cjs/react-dom-client.production.js
 /**
 * @license React
 * react-dom-client.production.js
@@ -11415,7 +11415,7 @@ var require_react_dom_client_production = /* @__PURE__ */ __commonJSMin(((export
 	};
 }));
 //#endregion
-//#region node_modules/react-dom/client.js
+//#region ../../prompta/node_modules/react-dom/client.js
 var require_client = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	function checkDCE() {
 		if (typeof __REACT_DEVTOOLS_GLOBAL_HOOK__ === "undefined" || typeof __REACT_DEVTOOLS_GLOBAL_HOOK__.checkDCE !== "function") return;
@@ -11429,7 +11429,7 @@ var require_client = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_react_dom_client_production();
 }));
 //#endregion
-//#region node_modules/@preact/signals-core/dist/signals-core.module.js
+//#region ../../prompta/node_modules/@preact/signals-core/dist/signals-core.module.js
 var import_react = /* @__PURE__ */ __toESM(require_react());
 var import_client = require_client();
 var i$1 = Symbol.for("preact-signals");
@@ -11841,7 +11841,7 @@ function x$2(i, t) {
 	return n;
 }
 //#endregion
-//#region node_modules/use-sync-external-store/cjs/use-sync-external-store-shim.production.js
+//#region ../../prompta/node_modules/use-sync-external-store/cjs/use-sync-external-store-shim.production.js
 /**
 * @license React
 * use-sync-external-store-shim.production.js
@@ -11901,7 +11901,7 @@ var require_use_sync_external_store_shim_production = /* @__PURE__ */ __commonJS
 	exports.useSyncExternalStore = void 0 !== React.useSyncExternalStore ? React.useSyncExternalStore : shim;
 }));
 //#endregion
-//#region node_modules/@preact/signals-react/runtime/dist/runtime.module.js
+//#region ../../prompta/node_modules/@preact/signals-react/runtime/dist/runtime.module.js
 var import_shim = (/* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_use_sync_external_store_shim_production();
 })))();
@@ -12419,7 +12419,7 @@ function isQueueSnapshot(value) {
 	return value.waiting.every((job) => job !== null && typeof job === "object" && "name" in job && typeof job.name === "string" && job.name.length > 0 && "position" in job && positiveInteger(job.position) && "reason" in job && (job.reason === "global" || job.reason === "stage") && "occupied" in job && nonNegativeInteger(job.occupied) && "limit" in job && positiveInteger(job.limit) && "eta_seconds" in job && typeof job.eta_seconds === "number" && Number.isFinite(job.eta_seconds) && job.eta_seconds >= 0);
 }
 function queueEtaText(waiting) {
-	if (!Number.isFinite(waiting.eta_seconds) || waiting.eta_seconds < 0) return "ETA unavailable";
+	if (!Number.isFinite(waiting.eta_seconds) || waiting.eta_seconds < 0) return "";
 	const minutes = Math.max(1, Math.ceil(waiting.eta_seconds / 60));
 	if (minutes < 60) return "ETA ~" + minutes + " min";
 	const hours = Math.floor(minutes / 60);
@@ -12428,7 +12428,8 @@ function queueEtaText(waiting) {
 }
 function queuedChatEtaText(sendId, snapshot) {
 	const waiting = snapshot.waiting_runs?.find((run) => run.send_id === sendId);
-	return "Queued · " + (waiting ? queueEtaText(waiting) : "ETA unavailable");
+	const eta = waiting ? queueEtaText(waiting) : "";
+	return eta ? "Queued · " + eta : "Queued";
 }
 function queueEtaExplanation(snapshot) {
 	return snapshot.estimate_samples >= 3 ? "Approximate time to start, based on recent completed jobs. Rate limits and long-running jobs can shift it." : "Initial approximate time to start while recent job-duration data accumulates. Rate limits can shift it.";
@@ -13201,7 +13202,7 @@ function createChatsPageController(initialProps) {
 				queueError.value = "";
 			}
 		} catch {
-			if (generation === queueGeneration) queueError.value = queueSnapshot.value === emptyQueueSnapshot ? "Waiting-job status is temporarily unavailable." : "Queue status is temporarily unavailable. Showing the last confirmed positions and ETAs.";
+			if (generation === queueGeneration) queueError.value = queueSnapshot.value === emptyQueueSnapshot ? "Waiting-job status could not be loaded." : "Queue status could not be refreshed. Showing the last confirmed values.";
 		} finally {
 			queueInFlight = false;
 			if (queueRefreshPending) {
@@ -14373,7 +14374,7 @@ function createJobsPageController(initialProps) {
 			queueError.value = "";
 		} catch {
 			queueSnapshot.value = null;
-			queueError.value = "Queue position and ETA are temporarily unavailable.";
+			queueError.value = "Queue status could not be refreshed. Retry to update positions.";
 		} finally {
 			queueInFlight = false;
 			if (queueRefreshPending) {
@@ -15047,7 +15048,7 @@ function createJobsPageController(initialProps) {
 	};
 }
 //#endregion
-//#region node_modules/react/cjs/react-jsx-runtime.production.js
+//#region ../../prompta/node_modules/react/cjs/react-jsx-runtime.production.js
 /**
 * @license React
 * react-jsx-runtime.production.js
@@ -15525,6 +15526,7 @@ function JobsTable({ model }) {
 			}),
 			visibleJobs.value.map((job) => {
 				const waiting = queueSnapshot.value?.waiting.find((item) => item.name === job.name);
+				const eta = waiting ? queueEtaText(waiting) : "";
 				return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 					role: "row",
 					className: `job-row job-state-${jobFilter(job)}`,
@@ -15590,14 +15592,13 @@ function JobsTable({ model }) {
 								waiting && queueSnapshot.value && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
 									className: "job-queue-eta",
 									role: "status",
-									title: queueEtaExplanation(queueSnapshot.value),
+									title: eta ? queueEtaExplanation(queueSnapshot.value) : void 0,
 									children: [
 										"Queue #",
 										waiting.position,
 										" of ",
 										queueSnapshot.value.waiting.length,
-										" · ",
-										queueEtaText(waiting)
+										eta ? " · " + eta : ""
 									]
 								}),
 								job.status_message && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
@@ -16901,20 +16902,10 @@ function ChatsSidebar({ model, refs }) {
 										queueSnapshot.value.waiting.length
 									]
 								})]
-							}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+							}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
 								className: "queue-subtitle",
-								title: queueEtaExplanation(queueSnapshot.value),
-								children: [
-									queueEtaText(waiting),
-									" · ",
-									waiting.reason === "stage" ? "stage" : "global",
-									" ",
-									"limit (",
-									waiting.occupied,
-									"/",
-									waiting.limit,
-									")"
-								]
+								title: queueEtaText(waiting) ? queueEtaExplanation(queueSnapshot.value) : void 0,
+								children: [queueEtaText(waiting), `${waiting.reason === "stage" ? "stage" : "global"} limit (${waiting.occupied}/${waiting.limit})`].filter(Boolean).join(" · ")
 							})]
 						})
 					}, waiting.name)) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {}),
@@ -17120,7 +17111,7 @@ function ChatsSidebar({ model, refs }) {
 	});
 }
 //#endregion
-//#region node_modules/marked/lib/marked.esm.js
+//#region ../../prompta/node_modules/marked/lib/marked.esm.js
 /**
 * marked v16.4.2 - a markdown parser
 * Copyright (c) 2018-2025, MarkedJS. (MIT License)
@@ -18661,7 +18652,7 @@ x.lex;
 * @public
 */
 //#endregion
-//#region node_modules/prismjs/components/prism-typescript.js
+//#region ../../prompta/node_modules/prismjs/components/prism-typescript.js
 var import_prism = /* @__PURE__ */ __toESM((/* @__PURE__ */ __commonJSMin(((exports, module) => {
 	var Prism = function(_self) {
 		var lang = /(?:^|\s)lang(?:uage)?-([\w-]+)(?=\s|$)/i;
@@ -20124,7 +20115,7 @@ highlight: function highlight(container) {
 	Prism.languages.ts = Prism.languages.typescript;
 })(Prism);
 //#endregion
-//#region node_modules/prismjs/components/prism-python.js
+//#region ../../prompta/node_modules/prismjs/components/prism-python.js
 Prism.languages.python = {
 	"comment": {
 		pattern: /(^|[^\\])#.*/,
@@ -20186,7 +20177,7 @@ Prism.languages.python = {
 Prism.languages.python["string-interpolation"].inside["interpolation"].inside.rest = Prism.languages.python;
 Prism.languages.py = Prism.languages.python;
 //#endregion
-//#region node_modules/prismjs/components/prism-bash.js
+//#region ../../prompta/node_modules/prismjs/components/prism-bash.js
 (function(Prism) {
 	var envVars = "\\b(?:BASH|BASHOPTS|BASH_ALIASES|BASH_ARGC|BASH_ARGV|BASH_CMDS|BASH_COMPLETION_COMPAT_DIR|BASH_LINENO|BASH_REMATCH|BASH_SOURCE|BASH_VERSINFO|BASH_VERSION|COLORTERM|COLUMNS|COMP_WORDBREAKS|DBUS_SESSION_BUS_ADDRESS|DEFAULTS_PATH|DESKTOP_SESSION|DIRSTACK|DISPLAY|EUID|GDMSESSION|GDM_LANG|GNOME_KEYRING_CONTROL|GNOME_KEYRING_PID|GPG_AGENT_INFO|GROUPS|HISTCONTROL|HISTFILE|HISTFILESIZE|HISTSIZE|HOME|HOSTNAME|HOSTTYPE|IFS|INSTANCE|JOB|LANG|LANGUAGE|LC_ADDRESS|LC_ALL|LC_IDENTIFICATION|LC_MEASUREMENT|LC_MONETARY|LC_NAME|LC_NUMERIC|LC_PAPER|LC_TELEPHONE|LC_TIME|LESSCLOSE|LESSOPEN|LINES|LOGNAME|LS_COLORS|MACHTYPE|MAILCHECK|MANDATORY_PATH|NO_AT_BRIDGE|OLDPWD|OPTERR|OPTIND|ORBIT_SOCKETDIR|OSTYPE|PAPERSIZE|PATH|PIPESTATUS|PPID|PS1|PS2|PS3|PS4|PWD|RANDOM|REPLY|SECONDS|SELINUX_INIT|SESSION|SESSIONTYPE|SESSION_MANAGER|SHELL|SHELLOPTS|SHLVL|SSH_AUTH_SOCK|TERM|UID|UPSTART_EVENTS|UPSTART_INSTANCE|UPSTART_JOB|UPSTART_SESSION|USER|WINDOWID|XAUTHORITY|XDG_CONFIG_DIRS|XDG_CURRENT_DESKTOP|XDG_DATA_DIRS|XDG_GREETER_DATA_DIR|XDG_MENU_PREFIX|XDG_RUNTIME_DIR|XDG_SEAT|XDG_SEAT_PATH|XDG_SESSION_DESKTOP|XDG_SESSION_ID|XDG_SESSION_PATH|XDG_SESSION_TYPE|XDG_VTNR|XMODIFIERS)\\b";
 	var commandAfterHeredoc = {
@@ -20367,7 +20358,7 @@ Prism.languages.py = Prism.languages.python;
 	Prism.languages.shell = Prism.languages.bash;
 })(Prism);
 //#endregion
-//#region node_modules/prismjs/components/prism-json.js
+//#region ../../prompta/node_modules/prismjs/components/prism-json.js
 Prism.languages.json = {
 	"property": {
 		pattern: /(^|[^\\])"(?:\\.|[^\\"\r\n])*"(?=\s*:)/,
