@@ -556,6 +556,7 @@
 
 /* Live generation and expandable tool activity. */
 .assistant-group .response-header { margin-bottom: 16px; }
+.assistant-group .response-generation-footer { margin: 18px 0 0; }
 .assistant-group .response-generation {
   display: inline-flex;
   max-width: 100%;

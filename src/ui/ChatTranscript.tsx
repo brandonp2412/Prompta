@@ -213,20 +213,6 @@ export default function ChatTranscript({
                       .filter(Boolean)
                       .join(" ")}
                   >
-                    {turn.status === "generating" && (
-                      <div className="message-role response-header">
-                        <div className="response-generation" role="status">
-                          <span className="response-generation-spark" aria-hidden="true" />
-                          <span className="response-state">{responseBadge(turn.status)}</span>
-                          <span className="response-generation-title">Generating response</span>
-                          <span className="response-generation-dots" aria-hidden="true">
-                            <i />
-                            <i />
-                            <i />
-                          </span>
-                        </div>
-                      </div>
-                    )}
                     {turn.status !== "generating" && turn.status !== "completed" && (
                       <div className="message-role response-header">
                         <span role="status" className="response-state">
@@ -347,6 +333,20 @@ export default function ChatTranscript({
                           <p>No verified ChatGPT chat for read-only recovery.</p>
                         </div>
                       )}
+                    {turn.status === "generating" && (
+                      <div className="message-role response-header response-generation-footer">
+                        <div className="response-generation" role="status">
+                          <span className="response-generation-spark" aria-hidden="true" />
+                          <span className="response-state">{responseBadge(turn.status)}</span>
+                          <span className="response-generation-title">Generating response</span>
+                          <span className="response-generation-dots" aria-hidden="true">
+                            <i />
+                            <i />
+                            <i />
+                          </span>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </React.Fragment>
               ))}

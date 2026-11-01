@@ -20514,36 +20514,6 @@ function ChatTranscript({ model, refs }) {
 						"aria-label": "Assistant response " + (index + 1),
 						className: ["message-group assistant-group response-" + turn.status].filter(Boolean).join(" "),
 						children: [
-							turn.status === "generating" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-								className: "message-role response-header",
-								children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-									className: "response-generation",
-									role: "status",
-									children: [
-										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-											className: "response-generation-spark",
-											"aria-hidden": "true"
-										}),
-										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-											className: "response-state",
-											children: responseBadge(turn.status)
-										}),
-										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-											className: "response-generation-title",
-											children: "Generating response"
-										}),
-										/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
-											className: "response-generation-dots",
-											"aria-hidden": "true",
-											children: [
-												/* @__PURE__ */ (0, import_jsx_runtime.jsx)("i", {}),
-												/* @__PURE__ */ (0, import_jsx_runtime.jsx)("i", {}),
-												/* @__PURE__ */ (0, import_jsx_runtime.jsx)("i", {})
-											]
-										})
-									]
-								})
-							}),
 							turn.status !== "generating" && turn.status !== "completed" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 								className: "message-role response-header",
 								children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
@@ -20616,6 +20586,36 @@ function ChatTranscript({ model, refs }) {
 								className: "chat-recovery-guidance",
 								role: "status",
 								children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { children: "No verified ChatGPT chat for read-only recovery." })
+							}),
+							turn.status === "generating" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+								className: "message-role response-header response-generation-footer",
+								children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+									className: "response-generation",
+									role: "status",
+									children: [
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+											className: "response-generation-spark",
+											"aria-hidden": "true"
+										}),
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+											className: "response-state",
+											children: responseBadge(turn.status)
+										}),
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+											className: "response-generation-title",
+											children: "Generating response"
+										}),
+										/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+											className: "response-generation-dots",
+											"aria-hidden": "true",
+											children: [
+												/* @__PURE__ */ (0, import_jsx_runtime.jsx)("i", {}),
+												/* @__PURE__ */ (0, import_jsx_runtime.jsx)("i", {}),
+												/* @__PURE__ */ (0, import_jsx_runtime.jsx)("i", {})
+											]
+										})
+									]
+								})
 							})
 						]
 					})] }, turn.reply_id || detail.value.send_id)),
