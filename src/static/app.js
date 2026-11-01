@@ -14005,6 +14005,16 @@ function chatUrl(id) {
 }
 //#endregion
 //#region src/ui/resultFormatting.ts
+function canStopTurn(turn) {
+	if (!turn) return false;
+	if (turn.status === "prepared") return turn.queued_by_user === true;
+	return [
+		"queued",
+		"dispatching",
+		"accepted",
+		"generating"
+	].includes(turn.status);
+}
 function responseBadge(status) {
 	switch (status) {
 		case "cancelled":
@@ -20781,6 +20791,7 @@ function ChatsPage(props) {
 	const { view, selectedRunId, newChatOpen, readError, drawerOpen, filtersOpen, detail, turns, recoveringReply, jobsWorkspace, replyBlockedReason, selectedChatTitle, retryReadSync, sendFresh, freshContinuationPrompt, originalImageRefs, sendReply, cancelSwipe, startSwipe, finishSwipe, createChat, escapeDrawer } = model;
 	const pageTitle = view.value === "jobs" ? "Jobs" : selectedChatTitle.value;
 	const conversationUrl = detail.value?.send_id === selectedRunId.value ? exactConversationUrl(turns.value.findLast((turn) => exactConversationUrl(turn.conversation_id))?.conversation_id || detail.value.conversation_id) : null;
+	const activeSelectedChat = canStopTurn(selectedRunId.value && detail.value?.send_id === selectedRunId.value ? turns.value.findLast((turn) => turn.status !== "cancelled") : void 0);
 	(0, import_react.useEffect)(() => {
 		document.title = `Prompta · ${pageTitle} · ${props.serverName}`;
 	}, [pageTitle, props.serverName]);
@@ -20929,13 +20940,7 @@ function ChatsPage(props) {
 					view.value === "chats" && Boolean(selectedRunId.value || newChatOpen.value) ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ChatComposer, {
 						mode: selectedRunId.value ? "reply" : "fresh",
 						chatId: selectedRunId.value ?? void 0,
-						active: Boolean(selectedRunId.value && detail.value?.send_id === selectedRunId.value && [
-							"queued",
-							"prepared",
-							"dispatching",
-							"accepted",
-							"generating"
-						].includes(turns.value.findLast((turn) => turn.status !== "cancelled")?.status ?? "")),
+						active: activeSelectedChat,
 						stopping: model.stopping.value === selectedRunId.value,
 						onStop: () => {
 							const id = selectedRunId.value;
