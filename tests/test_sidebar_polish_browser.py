@@ -125,3 +125,57 @@ def test_settings_modal_covers_viewport_from_mobile_drawer(
             expect(profile).to_be_focused()
         finally:
             browser.close()
+
+
+@pytest.mark.parametrize("width,height", [(360, 800), (1440, 900)])
+def test_settings_load_retry_recovers_without_reopening(
+    tmp_path: Path, width: int, height: int
+) -> None:
+    chromium = Path(os.environ.get("PROMPTA_TEST_CHROMIUM", "/usr/bin/chromium"))
+    if not chromium.is_file():
+        pytest.skip("Chromium unavailable")
+
+    with server(tmp_path) as (_app, port), sync_patchright() as patchright:
+        browser = patchright.chromium.launch(
+            executable_path=str(chromium),
+            headless=True,
+            args=["--no-sandbox", "--no-zygote"],
+        )
+        try:
+            page = browser.new_page(viewport={"width": width, "height": height})
+            page.route("**/api/events", lambda route: route.abort())
+            requests: list[str] = []
+
+            def settings_response(route: object) -> None:
+                from patchright.sync_api import Route
+
+                assert isinstance(route, Route)
+                if route.request.method != "GET":
+                    route.continue_()
+                    return
+                requests.append(route.request.url)
+                if len(requests) == 1:
+                    route.fulfill(status=503, body="Temporarily unavailable")
+                else:
+                    route.fulfill(
+                        status=200,
+                        content_type="application/json",
+                        body='{"stage_concurrency":{"enabled":true,"max_workers":3},"connector_approval":{"enabled":false}}',
+                    )
+
+            page.route("**/api/settings", settings_response)
+            page.goto(f"http://127.0.0.1:{port}/?view=chats", wait_until="domcontentloaded")
+            page.get_by_role("button", name="Profile").click()
+            page.get_by_role("button", name="Settings", exact=True).click()
+            dialog = page.get_by_role("dialog", name="Prompta settings")
+            expect(dialog).to_be_visible()
+            retry = page.get_by_role("button", name="Retry loading settings")
+            expect(retry).to_be_enabled()
+            expect(page.get_by_role("alert")).to_have_text("Could not load settings")
+            retry.click()
+            expect(page.get_by_role("button", name="Save settings")).to_be_enabled()
+            expect(page.get_by_role("alert")).to_have_count(0)
+            assert len(requests) == 2
+            assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+        finally:
+            browser.close()
