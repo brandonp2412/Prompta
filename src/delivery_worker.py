@@ -17,7 +17,7 @@ from typing import Protocol
 
 from sqlalchemy.exc import OperationalError
 
-from .config import StageConcurrencySettings
+from .config import ParallelismSettings
 from .delivery_browser import (
     BrowserDeliverySender,
     DeliveryBackendUnavailableError,
@@ -445,7 +445,7 @@ def run(
                     record = queue.claim_next(
                         owner,
                         lease_seconds=_LEASE_SECONDS,
-                        max_active=StageConcurrencySettings.load().active_limit,
+                        max_active=ParallelismSettings.load().active_limit,
                     )
                     if record is not None:
                         _deliver_one(queue, sender, runtime, health, owner, record)

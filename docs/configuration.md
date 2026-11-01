@@ -2,10 +2,10 @@
 
 Settings live in `~/.config/prompta/config.toml`.
 
-## Stage concurrency
+## Parallelism
 
 ```toml
-[stage_concurrency]
+[parallelism]
 enabled = true
 max_workers = 3
 ```
@@ -18,8 +18,9 @@ Existing per-job mutex groups still apply. Jobs are admitted in queue order,
 with manually requested chats prioritized.
 Explicit replies do not consume fresh-chat slots.
 
-The default is disabled (unlimited concurrency). The positive `max_workers`
-value is required when enabled. Lowering it does not interrupt already active
+Omitting `[parallelism]` disables the cap (unlimited concurrency). A present
+`[parallelism]` table defaults to enabled for compatibility with existing
+`max_workers`-only files. The positive `max_workers` value is required when enabled. Lowering it does not interrupt already active
 captures; it blocks new claims until occupancy drops below the limit. The
 scheduler and worker read changes without restarting.
 

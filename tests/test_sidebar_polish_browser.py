@@ -179,7 +179,7 @@ def test_settings_load_retry_recovers_without_reopening(
                     route.fulfill(
                         status=200,
                         content_type="application/json",
-                        body='{"stage_concurrency":{"enabled":true,"max_workers":3},"connector_approval":{"enabled":false}}',
+                        body='{"parallelism":{"enabled":true,"max_workers":3},"connector_approval":{"enabled":false}}',
                     )
 
             page.route("**/api/settings", settings_response)
@@ -228,7 +228,7 @@ def test_settings_worker_count_can_be_retyped_without_saving_zero(
                     route.fulfill(
                         status=200,
                         content_type="application/json",
-                        body='{"stage_concurrency":{"enabled":true,"max_workers":3},"connector_approval":{"enabled":false}}',
+                        body='{"parallelism":{"enabled":true,"max_workers":3},"connector_approval":{"enabled":false}}',
                     )
 
             page.route("**/api/settings", settings_response)
@@ -248,7 +248,7 @@ def test_settings_worker_count_can_be_retyped_without_saving_zero(
             expect(page.get_by_role("dialog", name="Prompta settings")).to_have_count(0)
             assert saved == [
                 {
-                    "stage_concurrency": {"enabled": True, "max_workers": 12},
+                    "parallelism": {"enabled": True, "max_workers": 12},
                     "connector_approval": {"enabled": False},
                 }
             ]

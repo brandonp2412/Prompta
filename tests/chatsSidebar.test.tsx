@@ -205,7 +205,7 @@ test("settings cannot be saved before a successful load", async () => {
   await act(async () => {
     resolveSettings?.(
       Response.json({
-        stage_concurrency: { enabled: true, max_workers: 7 },
+        parallelism: { enabled: true, max_workers: 7 },
         connector_approval: { enabled: true },
       }),
     );
@@ -220,7 +220,7 @@ test("settings cannot be saved before a successful load", async () => {
   await user.click(save);
   await waitFor(() => expect(saves).toHaveLength(1));
   expect(saves[0]).toEqual({
-    stage_concurrency: { enabled: true, max_workers: 7 },
+    parallelism: { enabled: true, max_workers: 7 },
     connector_approval: { enabled: true },
   });
 });
@@ -237,7 +237,7 @@ test("a failed settings load can be retried without closing the dialog", async (
       loads++;
       if (loads === 1) return new Response("Unavailable", { status: 503 });
       return Response.json({
-        stage_concurrency: { enabled: true, max_workers: 3 },
+        parallelism: { enabled: true, max_workers: 3 },
         connector_approval: { enabled: false },
       });
     },
@@ -271,9 +271,9 @@ test("malformed settings stay disabled and allow a safe retry", async () => {
   globalThis.fetch = Object.assign(
     async () => {
       loads++;
-      if (loads === 1) return Response.json({ stage_concurrency: null });
+      if (loads === 1) return Response.json({ parallelism: null });
       return Response.json({
-        stage_concurrency: { enabled: false, max_workers: 2 },
+        parallelism: { enabled: false, max_workers: 2 },
         connector_approval: { enabled: true },
       });
     },
@@ -338,7 +338,7 @@ test("maximum workers can be cleared and replaced without submitting an invalid 
         return Response.json({});
       }
       return Response.json({
-        stage_concurrency: { enabled: true, max_workers: 3 },
+        parallelism: { enabled: true, max_workers: 3 },
         connector_approval: { enabled: false },
       });
     },
@@ -363,7 +363,7 @@ test("maximum workers can be cleared and replaced without submitting an invalid 
   await user.click(save);
   expect(saves).toEqual([
     {
-      stage_concurrency: { enabled: true, max_workers: 12 },
+      parallelism: { enabled: true, max_workers: 12 },
       connector_approval: { enabled: false },
     },
   ]);

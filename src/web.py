@@ -25,7 +25,7 @@ from sse_starlette import EventSourceResponse, ServerSentEvent
 from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from .config import DEFAULT_CONFIG_PATH, ConnectorApproval, StageConcurrencySettings
+from .config import DEFAULT_CONFIG_PATH, ConnectorApproval, ParallelismSettings
 from .core import DEFAULT_JOBS_PATH, DEFAULT_STATE_PATH
 from .delivery_queue import DeliveryQueueStore
 from .image_store import ImageStore
@@ -170,7 +170,7 @@ class _ApprovalUpdate(BaseModel):
 
 
 class _SettingsUpdate(BaseModel):
-    stage_concurrency: _ConcurrencyUpdate
+    parallelism: _ConcurrencyUpdate
     connector_approval: _ApprovalUpdate
 
 
@@ -312,40 +312,24 @@ def create_app(
     @app.get("/api/settings")
     def get_settings() -> dict[str, object]:
         return {
-            "stage_concurrency": StageConcurrencySettings.load(DEFAULT_CONFIG_PATH).model_dump(),
+            "parallelism": ParallelismSettings.load(DEFAULT_CONFIG_PATH).model_dump(),
             "connector_approval": ConnectorApproval.load(DEFAULT_CONFIG_PATH).model_dump(),
         }
 
     @app.put("/api/settings")
     def update_settings(payload: _SettingsUpdate) -> dict[str, object]:
-        # Replace only the two supported sections, preserving unrelated TOML.
-        import re
+        # Persist exactly the two supported sections, dropping obsolete settings.
         import tempfile
 
         config_path = DEFAULT_CONFIG_PATH.expanduser()
         config_path.parent.mkdir(parents=True, exist_ok=True)
-        original = config_path.read_text() if config_path.exists() else ""
-        sections = {
-            "stage_concurrency": payload.stage_concurrency.model_dump(),
-            "connector_approval": payload.connector_approval.model_dump(),
-        }
-        for section, values in sections.items():
-            original = re.sub(
-                r"(?m)^\[" + re.escape(section) + r"\]\s*\n(?:(?!\[).*(?:\n|$))*", "", original
-            )
-            original = (
-                original.rstrip()
-                + "\n\n["
-                + section
-                + "]\n"
-                + "".join(
-                    key
-                    + " = "
-                    + (str(value).lower() if isinstance(value, bool) else str(value))
-                    + "\n"
-                    for key, value in values.items()
-                )
-            )
+        original = (
+            f"[parallelism]\n"
+            f"enabled = {str(payload.parallelism.enabled).lower()}\n"
+            f"max_workers = {payload.parallelism.max_workers}\n\n"
+            f"[connector_approval]\n"
+            f"enabled = {str(payload.connector_approval.enabled).lower()}\n"
+        )
         # Validate the complete generated configuration before replacing it.
         import tomllib
 

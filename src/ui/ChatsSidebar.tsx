@@ -163,14 +163,14 @@ export default function ChatsSidebar({
       .then((data) => {
         if (controller.signal.aborted) return;
         if (
-          typeof data?.stage_concurrency?.enabled !== "boolean" ||
-          !Number.isInteger(data.stage_concurrency.max_workers) ||
-          data.stage_concurrency.max_workers < 1 ||
-          data.stage_concurrency.max_workers > 128 ||
+          typeof data?.parallelism?.enabled !== "boolean" ||
+          !Number.isInteger(data.parallelism.max_workers) ||
+          data.parallelism.max_workers < 1 ||
+          data.parallelism.max_workers > 128 ||
           typeof data?.connector_approval?.enabled !== "boolean"
         )
           throw new Error("Invalid settings response");
-        setConcurrency(data.stage_concurrency);
+        setConcurrency(data.parallelism);
         setApproval(data.connector_approval.enabled);
         setSettingsError("");
         setSettingsReady(true);
@@ -189,7 +189,7 @@ export default function ChatsSidebar({
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          stage_concurrency: concurrency,
+          parallelism: concurrency,
           connector_approval: { enabled: approval },
         }),
       });
