@@ -172,6 +172,9 @@ async def test_fresh_approval_attachment_verifies_exact_target_and_owner(
             browser = await patchright.chromium.connect_over_cdp(f"http://{address}")
             context = browser.contexts[0]
             page = await context.new_page()
+            # Give this target a unique offline URL; Chromium starts with
+            # another about:blank tab, which must not be an eligible match.
+            await page.goto("data:text/html,PromptaOwnedCDPRecoveryFixture")
             await page.set_content(
                 '<main><div role="dialog" id="permission">'
                 '<button id="grant">Always allow</button>'
