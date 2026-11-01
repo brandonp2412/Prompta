@@ -298,7 +298,10 @@ class HistoryRecovery:
                     type(exc).__name__,
                 )
 
-    def recover_once(self, *, now: float | None = None) -> bool:
+    def recover_once(
+        self, *, now: float | None = None, preferred_send_id: str | None = None,
+        owned_tab_recovery: bool = False,
+    ) -> bool:
         """Attempt at most one due chat; all retries are read-only and persisted."""
         at = time.time() if now is None else now
         if (
@@ -311,13 +314,16 @@ class HistoryRecovery:
         # deploy. This is still one verified, read-only lookup per global slot.
         priority_sends, priority_replies = deployment_recovery_priority(self.results.path.parent)
         candidate = (
-            self.replies.next_history_reply_recovery(now=at, priority_ids=priority_replies)
-            if priority_replies else None
+            self.results.next_history_recovery(now=at, priority_ids=(preferred_send_id,))
+            if preferred_send_id is not None else (
+                self.replies.next_history_reply_recovery(now=at, priority_ids=priority_replies)
+                if priority_replies else None
+            )
         )
-        if candidate is None and priority_sends:
+        if candidate is None and preferred_send_id is None and priority_sends:
             candidate = self.results.next_history_recovery(now=at, priority_ids=priority_sends)
         manual_target = ""
-        if candidate is None:
+        if candidate is None and preferred_send_id is None:
             for target in self.results.pending_manual_recovery_requests():
                 reply_id = target.removeprefix("reply:") if target.startswith("reply:") else ""
                 if reply_id:
@@ -340,7 +346,7 @@ class HistoryRecovery:
                     candidate = due
                     manual_target = target
                     break
-        if candidate is None:
+        if candidate is None and preferred_send_id is None:
             # Preserve deliberate pinned-chat priority for the normal backlog.
             candidate = (self.results.next_history_recovery(now=at, pinned_only=True)
                          or self.replies.next_history_reply_recovery(now=at)
@@ -370,7 +376,9 @@ class HistoryRecovery:
                         **({"resume_approvals": True} if allow_resume else {}),
                     )
                 else:
-                    allow_resume = self.approval_enabled and send_id in priority_sends
+                    allow_resume = self.approval_enabled and (
+                        send_id in priority_sends or owned_tab_recovery
+                    )
                     probe = self._read_original_response(
                         conversation_id, prompt,
                         **({"resume_approvals": True} if allow_resume else {}),
@@ -423,8 +431,9 @@ def run_history_recovery(
     driver_factory: Callable[[], HistoryDriver],
     *,
     stop: threading.Event | None = None,
+    debugger_address: str | None = None,
 ) -> None:
-    """Background loop with a global 90-second navigation budget."""
+    """Background loop with one shared 90-second recovery budget."""
     shutdown = stop or threading.Event()
     recovery = HistoryRecovery(results, runtime, driver_factory)
     last_checked_at = 0.0
@@ -444,7 +453,27 @@ def run_history_recovery(
                         with DeploymentGate(results.path).admission() as deploy_allowed:
                             if deploy_allowed:
                                 last_checked_at = current
-                                recovery.recover_once()
+                                owned_candidate = None
+                                if debugger_address:
+                                    from .owned_tab_recovery import (
+                                        ExistingOwnedTabDriver,
+                                        next_owned_recovery_candidate,
+                                    )
+                                    owned_candidate = next_owned_recovery_candidate(
+                                        results, debugger_address,
+                                    )
+                                if owned_candidate is not None:
+                                    tab = owned_candidate.tab
+                                    owned_recovery = HistoryRecovery(
+                                        results, runtime,
+                                        lambda: ExistingOwnedTabDriver(debugger_address or "", tab),
+                                    )
+                                    owned_recovery.recover_once(
+                                        preferred_send_id=owned_candidate.send_id,
+                                        owned_tab_recovery=True,
+                                    )
+                                else:
+                                    recovery.recover_once()
         except Exception as exc:
             last_checked_at = time.monotonic()
             logger.warning("Historical recovery loop will retry error_type=%s", type(exc).__name__)

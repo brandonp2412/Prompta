@@ -409,7 +409,7 @@ def run(
     recovery_thread = threading.Thread(
         target=run_history_recovery,
         args=(sender.results, runtime, sender._new_driver),
-        kwargs={"stop": recovery_stop},
+        kwargs={"stop": recovery_stop, "debugger_address": chrome_debugger_address},
         name="prompta-history-recovery",
         daemon=True,
     )
