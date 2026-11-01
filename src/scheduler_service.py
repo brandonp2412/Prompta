@@ -7,7 +7,7 @@ import random
 import time
 from pathlib import Path
 
-from .config import DEFAULT_CONFIG_PATH, ParallelismSettings, StageConcurrencySettings
+from .config import DEFAULT_CONFIG_PATH, StageConcurrencySettings
 from .delivery_queue import DeliveryQueueStore
 from .jobs import PromptJob, remove_job
 from .persistence import DEFAULT_RUNTIME_PATH
@@ -45,8 +45,6 @@ class DurableSchedulerProducer:
         self.concurrency_config_path = concurrency_config_path.expanduser()
         self._concurrency_signature: tuple[int, int, int] | None = None
         self._concurrency_settings: StageConcurrencySettings | None = None
-        self._parallelism_signature: tuple[int, int, int] | None = None
-        self._parallelism_settings: ParallelismSettings | None = None
 
     def _current_concurrency_settings(self) -> StageConcurrencySettings:
         """Reload only on file replacement/change; invalid files never disable the cap."""
@@ -61,19 +59,6 @@ class DurableSchedulerProducer:
             self._concurrency_signature = signature
         return self._concurrency_settings
 
-    def _current_parallelism_settings(self) -> ParallelismSettings:
-        """Hot-reload the global limit, failing closed if configuration is invalid."""
-        try:
-            stat = self.concurrency_config_path.stat()
-            signature = (stat.st_ino, stat.st_mtime_ns, stat.st_size)
-        except FileNotFoundError:
-            signature = None
-        if self._parallelism_settings is None or signature != self._parallelism_signature:
-            settings = ParallelismSettings.load(self.concurrency_config_path)
-            self._parallelism_settings = settings
-            self._parallelism_signature = signature
-        return self._parallelism_settings
-
     def _pending_receipt(self, job_name: str) -> dict[str, object] | None:
         state = self.runtime.job_state(job_name)
         send_id = str(state.get("last_delivery_send_id") or "")
@@ -82,25 +67,7 @@ class DurableSchedulerProducer:
         receipt = self.queue.get(send_id)
         return receipt if receipt_is_pending(receipt) else None
 
-    def _mutex_group_busy(self, job: PromptJob, jobs: list[PromptJob], *, now: float) -> bool:
-        global_limit = self._current_parallelism_settings().max_workers
-        if global_limit is not None:
-            active = self.queue.pending_scheduled_send_ids()
-            active.update(self.queue.results.active_capture_send_ids(now=now))
-            if len(active) >= global_limit:
-                return True
-
-        settings = self._current_concurrency_settings()
-        if settings.enabled and job.name.startswith(settings.job_prefixes):
-            # One-shot definitions vanish on enqueue, but their active response
-            # captures still occupy the configured group's concurrency slots.
-            active = self.queue.pending_scheduled_send_ids(settings.job_prefixes)
-            active.update(
-                self.queue.results.active_capture_send_ids(settings.job_prefixes, now=now)
-            )
-            limit = settings.limit_at(now)
-            assert limit is not None
-            return len(active) >= limit
+    def _mutex_group_busy(self, job: PromptJob, jobs: list[PromptJob]) -> bool:
         if not job.mutex_group:
             return False
         return any(
@@ -111,81 +78,41 @@ class DurableSchedulerProducer:
         )
 
     def concurrency_queue_snapshot(self, *, now: float | None = None) -> dict[str, object]:
-        """Read-only view of due chats waiting behind global or stage worker limits.
+        """Read-only view of actual queued scheduled jobs behind the global cap.
 
-        The scheduler deliberately does not enqueue these until capacity frees.
-        Do not create fake result rows or advance a job's occurrence marker.
+        Queued records are durable, including one-shot jobs whose definitions
+        have been removed. Never read or expose their private prompt bodies.
         """
         at = time.time() if now is None else float(now)
-        limit = self._current_parallelism_settings().max_workers
-        active = self.queue.pending_scheduled_send_ids()
-        active.update(self.queue.results.active_capture_send_ids(now=at))
-        global_full = limit is not None and len(active) >= limit
+        limit = self._current_concurrency_settings().active_limit
+        active = self.queue.active_delivery_send_ids(now=at)
+        baseline: dict[str, object] = {
+            "max_workers": limit,
+            "occupied_slots": len(active),
+            "estimated_run_seconds": 600,
+            "estimate_samples": 0,
+            "waiting": [],
+        }
+        if limit is None:
+            return baseline
 
-        stage = self._current_concurrency_settings()
-        stage_limit = stage.limit_at(at) if stage.enabled else None
-        stage_active: set[str] = set()
-        if stage_limit is not None:
-            stage_active = self.queue.pending_scheduled_send_ids(stage.job_prefixes)
-            stage_active.update(
-                self.queue.results.active_capture_send_ids(stage.job_prefixes, now=at)
-            )
-        stage_full = stage_limit is not None and len(stage_active) >= stage_limit
-        if not global_full and not stage_full:
-            return {
-                "max_workers": limit,
-                "occupied_slots": len(active),
-                "estimated_run_seconds": 600,
-                "estimate_samples": 0,
-                "waiting": [],
-            }
-
+        queued = self.queue.pending_scheduled_deliveries()
+        if not queued:
+            return baseline
         estimator = QueueEtaEstimator(self.queue, now=at, active_ids=active)
-        global_projection = (
-            estimator.projection(limit, active) if global_full and limit is not None else None
-        )
-        stage_projection = (
-            estimator.projection(stage_limit, stage_active)
-            if stage_full and stage_limit is not None
-            else None
-        )
+        projection = estimator.projection(limit, active)
         waiting: list[dict[str, object]] = []
-        if global_full or stage_full:
-            raw_states = self.runtime.load_state().get("jobs")
-            states = string_object_dict(raw_states) or {}
-            # Preserve tick()'s job iteration order when numbering waiters.
-            for job in self.runtime.read_jobs().values():
-                is_stage = stage_full and job.name.startswith(stage.job_prefixes)
-                if not global_full and not is_stage:
-                    continue
-                raw_state = states.get(job.name)
-                state = string_object_dict(raw_state) or {}
-                send_id = str(state.get("last_delivery_send_id") or "")
-                receipt = self.queue.get(send_id) if send_id else None
-                if not should_enqueue_job(
-                    job, state, now=at, pending_delivery=receipt_is_pending(receipt)
-                ):
-                    continue
-                if self._external_mutex_group_busy(job):
-                    continue
-                if global_full:
-                    assert limit is not None
-                    reason, occupied, capacity = "global", len(active), limit
-                else:
-                    assert stage_limit is not None
-                    reason, occupied, capacity = "stage", len(stage_active), stage_limit
-                global_eta = global_projection.enqueue() if global_projection else 0
-                stage_eta = stage_projection.enqueue() if is_stage and stage_projection else 0
-                waiting.append(
-                    {
-                        "name": job.name,
-                        "position": len(waiting) + 1,
-                        "reason": reason,
-                        "occupied": occupied,
-                        "limit": capacity,
-                        "eta_seconds": max(global_eta, stage_eta),
-                    }
-                )
+        for job_name in queued:
+            waiting.append(
+                {
+                    "name": job_name,
+                    "position": len(waiting) + 1,
+                    "reason": "global",
+                    "occupied": len(active),
+                    "limit": limit,
+                    "eta_seconds": projection.enqueue(),
+                }
+            )
         return {
             "max_workers": limit,
             "occupied_slots": len(active),
@@ -236,7 +163,7 @@ class DurableSchedulerProducer:
         state = self.runtime.job_state(job.name)
         pending_receipt = self._pending_receipt(job.name)
         all_jobs = jobs if jobs is not None else list(self.runtime.read_jobs().values())
-        if self._mutex_group_busy(job, all_jobs, now=now) or self._external_mutex_group_busy(job):
+        if self._mutex_group_busy(job, all_jobs) or self._external_mutex_group_busy(job):
             return False
         if not should_enqueue_job(
             job,

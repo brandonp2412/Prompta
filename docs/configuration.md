@@ -2,41 +2,30 @@
 
 Settings live in `~/.config/prompta/config.toml`.
 
-## Working hours
-
-```toml
-[working_hours]
-enabled = true
-start = "22:30"
-end = "08:00"
-timezone = "Pacific/Auckland"
-```
-
-Scheduled deliveries wait for this window. The start is inclusive; the end is exclusive. Overnight windows work across midnight. Explicit `once` and **Fire now** actions run immediately, subject to account backoff and resource availability. Delivery runs at any time by default.
-
-## Parallelism
-
-```toml
-[parallelism]
-max_workers = 3
-```
-
-This positive integer caps pending scheduled deliveries and active captures. The default is unlimited. Waiting jobs stay due, and active jobs finish under their existing leases. Manual sends have separate admission. Changes apply while the scheduler runs.
-
-For a group of jobs with different daytime and overnight limits:
+## Stage concurrency
 
 ```toml
 [stage_concurrency]
 enabled = true
-job_prefixes = ["prompta-chat-ui-", "prompta-mobile-ux-v2-"]
-timezone = "Pacific/Auckland"
-night_start = "22:30"
-night_end = "07:00"
-day_limit = 1
-night_limit = 3
+max_workers = 3
 ```
 
-This optional policy counts pending deliveries and active captures for matching job prefixes. Per-job mutex groups also apply. Invalid enabled settings pause admission for the group.
+When enabled, this is the **single global limit** on simultaneous fresh-chat
+deliveries and owned captures, regardless of whether they came from `once`,
+a one-time scheduled job, a recurring job, **Fire now**, or a new chat in the UI.
+Every eligible due job is durably queued; excess work waits for an available slot.
+Existing per-job mutex groups still apply. Jobs are admitted in queue order,
+with manually requested chats prioritized.
+Explicit replies do not consume fresh-chat slots.
+
+The default is disabled (unlimited concurrency). The positive `max_workers`
+value is required when enabled. Lowering it does not interrupt already active
+captures; it blocks new claims until occupancy drops below the limit. The
+scheduler and worker read changes without restarting.
+
+There are no time windows, timezone rules, or job-prefix filters. If different
+limits are wanted at different times, use your own cron jobs to update the
+configuration.
 
 ## Connector approvals
 

@@ -38,6 +38,31 @@ def test_only_one_live_claimant_owns_delivery(tmp_path: Path) -> None:
     assert seed.claim_next("worker-c", now=110.0, lease_seconds=30.0) is None
 
 
+def test_global_concurrency_claim_is_atomic_across_workers(tmp_path: Path) -> None:
+    path = tmp_path / "delivery.sqlite3"
+    seed = DeliveryQueueStore(path)
+    seed.results  # Initialize the companion response database before concurrent claims.
+    for index in range(8):
+        seed.upsert(
+            _queued_record(
+                f"scheduled-{index}", client_id=f"scheduled:key:job-{index}"
+            )
+        )
+
+    def claim(index: int) -> dict[str, object] | None:
+        return DeliveryQueueStore(path).claim_next(
+            f"worker-{index}", now=100, lease_seconds=30, max_active=3
+        )
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
+        claims = list(executor.map(claim, range(8)))
+    accepted = [receipt for receipt in claims if receipt is not None]
+    assert len(accepted) == 3
+    assert len({receipt["send_id"] for receipt in accepted}) == 3
+    assert len(seed.active_delivery_send_ids(now=100)) == 3
+    assert len(seed.pending_scheduled_deliveries()) == 5
+
+
 def test_expired_delivery_lease_is_quarantined_and_renewal_extends_it(tmp_path: Path) -> None:
     store = DeliveryQueueStore(tmp_path / "delivery.sqlite3")
     store.upsert(_queued_record())
@@ -183,20 +208,13 @@ def test_delivery_queue_creates_jobs_only_lookup_indexes(tmp_path: Path) -> None
     assert "job_deliveries_client_id" in indexes
 
 
-def test_pending_scheduled_prefixes_are_literal_not_sql_wildcards(tmp_path: Path) -> None:
+def test_pending_scheduled_jobs_use_durable_fifo_with_no_prefix_filter(tmp_path: Path) -> None:
     store = DeliveryQueueStore(tmp_path / "delivery.sqlite3")
-    names = ("stage_under", "stageXunder", "rate%target", "rateXtarget", r"slash\name", "slashXname")
+    names = ("unrelated", "once", "recurring")
     for index, name in enumerate(names):
         store.upsert(_queued_record(f"send-{index}", client_id=f"scheduled:key:{name}"))
-
-    assert store.pending_scheduled_send_ids(("stage_",)) == {"send-0"}
-    assert store.pending_scheduled_send_ids(("rate%",)) == {"send-2"}
-    assert store.pending_scheduled_send_ids(("slash\\",)) == {"send-4"}
-    assert store.pending_scheduled_send_ids(("stage_", "rate%", "slash\\")) == {
-        "send-0", "send-2", "send-4"
-    }
-    assert store.pending_scheduled_send_ids(()) == set()
-    assert len(store.pending_scheduled_send_ids()) == len(names)
+    assert store.pending_scheduled_send_ids() == {"send-0", "send-1", "send-2"}
+    assert store.pending_scheduled_deliveries() == list(names)
 
 
 def test_completion_is_idempotent_and_rejects_stale_owner(tmp_path: Path) -> None:
@@ -265,16 +283,17 @@ def test_cancel_pending_makes_delivery_unclaimable(tmp_path: Path) -> None:
     assert queue.claim_next("worker", now=21.0, lease_seconds=30.0) is None
 
 
-def test_manual_claim_prioritized_and_restricted_during_closed_hours(tmp_path: Path) -> None:
+def test_manual_and_scheduled_claims_share_same_cap(tmp_path: Path) -> None:
     queue = DeliveryQueueStore(tmp_path / "delivery.sqlite3")
     queue.upsert(_queued_record("scheduled-1", client_id="scheduled:key:job"))
-    assert queue.claim_next("worker", now=15.0, lease_seconds=30, manual_only=True) is None
-    first = queue.enqueue_manual("Just once", now=11.0)
-    manual = queue.claim_next("worker", now=15.0, lease_seconds=30, manual_only=True)
-    assert manual is not None and manual["send_id"] == first["send_id"]
-    scheduled = queue.claim_next("worker", now=15.0, lease_seconds=30, manual_only=True)
-    assert scheduled is None
-    scheduled = queue.claim_next("worker", now=15.0, lease_seconds=30)
+    once = queue.enqueue_manual("Just once", now=11.0)
+    manual = queue.claim_next("worker", now=15.0, lease_seconds=30, max_active=1)
+    assert manual is not None and manual["send_id"] == once["send_id"]
+    assert queue.claim_next(
+        "second", now=15.0, lease_seconds=30, max_active=1
+    ) is None
+    assert queue.fail_claim(str(manual["send_id"]), "worker", status="cancelled", error="test", now=15.5)
+    scheduled = queue.claim_next("second", now=16.0, lease_seconds=30, max_active=1)
     assert scheduled is not None and scheduled["send_id"] == "scheduled-1"
 
 

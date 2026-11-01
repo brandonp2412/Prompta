@@ -30,7 +30,7 @@ def _chromium() -> str:
     return executable
 
 
-def test_scheduled_prefixes_are_literals_not_sql_wildcards(tmp_path: Path) -> None:
+def test_scheduled_jobs_across_names_use_one_queue(tmp_path: Path) -> None:
     queue = DeliveryQueueStore(tmp_path / "queue.sqlite3")
     for send_id, job_name in [
         ("underscore", "stage_1-first"),
@@ -47,11 +47,8 @@ def test_scheduled_prefixes_are_literals_not_sql_wildcards(tmp_path: Path) -> No
                 "created_at": 10.0,
             }
         )
-    assert queue.pending_scheduled_send_ids(("stage_1",)) == {"underscore"}
-    assert queue.pending_scheduled_send_ids(("stage%",)) == {"percent"}
-    assert queue.pending_scheduled_send_ids(("stage\\",)) == {"backslash"}
-    assert queue.pending_scheduled_send_ids(()) == set()
     assert len(queue.pending_scheduled_send_ids()) == 4
+    assert len(queue.pending_scheduled_deliveries()) == 4
 
 
 def test_extended_429_never_dead_letters_a_proven_rejection(tmp_path: Path) -> None:

@@ -1,13 +1,11 @@
 from __future__ import annotations
 
 import fcntl
-from datetime import datetime
 from pathlib import Path
-from zoneinfo import ZoneInfo
 
 import pytest
 
-from prompta.config import ParallelismSettings, StageConcurrencySettings
+from prompta.config import StageConcurrencySettings
 from prompta.jobs import add_job, load_jobs
 from prompta.manual_fire import fire_job_now
 from prompta.scheduler_service import DurableSchedulerProducer
@@ -236,347 +234,205 @@ def test_manual_fire_replaces_queued_scheduled_send(tmp_path: Path) -> None:
     assert producer.tick(now=1700.0) == 1
 
 
-def _nz_epoch(value: str) -> float:
-    return datetime.fromisoformat(value).replace(tzinfo=ZoneInfo("Pacific/Auckland")).timestamp()
-
-
-def _stage_config(tmp_path: Path, *, day_limit: int = 1, night_limit: int = 3) -> Path:
+def _stage_config(tmp_path: Path, *, max_workers: int = 3) -> Path:
     path = tmp_path / "config.toml"
     path.write_text(
-        f"""[stage_concurrency]
-enabled = true
-job_prefixes = ["prompta-chat-ui-", "prompta-mobile-ux-v2-"]
-timezone = "Pacific/Auckland"
-night_start = "22:30"
-night_end = "07:00"
-day_limit = {day_limit}
-night_limit = {night_limit}
-""",
+        f"[stage_concurrency]\nenabled = true\nmax_workers = {max_workers}\n",
         encoding="utf-8",
     )
     return path
 
 
-@pytest.mark.parametrize(
-    ("local", "capacity"),
-    [
-        ("2026-10-29T22:29:59", 1),
-        ("2026-10-29T22:30:00", 3),
-        ("2026-10-30T06:59:59", 3),
-        ("2026-10-30T07:00:00", 1),
-        ("2026-10-30T18:00:00", 1),
-        ("2026-07-01T22:30:00", 3),  # NZST winter clock
-    ],
-)
-def test_stage_capacity_uses_auckland_wall_clock(tmp_path: Path, local: str, capacity: int) -> None:
-    settings = StageConcurrencySettings.load(_stage_config(tmp_path))
-    assert settings.limit_at(_nz_epoch(local)) == capacity
-
-
-def _due_stage_producer(tmp_path: Path, *, due: float, count: int) -> DurableSchedulerProducer:
-    runtime_path = tmp_path / "runtime.sqlite3"
-    queue_path = tmp_path / "ui-send-jobs.sqlite3"
-    for index in range(1, count + 1):
-        add_job(
-            runtime_path,
-            f"prompta-mobile-ux-v2-{index:02d}-example",
-            f"Run mobile stage {index}",
-            0.0,
-            run_at_epoch=due,
-            mutex_group="prompta-ui-stage-work",
-        )
-    return DurableSchedulerProducer(
-        runtime_path, runtime_path, queue_path, concurrency_config_path=_stage_config(tmp_path)
+def _due_producer(tmp_path: Path, *, due: float, count: int) -> DurableSchedulerProducer:
+    state = tmp_path / "runtime.sqlite3"
+    for index in range(count):
+        if index % 2 == 0:
+            add_job(state, f"once-{index}", "One-time job", 0, run_at_epoch=due)
+        else:
+            add_job(state, f"recurring-{index}", "Recurring job", 60, exact_interval=True)
+    producer = DurableSchedulerProducer(
+        state, state, concurrency_config_path=_stage_config(tmp_path)
     )
+    for index in range(count):
+        if index % 2:
+            producer.runtime.update_job_state(
+                f"recurring-{index}", {"initial_due_at_epoch": due}
+            )
+    return producer
 
 
 def _accept_and_finish_delivery(
-    producer: DurableSchedulerProducer, *, now: float, deadline: float
+    producer: DurableSchedulerProducer, *, now: float, deadline: float,
+    max_active: int | None = None,
 ) -> tuple[str, str]:
-    claimed = producer.queue.claim_next("test-worker", now=now, lease_seconds=30.0)
+    claimed = producer.queue.claim_next(
+        "test-worker", now=now, lease_seconds=30.0, max_active=max_active
+    )
     assert claimed is not None
     send_id = str(claimed["send_id"])
-    client_id = str(claimed["client_id"])
-    job_name = client_id.rsplit(":", 1)[-1]
+    job_name = str(claimed["client_id"]).rsplit(":", 1)[-1]
     producer.queue.results.ensure_queued(send_id, str(claimed["message"]), job_name, now=now)
     assert producer.queue.results.accept(send_id, "test-owner", deadline=deadline, now=now)
     assert producer.queue.complete_claim(send_id, "test-worker", now=now + 0.1)
     return send_id, job_name
 
 
-def test_stage_capacity_counts_owned_capture_after_one_shot_definition_removed(
-    tmp_path: Path,
-) -> None:
-    day = _nz_epoch("2026-10-29T22:29:00")
-    night = _nz_epoch("2026-10-29T22:30:00")
-    producer = _due_stage_producer(tmp_path, due=day - 60, count=5)
-    assert producer.tick(now=day) == 1
-    assert len(load_jobs(producer.jobs_path)) == 4
-    first_send_id, _ = _accept_and_finish_delivery(producer, now=day + 1, deadline=night + 7200)
-    assert producer.queue.pending_scheduled_send_ids(("prompta-mobile-ux-v2-",)) == set()
-    assert producer.queue.results.active_capture_send_ids(
-        ("prompta-mobile-ux-v2-",), now=night
-    ) == {first_send_id}
-    # The first one-shot job has disappeared from scheduled_jobs, but its
-    # owned ChatGPT capture still occupies an active lane.
-    assert producer.tick(now=day + 2) == 1  # only receipt reconciliation
-    assert len(producer.queue.records()) == 1
-    assert producer.tick(now=night) == 2
-    assert len(producer.queue.records()) == 3
-    assert len(load_jobs(producer.jobs_path)) == 2
-    # Union the accepted capture with the two pending queue receipts.
-    assert producer.tick(now=night + 1) == 0
-    assert len(producer.queue.records()) == 3
-    assert producer.queue.results.finish(first_send_id, "test-owner", "interrupted", now=night + 2)
-    assert producer.tick(now=night + 3) == 1
-    assert len(producer.queue.records()) == 4
-
-
-def test_dawn_reduces_new_admissions_without_interrupting_live_captures(
-    tmp_path: Path,
-) -> None:
-    night = _nz_epoch("2026-10-30T06:59:00")
-    dawn = _nz_epoch("2026-10-30T07:00:00")
-    producer = _due_stage_producer(tmp_path, due=night - 60, count=4)
-    assert producer.tick(now=night) == 3
-    live_send_ids = [
-        _accept_and_finish_delivery(producer, now=night + offset, deadline=dawn + 7200)[0]
-        for offset in (1.0, 2.0, 3.0)
-    ]
-    assert producer.tick(now=dawn) == 3  # three receipt reconciliations; no fourth send
-    assert len(producer.queue.records()) == 3
-    for send_id in live_send_ids[:2]:
-        assert producer.queue.results.finish(send_id, "test-owner", "interrupted", now=dawn + 1)
-    assert producer.tick(now=dawn + 2) == 0  # one live capture still fills the day slot
-    assert producer.queue.results.finish(
-        live_send_ids[2], "test-owner", "interrupted", now=dawn + 3
-    )
-    assert producer.tick(now=dawn + 4) == 1
-    assert len(producer.queue.records()) == 4
-
-
-def test_stage_parallelism_setting_hot_reloads_without_scheduler_restart(tmp_path: Path) -> None:
-    night = _nz_epoch("2026-10-29T22:30:00")
-    producer = _due_stage_producer(tmp_path, due=night - 60, count=4)
-    assert producer.tick(now=night) == 3
-    assert len(producer.queue.records()) == 3
-    assert producer._current_concurrency_settings().night_limit == 3
-
-    # Persist a changed setting; existing producer notices and admits one more.
-    _stage_config(tmp_path, night_limit=4)
-    assert producer.tick(now=night + 1) == 1
-    assert len(producer.queue.records()) == 4
-    assert producer._current_concurrency_settings().night_limit == 4
-
-
-def test_no_parallelism_config_adds_no_global_limit(tmp_path: Path) -> None:
-    due = _nz_epoch("2026-10-29T12:00:00")
-    state = tmp_path / "runtime.sqlite3"
-    for index in range(4):
-        add_job(state, f"independent-{index}", "A fresh independent chat", 0, run_at_epoch=due)
-    producer = DurableSchedulerProducer(
-        state, state, concurrency_config_path=tmp_path / "missing-config.toml"
-    )
-    assert producer._current_concurrency_settings().limit_at(due) is None
-    assert producer.tick(now=due) == 4
-
-
-def test_global_parallelism_caps_independent_jobs_and_active_captures(tmp_path: Path) -> None:
-    due = _nz_epoch("2026-10-29T12:00:00")
-    state = tmp_path / "runtime.sqlite3"
-    for index in range(5):
-        add_job(state, f"independent-{index}", "Fresh independent chat", 0, run_at_epoch=due)
-    config = tmp_path / "config.toml"
-    config.write_text("[parallelism]\nmax_workers = 3\n", encoding="utf-8")
-    producer = DurableSchedulerProducer(state, state, concurrency_config_path=config)
-
-    assert producer.tick(now=due) == 3
-    assert len(producer.queue.records()) == 3
-    first_send_id, _ = _accept_and_finish_delivery(producer, now=due + 1, deadline=due + 7200)
-    assert producer.queue.pending_scheduled_send_ids() == {
-        str(row["send_id"]) for row in producer.queue.records() if row["status"] == "queued"
-    }
-    assert producer.queue.results.active_capture_send_ids(now=due + 2) == {first_send_id}
-    assert producer.tick(now=due + 2) == 1  # receipt reconciliation, no new admission
-    assert len(producer.queue.records()) == 3
-
-    assert producer.queue.results.finish(first_send_id, "test-owner", "interrupted", now=due + 3)
-    assert producer.tick(now=due + 4) == 1
-    assert len(producer.queue.records()) == 4
-
-
-def test_global_parallelism_hot_reloads_without_restart(tmp_path: Path) -> None:
-    due = _nz_epoch("2026-10-29T12:00:00")
-    state = tmp_path / "runtime.sqlite3"
-    for index in range(5):
-        add_job(state, f"independent-{index}", "Fresh independent chat", 0, run_at_epoch=due)
-    config = tmp_path / "config.toml"
-    config.write_text("[parallelism]\nmax_workers = 3\n", encoding="utf-8")
-    producer = DurableSchedulerProducer(state, state, concurrency_config_path=config)
-    assert producer.tick(now=due) == 3
-
-    config.write_text("[parallelism]\nmax_workers = 4\n", encoding="utf-8")
-    assert producer.tick(now=due + 1) == 1
-    assert producer._current_parallelism_settings() == ParallelismSettings(max_workers=4)
-    config.write_text("[parallelism]\n", encoding="utf-8")
-    assert producer.tick(now=due + 2) == 1
+def test_once_and_recurring_jobs_enter_same_durable_queue(tmp_path: Path) -> None:
+    due = 1000.0
+    producer = _due_producer(tmp_path, due=due, count=5)
+    assert producer.tick(now=due) == 5
     assert len(producer.queue.records()) == 5
-
-
-def test_invalid_global_parallelism_reload_does_not_admit_work(tmp_path: Path) -> None:
-    due = _nz_epoch("2026-10-29T12:00:00")
-    state = tmp_path / "runtime.sqlite3"
-    add_job(state, "independent", "Fresh independent chat", 0, run_at_epoch=due)
-    config = tmp_path / "config.toml"
-    config.write_text("[parallelism]\nmax_workers = 3\n", encoding="utf-8")
-    producer = DurableSchedulerProducer(state, state, concurrency_config_path=config)
-    assert producer._current_parallelism_settings().max_workers == 3
-    config.write_text("[parallelism]\nmax_workers = 0\n", encoding="utf-8")
-    with pytest.raises(ValueError, match=r"parallelism[\s\S]*max_workers"):
-        producer.tick(now=due)
-    assert producer.queue.records() == []
-
-
-def test_invalid_reloaded_stage_cap_fails_closed(tmp_path: Path) -> None:
-    due = _nz_epoch("2026-10-29T22:30:00")
-    producer = _due_stage_producer(tmp_path, due=due, count=1)
-    assert producer._current_concurrency_settings().enabled
-    config = tmp_path / "config.toml"
-    config.write_text(
-        config.read_text().replace("night_limit = 3", 'night_limit = "many"'),
-        encoding="utf-8",
+    assert len(load_jobs(producer.jobs_path)) == 2  # once definitions removed
+    assert producer.queue.pending_scheduled_deliveries() == [
+        "once-0", "once-2", "once-4", "recurring-1", "recurring-3"
+    ]
+    # The queue remains durable across scheduler restarts.
+    fresh = DurableSchedulerProducer(
+        producer.state_path, producer.jobs_path, producer.queue.path,
+        producer.concurrency_config_path
     )
-    with pytest.raises(ValueError, match="night_limit"):
-        producer.tick(now=due)
-    assert producer.queue.records() == []
+    assert fresh.concurrency_queue_snapshot(now=due + 1)["waiting"] == (
+        producer.concurrency_queue_snapshot(now=due + 1)["waiting"]
+    )
 
 
-def test_stage_prefix_cap_applies_to_future_cli_jobs_without_mutex_group(
+def test_global_cap_counts_running_and_capturing_once_and_recurring_jobs(
     tmp_path: Path,
 ) -> None:
-    due = _nz_epoch("2026-10-29T12:00:00")
+    due = 1000.0
+    producer = _due_producer(tmp_path, due=due, count=5)
+    producer.tick(now=due)
+    first, _ = _accept_and_finish_delivery(
+        producer, now=due + 1, deadline=due + 7200, max_active=2
+    )
+    second, _ = _accept_and_finish_delivery(
+        producer, now=due + 2, deadline=due + 7200, max_active=2
+    )
+    assert producer.queue.claim_next(
+        "worker", now=due + 3, lease_seconds=30, max_active=2
+    ) is None
+    assert producer.queue.results.active_capture_send_ids(now=due + 3) == {
+        first, second
+    }
+    assert producer.queue.results.finish(first, "test-owner", "interrupted", now=due + 4)
+    third = producer.queue.claim_next(
+        "worker", now=due + 5, lease_seconds=30, max_active=2
+    )
+    assert third is not None
+    assert str(third["client_id"]).endswith(":once-4")
+
+
+def test_global_cap_applies_to_direct_one_off_chat_and_scheduled_job(
+    tmp_path: Path,
+) -> None:
+    producer = _due_producer(tmp_path, due=1000, count=1)
+    producer.tick(now=1000)
+    manual = producer.queue.enqueue_manual("A manually requested one-off", now=1000)
+    # Manually requested one-offs take priority, but use the same capacity.
+    claim = producer.queue.claim_next("worker", now=1001, lease_seconds=30, max_active=1)
+    assert claim is not None and claim["send_id"] == manual["send_id"]
+    assert producer.queue.claim_next(
+        "other", now=1002, lease_seconds=30, max_active=1
+    ) is None
+    manual_id = str(claim["send_id"])
+    producer.queue.results.ensure_queued(manual_id, "A manually requested one-off", "", now=1001)
+    assert producer.queue.results.accept(
+        manual_id, "owner", deadline=5000, now=1001
+    )
+    assert producer.queue.complete_claim(manual_id, "worker", now=1001.5)
+    assert producer.queue.claim_next(
+        "other", now=1002, lease_seconds=30, max_active=1
+    ) is None
+    assert producer.queue.results.finish(manual_id, "owner", "interrupted", now=1003)
+    assert producer.queue.claim_next(
+        "other", now=1004, lease_seconds=30, max_active=1
+    ) is not None
+
+
+def test_stage_concurrency_hot_reloads_without_worker_restart(tmp_path: Path) -> None:
+    producer = _due_producer(tmp_path, due=1000, count=5)
+    assert producer.tick(now=1000) == 5
+    config = producer.concurrency_config_path
+    assert producer._current_concurrency_settings().active_limit == 3
+    for index in range(3):
+        assert producer.queue.claim_next(
+            f"worker-{index}", now=1001, lease_seconds=30, max_active=3
+        ) is not None
+    assert producer.queue.claim_next(
+        "worker-4", now=1001, lease_seconds=30, max_active=3
+    ) is None
+    _stage_config(tmp_path, max_workers=4)
+    assert producer._current_concurrency_settings().active_limit == 4
+    assert producer.queue.claim_next(
+        "worker-4", now=1001, lease_seconds=30,
+        max_active=StageConcurrencySettings.load(config).active_limit
+    ) is not None
+    _stage_config(tmp_path, max_workers=1)
+    assert producer._current_concurrency_settings().active_limit == 1
+    assert producer.queue.claim_next(
+        "worker-5", now=1002, lease_seconds=30,
+        max_active=StageConcurrencySettings.load(config).active_limit
+    ) is None
+
+
+def test_disabled_global_cap_allows_all_due_jobs(tmp_path: Path) -> None:
     state = tmp_path / "runtime.sqlite3"
     for index in range(4):
-        add_job(
-            state,
-            f"prompta-chat-ui-{index + 20:02d}-recheck",
-            "One future fresh stage chat",
-            0,
-            run_at_epoch=due,
-        )
+        add_job(state, f"independent-{index}", "Independent job", 0, run_at_epoch=1000)
     producer = DurableSchedulerProducer(
-        state, state, concurrency_config_path=_stage_config(tmp_path)
+        state, state, concurrency_config_path=tmp_path / "missing.toml"
     )
-    assert producer.tick(now=due) == 1
-    assert len(producer.queue.records()) == 1
+    assert producer._current_concurrency_settings().active_limit is None
+    assert producer.tick(now=1000) == 4
+    for index in range(4):
+        assert producer.queue.claim_next(
+            f"worker-{index}", now=1001, lease_seconds=30,
+            max_active=producer._current_concurrency_settings().active_limit
+        ) is not None
 
-    # An opt-out on the same file removes the *configured* special cap.
-    path = tmp_path / "config.toml"
-    path.write_text("[stage_concurrency]\nenabled = false\n", encoding="utf-8")
-    assert producer.tick(now=due + 1) == 3
-    assert len(producer.queue.records()) == 4
 
-
-def test_concurrency_queue_snapshot_tracks_due_chats_without_dispatching_them(
-    tmp_path: Path,
-) -> None:
-    state = tmp_path / "runtime.sqlite3"
-    queue_path = tmp_path / "ui-send-jobs.sqlite3"
-    config_path = tmp_path / "config.toml"
-    config_path.write_text("[parallelism]\nmax_workers = 1\n")
-    for name in ("first", "second", "third"):
-        add_job(state, name, f"Private prompt for {name}", 60, exact_interval=True)
-    producer = DurableSchedulerProducer(state, state, queue_path, config_path)
-    for name in ("first", "second", "third"):
-        producer.runtime.update_job_state(name, {"initial_due_at_epoch": 1000.0})
-
-    assert producer.tick(now=1000.0) == 1
-    expected = {
-        "max_workers": 1,
-        "occupied_slots": 1,
+def test_concurrency_queue_snapshot_includes_all_due_job_types(tmp_path: Path) -> None:
+    producer = _due_producer(tmp_path, due=1000, count=3)
+    _stage_config(tmp_path, max_workers=2)
+    assert producer.tick(now=1000) == 3
+    assert producer.concurrency_queue_snapshot(now=1001) == {
+        "max_workers": 2,
+        "occupied_slots": 0,
         "estimated_run_seconds": 600,
         "estimate_samples": 0,
         "waiting": [
             {
-                "name": "second",
-                "position": 1,
+                "name": name,
+                "position": position,
                 "reason": "global",
-                "occupied": 1,
-                "limit": 1,
-                "eta_seconds": 600,
-            },
-            {
-                "name": "third",
-                "position": 2,
-                "reason": "global",
-                "occupied": 1,
-                "limit": 1,
-                "eta_seconds": 1200,
-            },
+                "occupied": 0,
+                "limit": 2,
+                "eta_seconds": eta,
+            }
+            for position, (name, eta) in enumerate(
+                [("once-0", 0), ("once-2", 0), ("recurring-1", 600)],
+                start=1,
+            )
         ],
     }
-    assert producer.concurrency_queue_snapshot(now=1001.0) == expected
-    assert (
-        DurableSchedulerProducer(state, state, queue_path, config_path).concurrency_queue_snapshot(
-            now=1001.0
-        )
-        == expected
+    first, _ = _accept_and_finish_delivery(
+        producer, now=1001, deadline=5000, max_active=2
     )
-    assert len(producer.queue.records()) == 1
-    assert "Private prompt" not in str(expected)
-
-    claimed = producer.queue.claim_next("worker", now=1001.0, lease_seconds=30.0)
-    assert claimed is not None
-    assert producer.queue.complete_claim(str(claimed["send_id"]), "worker", now=1002.0)
-    assert producer.concurrency_queue_snapshot(now=1003.0)["waiting"] == []
-    assert producer.tick(now=1003.0) >= 1
-    assert producer.concurrency_queue_snapshot(now=1004.0)["waiting"] == [
+    second, _ = _accept_and_finish_delivery(
+        producer, now=1002, deadline=5000, max_active=2
+    )
+    snap = producer.concurrency_queue_snapshot(now=1003)
+    assert snap["occupied_slots"] == 2
+    assert snap["waiting"] == [
         {
-            "name": "third",
+            "name": "recurring-1",
             "position": 1,
             "reason": "global",
-            "occupied": 1,
-            "limit": 1,
-            "eta_seconds": 600,
+            "occupied": 2,
+            "limit": 2,
+            "eta_seconds": 598,
         }
     ]
-    assert len(producer.queue.records()) == 2
-
-
-def test_concurrency_queue_snapshot_includes_daytime_stage_limit(tmp_path: Path) -> None:
-    state = tmp_path / "runtime.sqlite3"
-    config_path = tmp_path / "config.toml"
-    config_path.write_text(
-        "[parallelism]\nmax_workers = 3\n"
-        "[stage_concurrency]\nenabled = true\njob_prefixes = ['stage-']\n"
-        "timezone = 'Pacific/Auckland'\nnight_start = '22:30'\n"
-        "night_end = '07:00'\nday_limit = 1\nnight_limit = 3\n"
-    )
-    now = datetime(2026, 10, 29, 12, 0, tzinfo=ZoneInfo("Pacific/Auckland")).timestamp()
-    for name in ("stage-first", "stage-second", "unrestricted"):
-        add_job(state, name, f"Private prompt {name}", 60, exact_interval=True)
-    producer = DurableSchedulerProducer(
-        state, state, tmp_path / "ui-send-jobs.sqlite3", config_path
-    )
-    for name in ("stage-first", "stage-second", "unrestricted"):
-        producer.runtime.update_job_state(name, {"initial_due_at_epoch": now})
-
-    assert producer.tick(now=now) == 2
-    snapshot = producer.concurrency_queue_snapshot(now=now + 1)
-    assert snapshot == {
-        "max_workers": 3,
-        "occupied_slots": 2,
-        "estimated_run_seconds": 600,
-        "estimate_samples": 0,
-        "waiting": [
-            {
-                "name": "stage-second",
-                "position": 1,
-                "reason": "stage",
-                "occupied": 1,
-                "limit": 1,
-                "eta_seconds": 600,
-            }
-        ],
-    }
-    assert len(producer.queue.records()) == 2
+    assert producer.queue.results.finish(first, "test-owner", "interrupted", now=1004)
+    assert producer.queue.results.finish(second, "test-owner", "interrupted", now=1004)
+    assert producer.concurrency_queue_snapshot(now=1005)["occupied_slots"] == 0

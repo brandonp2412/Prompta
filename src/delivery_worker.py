@@ -17,7 +17,7 @@ from typing import Protocol
 
 from sqlalchemy.exc import OperationalError
 
-from .config import WorkingHours
+from .config import StageConcurrencySettings
 from .delivery_browser import (
     BrowserDeliverySender,
     DeliveryBackendUnavailableError,
@@ -95,21 +95,12 @@ class DeliveryAdmission:
         self,
         runtime: SchedulerRuntime,
         resource_admission: Callable[[], tuple[bool, str]] | None = None,
-        working_hours: WorkingHours | None = None,
     ) -> None:
         self.runtime = runtime
         self.resource_admission = resource_admission or ResourceAdmission()
-        self.working_hours = working_hours
         self._last_resource_state: tuple[bool, str] | None = None
 
     def __call__(self, *, manual: bool = False) -> tuple[bool, str, float]:
-        current = time.time()
-        if not manual:
-            working_hours = self.working_hours or WorkingHours.load()
-            allowed, reason, retry_after = working_hours.admission(now=current)
-            if not allowed:
-                return False, reason, retry_after
-
         allowed, reason = self.resource_admission()
         state = (allowed, reason)
         if state != self._last_resource_state:
@@ -438,8 +429,7 @@ def run(
                     queue.expire_leases()
                     last_lease_sweep = current
 
-                hours_allowed, _reason, _retry_after = WorkingHours.load().admission()
-                allowed, reason, retry_after = admission(manual=not hours_allowed)
+                allowed, reason, retry_after = admission()
                 if not allowed:
                     if reason:
                         logger.debug("Delivery admission blocked: %s", reason)
@@ -455,7 +445,7 @@ def run(
                     record = queue.claim_next(
                         owner,
                         lease_seconds=_LEASE_SECONDS,
-                        manual_only=not hours_allowed,
+                        max_active=StageConcurrencySettings.load().active_limit,
                     )
                     if record is not None:
                         _deliver_one(queue, sender, runtime, health, owner, record)
@@ -467,6 +457,9 @@ def run(
                 logger.warning(
                     "SQLite busy in delivery worker; will retry without dispatching", exc_info=True
                 )
+                time.sleep(1.0)
+            except ValueError:
+                logger.exception("Invalid stage concurrency configuration; admission paused")
                 time.sleep(1.0)
     except KeyboardInterrupt:
         pass

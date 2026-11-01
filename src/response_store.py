@@ -367,24 +367,22 @@ class ResponseStore:
                 recovered += changed.rowcount
         return recovered
 
-    def active_capture_send_ids(
-        self, job_prefixes: tuple[str, ...] | None = None, *, now: float
-    ) -> set[str]:
-        """Count only live owned captures; never read private response bodies."""
-        if job_prefixes == ():
-            return set()
-        predicates = [results.c.job_name != ""]
-        if job_prefixes is not None:
-            predicates.append(
-                or_(*(results.c.job_name.startswith(prefix, autoescape=True) for prefix in job_prefixes))
-            )
+    def active_capture_send_ids(self, *, now: float) -> set[str]:
+        """Live owned fresh-chat captures, including one-offs and scheduled jobs.
+
+        Explicit replies have different send identifiers and are not queued
+        fresh chats. Never inspect private response bodies.
+        """
         with self.engine.connect() as connection:
             rows = connection.execute(
                 select(results.c.send_id).where(
-                    results.c.status.in_(("accepted", "generating")),
+                    results.c.status.in_(("accepted", "generating", "partial")),
                     results.c.capture_deadline > now,
                     results.c.capture_owner != "",
-                    *predicates,
+                    or_(
+                        results.c.send_id.startswith("scheduled-", autoescape=True),
+                        results.c.send_id.startswith("manual-", autoescape=True),
+                    ),
                 )
             ).scalars().all()
         return {str(send_id) for send_id in rows}

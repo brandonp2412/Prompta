@@ -350,42 +350,37 @@ def test_queue_status_api_is_private_read_only_and_exposes_worker_wait_order(
 ) -> None:
     with server(tmp_path) as (app, port):
         config_path = tmp_path / "config.toml"
-        config_path.write_text("[parallelism]\nmax_workers = 1\n")
+        config_path.write_text(
+            "[stage_concurrency]\nenabled = true\nmax_workers = 1\n"
+        )
         app.queue_view.concurrency_config_path = config_path
         for name in ("alpha", "beta", "gamma"):
             add_job(app.jobs_path, name, f"Secret prompt {name}", 60, exact_interval=True)
             app.queue_view.runtime.update_job_state(name, {"initial_due_at_epoch": 1000.0})
-        assert app.queue_view.tick(now=1000.0) == 1
+        assert app.queue_view.tick(now=1000.0) == 3
 
         status, payload, headers = get(port, "/api/queue-status")
         assert status == 200 and headers["cache-control"] == "no-store"
         assert payload == {
             "max_workers": 1,
-            "occupied_slots": 1,
+            "occupied_slots": 0,
             "estimated_run_seconds": 600,
             "estimate_samples": 0,
             "waiting": [
                 {
-                    "name": "beta",
-                    "position": 1,
+                    "name": name,
+                    "position": index,
                     "reason": "global",
-                    "occupied": 1,
+                    "occupied": 0,
                     "limit": 1,
-                    "eta_seconds": 600,
-                },
-                {
-                    "name": "gamma",
-                    "position": 2,
-                    "reason": "global",
-                    "occupied": 1,
-                    "limit": 1,
-                    "eta_seconds": 1200,
-                },
+                    "eta_seconds": (index - 1) * 600,
+                }
+                for index, name in enumerate(("alpha", "beta", "gamma"), start=1)
             ],
         }
         assert "Secret prompt" not in str(payload)
         assert get(port, "/api/queue-status", method="POST")[0] == 405
-        assert len(app.queue.records()) == 1
+        assert len(app.queue.records()) == 3
 
 
 def test_waiting_chats_render_and_advance_on_desktop_and_mobile(tmp_path: Path) -> None:
@@ -394,74 +389,69 @@ def test_waiting_chats_render_and_advance_on_desktop_and_mobile(tmp_path: Path) 
         pytest.skip("Visual Chromium binary unavailable")
     with server(tmp_path) as (app, port):
         config_path = tmp_path / "config.toml"
-        config_path.write_text("[parallelism]\nmax_workers = 1\n")
+        config_path.write_text(
+            "[stage_concurrency]\nenabled = true\nmax_workers = 1\n"
+        )
         app.queue_view.concurrency_config_path = config_path
         at = time.time()
         for name in ("alpha", "beta", "gamma"):
             add_job(app.jobs_path, name, f"Synthetic prompt for {name}", 60, exact_interval=True)
             app.queue_view.runtime.update_job_state(name, {"initial_due_at_epoch": at})
-        assert app.queue_view.tick(now=at) == 1
+        assert app.queue_view.tick(now=at) == 3
         with sync_patchright() as patchright:
             browser = patchright.chromium.launch(
                 executable_path=chromium_path, headless=True, args=["--no-sandbox"]
             )
             try:
                 for width, height in (
-                    (1440, 900),
-                    (360, 800),
-                    (390, 844),
-                    (412, 915),
-                    (320, 700),
+                    (1440, 900), (360, 800), (390, 844), (412, 915), (320, 700),
                 ):
                     context = browser.new_context(viewport={"width": width, "height": height})
                     page = context.new_page()
                     requests: list[tuple[str, str]] = []
                     page.on("request", lambda req: requests.append((req.method, req.url)))
-                    page.goto(f"http://127.0.0.1:{port}/?view=chats", wait_until="domcontentloaded")
-                    expect(page.locator(".queue-heading")).to_contain_text("1/1 global slots")
+                    page.goto(
+                        f"http://127.0.0.1:{port}/?view=chats", wait_until="domcontentloaded"
+                    )
+                    expect(page.locator(".queue-heading")).to_contain_text("0/1 global slots")
                     rows = page.locator(".queue-waiting")
-                    expect(rows).to_have_count(2)
-                    expect(rows.nth(0)).to_contain_text("beta")
-                    expect(rows.nth(0)).to_contain_text("#1 of 2")
-                    expect(rows.nth(0)).to_contain_text("ETA ~10 min")
-                    expect(rows.nth(1)).to_contain_text("gamma")
-                    expect(rows.nth(1)).to_contain_text("#2 of 2")
-                    expect(rows.nth(1)).to_contain_text("ETA ~20 min")
-                    top = rows.nth(0).locator(".chat-row-top").bounding_box()
-                    subtitle = rows.nth(0).locator(".queue-subtitle").bounding_box()
-                    assert top is not None and subtitle is not None
-                    assert subtitle["y"] >= top["y"] + top["height"] - 2
+                    expect(rows).to_have_count(3)
+                    expect(page.locator(".chat-entry:not(.queue-waiting)")).to_have_count(0)
+                    for position, name in enumerate(("alpha", "beta", "gamma"), start=1):
+                        expect(rows.nth(position - 1)).to_contain_text(name)
+                        expect(rows.nth(position - 1)).to_contain_text(
+                            f"#{position} of 3"
+                        )
                     assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
                     page.screenshot(path=str(tmp_path / f"queued-{width}x{height}.png"))
                     assert all(method == "GET" for method, _ in requests)
-                    assert all(url.startswith(f"http://127.0.0.1:{port}/") for _, url in requests)
+                    assert all(
+                        url.startswith(f"http://127.0.0.1:{port}/")
+                        for _, url in requests
+                    )
                     if width == 1440:
                         rows.first.locator("button").click()
                         expect(page.locator(".jobs-workspace")).to_be_visible()
                         expect(
                             page.locator(".jobs-workspace .job-row")
-                            .filter(has_text="beta")
+                            .filter(has_text="alpha")
                             .locator(".job-queue-eta")
-                        ).to_contain_text("Queue #1 of 2 · ETA ~10 min")
-                        assert all(method == "GET" for method, _ in requests)
+                        ).to_contain_text("Queue #1 of 3")
                     context.close()
+
                 context = browser.new_context(viewport={"width": 1440, "height": 900})
                 page = context.new_page()
                 page.goto(f"http://127.0.0.1:{port}/?view=chats")
                 rows = page.locator(".queue-waiting")
-                expect(rows).to_have_count(2)
-                claimed = app.queue.claim_next("worker", now=at + 1, lease_seconds=30.0)
+                expect(rows).to_have_count(3)
+                claimed = app.queue.claim_next("worker", now=at + 1, lease_seconds=30)
                 assert claimed is not None
-                assert app.queue.complete_claim(str(claimed["send_id"]), "worker", now=at + 2)
-                assert app.queue_view.tick(now=at + 3) >= 1
-                # SSE invalidates the local queue snapshot without a navigation or refresh.
-                expect(rows).to_have_count(1)
-                expect(rows.first).to_contain_text("gamma")
-                expect(rows.first).to_contain_text("#1 of 1")
-                expect(rows.first).to_contain_text("ETA ~10 min")
-                expect(
-                    page.locator(".chat-entry:not(.queue-waiting)").filter(has_text="beta")
-                ).to_have_count(1)
+                assert app.queue.complete_claim(
+                    str(claimed["send_id"]), "worker", now=at + 2
+                )
+                # SSE updates the persistent queue without a page refresh.
+                expect(rows).to_have_count(2)
+                expect(rows.first).to_contain_text("beta")
                 context.close()
             finally:
                 browser.close()

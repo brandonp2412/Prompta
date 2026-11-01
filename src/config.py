@@ -1,39 +1,14 @@
 from __future__ import annotations
 
 import tomllib
-from datetime import datetime, time, timedelta
 from pathlib import Path
 from typing import Annotated, ClassVar, Self
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import AfterValidator, BaseModel, BeforeValidator, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 DEFAULT_CONFIG_PATH = Path.home() / ".config" / "prompta" / "config.toml"
 
 
-def _local_time(value: object) -> time:
-    if isinstance(value, time):
-        parsed = value
-    elif isinstance(value, str):
-        parsed = time.fromisoformat(value)
-    else:
-        raise ValueError("Time must be HH:MM")
-    if parsed.second or parsed.microsecond or parsed.tzinfo is not None:
-        raise ValueError("Time must be HH:MM without seconds or timezone")
-    return parsed
-
-
-def _timezone(value: str) -> str:
-    value = value.strip()
-    try:
-        ZoneInfo(value)
-    except (ZoneInfoNotFoundError, ValueError) as exc:
-        raise ValueError("Timezone must be a known IANA timezone") from exc
-    return value
-
-
-LocalTime = Annotated[time, BeforeValidator(_local_time)]
-Timezone = Annotated[str, AfterValidator(_timezone)]
 PositiveInt = Annotated[int, Field(gt=0)]
 SafePrefix = Annotated[str, Field(pattern=r"^[a-zA-Z0-9_.-]+$")]
 
@@ -75,95 +50,60 @@ class SettingsSection(BaseModel):
         return {**value, "enabled": enabled}
 
 
-class ParallelismSettings(SettingsSection):
-    """Maximum simultaneous scheduled jobs; omitted means unlimited."""
-
-    section = "parallelism"
-    max_workers: PositiveInt | None = None
-
-
 class StageConcurrencySettings(SettingsSection):
+    """Global fresh-chat concurrency limit for once and scheduled jobs."""
+
     section = "stage_concurrency"
-    required_when_enabled = (
-        "job_prefixes",
-        "timezone",
-        "night_start",
-        "night_end",
-        "day_limit",
-        "night_limit",
-    )
+    required_when_enabled = ("max_workers",)
     enabled: bool = False
-    job_prefixes: tuple[SafePrefix, ...] = ()
-    timezone: Timezone = "UTC"
-    night_start: LocalTime = time(0, 0)
-    night_end: LocalTime = time(0, 0)
-    day_limit: PositiveInt = 1
-    night_limit: PositiveInt = 1
+    max_workers: PositiveInt = 1
 
-    @model_validator(mode="before")
     @classmethod
-    def prefix_sequence(cls, value: object) -> object:
-        if isinstance(value, dict):
-            prefixes = value.get("job_prefixes")
-            if isinstance(prefixes, list):
-                return {**value, "job_prefixes": tuple(prefixes)}
-        return value
+    def load(cls, path: Path = DEFAULT_CONFIG_PATH) -> Self:
+        """Bridge installed legacy caps until their config file is migrated.
 
-    @model_validator(mode="after")
-    def valid_window(self) -> Self:
-        if self.enabled:
-            if not self.job_prefixes or len(set(self.job_prefixes)) != len(self.job_prefixes):
-                raise ValueError("job_prefixes must be nonempty and unique")
-            if self.night_start == self.night_end:
-                raise ValueError("night start and end must differ")
-        return self
-
-    def limit_at(self, now: float) -> int | None:
-        if not self.enabled:
-            return None
-        local = datetime.fromtimestamp(now, ZoneInfo(self.timezone)).time()
-        if self.night_start < self.night_end:
-            night = self.night_start <= local < self.night_end
-        else:
-            night = local >= self.night_start or local < self.night_end
-        return self.night_limit if night else self.day_limit
-
-
-class WorkingHours(SettingsSection):
-    section = "working_hours"
-    required_when_enabled = ("start", "end", "timezone")
-    enabled_by_default = True
-    enabled: bool = False
-    start: LocalTime = time(0, 0)
-    end: LocalTime = time(0, 0)
-    timezone: Timezone = "UTC"
-
-    def admission(self, *, now: float | None = None) -> tuple[bool, str, float]:
-        if not self.enabled or self.start == self.end:
-            return True, "", 0.0
-
-        zone = ZoneInfo(self.timezone)
-        current = datetime.now(zone) if now is None else datetime.fromtimestamp(now, zone)
-        local_time = current.timetz().replace(tzinfo=None)
-
-        if self.start < self.end:
-            allowed = self.start <= local_time < self.end
-        else:
-            allowed = local_time >= self.start or local_time < self.end
-
-        if allowed:
-            return True, "", 0.0
-
-        next_start = datetime.combine(current.date(), self.start, tzinfo=zone)
-        if next_start <= current:
-            next_start += timedelta(days=1)
-        retry_after = max(0.0, next_start.timestamp() - current.timestamp())
-        return (
-            False,
-            f"Outside Prompta working hours ({self.start.strftime('%H:%M')}-"
-            f"{self.end.strftime('%H:%M')} {self.timezone})",
-            retry_after,
+        Old time windows are never applied. The former global parallelism cap
+        takes precedence so a guarded code rollout cannot briefly run unlimited.
+        """
+        try:
+            with path.expanduser().open("rb") as config_file:
+                raw = tomllib.load(config_file)
+        except FileNotFoundError:
+            return cls()
+        stage = raw.get(cls.section)
+        parallelism = raw.get("parallelism")
+        legacy_stage = (
+            isinstance(stage, dict) and "max_workers" not in stage and "day_limit" in stage
         )
+        legacy_parallelism = parallelism is not None and (
+            stage is None or isinstance(stage, dict) and "max_workers" not in stage
+        )
+        if legacy_stage or legacy_parallelism:
+            legacy_max = parallelism.get("max_workers") if isinstance(parallelism, dict) else None
+            if parallelism is not None and (
+                not isinstance(parallelism, dict) or legacy_max is None
+            ):
+                raise ValueError("Invalid legacy parallelism cap")
+            if legacy_max is None and isinstance(stage, dict):
+                day = stage.get("day_limit")
+                night = stage.get("night_limit")
+                if type(day) is not int or type(night) is not int:
+                    raise ValueError("Invalid legacy stage concurrency limit")
+                legacy_max = max(day, night)
+            enabled = legacy_max is not None or (
+                isinstance(stage, dict) and stage.get("enabled") is True
+            )
+            try:
+                return cls.model_validate(
+                    {"enabled": enabled, "max_workers": legacy_max if legacy_max is not None else 1}
+                )
+            except ValueError as exc:
+                raise ValueError(f"Invalid legacy stage concurrency cap: {exc}") from exc
+        return super().load(path)
+
+    @property
+    def active_limit(self) -> int | None:
+        return self.max_workers if self.enabled else None
 
 
 class ConnectorApproval(SettingsSection):

@@ -191,41 +191,43 @@ class DeliveryQueueStore:
             )
         return [self.record_from_row(row) for row in rows]
 
-    def pending_scheduled_send_ids(self, job_prefixes: tuple[str, ...] | None = None) -> set[str]:
-        """Count unsent or in-flight scheduled jobs, even after a one-shot job is removed."""
-        if job_prefixes == ():
-            return set()
-        predicates = [job_deliveries.c.client_id.like("scheduled:%")]
-        if job_prefixes is not None:
-            # User-defined job prefixes are literals, not SQL LIKE patterns.
-            # Wildcards here could falsely occupy a different stage's slots.
-            predicates.append(
-                or_(
-                    *(
-                        job_deliveries.c.client_id.like(
-                            "scheduled:%:"
-                            + prefix.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-                            + "%",
-                            escape="\\",
-                        )
-                        for prefix in job_prefixes
-                    )
-                )
-            )
+    def pending_scheduled_send_ids(self) -> set[str]:
+        """Unfinished scheduled delivery IDs, including removed one-shot definitions."""
         with self.engine.connect() as connection:
-            rows = (
-                connection.execute(
-                    select(job_deliveries.c.send_id).where(
-                        job_deliveries.c.status.in_(
-                            ("queued", "retrying", "rate_limited", "running")
-                        ),
-                        *predicates,
-                    )
+            rows = connection.execute(
+                select(job_deliveries.c.send_id).where(
+                    job_deliveries.c.client_id.like("scheduled:%"),
+                    job_deliveries.c.status.in_(
+                        ("queued", "retrying", "rate_limited", "running")
+                    ),
                 )
-                .scalars()
-                .all()
-            )
+            ).scalars().all()
         return {str(send_id) for send_id in rows}
+
+    def pending_scheduled_deliveries(self) -> list[str]:
+        """Names of queued scheduled jobs in durable FIFO order (no prompt content)."""
+        with self.engine.connect() as connection:
+            clients = connection.execute(
+                select(job_deliveries.c.client_id)
+                .where(
+                    job_deliveries.c.client_id.like("scheduled:%"),
+                    job_deliveries.c.status.in_(("queued", "retrying", "rate_limited")),
+                )
+                .order_by(job_deliveries.c.sequence)
+            ).scalars().all()
+        return [str(client).rsplit(":", 1)[-1] for client in clients]
+
+    def active_delivery_send_ids(self, *, now: float) -> set[str]:
+        """Count in-flight queue claims and owned fresh-chat captures once each."""
+        active = self.results.active_capture_send_ids(now=now)
+        with self.engine.connect() as connection:
+            running = connection.execute(
+                select(job_deliveries.c.send_id).where(
+                    job_deliveries.c.status == "running"
+                )
+            ).scalars().all()
+        active.update(str(send_id) for send_id in running)
+        return active
 
     def health_metrics(self, *, now: float | None = None) -> dict[str, object]:
         at = time.time() if now is None else float(now)
@@ -456,44 +458,57 @@ class DeliveryQueueStore:
         *,
         lease_seconds: float,
         now: float | None = None,
-        manual_only: bool = False,
+        max_active: int | None = None,
     ) -> dict[str, object] | None:
+        """Atomically claim one fresh chat only when a global slot is free.
+
+        The queue remains durable even when the limit is full. Read the
+        separately persisted capture receipts while holding the queue's write
+        transaction: concurrent workers cannot both claim the final slot.
+        """
         at = time.time() if now is None else float(now)
         with self.engine.begin() as connection:
-            # An expired running lease may already have submitted to ChatGPT.
-            # Quarantine it atomically before choosing another queued delivery.
             expired_ids = self._expire_leases(connection, at)
-            claimable = or_(
-                (job_deliveries.c.status == "queued") & (job_deliveries.c.retry_at <= at),
-                job_deliveries.c.status.in_(RETRY_DELIVERY_STATUSES)
-                & (job_deliveries.c.retry_at <= at),
-            )
-            manual = job_deliveries.c.client_id.like("manual:%")
-            sequence = (
-                select(job_deliveries.c.sequence)
-                .where(claimable & manual if manual_only else claimable)
-                .order_by(case((manual, 0), else_=1), job_deliveries.c.sequence)
-                .limit(1)
-                .scalar_subquery()
-            )
-            row = (
-                connection.execute(
-                    update(job_deliveries)
-                    .where(job_deliveries.c.sequence == sequence)
-                    .values(
-                        status="running",
-                        updated_at=at,
-                        lease_owner=owner,
-                        lease_acquired_at=at,
-                        lease_expires_at=at + max(1.0, float(lease_seconds)),
+            running = set(
+                str(send_id)
+                for send_id in connection.execute(
+                    select(job_deliveries.c.send_id).where(
+                        job_deliveries.c.status == "running"
                     )
-                    .returning(*job_deliveries.c)
-                )
-                .mappings()
-                .one_or_none()
+                ).scalars().all()
             )
-        # This is a second SQLite store; an unavailable result receipt must
-        # never roll back a queue claim or cause the uncertain send to replay.
+            active = self.results.active_capture_send_ids(now=at)
+            row = None
+            if max_active is None or len(running | active) < max_active:
+                claimable = or_(
+                    (job_deliveries.c.status == "queued") & (job_deliveries.c.retry_at <= at),
+                    job_deliveries.c.status.in_(RETRY_DELIVERY_STATUSES)
+                    & (job_deliveries.c.retry_at <= at),
+                )
+                manual = job_deliveries.c.client_id.like("manual:%")
+                sequence = (
+                    select(job_deliveries.c.sequence)
+                    .where(claimable)
+                    .order_by(case((manual, 0), else_=1), job_deliveries.c.sequence)
+                    .limit(1)
+                    .scalar_subquery()
+                )
+                row = (
+                    connection.execute(
+                        update(job_deliveries)
+                        .where(job_deliveries.c.sequence == sequence)
+                        .values(
+                            status="running",
+                            updated_at=at,
+                            lease_owner=owner,
+                            lease_acquired_at=at,
+                            lease_expires_at=at + max(1.0, float(lease_seconds)),
+                        )
+                        .returning(*job_deliveries.c)
+                    )
+                    .mappings()
+                    .one_or_none()
+                )
         for expired_id in expired_ids:
             self._mark_result_unavailable(str(expired_id))
         return self.record_from_row(row) if row is not None else None

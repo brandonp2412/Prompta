@@ -140,6 +140,17 @@ export function createChatsPageController(initialProps: Props) {
     (b.updated_at || b.created_at) - (a.updated_at || a.created_at) ||
     b.created_at - a.created_at ||
     a.send_id.localeCompare(b.send_id);
+  const visibleWaiting = computed(() =>
+    statusFilter.value && statusFilter.value !== "queued"
+      ? []
+      : queueSnapshot.value.waiting.filter(
+          (job) =>
+            !search.value.trim() ||
+            job.name.toLowerCase().includes(search.value.trim().toLowerCase()),
+        ),
+  );
+  const queuedWaitingChat = (item: RunSummary) =>
+    item.status === "queued" && visibleWaiting.value.some((job) => job.name === item.job_name);
   const pinned = computed(() => {
     const byId = new Map(
       [...pinnedItems.value, ...items.value].map((item) => [item.send_id, item]),
@@ -148,7 +159,8 @@ export function createChatsPageController(initialProps: Props) {
     return pinnedIds.value
       .map((id) => byId.get(id))
       .filter((item): item is RunSummary => !!item)
-      .filter((item) => !filtered || items.value.some((listed) => listed.send_id === item.send_id));
+      .filter((item) => !filtered || items.value.some((listed) => listed.send_id === item.send_id))
+      .filter((item) => !queuedWaitingChat(item));
   });
   const replyBlockedReason = computed((): string => {
     const latest = turns.value.at(-1);
@@ -176,17 +188,10 @@ export function createChatsPageController(initialProps: Props) {
       return "";
     return "This reply is not yet ready to resend.";
   });
-  const visibleWaiting = computed(() =>
-    statusFilter.value && statusFilter.value !== "queued"
-      ? []
-      : queueSnapshot.value.waiting.filter(
-          (job) =>
-            !search.value.trim() ||
-            job.name.toLowerCase().includes(search.value.trim().toLowerCase()),
-        ),
-  );
   const unpinned = computed(() =>
-    items.value.filter((item) => !pinnedIds.value.includes(item.send_id)).sort(newestFirst),
+    items.value
+      .filter((item) => !pinnedIds.value.includes(item.send_id) && !queuedWaitingChat(item))
+      .sort(newestFirst),
   );
   const switchingChat = computed(
     () =>

@@ -1,13 +1,11 @@
 import sqlite3
 import threading
 import time as epoch_time
-from datetime import time
 from pathlib import Path
 
 import pytest
 from sqlalchemy.exc import OperationalError
 
-from prompta.config import WorkingHours
 from prompta.delivery_queue import DeliveryQueueStore
 from prompta.delivery_worker import (
     DeliveryAdmission,
@@ -21,31 +19,12 @@ from prompta.scheduler_service import DurableSchedulerProducer
 from prompta.service_health import ServiceHealthStore
 
 
-def test_delivery_admission_blocks_outside_working_hours(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
+def test_delivery_admission_gates_on_resources_only(tmp_path: Path) -> None:
     runtime = SchedulerRuntime(tmp_path / "state.sqlite3", tmp_path / "jobs.sqlite3")
-    working_hours = WorkingHours(
-        enabled=True,
-        start=time(22, 30),
-        end=time(8, 0),
-        timezone="Pacific/Auckland",
-    )
-    midday = 1791154800.0
-    monkeypatch.setattr("prompta.delivery_worker.time.time", lambda: midday)
-
-    admission = DeliveryAdmission(
-        runtime,
-        resource_admission=lambda: (True, ""),
-        working_hours=working_hours,
-    )
-
-    allowed, reason, retry_after = admission()
-
-    assert allowed is False
-    assert "Outside Prompta working hours" in reason
-    assert retry_after > 0
+    allowed = DeliveryAdmission(runtime, resource_admission=lambda: (True, ""))
+    blocked = DeliveryAdmission(runtime, resource_admission=lambda: (False, "busy"))
+    assert allowed() == (True, "", 0.0)
+    assert blocked() == (False, "busy", 0.0)
 
 
 def test_delivery_admission_ignores_previous_claim_and_dispatch(
@@ -57,40 +36,8 @@ def test_delivery_admission_ignores_previous_claim_and_dispatch(
     runtime.update_scheduler_state({"last_delivery_claim_at": now, "last_attempt_at": now})
     monkeypatch.setattr("prompta.delivery_worker.time.time", lambda: now)
 
-    assert admission(manual=True) == (True, "", 0.0)
+    assert admission() == (True, "", 0.0)
     monkeypatch.setattr("prompta.delivery_worker.time.time", lambda: now + 1)
-    assert admission(manual=True) == (True, "", 0.0)
-
-
-def test_delivery_admission_reloads_working_hours_config(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    runtime = SchedulerRuntime(tmp_path / "state.sqlite3", tmp_path / "jobs.sqlite3")
-    midday = 1791154800.0
-    current_hours = [
-        WorkingHours(
-            enabled=True,
-            start=time(22, 30),
-            end=time(8, 0),
-            timezone="Pacific/Auckland",
-        )
-    ]
-    monkeypatch.setattr("prompta.delivery_worker.time.time", lambda: midday)
-    monkeypatch.setattr(
-        WorkingHours,
-        "load",
-        classmethod(lambda cls: current_hours[0]),
-    )
-    admission = DeliveryAdmission(
-        runtime,
-        resource_admission=lambda: (True, ""),
-    )
-
-    assert admission()[0] is False
-
-    current_hours[0] = WorkingHours()
-
     assert admission() == (True, "", 0.0)
 
 
@@ -200,21 +147,10 @@ def test_manual_once_job_respects_pin_choice(tmp_path: Path, pin_chat: bool) -> 
     assert calls == [("Fire me", pin_chat)]
 
 
-def test_manual_delivery_bypasses_working_hours_but_keeps_other_limits(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_manual_delivery_obeys_resource_admission(tmp_path: Path) -> None:
     runtime = SchedulerRuntime(tmp_path / "state.sqlite3", tmp_path / "jobs.sqlite3")
-    hours = WorkingHours(enabled=True, start=time(22, 30), end=time(8), timezone="Pacific/Auckland")
-    monkeypatch.setattr("prompta.delivery_worker.time.time", lambda: 1791154800.0)
-    admission = DeliveryAdmission(
-        runtime, resource_admission=lambda: (True, ""), working_hours=hours
-    )
-    assert admission()[0] is False
-    assert admission(manual=True) == (True, "", 0.0)
-    blocked = DeliveryAdmission(
-        runtime, resource_admission=lambda: (False, "busy"), working_hours=hours
-    )
-    assert blocked(manual=True) == (False, "busy", 0.0)
+    blocked = DeliveryAdmission(runtime, resource_admission=lambda: (False, "busy"))
+    assert blocked() == (False, "busy", 0.0)
 
 
 def test_manual_queued_prompt_uses_standard_delivery_path(tmp_path: Path) -> None:
@@ -263,9 +199,9 @@ def test_admission_defers_sends_when_resource_state_write_is_locked(
         original(allowed, reason)
 
     monkeypatch.setattr(runtime, "set_resource_admission", intermittently_locked)
-    assert admission(manual=True) == (False, "SQLite database busy; retrying admission", 1.0)
+    assert admission() == (False, "SQLite database busy; retrying admission", 1.0)
     assert runtime.account_state().get("resource_updated_at") is None
-    assert admission(manual=True) == (True, "", 0.0)
+    assert admission() == (True, "", 0.0)
     assert runtime.account_state()["resource_blocked"] is False
     assert attempts == 2
 
@@ -282,7 +218,7 @@ def test_admission_does_not_hide_nonlocking_database_failures(
         lambda allowed, reason: (_ for _ in ()).throw(_locked_error("no such table")),
     )
     with pytest.raises(OperationalError):
-        admission(manual=True)
+        admission()
     assert _sqlite_busy(_locked_error("database table is locked"))
     assert not _sqlite_busy(_locked_error("no such table"))
 
@@ -319,15 +255,10 @@ def test_worker_quarantines_expired_send_during_resource_pause(
         def _new_driver(self) -> None:
             return None
 
-    class ClosedHours:
-        def admission(self) -> tuple[bool, str, float]:
-            return True, "", 0.0
-
     monkeypatch.setattr(delivery_worker, "DeliveryQueueStore", lambda _path: queue)
     monkeypatch.setattr(delivery_worker, "BrowserDeliverySender", lambda *args, **kwargs: FakeSender())
     monkeypatch.setattr(delivery_worker, "DeliveryAdmission",
-                        lambda _runtime: lambda *, manual: (False, "RAM below threshold", 1.0))
-    monkeypatch.setattr(delivery_worker.WorkingHours, "load", lambda: ClosedHours())
+                        lambda _runtime: lambda: (False, "RAM below threshold", 1.0))
     monkeypatch.setattr(delivery_worker, "run_history_recovery", lambda *args, **kwargs: None)
     monkeypatch.setattr(delivery_worker, "notify_watchdog", lambda: None)
 
@@ -437,7 +368,7 @@ def test_send_429_retries_only_its_own_delivery_without_read_throttling(
     assert isinstance(retry_at, (int, float))
     assert retry_at >= epoch_time.time() + 3590
     assert runtime.read_backoff_status() == (0.0, 0)
-    assert DeliveryAdmission(runtime, resource_admission=lambda: (True, ""))(manual=True) == (
+    assert DeliveryAdmission(runtime, resource_admission=lambda: (True, ""))() == (
         True,
         "",
         0.0,

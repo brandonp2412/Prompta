@@ -40,19 +40,21 @@ def test_private_wal_migration_and_queued_identity(tmp_path: Path) -> None:
             assert stat.S_IMODE(path.stat().st_mode) == 0o600
 
 
-def test_active_capture_prefixes_match_literal_job_names(tmp_path: Path) -> None:
+def test_active_fresh_captures_include_once_and_scheduled_but_not_replies(
+    tmp_path: Path,
+) -> None:
     store = ResponseStore(tmp_path / "chat-results.sqlite3")
-    names = ("stage_under", "stageXunder", "rate%target", "rateXtarget", r"slash\name", "slashXname")
-    for index, name in enumerate(names):
-        send_id = f"capture-{index}"
+    for index, (send_id, name) in enumerate(
+        (
+            ("manual-a", ""),
+            ("scheduled-b", "any-job"),
+            ("reply-c", "existing-job"),
+            ("capture-d", "unrelated-job"),
+        )
+    ):
         store.ensure_queued(send_id, "private", name, now=100)
         assert store.accept(send_id, f"owner-{index}", deadline=200, now=101)
-
-    assert store.active_capture_send_ids(("stage_",), now=110) == {"capture-0"}
-    assert store.active_capture_send_ids(("rate%",), now=110) == {"capture-2"}
-    assert store.active_capture_send_ids(("slash\\",), now=110) == {"capture-4"}
-    assert store.active_capture_send_ids((), now=110) == set()
-    assert len(store.active_capture_send_ids(now=110)) == len(names)
+    assert store.active_capture_send_ids(now=110) == {"manual-a", "scheduled-b"}
     assert store.active_capture_send_ids(now=200) == set()
 
 

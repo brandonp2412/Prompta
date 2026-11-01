@@ -301,8 +301,8 @@ class ManualReplyDispatcher:
         completed = False
         preflight_stage = "connect"
         try:
-            # Explicit replies bypass working hours, but must honour the same
-            # account resource block that gates the fresh-chat worker.
+            # Explicit replies honour the account resource block that also
+            # gates the fresh-chat worker.
             preflight_stage = "account_resource_admission"
             if sender.runtime.account_state(strict=True).get("resource_blocked") is True:
                 return
