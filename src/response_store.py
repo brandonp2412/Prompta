@@ -676,6 +676,12 @@ class ResponseStore:
                 manual_recovery_requests.c.target_id == target_id,
             ))
 
+    def defer_manual_recovery_request(self, target_id: str, *, now: float) -> None:
+        with self.engine.begin() as connection:
+            connection.execute(update(manual_recovery_requests).where(
+                manual_recovery_requests.c.target_id == target_id,
+            ).values(requested_at=now))
+
     def manual_recovery_pending(self, send_id: str) -> int:
         with self.engine.connect() as connection:
             return int(connection.execute(select(func.count()).select_from(

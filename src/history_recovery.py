@@ -447,7 +447,7 @@ class HistoryRecovery:
             )
         self.results.schedule_history_recovery(send_id, now=at)
         if manual_target:
-            self.results.clear_manual_recovery_request(manual_target)
+            self.results.defer_manual_recovery_request(manual_target, now=at)
         return False
 
 

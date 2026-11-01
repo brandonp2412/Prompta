@@ -152,7 +152,7 @@ def test_pinned_probe_consumes_matching_manual_request_even_when_not_selected(
     assert store.manual_recovery_pending("pinned-target") == 0
 
 
-def test_failed_requested_probe_is_not_permanently_shown_as_queued(
+def test_failed_requested_probe_remains_queued_for_eventual_recovery(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     store = ResponseStore(tmp_path / "chat-results.sqlite3")
@@ -167,8 +167,44 @@ def test_failed_requested_probe_is_not_permanently_shown_as_queued(
     monkeypatch.setattr(worker, "_read_original_response", no_response)
     assert not worker.recover_once(now=150)
     assert _status(store, "incomplete-target") == "interrupted"
-    assert store.manual_recovery_pending("incomplete-target") == 0
+    assert store.manual_recovery_pending("incomplete-target") == 1
     assert store.history_recovery_global_attempt_count() == 1
+
+    async def recovered(_conversation_id: str, _prompt: str) -> CaptureResult:
+        return CaptureResult("dom", "complete", "Recovered", CONVERSATION, None, None, "observer")
+
+    monkeypatch.setattr(worker, "_read_original_response", recovered)
+    assert not worker.recover_once(now=239)
+    assert worker.recover_once(now=240)
+    assert _status(store, "incomplete-target") == "completed"
+    assert store.manual_recovery_pending("incomplete-target") == 0
+
+
+def test_failed_requested_probe_moves_behind_other_manual_requests(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store = ResponseStore(tmp_path / "chat-results.sqlite3")
+    _expired(store, "first")
+    _expired(store, "second")
+    store.queue_manual_recovery("first", ["first"], now=100)
+    store.queue_manual_recovery("second", ["second"], now=101)
+    runtime = SchedulerRuntime(tmp_path / "runtime.sqlite3", tmp_path / "jobs.json")
+    worker = HistoryRecovery(store, runtime, FakeHistoryDriver)
+    attempts: list[str] = []
+
+    async def read(_conversation_id: str, prompt: str) -> CaptureResult | None:
+        attempts.append(prompt)
+        if len(attempts) == 1:
+            return None
+        return CaptureResult("dom", "complete", "Recovered", CONVERSATION, None, None, "observer")
+
+    monkeypatch.setattr(worker, "_read_original_response", read)
+    assert not worker.recover_once(now=150)
+    assert store.pending_manual_recovery_requests() == ["second", "first"]
+    assert worker.recover_once(now=240)
+    assert store.pending_manual_recovery_requests() == ["first"]
+    assert _status(store, "first") == "interrupted"
+    assert _status(store, "second") == "completed"
 
 
 @pytest.mark.parametrize("width,height", [(360, 800), (390, 844), (412, 915), (1440, 900)])

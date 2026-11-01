@@ -47,7 +47,7 @@ def test_deployed_capture_is_recovered_before_older_backlog_without_resending(
         )
     )
     runtime = SchedulerRuntime(tmp_path / "runtime.sqlite3", tmp_path / "jobs.json")
-    worker = HistoryRecovery(store, runtime, FakeHistoryDriver)
+    worker = HistoryRecovery(store, runtime, FakeHistoryDriver, approval_enabled=False)
     observed: list[str] = []
 
     async def read(conversation_id: str, original_prompt: str) -> CaptureResult:
