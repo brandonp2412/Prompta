@@ -749,9 +749,15 @@ export function createJobsPageController(initialProps: Props) {
       void loadDeliveryHealth();
       void loadQueue();
     });
+    // Queue/capture transitions invalidate the chats stream, not jobs revisions.
+    const unsubscribeQueue = subscribeLiveUpdates("chats", () => {
+      void loadDeliveryHealth();
+      void loadQueue();
+    });
     return () => {
       clearInterval(healthTimer);
       unsubscribe();
+      unsubscribeQueue();
       window.removeEventListener("beforeunload", onBeforeUnload);
       window.removeEventListener("resize", onViewportResize);
       window.visualViewport?.removeEventListener("resize", onViewportResize);

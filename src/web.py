@@ -29,7 +29,7 @@ from .config import DEFAULT_CONFIG_PATH, ConnectorApproval, ParallelismSettings
 from .core import DEFAULT_JOBS_PATH, DEFAULT_STATE_PATH
 from .delivery_queue import DeliveryQueueStore
 from .image_store import ImageStore
-from .live_events import LocalEventSignals
+from .live_events import LiveRevisions, LocalEventSignals
 from .logging_config import configure_logging
 from .manual_reply_dispatch import ManualReplyDispatcher
 from .reply_contracts import ManualReplyStore, ReplyConflict
@@ -250,33 +250,43 @@ def create_app(
     )
     async def events() -> EventSourceResponse:
         async def stream() -> AsyncIterator[ServerSentEvent]:
-            def digest() -> bytes:
-                payload = json.dumps(
-                    local.jobs.scheduled_jobs(),
-                    sort_keys=True,
-                    separators=(",", ":"),
-                    ensure_ascii=False,
-                )
+            def digest() -> bytes | None:
+                try:
+                    payload = json.dumps(
+                        local.jobs.scheduled_jobs(),
+                        sort_keys=True,
+                        separators=(",", ":"),
+                        ensure_ascii=False,
+                    )
+                except Exception as exc:
+                    logger.warning("Live jobs snapshot unavailable error_type=%s", type(exc).__name__)
+                    return None
                 return hashlib.blake2b(payload.encode(), digest_size=16).digest()
 
             def event(topic: str) -> ServerSentEvent:
                 return ServerSentEvent(event=topic, data="refresh", id=str(time.time_ns()))
 
-            previous = local.live_events.snapshot()
+            previous = await run_in_threadpool(local.live_events.snapshot)
             previous_jobs = await run_in_threadpool(digest)
             yield ServerSentEvent(retry=1500)
             yield event("sync")
             while True:
                 await asyncio.sleep(0.75)
-                current = local.live_events.snapshot()
-                if current.jobs != previous.jobs:
+                # SQLite snapshots can block during checkpoints; keep them off the event loop.
+                current = await run_in_threadpool(local.live_events.snapshot)
+                jobs_revision = current.jobs
+                if current.jobs != previous.jobs or previous_jobs is None:
                     current_jobs = await run_in_threadpool(digest)
-                    if current_jobs != previous_jobs:
-                        yield event("jobs")
-                    previous_jobs = current_jobs
+                    if current_jobs is None:
+                        # Keep the earlier revision to retry on a later tick.
+                        jobs_revision = previous.jobs
+                    else:
+                        if current_jobs != previous_jobs:
+                            yield event("jobs")
+                        previous_jobs = current_jobs
                 if current.chats != previous.chats:
                     yield event("chats")
-                previous = current
+                previous = LiveRevisions(jobs=jobs_revision, chats=current.chats)
 
         return EventSourceResponse(
             stream(),
