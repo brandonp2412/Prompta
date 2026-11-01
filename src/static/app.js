@@ -12416,7 +12416,7 @@ function recoverVisibleTurns(stored, previous, original, sameRun) {
 //#region src/ui/resultListRefresh.ts
 function reconcileResultPage(existing, firstPage, total, pageSize, status) {
 	const retained = total <= pageSize ? [] : existing.filter((item) => !status || (status === "needs_attention" ? item.needs_attention : item.status === status));
-	return [...new Map([...retained, ...firstPage].map((item) => [item.send_id, item])).values()].sort((a, b) => (b.updated_at || b.created_at) - (a.updated_at || a.created_at) || b.created_at - a.created_at || a.send_id.localeCompare(b.send_id)).slice(0, Math.max(0, total));
+	return [...new Map([...retained, ...firstPage].map((item) => [item.send_id, item])).values()].sort((a, b) => (b.activity_at ?? b.created_at) - (a.activity_at ?? a.created_at) || b.created_at - a.created_at || b.send_id.localeCompare(a.send_id)).slice(0, Math.max(0, total));
 }
 function nextResultPageOffset(offset, receivedCount, total) {
 	if (receivedCount === 0 && offset < total) return null;
@@ -12888,7 +12888,7 @@ function createChatsPageController(initialProps) {
 	let detailRefreshFor = null;
 	let searchTimer;
 	let liveRefreshTimer;
-	const newestFirst = (a, b) => (b.updated_at || b.created_at) - (a.updated_at || a.created_at) || b.created_at - a.created_at || a.send_id.localeCompare(b.send_id);
+	const newestFirst = (a, b) => (b.activity_at ?? b.created_at) - (a.activity_at ?? a.created_at) || b.created_at - a.created_at || b.send_id.localeCompare(a.send_id);
 	const visibleWaiting = O(() => statusFilter.value && statusFilter.value !== "queued" ? [] : queueSnapshot.value.waiting.filter((job) => !search.value.trim() || job.name.toLowerCase().includes(search.value.trim().toLowerCase())));
 	const queuedWaitingChat = (item) => item.status === "queued" && visibleWaiting.value.some((job) => job.name === item.job_name);
 	const pinned = O(() => {
