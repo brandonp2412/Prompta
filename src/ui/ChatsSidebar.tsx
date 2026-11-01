@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import { useSignals } from "@preact/signals-react/runtime";
 import type { createChatsPageController } from "./ChatsPageController";
 import ChatRow from "./ChatRow";
@@ -56,6 +57,7 @@ export default function ChatsSidebar({
   const [concurrency, setConcurrency] = useState({ enabled: true, max_workers: 3 });
   const [approval, setApproval] = useState(false);
   const [settingsError, setSettingsError] = useState("");
+  const [settingsReady, setSettingsReady] = useState(false);
   const [saving, setSaving] = useState(false);
   useEffect(() => {
     if (!profileOpen) return;
@@ -87,6 +89,7 @@ export default function ChatsSidebar({
     const handleKeys = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         event.preventDefault();
+        event.stopPropagation();
         setSettingsOpen(false);
         return;
       }
@@ -110,17 +113,24 @@ export default function ChatsSidebar({
   }, [settingsOpen]);
   useEffect(() => {
     if (!settingsOpen) return;
-    void fetch("./api/settings")
+    const controller = new AbortController();
+    setSettingsReady(false);
+    void fetch("./api/settings", { signal: controller.signal })
       .then(async (response) => {
         if (!response.ok) throw new Error("Could not load settings");
         return response.json();
       })
       .then((data) => {
+        if (controller.signal.aborted) return;
         setConcurrency(data.stage_concurrency);
         setApproval(data.connector_approval.enabled);
         setSettingsError("");
+        setSettingsReady(true);
       })
-      .catch(() => setSettingsError("Could not load settings"));
+      .catch(() => {
+        if (!controller.signal.aborted) setSettingsError("Could not load settings");
+      });
+    return () => controller.abort();
   }, [settingsOpen]);
   async function saveSettings() {
     setSaving(true);
@@ -369,6 +379,7 @@ export default function ChatsSidebar({
             <button
               type="button"
               onClick={() => {
+                setSettingsReady(false);
                 setSettingsOpen(true);
                 setProfileOpen(false);
               }}
@@ -388,83 +399,86 @@ export default function ChatsSidebar({
           </div>
         )}
       </div>
-      {settingsOpen && (
-        <div className="settings-backdrop" onClick={() => setSettingsOpen(false)}>
-          <section
-            role="dialog"
-            aria-modal="true"
-            aria-label="Prompta settings"
-            className="settings-dialog"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="settings-heading">
-              <h2>Settings</h2>
+      {settingsOpen &&
+        createPortal(
+          <div className="settings-backdrop" onClick={() => setSettingsOpen(false)}>
+            <section
+              role="dialog"
+              aria-modal="true"
+              aria-label="Prompta settings"
+              className="settings-dialog"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="settings-heading">
+                <h2>Settings</h2>
+                <button
+                  type="button"
+                  aria-label="Close settings"
+                  ref={settingsCloseRef}
+                  onClick={() => setSettingsOpen(false)}
+                >
+                  ×
+                </button>
+              </div>
+              <h3>Concurrency</h3>
+              <label className="settings-check">
+                <input
+                  type="checkbox"
+                  checked={concurrency.enabled}
+                  onChange={(event) =>
+                    setConcurrency({ ...concurrency, enabled: event.target.checked })
+                  }
+                />{" "}
+                Limit concurrent jobs and chats
+              </label>
+              <label className="settings-number">
+                Maximum workers
+                <input
+                  type="number"
+                  min="1"
+                  max="128"
+                  disabled={!concurrency.enabled}
+                  value={concurrency.max_workers}
+                  onChange={(event) =>
+                    setConcurrency({ ...concurrency, max_workers: Number(event.target.value) })
+                  }
+                />
+              </label>
+              <p>
+                One global limit for new chats, replies, one-off and repeating jobs. Running work is
+                not interrupted.
+              </p>
+              <h3>Connector approval</h3>
+              <label className="settings-check">
+                <input
+                  type="checkbox"
+                  checked={approval}
+                  ref={settingsApprovalRef}
+                  onChange={(event) => setApproval(event.target.checked)}
+                />{" "}
+                Automatically approve trusted connector prompts
+              </label>
+              {settingsError && <p role="alert">{settingsError}</p>}
               <button
                 type="button"
-                aria-label="Close settings"
-                ref={settingsCloseRef}
-                onClick={() => setSettingsOpen(false)}
+                className="settings-save"
+                ref={settingsSaveRef}
+                disabled={
+                  !settingsReady ||
+                  saving ||
+                  (concurrency.enabled &&
+                    (!Number.isInteger(concurrency.max_workers) ||
+                      concurrency.max_workers < 1 ||
+                      concurrency.max_workers > 128))
+                }
+                onClick={() => void saveSettings()}
               >
-                ×
+                {saving ? "Saving…" : "Save settings"}
               </button>
-            </div>
-            <h3>Concurrency</h3>
-            <label className="settings-check">
-              <input
-                type="checkbox"
-                checked={concurrency.enabled}
-                onChange={(event) =>
-                  setConcurrency({ ...concurrency, enabled: event.target.checked })
-                }
-              />{" "}
-              Limit concurrent jobs and chats
-            </label>
-            <label className="settings-number">
-              Maximum workers
-              <input
-                type="number"
-                min="1"
-                max="128"
-                disabled={!concurrency.enabled}
-                value={concurrency.max_workers}
-                onChange={(event) =>
-                  setConcurrency({ ...concurrency, max_workers: Number(event.target.value) })
-                }
-              />
-            </label>
-            <p>
-              One global limit for new chats, replies, one-off and repeating jobs. Running work is
-              not interrupted.
-            </p>
-            <h3>Connector approval</h3>
-            <label className="settings-check">
-              <input
-                type="checkbox"
-                checked={approval}
-                ref={settingsApprovalRef}
-                onChange={(event) => setApproval(event.target.checked)}
-              />{" "}
-              Automatically approve trusted connector prompts
-            </label>
-            {settingsError && <p role="alert">{settingsError}</p>}
-            <button
-              type="button"
-              className="settings-save"
-              ref={settingsSaveRef}
-              disabled={
-                saving ||
-                (concurrency.enabled &&
-                  (!Number.isInteger(concurrency.max_workers) ||
-                    concurrency.max_workers < 1 ||
-                    concurrency.max_workers > 128))
-              }
-              onClick={() => void saveSettings()}
-            >
-              {saving ? "Saving…" : "Save settings"}
-            </button>
-          </section>
-        </div>
-      )}
+            </section>
+          </div>,
+          document.body,
+        )}
     </aside>
   );
 }

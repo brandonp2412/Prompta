@@ -16536,6 +16536,7 @@ function ChatComposer(props) {
 }
 //#endregion
 //#region src/ui/ChatRow.tsx
+var import_react_dom = require_react_dom();
 function ChatRow({ item, model }) {
 	N$1();
 	const selected = model.view.value === "chats" && model.selectedRunId.value === item.send_id;
@@ -16630,6 +16631,7 @@ function ChatsSidebar({ model, refs }) {
 	});
 	const [approval, setApproval] = (0, import_react.useState)(false);
 	const [settingsError, setSettingsError] = (0, import_react.useState)("");
+	const [settingsReady, setSettingsReady] = (0, import_react.useState)(false);
 	const [saving, setSaving] = (0, import_react.useState)(false);
 	(0, import_react.useEffect)(() => {
 		if (!profileOpen) return;
@@ -16657,6 +16659,7 @@ function ChatsSidebar({ model, refs }) {
 		const handleKeys = (event) => {
 			if (event.key === "Escape") {
 				event.preventDefault();
+				event.stopPropagation();
 				setSettingsOpen(false);
 				return;
 			}
@@ -16678,14 +16681,21 @@ function ChatsSidebar({ model, refs }) {
 	}, [settingsOpen]);
 	(0, import_react.useEffect)(() => {
 		if (!settingsOpen) return;
-		fetch("./api/settings").then(async (response) => {
+		const controller = new AbortController();
+		setSettingsReady(false);
+		fetch("./api/settings", { signal: controller.signal }).then(async (response) => {
 			if (!response.ok) throw new Error("Could not load settings");
 			return response.json();
 		}).then((data) => {
+			if (controller.signal.aborted) return;
 			setConcurrency(data.stage_concurrency);
 			setApproval(data.connector_approval.enabled);
 			setSettingsError("");
-		}).catch(() => setSettingsError("Could not load settings"));
+			setSettingsReady(true);
+		}).catch(() => {
+			if (!controller.signal.aborted) setSettingsError("Could not load settings");
+		});
+		return () => controller.abort();
 	}, [settingsOpen]);
 	async function saveSettings() {
 		setSaving(true);
@@ -16925,6 +16935,7 @@ function ChatsSidebar({ model, refs }) {
 							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 								type: "button",
 								onClick: () => {
+									setSettingsReady(false);
 									setSettingsOpen(true);
 									setProfileOpen(false);
 								},
@@ -16943,7 +16954,7 @@ function ChatsSidebar({ model, refs }) {
 					})
 				]
 			}),
-			settingsOpen && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+			settingsOpen && (0, import_react_dom.createPortal)(/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 				className: "settings-backdrop",
 				onClick: () => setSettingsOpen(false),
 				children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", {
@@ -17016,13 +17027,13 @@ function ChatsSidebar({ model, refs }) {
 							type: "button",
 							className: "settings-save",
 							ref: settingsSaveRef,
-							disabled: saving || concurrency.enabled && (!Number.isInteger(concurrency.max_workers) || concurrency.max_workers < 1 || concurrency.max_workers > 128),
+							disabled: !settingsReady || saving || concurrency.enabled && (!Number.isInteger(concurrency.max_workers) || concurrency.max_workers < 1 || concurrency.max_workers > 128),
 							onClick: () => void saveSettings(),
 							children: saving ? "Saving…" : "Save settings"
 						})
 					]
 				})
-			})
+			}), document.body)
 		]
 	});
 }

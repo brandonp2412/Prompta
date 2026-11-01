@@ -109,3 +109,61 @@ test("running chats have no Stop button in the sidebar", async () => {
   expect(screen.getByText("Chat 7")).toBeTruthy();
   expect(screen.queryByRole("button", { name: /stop/i })).toBeNull();
 });
+
+test("settings cannot be saved before a successful load", async () => {
+  let resolveSettings: ((response: Response) => void) | undefined;
+  const saves: unknown[] = [];
+  globalThis.fetch = Object.assign(
+    (_input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      if (init?.method === "PUT") {
+        saves.push(JSON.parse(String(init.body)));
+        return Promise.resolve(Response.json({}));
+      }
+      return new Promise<Response>((resolve) => {
+        resolveSettings = resolve;
+      });
+    },
+    { preconnect: originalFetch.preconnect },
+  );
+  sidebar();
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "Profile" }));
+  await user.click(screen.getByRole("button", { name: "Settings" }));
+  const save = screen.getByRole("button", { name: "Save settings" }) as HTMLButtonElement;
+  expect(save.disabled).toBe(true);
+  await user.click(save);
+  expect(saves).toEqual([]);
+
+  await act(async () => {
+    resolveSettings?.(
+      Response.json({
+        stage_concurrency: { enabled: true, max_workers: 7 },
+        connector_approval: { enabled: true },
+      }),
+    );
+  });
+  await waitFor(() => expect(save.disabled).toBe(false));
+  expect(
+    (screen.getByRole("spinbutton", { name: "Maximum workers" }) as HTMLInputElement).value,
+  ).toBe("7");
+  await user.click(save);
+  await waitFor(() => expect(saves).toHaveLength(1));
+  expect(saves[0]).toEqual({
+    stage_concurrency: { enabled: true, max_workers: 7 },
+    connector_approval: { enabled: true },
+  });
+});
+
+test("settings remain unsaveable when loading fails", async () => {
+  globalThis.fetch = Object.assign(async () => new Response("Unavailable", { status: 503 }), {
+    preconnect: originalFetch.preconnect,
+  });
+  sidebar();
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "Profile" }));
+  await user.click(screen.getByRole("button", { name: "Settings" }));
+  await screen.findByRole("alert");
+  expect(
+    (screen.getByRole("button", { name: "Save settings" }) as HTMLButtonElement).disabled,
+  ).toBe(true);
+});

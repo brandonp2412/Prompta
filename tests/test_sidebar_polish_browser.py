@@ -8,7 +8,6 @@ from pathlib import Path
 import pytest
 from patchright.sync_api import expect
 from patchright.sync_api import sync_playwright as sync_patchright
-
 from web_results_support import server
 
 
@@ -80,5 +79,47 @@ def test_profile_menu_dismissal_and_footer_single_line(
             expect(dialog).to_have_count(0)
             expect(profile).to_be_focused()
             assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+        finally:
+            browser.close()
+
+
+@pytest.mark.parametrize("width,height", [(320, 700), (390, 844)])
+def test_settings_modal_covers_viewport_from_mobile_drawer(
+    tmp_path: Path, width: int, height: int
+) -> None:
+    chromium = Path(os.environ.get("PROMPTA_TEST_CHROMIUM", "/usr/bin/chromium"))
+    if not chromium.is_file():
+        pytest.skip("Chromium unavailable")
+
+    with server(tmp_path) as (_app, port), sync_patchright() as patchright:
+        browser = patchright.chromium.launch(
+            executable_path=str(chromium),
+            headless=True,
+            args=["--no-sandbox", "--no-zygote"],
+        )
+        try:
+            page = browser.new_page(viewport={"width": width, "height": height})
+            page.route("**/api/events", lambda route: route.abort())
+            page.goto(f"http://127.0.0.1:{port}/?view=chats", wait_until="domcontentloaded")
+            page.locator(".sidebar-footer-new").click()
+            page.get_by_role("button", name="Open chat sidebar").click()
+            expect(page.locator(".chats-layout")).to_have_class("chats-layout drawer-open")
+            profile = page.get_by_role("button", name="Profile")
+            profile.click()
+            page.get_by_role("button", name="Settings", exact=True).click()
+            overlay = page.locator(".settings-backdrop")
+            expect(overlay).to_be_visible()
+            assert overlay.evaluate(
+                """element => {
+                  const r = element.getBoundingClientRect();
+                  return Math.abs(r.left) <= 1 && Math.abs(r.top) <= 1 &&
+                    Math.abs(r.width - innerWidth) <= 1 &&
+                    Math.abs(r.height - innerHeight) <= 1;
+                }"""
+            )
+            page.keyboard.press("Escape")
+            expect(overlay).to_have_count(0)
+            expect(page.locator(".chats-layout")).to_have_class("chats-layout drawer-open")
+            expect(profile).to_be_focused()
         finally:
             browser.close()
