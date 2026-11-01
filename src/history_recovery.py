@@ -1,7 +1,8 @@
-"""Throttled, exact-conversation recovery of Prompta-owned response text.
+"""Paced, exact-conversation recovery of Prompta-owned responses.
 
-This worker never sends prompts, enumerates account history, or reads other chats.
-Each browser navigation is to a durable conversation identity from our own store.
+Normal recovery stays read-only. Deployment-interrupted captures may resume
+configured connector approvals after exact branch verification in a new owned
+tab. No recovery path resends prompts, lists account history, or reads other chats.
 """
 from __future__ import annotations
 
@@ -11,12 +12,14 @@ import logging
 import threading
 import time
 from collections.abc import Callable
+from dataclasses import replace
 from typing import Protocol, runtime_checkable
 from uuid import UUID
 
 from patchright.async_api import Error as PatchrightError
 
 from .browser_script_loader import load_browser_script
+from .config import ConnectorApproval
 from .deployment_gate import DeploymentGate, deployment_recovery_priority
 from .patchright_driver import BrowserSecurityChallengeError
 from .rate_limit import RateLimitError, is_rate_limited_text
@@ -30,9 +33,11 @@ logger = logging.getLogger(__name__)
 _GLOBAL_INTERVAL_SECONDS = 90.0
 _MAX_PER_CHAT_INTERVAL_SECONDS = 4 * 3600.0
 _LOOKUP_TIMEOUT_SECONDS = 55.0
+_READ_PROBE_SECONDS = 25.0
 _HISTORY_CLOSE_TIMEOUT_SECONDS = 5.0
 _SECURITY_PAUSE_BASE_SECONDS = 30 * 60.0
 _SECURITY_PAUSE_CAP_SECONDS = 4 * 3600.0
+_APPROVAL_SCRIPT = load_browser_script("approve_connector.js")
 
 
 class HistoryDriver(Protocol):
@@ -51,6 +56,11 @@ class _HistoryRateLimitSignal(Protocol):
 
 
 @runtime_checkable
+class _ApprovalRetryDriver(Protocol):
+    async def click_stuck_connector_approval(self) -> object: ...
+
+
+@runtime_checkable
 class _ReadLimitAPI(Protocol):
     def read_backoff_remaining(self) -> float: ...
     def record_read_rate_limit(self, exc: RateLimitError) -> float: ...
@@ -60,6 +70,42 @@ class _ReadLimitAPI(Protocol):
 class _LegacyLimitAPI(Protocol):
     def global_backoff_remaining(self) -> float: ...
     def record_global_rate_limit(self, exc: RateLimitError) -> float: ...
+
+
+def _guarded_approval_script(probe: str, *, single_user_only: bool) -> str:
+    """Recheck exact ownership inside the same page evaluation as the click.
+
+    Historical probes remain read-only. This separate continuation operation
+    can mutate only a recognized permission belonging to the verified final
+    Prompta-owned turn; never an unrelated or later user turn.
+    """
+    single_user_guard = (
+        "const main = document.querySelector('main');"
+        "if (!main) return false;"
+        "const selector = '[data-message-author-role=\"user\"],"
+        "[data-chatgpt-search-unit-key$=\":user\"],"
+        "[data-content-search-unit-key$=\":user\"]';"
+        "const users = [...main.querySelectorAll(selector)].filter(node => "
+        "node.isConnected && node.getClientRects().length > 0 && "
+        "!node.parentElement?.closest(selector));"
+        "if (users.length !== 1) return false;"
+        if single_user_only else ""
+    )
+    return (
+        "(async () => { const proof = " + probe + ";"
+        "if (proof?.verified !== true || proof?.ambiguous === true || "
+        "proof?.rate_limited === true) return false;"
+        + single_user_guard +
+        "return await " + _APPROVAL_SCRIPT + "; })()"
+    )
+
+
+def _guarded_approval_identity(probe: str, *, single_user_only: bool) -> str:
+    """Re-verify ownership before a real Playwright retry of a stuck DOM click."""
+    script = _guarded_approval_script(probe, single_user_only=single_user_only)
+    # The permission action is replaced with a pure check, preserving all
+    # guards in exactly the same page world as the fallback's preflight.
+    return script.replace("return await " + _APPROVAL_SCRIPT + ";", "return true;")
 
 
 def _read_backoff_remaining(runtime: object) -> float:
@@ -85,7 +131,12 @@ class HistoryRecovery:
         results: ResponseStore,
         runtime: SchedulerRuntime,
         driver_factory: Callable[[], HistoryDriver],
+        *,
+        approval_enabled: bool | None = None,
     ) -> None:
+        self.approval_enabled = (
+            ConnectorApproval.load().enabled if approval_enabled is None else approval_enabled
+        )
         self.results = results
         self.replies = ManualReplyStore(results.path)
         self.runtime = runtime
@@ -93,16 +144,21 @@ class HistoryRecovery:
 
     async def _read_original_response(
         self, conversation_id: str, original_prompt: str,
+        *, resume_approvals: bool = False,
     ) -> CaptureResult | None:
         script = (
             load_browser_script("historical_response_probe.js")
             .replace("__CONVERSATION__", json.dumps(conversation_id))
             .replace("__ORIGINAL_PROMPT__", json.dumps(original_prompt))
         )
-        return await self._read_probe(conversation_id, script)
+        return await self._read_probe(
+            conversation_id, script, resume_approvals=resume_approvals,
+            single_user_only=True,
+        )
 
     async def _read_reply_response(
         self, conversation_id: str, original_prompt: str, reply_text: str, parent_id: str,
+        *, resume_approvals: bool = False,
     ) -> CaptureResult | None:
         script = (
             load_browser_script("historical_reply_probe.js")
@@ -111,16 +167,31 @@ class HistoryRecovery:
             .replace("__REPLY_TEXT__", json.dumps(reply_text))
             .replace("__PARENT__", json.dumps(parent_id))
         )
-        return await self._read_probe(conversation_id, script)
+        return await self._read_probe(
+            conversation_id, script, resume_approvals=resume_approvals,
+            single_user_only=False,
+        )
 
-    async def _read_probe(self, conversation_id: str, script: str) -> CaptureResult | None:
+    async def _read_probe(
+        self, conversation_id: str, script: str, *,
+        resume_approvals: bool = False, single_user_only: bool = False,
+    ) -> CaptureResult | None:
         driver = self.driver_factory()
+        last_partial: CaptureResult | None = None
+        approval_script = (
+            _guarded_approval_script(script, single_user_only=single_user_only)
+            if resume_approvals else ""
+        )
+        identity_script = (
+            _guarded_approval_identity(script, single_user_only=single_user_only)
+            if resume_approvals else ""
+        )
         try:
             await driver.connect()
             await driver.navigate(
                 "https://chatgpt.com/c/" + conversation_id, context=driver.context,
             )
-            deadline = asyncio.get_running_loop().time() + 25.0
+            deadline = asyncio.get_running_loop().time() + _READ_PROBE_SECONDS
             while asyncio.get_running_loop().time() < deadline:
                 try:
                     state = await driver.dom_state()
@@ -164,10 +235,39 @@ class HistoryRecovery:
                         continue
                     if payload.get("verified") is True:
                         result = normalize_dom_snapshot(payload)
-                        if result.conversation_id == conversation_id and (result.text or result.tool_calls):
-                            return result
+                        if result.conversation_id == conversation_id:
+                            grant: object = False
+                            if approval_script:
+                                # Unlike historical reads, this continuation may
+                                # grant connector access only after its exact
+                                # branch is reverified inside the click evaluation.
+                                try:
+                                    grant = await driver.eval(approval_script)
+                                    if grant == "stuck" and isinstance(driver, _ApprovalRetryDriver):
+                                        if await driver.eval(identity_script) is True:
+                                            grant = await driver.click_stuck_connector_approval()
+                                except (TimeoutError, PatchrightError) as exc:
+                                    logger.info(
+                                        "Recovered capture approval scan unavailable error_type=%s",
+                                        type(exc).__name__,
+                                    )
+                                    grant = "pending"  # Never finalize on an uncertain permission check.
+                            awaiting_permission = grant is True or grant in (
+                                "progress", "pending", "stuck"
+                            )
+                            if result.text or result.tool_calls:
+                                last_partial = (
+                                    replace(result, status="partial")
+                                    if awaiting_permission and result.status == "complete"
+                                    else result
+                                )
+                            if awaiting_permission:
+                                await asyncio.sleep(0.2 if grant is True or grant == "progress" else 2.0)
+                                continue  # Catch successive permissions or hydrate controls.
+                            if result.status == "complete" and (result.text or result.tool_calls):
+                                return result
                 await asyncio.sleep(2.0)
-            return None
+            return last_partial
         finally:
             try:
                 # Cleanup is best effort. A failed CDP disconnect must not
@@ -243,11 +343,19 @@ class HistoryRecovery:
                 logger.warning("Historical recovery skipped invalid conversation identity send_id=%s", send_id)
                 delay = _MAX_PER_CHAT_INTERVAL_SECONDS
             else:
-                probe = (
-                    self._read_reply_response(conversation_id, str(candidate["original_prompt"]),
-                                              prompt, str(candidate["parent_id"]))
-                    if reply_id else self._read_original_response(conversation_id, prompt)
-                )
+                if reply_id:
+                    allow_resume = self.approval_enabled and reply_id in priority_replies
+                    probe = self._read_reply_response(
+                        conversation_id, str(candidate["original_prompt"]),
+                        prompt, str(candidate["parent_id"]),
+                        **({"resume_approvals": True} if allow_resume else {}),
+                    )
+                else:
+                    allow_resume = self.approval_enabled and send_id in priority_sends
+                    probe = self._read_original_response(
+                        conversation_id, prompt,
+                        **({"resume_approvals": True} if allow_resume else {}),
+                    )
                 result = asyncio.run(asyncio.wait_for(probe, timeout=_LOOKUP_TIMEOUT_SECONDS))
                 recovered = result is not None and (
                     self.replies.recover_historical_reply(reply_id, result, now=at)

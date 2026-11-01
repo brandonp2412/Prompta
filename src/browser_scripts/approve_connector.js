@@ -33,7 +33,7 @@
     const checkboxChecked = checkbox &&
       (checkbox.checked || checkbox.getAttribute('aria-checked') === 'true');
     if (!(previous.checkboxPending && checkboxChecked) &&
-        performance.now() - previous.at < retryAfter) return false;
+        performance.now() - previous.at < retryAfter) return 'pending';
     const next = { attempts: previous.attempts + 1, at: performance.now(), checkboxPending: false };
     state.set(button, next);
     document.querySelectorAll(`[${candidateAttribute}]`).forEach(el =>
