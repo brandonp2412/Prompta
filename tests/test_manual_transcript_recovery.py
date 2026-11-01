@@ -127,3 +127,38 @@ def test_recovery_button_lives_after_transcript_and_survives_reload(
                 assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
             finally:
                 browser.close()
+
+
+def test_recovery_button_hidden_while_chat_is_working(tmp_path: Path) -> None:
+    with server(tmp_path) as (app, port):
+        for status in ("queued", "accepted", "generating", "completed"):
+            send_id = f"working-{status}"
+            app.results.ensure_queued(send_id, "Working chat", now=10)
+            if status != "queued":
+                assert app.results.accept(send_id, "123:owner", deadline=100, now=11)
+                assert app.results.bind_conversation_route(
+                    send_id, "123:owner", "/c/" + CONVERSATION, now=12,
+                )
+            if status in ("generating", "completed"):
+                capture = CaptureResult(
+                    "sse", "partial" if status == "generating" else "complete",
+                    "Assistant is responding" if status == "generating" else "Complete response",
+                    CONVERSATION, "11111111-1111-4111-8111-111111111111", None,
+                )
+                assert app.results.write(send_id, "123:owner", capture, now=13)
+                saved = app.results.get(send_id)
+                assert saved is not None and saved["status"] == status
+
+        with sync_playwright() as patchright:
+            browser = patchright.chromium.launch(
+                headless=True,
+                executable_path=os.environ.get("PROMPTA_TEST_CHROMIUM", "/usr/bin/chromium"),
+            )
+            try:
+                page = browser.new_page(viewport={"width": 390, "height": 844})
+                for status in ("queued", "accepted", "generating", "completed"):
+                    page.goto(f"http://127.0.0.1:{port}/?view=chats&run=working-{status}")
+                    expect(page.locator(".chat-detail-content")).to_be_visible()
+                    expect(page.locator(".chat-manual-recovery")).to_have_count(0)
+            finally:
+                browser.close()

@@ -50,6 +50,17 @@ export default function ChatTranscript({
     model.revealSelectedChat();
   }, [model, detail.value, turns.value]);
 
+  function canManuallyRecoverLatestTurn() {
+    const latest = turns.value.findLast((turn) => turn.status !== "cancelled");
+    if (!latest) return false;
+    // Queued, active, completed and stopped chats are working or settled.
+    // Only expose read-only recovery for a broken, verified latest branch.
+    return latest.reply_id
+      ? Boolean(conversationUrl) && ["interrupted", "outcome_unknown"].includes(latest.status)
+      : detail.value?.recovery?.eligible === true &&
+          ["interrupted", "unavailable"].includes(latest.status);
+  }
+
   function manualRecoveryLabel() {
     if (requestingManualRecovery.value) return "Requesting recovery…";
     if ((detail.value?.manual_recovery_pending ?? 0) > 0) return "Recovery queued";
@@ -336,10 +347,7 @@ export default function ChatTranscript({
                   </div>
                 </React.Fragment>
               ))}
-              {(detail.value.needs_attention ||
-                turns.value.some(
-                  (turn) => !["completed", "stopped", "cancelled"].includes(turn.status),
-                )) && (
+              {canManuallyRecoverLatestTurn() && (
                 <div className="chat-manual-recovery">
                   <button
                     type="button"

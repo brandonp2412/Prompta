@@ -20567,6 +20567,11 @@ function ChatTranscript({ model, refs, conversationUrl }) {
 		detail.value,
 		turns.value
 	]);
+	function canManuallyRecoverLatestTurn() {
+		const latest = turns.value.findLast((turn) => turn.status !== "cancelled");
+		if (!latest) return false;
+		return latest.reply_id ? Boolean(conversationUrl) && ["interrupted", "outcome_unknown"].includes(latest.status) : detail.value?.recovery?.eligible === true && ["interrupted", "unavailable"].includes(latest.status);
+	}
 	function manualRecoveryLabel() {
 		if (requestingManualRecovery.value) return "Requesting recovery…";
 		if ((detail.value?.manual_recovery_pending ?? 0) > 0) return "Recovery queued";
@@ -20763,11 +20768,7 @@ function ChatTranscript({ model, refs, conversationUrl }) {
 							})
 						]
 					})] }, turn.reply_id || detail.value.send_id)),
-					(detail.value.needs_attention || turns.value.some((turn) => ![
-						"completed",
-						"stopped",
-						"cancelled"
-					].includes(turn.status))) && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+					canManuallyRecoverLatestTurn() && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 						className: "chat-manual-recovery",
 						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
 							type: "button",
