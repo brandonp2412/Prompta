@@ -29,6 +29,8 @@ _CONFIRM_SECONDS = 20.0
 _RECOVER_PARENT_TIMEOUT_SECONDS = 20.0
 _RECOVER_PARENT_POLL_SECONDS = 1.0
 _MAX_QUEUED_REPLY_DISPATCHES = 2
+_CAPTURE_SURFACE_GRACE_SECONDS = 90.0
+_CAPTURE_SURFACE_RECHECK_SECONDS = 90.0
 
 
 def _branch_probe(conversation_id: str, parent_id: str) -> str:
@@ -86,6 +88,21 @@ def _reply_delivery_probe(conversation_id: str, parent_id: str, text: str) -> st
         .replace("__PARENT__", json.dumps(parent_id))
         .replace("__REPLY__", json.dumps(text))
     )
+
+
+def _capture_surface_failure_probe(conversation_id: str) -> str:
+    """Detect an errored exact conversation surface without reading its content."""
+    return f"""(() => {{
+        if (location.pathname !== {json.dumps('/c/' + conversation_id)}) return 'route_lost';
+        const main = document.querySelector('main');
+        if (!main) return '';
+        const turns = main.querySelectorAll(
+            '[data-message-author-role], [data-chatgpt-search-unit-key], [data-content-search-unit-key]'
+        );
+        if (turns.length) return '';
+        return /something went wrong|unable to load|an error occurred|failed to load|conversation not found/i
+            .test(main.innerText || '') ? 'error_surface' : '';
+    }})()"""
 
 
 class ManualReplyDispatcher:
@@ -438,6 +455,10 @@ class ManualReplyDispatcher:
                 )
             last_verified_text = ""
             observed_tool_calls: tuple[dict[str, object], ...] = ()
+            surface_probe_at = (
+                asyncio.get_running_loop().time() + _CAPTURE_SURFACE_GRACE_SECONDS
+            )
+            consecutive_missing_answers = 0
             try:
                 while asyncio.get_running_loop().time() < deadline and driver.is_connected:
                     current = self.store.get(reply_id)
@@ -560,6 +581,70 @@ class ManualReplyDispatcher:
                             completed = True
                             driver.record_verified_activity()
                         break
+                    # An accepted POST can outlive a broken ChatGPT conversation
+                    # surface. Give hydration time, then release the owned lease
+                    # for read-only reply recovery instead of waiting 45 minutes.
+                    if asyncio.get_running_loop().time() >= surface_probe_at:
+                        surface_probe_at = (
+                            asyncio.get_running_loop().time()
+                            + _CAPTURE_SURFACE_RECHECK_SECONDS
+                        )
+                        # A successful POST can finish while the passive DOM
+                        # binding misses its final mutation. Reconcile only the
+                        # exact persisted parent and new user turn; never resend.
+                        try:
+                            exact_reply = await driver.eval(
+                                _reply_delivery_probe(conversation_id, parent_id, text)
+                            )
+                        except (PatchrightError, RuntimeError, TimeoutError):
+                            exact_reply = None
+                        if (isinstance(exact_reply, dict)
+                            and exact_reply.get("verified") is True
+                            and exact_reply.get("complete") is True):
+                            response_id = str(exact_reply.get("message_id") or "")
+                            answer = str(exact_reply.get("text") or "")
+                            if response_id and answer:
+                                final = CaptureResult(
+                                    "dom", "complete", answer, conversation_id,
+                                    response_id, None,
+                                )
+                                if self.store.accepted(
+                                    reply_id, owner, conversation_id=conversation_id,
+                                    parent_id=parent_id, message_id=response_id,
+                                    response_parent_id="",
+                                ) and self.store.observe(reply_id, owner, final):
+                                    completed = True
+                                    driver.record_verified_activity()
+                                    break
+                        # The user turn is confirmed, but ChatGPT may stop
+                        # generating without an assistant turn. Only two
+                        # spaced, exact-branch checks can release that capture.
+                        if (isinstance(exact_reply, dict)
+                            and exact_reply.get("verified") is True
+                            and exact_reply.get("has_assistant") is False
+                            and exact_reply.get("generating") is False
+                            and not exact_reply.get("text")):
+                            consecutive_missing_answers += 1
+                            if (consecutive_missing_answers >= 2
+                                or exact_reply.get("error_visible") is True):
+                                logger.warning(
+                                    "Explicit reply capture released for read-only recovery reason=missing_answer"
+                                )
+                                break
+                        else:
+                            consecutive_missing_answers = 0
+                        try:
+                            surface_failure = await driver.eval(
+                                _capture_surface_failure_probe(conversation_id)
+                            )
+                        except (PatchrightError, RuntimeError, TimeoutError):
+                            surface_failure = ""
+                        if surface_failure in ("route_lost", "error_surface"):
+                            logger.warning(
+                                "Explicit reply capture released for read-only recovery reason=%s",
+                                surface_failure,
+                            )
+                            break
             finally:
                 if approval_task is not None:
                     approval_task.cancel()

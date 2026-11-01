@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -91,6 +92,54 @@ class FakeDriver:
 
     async def close(self) -> None:
         self.is_connected = False
+
+
+class ErrorSurfaceDriver(FakeDriver):
+    def __init__(self, failure: str) -> None:
+        super().__init__()
+        self.failure = failure
+
+    async def eval(self, script: str, *, main_world: bool = False) -> object:
+        if "return 'route_lost'" in script:
+            return self.failure
+        return await super().eval(script, main_world=main_world)
+
+    def captured_assistant_response(self, _capture: dict[str, object]) -> CaptureResult | None:
+        return None
+
+    async def wait_capture_update(self, *, timeout: float) -> CaptureResult | None:
+        await asyncio.sleep(min(timeout, 0.01))
+        return None
+
+
+class MissedFinalDriver(ErrorSurfaceDriver):
+    def __init__(self) -> None:
+        super().__init__("")
+
+    async def eval(self, script: str, *, main_world: bool = False) -> object:
+        if "scanExactReplyTurn" in script:
+            return {
+                "verified": True, "complete": True,
+                "message_id": "a" * 32, "text": "Recovered final answer",
+            }
+        return await super().eval(script, main_world=main_world)
+
+
+class MissingAnswerDriver(ErrorSurfaceDriver):
+    def __init__(self, *, error_visible: bool = False) -> None:
+        super().__init__("")
+        self.error_visible = error_visible
+        self.probes = 0
+
+    async def eval(self, script: str, *, main_world: bool = False) -> object:
+        if "scanExactReplyTurn" in script:
+            self.probes += 1
+            return {
+                "verified": True, "complete": False, "message_id": "",
+                "text": "", "has_assistant": False, "generating": False,
+                "error_visible": self.error_visible,
+            }
+        return await super().eval(script, main_world=main_world)
 
 
 class FakeSender:
@@ -354,6 +403,75 @@ def test_accepted_post_with_exact_dom_final_completes_without_sse_body(
     assert turns[-1]["assistant_text"] == "DOM-only final answer"
     assert turns[-1]["parent_id"] == PARENT
     assert fake.calls == 1
+
+
+@pytest.mark.parametrize("failure", ["error_surface", "route_lost"])
+def test_accepted_reply_releases_broken_owned_page_for_read_only_recovery(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure: str,
+) -> None:
+    store, state = completed_store(tmp_path)
+    fake = ErrorSurfaceDriver(failure)
+    monkeypatch.setattr(dispatch, "PatchrightDriver", lambda **_kwargs: fake)
+    monkeypatch.setattr(dispatch, "BrowserDeliverySender", FakeSender)
+    monkeypatch.setattr(dispatch, "_CAPTURE_SURFACE_GRACE_SECONDS", 0.0)
+    monkeypatch.setattr(dispatch, "_CAPTURE_SURFACE_RECHECK_SECONDS", 0.01)
+    service = dispatch.ManualReplyDispatcher(store, state)
+    intent = ReplyIntent(REPLY_ID, CONVERSATION, PARENT, "Synthetic explicit reply")
+    assert service.submit("send-1", intent)["status"] == "prepared"
+    until = time.monotonic() + 3.0
+    while time.monotonic() < until and REPLY_ID in service._active:
+        time.sleep(0.02)
+    turns = store.turns("send-1")
+    assert turns is not None and turns[-1]["status"] == "interrupted"
+    assert turns[-1]["message_id"] == ""
+    assert fake.calls == 1
+    recovered = store.next_history_reply_recovery(priority_ids={REPLY_ID})
+    assert recovered is not None and recovered["reply_id"] == REPLY_ID
+
+
+def test_accepted_reply_reconciles_missed_dom_completion_without_resending(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store, state = completed_store(tmp_path)
+    fake = MissedFinalDriver()
+    monkeypatch.setattr(dispatch, "PatchrightDriver", lambda **_kwargs: fake)
+    monkeypatch.setattr(dispatch, "BrowserDeliverySender", FakeSender)
+    monkeypatch.setattr(dispatch, "_CAPTURE_SURFACE_GRACE_SECONDS", 0.0)
+    service = dispatch.ManualReplyDispatcher(store, state)
+    intent = ReplyIntent(REPLY_ID, CONVERSATION, PARENT, "Synthetic explicit reply")
+    assert service.submit("send-1", intent)["status"] == "prepared"
+    until = time.monotonic() + 3.0
+    while time.monotonic() < until and REPLY_ID in service._active:
+        time.sleep(0.02)
+    turns = store.turns("send-1")
+    assert turns is not None and turns[-1]["status"] == "completed"
+    assert turns[-1]["assistant_text"] == "Recovered final answer"
+    assert turns[-1]["message_id"] == "a" * 32
+    assert fake.calls == 1
+
+
+@pytest.mark.parametrize("error_visible", [False, True])
+def test_accepted_reply_without_answer_releases_after_verified_idle_checks(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, error_visible: bool,
+) -> None:
+    store, state = completed_store(tmp_path)
+    fake = MissingAnswerDriver(error_visible=error_visible)
+    monkeypatch.setattr(dispatch, "PatchrightDriver", lambda **_kwargs: fake)
+    monkeypatch.setattr(dispatch, "BrowserDeliverySender", FakeSender)
+    monkeypatch.setattr(dispatch, "_CAPTURE_SURFACE_GRACE_SECONDS", 0.0)
+    monkeypatch.setattr(dispatch, "_CAPTURE_SURFACE_RECHECK_SECONDS", 0.01)
+    service = dispatch.ManualReplyDispatcher(store, state)
+    intent = ReplyIntent(REPLY_ID, CONVERSATION, PARENT, "Synthetic explicit reply")
+    assert service.submit("send-1", intent)["status"] == "prepared"
+    until = time.monotonic() + 3.0
+    while time.monotonic() < until and REPLY_ID in service._active:
+        time.sleep(0.02)
+    turns = store.turns("send-1")
+    assert turns is not None and turns[-1]["status"] == "interrupted"
+    assert fake.probes == (1 if error_visible else 2)
+    assert fake.calls == 1
+    recovery = store.next_history_reply_recovery(priority_ids={REPLY_ID})
+    assert recovery is not None and recovery["reply_id"] == REPLY_ID
 
 
 class AmbiguousThenCompleteDriver(DomOnlyDriver):
