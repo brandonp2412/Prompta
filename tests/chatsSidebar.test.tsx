@@ -50,7 +50,7 @@ function sidebar() {
   return { model, view };
 }
 
-test("loads 100 chats and fetches older chats only after clicking Load more", async () => {
+test("loads older chats as the reader approaches the end of the sidebar", async () => {
   const requests: URL[] = [];
   globalThis.fetch = Object.assign(
     async (input: RequestInfo | URL) => {
@@ -72,12 +72,46 @@ test("loads 100 chats and fetches older chats only after clicking Load more", as
   expect(requests[0]?.searchParams.get("limit")).toBe("100");
   const pane = document.querySelector(".chats-list");
   if (!pane) throw new Error("Chat list missing");
+  expect(screen.queryByRole("button", { name: "Load more chats" })).toBeNull();
   fireEvent.scroll(pane, { target: { scrollTop: 10000 } });
-  expect(requests).toHaveLength(1);
-  await userEvent.setup().click(screen.getByRole("button", { name: "Load more chats" }));
   await screen.findByText("Chat 101");
   expect(requests[1]?.searchParams.get("offset")).toBe("100");
-  await waitFor(() => expect(screen.queryByRole("button", { name: "Load more chats" })).toBeNull());
+  expect(requests).toHaveLength(2);
+});
+
+test("a failed older-chat page stops auto-retries and provides a manual retry", async () => {
+  let failOlderPage = true;
+  let olderPageRequests = 0;
+  globalThis.fetch = Object.assign(
+    async (input: RequestInfo | URL) => {
+      const url = new URL(String(input), "http://localhost");
+      if (Number(url.searchParams.get("offset")) === 100) {
+        olderPageRequests++;
+        if (failOlderPage) return new Response("Unavailable", { status: 500 });
+        return Response.json({ items: [run(101)], total: 101 });
+      }
+      return Response.json({ items: Array.from({ length: 100 }, (_, i) => run(i)), total: 101 });
+    },
+    { preconnect: originalFetch.preconnect },
+  );
+  const { model } = sidebar();
+  await act(async () => {
+    await model.loadList(true);
+  });
+  const pane = document.querySelector(".chats-list");
+  if (!pane) throw new Error("Chat list missing");
+  fireEvent.scroll(pane, { target: { scrollTop: 10000 } });
+  const retry = await screen.findByRole("button", { name: "Retry loading older chats" });
+  await act(async () => {
+    await model.loadList(); // A live refresh must not restart failed infinite scrolling.
+  });
+  fireEvent.scroll(pane, { target: { scrollTop: 10000 } });
+  expect(olderPageRequests).toBe(1);
+  failOlderPage = false;
+  await userEvent.setup().click(retry);
+  await screen.findByText("Chat 101");
+  expect(olderPageRequests).toBe(2);
+  expect(screen.queryByRole("button", { name: "Retry loading older chats" })).toBeNull();
 });
 
 test("new pins appear after existing pins and unpinning preserves remaining order", async () => {

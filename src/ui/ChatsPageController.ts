@@ -666,10 +666,10 @@ export function createChatsPageController(initialProps: Props) {
         : Math.min(body.total, Math.max(nextOffset.value, body.items.length));
       if (reset && listPane.value) listPane.value.scrollTop = 0;
       listError.value = "";
-      morePageFailed.value = false;
+      if (reset) morePageFailed.value = false;
     } catch {
       if (generation === listGeneration) {
-        morePageFailed.value = false;
+        if (reset) morePageFailed.value = false;
         listError.value = "Local results are temporarily unavailable.";
       }
     } finally {

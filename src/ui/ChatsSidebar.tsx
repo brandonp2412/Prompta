@@ -36,6 +36,7 @@ export default function ChatsSidebar({
     unpinned,
     markAllRead,
     loadingMore,
+    morePageFailed,
     nextOffset,
     total,
     loadMore,
@@ -54,11 +55,40 @@ export default function ChatsSidebar({
   const settingsCloseRef = useRef<HTMLButtonElement>(null);
   const settingsSaveRef = useRef<HTMLButtonElement>(null);
   const settingsApprovalRef = useRef<HTMLInputElement>(null);
+  const listEndRef = useRef<HTMLDivElement>(null);
   const [concurrency, setConcurrency] = useState({ enabled: true, max_workers: 3 });
   const [approval, setApproval] = useState(false);
   const [settingsError, setSettingsError] = useState("");
   const [settingsReady, setSettingsReady] = useState(false);
   const [saving, setSaving] = useState(false);
+  const hasOlderChats = nextOffset.value < total.value;
+  useEffect(() => {
+    if (
+      !hasOlderChats ||
+      loadingList.value ||
+      loadingMore.value ||
+      morePageFailed.value ||
+      typeof IntersectionObserver === "undefined"
+    )
+      return;
+    const pane = model.listPane.peek();
+    const end = listEndRef.current;
+    if (!pane || !end) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) void loadMore();
+      },
+      { root: pane, rootMargin: "200px 0px" },
+    );
+    observer.observe(end);
+    return () => observer.disconnect();
+  }, [hasOlderChats, loadingList.value, loadingMore.value, morePageFailed.value, nextOffset.value]);
+
+  function onListScroll(event: React.UIEvent<HTMLDivElement>) {
+    if (!hasOlderChats || loadingList.value || loadingMore.value || morePageFailed.value) return;
+    const pane = event.currentTarget;
+    if (pane.scrollHeight - pane.scrollTop - pane.clientHeight <= 200) void loadMore();
+  }
   useEffect(() => {
     if (!profileOpen) return;
     const dismissOutside = (event: PointerEvent) => {
@@ -250,7 +280,7 @@ export default function ChatsSidebar({
       ) : (
         <></>
       )}
-      <div ref={refs.listPane} className="chats-list">
+      <div ref={refs.listPane} className="chats-list" onScroll={onListScroll}>
         {visibleWaiting.value.length ? (
           <>
             {visibleWaiting.value.map((waiting) => (
@@ -306,16 +336,19 @@ export default function ChatsSidebar({
             )}
           </>
         )}
-        {nextOffset.value < total.value ? (
+        {hasOlderChats && morePageFailed.value ? (
           <button
             type="button"
             disabled={loadingList.value || loadingMore.value}
             onClick={() => void loadMore()}
             className="btn ghost"
           >
-            {loadingMore.value ? "Loading chats…" : "Load more chats"}
+            Retry loading older chats
           </button>
         ) : null}
+        {hasOlderChats && !morePageFailed.value && (
+          <div ref={listEndRef} className="chat-list-end" aria-hidden="true" />
+        )}
       </div>
       <div className="sidebar-footer">
         <button

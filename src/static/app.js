@@ -13270,10 +13270,10 @@ function createChatsPageController(initialProps) {
 			nextOffset.value = reset ? Math.min(body.total, body.items.length) : Math.min(body.total, Math.max(nextOffset.value, body.items.length));
 			if (reset && listPane.value) listPane.value.scrollTop = 0;
 			listError.value = "";
-			morePageFailed.value = false;
+			if (reset) morePageFailed.value = false;
 		} catch {
 			if (generation === listGeneration) {
-				morePageFailed.value = false;
+				if (reset) morePageFailed.value = false;
 				listError.value = "Local results are temporarily unavailable.";
 			}
 		} finally {
@@ -16617,7 +16617,7 @@ function ChatRow({ item, model }) {
 //#region src/ui/ChatsSidebar.tsx
 function ChatsSidebar({ model, refs }) {
 	N$1();
-	const { statuses, queueSnapshot, items, markingAllRead, drawerOpen, filtersOpen, search, statusFilter, loadingList, listError, pinned, visibleWaiting, unpinned, markAllRead, loadingMore, nextOffset, total, loadMore, applyFilter, searchChanged, clearSearch, toggleSearch, showJobs, createChat } = model;
+	const { statuses, queueSnapshot, items, markingAllRead, drawerOpen, filtersOpen, search, statusFilter, loadingList, listError, pinned, visibleWaiting, unpinned, markAllRead, loadingMore, morePageFailed, nextOffset, total, loadMore, applyFilter, searchChanged, clearSearch, toggleSearch, showJobs, createChat } = model;
 	const [profileOpen, setProfileOpen] = (0, import_react.useState)(false);
 	const [settingsOpen, setSettingsOpen] = (0, import_react.useState)(false);
 	const profileTriggerRef = (0, import_react.useRef)(null);
@@ -16625,6 +16625,7 @@ function ChatsSidebar({ model, refs }) {
 	const settingsCloseRef = (0, import_react.useRef)(null);
 	const settingsSaveRef = (0, import_react.useRef)(null);
 	const settingsApprovalRef = (0, import_react.useRef)(null);
+	const listEndRef = (0, import_react.useRef)(null);
 	const [concurrency, setConcurrency] = (0, import_react.useState)({
 		enabled: true,
 		max_workers: 3
@@ -16633,6 +16634,32 @@ function ChatsSidebar({ model, refs }) {
 	const [settingsError, setSettingsError] = (0, import_react.useState)("");
 	const [settingsReady, setSettingsReady] = (0, import_react.useState)(false);
 	const [saving, setSaving] = (0, import_react.useState)(false);
+	const hasOlderChats = nextOffset.value < total.value;
+	(0, import_react.useEffect)(() => {
+		if (!hasOlderChats || loadingList.value || loadingMore.value || morePageFailed.value || typeof IntersectionObserver === "undefined") return;
+		const pane = model.listPane.peek();
+		const end = listEndRef.current;
+		if (!pane || !end) return;
+		const observer = new IntersectionObserver((entries) => {
+			if (entries.some((entry) => entry.isIntersecting)) loadMore();
+		}, {
+			root: pane,
+			rootMargin: "200px 0px"
+		});
+		observer.observe(end);
+		return () => observer.disconnect();
+	}, [
+		hasOlderChats,
+		loadingList.value,
+		loadingMore.value,
+		morePageFailed.value,
+		nextOffset.value
+	]);
+	function onListScroll(event) {
+		if (!hasOlderChats || loadingList.value || loadingMore.value || morePageFailed.value) return;
+		const pane = event.currentTarget;
+		if (pane.scrollHeight - pane.scrollTop - pane.clientHeight <= 200) loadMore();
+	}
 	(0, import_react.useEffect)(() => {
 		if (!profileOpen) return;
 		const dismissOutside = (event) => {
@@ -16817,6 +16844,7 @@ function ChatsSidebar({ model, refs }) {
 			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 				ref: refs.listPane,
 				className: "chats-list",
+				onScroll: onListScroll,
 				children: [
 					visibleWaiting.value.length ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: visibleWaiting.value.map((waiting) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 						className: "chat-entry queue-waiting",
@@ -16867,13 +16895,18 @@ function ChatsSidebar({ model, refs }) {
 						item,
 						model
 					}, item.send_id)) }) }),
-					nextOffset.value < total.value ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+					hasOlderChats && morePageFailed.value ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 						type: "button",
 						disabled: loadingList.value || loadingMore.value,
 						onClick: () => void loadMore(),
 						className: "btn ghost",
-						children: loadingMore.value ? "Loading chats…" : "Load more chats"
-					}) : null
+						children: "Retry loading older chats"
+					}) : null,
+					hasOlderChats && !morePageFailed.value && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+						ref: listEndRef,
+						className: "chat-list-end",
+						"aria-hidden": "true"
+					})
 				]
 			}),
 			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
