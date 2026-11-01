@@ -12,7 +12,7 @@ from prompta.patchright_driver import PatchrightDriver
 from prompta.reply_contracts import ManualReplyStore, ReplyIntent
 from prompta.reply_contracts import replies as reply_table
 from prompta.response_capture import CaptureResult
-from prompta.response_store import ResponseStore
+from prompta.response_store import ResponseStore, history_recovery_attempts
 from prompta.response_store import results as result_table
 from prompta.scheduler_runtime import SchedulerRuntime
 
@@ -79,6 +79,26 @@ def test_newest_pinned_reply_outranks_an_older_pinned_original(
     due = worker._newest_pinned_due(now=20)
     assert due is not None and due["reply_id"] == reply_id
     assert due["activity_at"] == 17
+
+
+def test_legacy_future_reply_deadline_does_not_block_global_only_recovery(
+    tmp_path: Path,
+) -> None:
+    responses, replies, reply_id = _chain(tmp_path)
+    responses.schedule_history_recovery(
+        "reply:" + reply_id, now=20, next_attempt_at=9000,
+    )
+    # A deployed database may still contain a deadline set by the old code.
+    with responses.engine.begin() as connection:
+        connection.execute(
+            update(history_recovery_attempts)
+            .where(history_recovery_attempts.c.send_id == "reply:" + reply_id)
+            .values(next_attempt_at=9000)
+        )
+    candidate = replies.next_history_reply_recovery(now=21)
+    assert candidate is not None and candidate["reply_id"] == reply_id
+    assert candidate["attempt_count"] == 1
+    assert replies.reply_recovery_metrics(now=21)["due_reply_recovery_probes"] == 1
 
 
 def test_later_uncertain_reply_is_eligible_only_with_verified_predecessor(tmp_path: Path) -> None:
@@ -277,7 +297,7 @@ def test_short_complete_looking_probe_remains_retryable_after_storage_guard(tmp_
     still_partial = replies.get(reply_id)
     assert still_partial is not None and still_partial["status"] == "interrupted"
     assert still_partial["assistant_text"] == "A long saved partial answer must survive."
-    assert replies.reply_recovery_metrics(now=22)["due_reply_recovery_probes"] == 0
+    assert replies.reply_recovery_metrics(now=22)["due_reply_recovery_probes"] == 1
 
 
 def test_interrupted_original_keeps_verified_reply_recovery_eligible(tmp_path: Path) -> None:

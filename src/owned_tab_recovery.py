@@ -141,14 +141,13 @@ def next_owned_recovery_candidate(
             results.c.status.in_(("interrupted", "unavailable")),
             results.c.capture_owner == "",
             results.c.conversation_id.in_(tuple(unique)),
-            func.coalesce(attempts.c.next_attempt_at, 0) <= stamp,
         )
         .order_by(
             local_chat_pins.c.send_id.is_(None),
-            # Newest pinned chats first, even if an older tab has fewer tries.
-            _ACTIVITY_AT.desc(),
+            # One global slot at a time: sweep each pinned chat once before
+            # revisiting an unsuccessful one, newest first within each sweep.
             func.coalesce(attempts.c.attempt_count, 0),
-            func.coalesce(attempts.c.next_attempt_at, 0),
+            _ACTIVITY_AT.desc(),
         )
     )
     with store.engine.connect() as connection:

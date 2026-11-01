@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 from patchright.async_api import Error as PatchrightError
+from sqlalchemy import update
 
 import prompta.history_recovery as history_recovery
 from prompta.delivery_worker import DeliveryAdmission
@@ -18,7 +19,7 @@ from prompta.patchright_driver import BrowserSecurityChallengeError, PatchrightD
 from prompta.rate_limit import RateLimitError
 from prompta.reply_contracts import ManualReplyStore, ReplyIntent
 from prompta.response_capture import CaptureResult
-from prompta.response_store import ResponseStore
+from prompta.response_store import ResponseStore, history_recovery_attempts
 from prompta.scheduler_runtime import SchedulerRuntime
 
 CONVERSATION = "12345678-1234-4123-8123-123456789abc"
@@ -91,6 +92,7 @@ def test_newest_pinned_chat_beats_older_pinned_retry_and_newer_deploy_priority(
         assert store.finish(send_id, "123:owner", "interrupted", now=100)
     assert store.set_local_pin("older-pinned", pinned=True)
     assert store.set_local_pin("newer-pinned", pinned=True)
+    store.schedule_history_recovery("older-pinned", now=110, next_attempt_at=9000)
     store.schedule_history_recovery("newer-pinned", now=110, next_attempt_at=125)
     (tmp_path / "deployment-interrupted.json").write_text(
         json.dumps(
@@ -128,14 +130,21 @@ def test_newest_pinned_chat_beats_older_pinned_retry_and_newer_deploy_priority(
         assert row is not None and row["status"] == "interrupted"
 
 
-def test_deployment_priority_never_bypasses_per_chat_backoff(tmp_path: Path) -> None:
+def test_deployment_priority_ignores_legacy_per_chat_deadline(tmp_path: Path) -> None:
     store = ResponseStore(tmp_path / "chat-results.sqlite3")
     _expired(store, "deployment-capture")
     _expired(store, "ordinary-newer")
     store.schedule_history_recovery("deployment-capture", now=100, next_attempt_at=500)
-    assert store.next_history_recovery(now=150, priority_ids=["deployment-capture"]) is None
-    candidate = store.next_history_recovery(now=150)
-    assert candidate is not None and candidate["send_id"] == "ordinary-newer"
+    # Simulate a row written by the pre-deploy per-chat backoff scheduler.
+    with store.engine.begin() as connection:
+        connection.execute(
+            update(history_recovery_attempts)
+            .where(history_recovery_attempts.c.send_id == "deployment-capture")
+            .values(next_attempt_at=9000)
+        )
+    candidate = store.next_history_recovery(now=150, priority_ids=["deployment-capture"])
+    assert candidate is not None and candidate["send_id"] == "deployment-capture"
+    assert candidate["attempt_count"] == 1
 
 
 def test_only_verified_incomplete_conversations_are_recovery_candidates(tmp_path: Path) -> None:
@@ -148,41 +157,42 @@ def test_only_verified_incomplete_conversations_are_recovery_candidates(tmp_path
     assert candidate is not None and candidate["send_id"] == "manual-1"
     assert candidate["conversation_id"] == CONVERSATION
     store.schedule_history_recovery("manual-1", now=101, next_attempt_at=201)
-    assert store.next_history_recovery(now=200) is None
-    candidate = store.next_history_recovery(now=201)
+    candidate = store.next_history_recovery(now=101)
     assert candidate is not None and candidate["attempt_count"] == 1
     store.schedule_history_recovery("manual-1", now=201, next_attempt_at=401)
-    candidate = store.next_history_recovery(now=401)
+    candidate = store.next_history_recovery(now=201)
     assert candidate is not None and candidate["attempt_count"] == 2
 
 
-@pytest.mark.parametrize(
-    ("attempts", "delay"),
-    [(0, 90), (1, 180), (6, 5760), (8, 14400), (30, 14400)],
-)
-def test_repeated_failed_reads_back_off_without_resending(
+@pytest.mark.parametrize("attempts", [0, 1, 6, 8, 30])
+def test_repeated_failed_reads_wait_only_for_global_slot_without_resending(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     attempts: int,
-    delay: int,
 ) -> None:
     store = ResponseStore(tmp_path / "chat-results.sqlite3")
     _expired(store)
     for _ in range(attempts):
-        store.schedule_history_recovery("manual-1", now=100, next_attempt_at=150)
+        store.schedule_history_recovery("manual-1", now=100, next_attempt_at=9000)
     runtime = SchedulerRuntime(tmp_path / "runtime.sqlite3", tmp_path / "jobs.json")
     worker = HistoryRecovery(store, runtime, FakeHistoryDriver)
+    reads: list[bool] = []
 
     async def missing_response(_conversation_id: str, _prompt: str) -> None:
+        reads.append(True)
         return None
 
     monkeypatch.setattr(worker, "_read_original_response", missing_response)
     assert not worker.recover_once(now=150)
     record = store.detail("manual-1")
-    assert record is not None
-    assert record["status"] == "interrupted"
-    assert store.next_history_recovery(now=150 + delay - 1) is None
-    assert store.next_history_recovery(now=150 + delay) is not None
+    assert record is not None and record["status"] == "interrupted"
+    candidate = store.next_history_recovery(now=151)
+    assert candidate is not None and candidate["send_id"] == "manual-1"
+    assert candidate["attempt_count"] == attempts + 1
+    assert not worker.recover_once(now=239)  # The account's 90-second slot is locked.
+    assert len(reads) == 1
+    assert not worker.recover_once(now=240)
+    assert len(reads) == 2
 
 
 def test_recovery_metrics_are_private_aggregate_and_respect_backoff(tmp_path: Path) -> None:
@@ -202,10 +212,10 @@ def test_recovery_metrics_are_private_aggregate_and_respect_backoff(tmp_path: Pa
         "active_captures": 1,
         "stale_capture_leases": 0,
         "recoverable": 1,
-        "ready_for_read_only_probe": 0,
+        "ready_for_read_only_probe": 1,
         "missing_verified_identity": 1,
         "partial_text_saved": 0,
-        "waiting_per_chat_backoff": 1,
+        "waiting_per_chat_backoff": 0,
         "recovered_completed": 0,
         "attention_chats": 2,
         "security_pause_seconds": 60,
@@ -614,17 +624,18 @@ def test_pinned_incomplete_chat_recovers_before_unpinned_backlog(tmp_path: Path)
     assert waiting is not None and waiting["status"] == "interrupted"
 
 
-def test_pinned_recovery_does_not_bypass_per_chat_backoff(tmp_path: Path) -> None:
+def test_pinned_recovery_ignores_legacy_per_chat_deadline(tmp_path: Path) -> None:
     store = ResponseStore(tmp_path / "chat-results.sqlite3")
     _expired(store, "manual-unpinned")
     _expired(store, "manual-pinned")
     assert store.set_local_pin("manual-pinned", pinned=True)
     store.schedule_history_recovery("manual-pinned", now=100, next_attempt_at=500)
-    assert store.next_history_recovery(now=150, pinned_only=True) is None
+    candidate = store.next_history_recovery(now=150, pinned_only=True)
+    assert candidate is not None and candidate["send_id"] == "manual-pinned"
 
     runtime = SchedulerRuntime(tmp_path / "runtime.sqlite3", tmp_path / "jobs.json")
     assert HistoryRecovery(store, runtime, FakeHistoryDriver).recover_once(now=150)
-    recovered = store.get("manual-unpinned")
-    waiting = store.get("manual-pinned")
+    recovered = store.get("manual-pinned")
+    waiting = store.get("manual-unpinned")
     assert recovered is not None and recovered["status"] == "completed"
     assert waiting is not None and waiting["status"] == "interrupted"

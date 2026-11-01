@@ -36,7 +36,7 @@ def test_manual_recovery_endpoint_persists_one_request_without_resending(tmp_pat
         assert ResponseStore(store.path).manual_recovery_pending("interrupted-chat") == 1
         detail = get(port, "/api/results/interrupted-chat")[1]
         assert detail["manual_recovery_pending"] == 1
-        assert store.next_history_recovery(now=8999) is None  # Never bypass per-chat pacing.
+        assert store.next_history_recovery(now=8999) is not None  # No per-chat gate.
         assert app.queue.get("interrupted-chat") is None  # No fresh-send queue mutation.
 
         store.ensure_queued("unverified", "Private text", now=100)
@@ -71,7 +71,7 @@ def test_manual_recovery_targets_verified_uncertain_followup_only(tmp_path: Path
         assert followup is not None and followup["status"] == "outcome_unknown"
 
 
-def test_requested_chat_is_next_when_due_and_is_consumed_once(
+def test_requested_chat_is_next_without_local_delay_and_is_consumed_once(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     store = ResponseStore(tmp_path / "chat-results.sqlite3")
@@ -88,17 +88,16 @@ def test_requested_chat_is_next_when_due_and_is_consumed_once(
         return CaptureResult("dom", "complete", "Recovered", CONVERSATION, None, None, "observer")
 
     monkeypatch.setattr(worker, "_read_original_response", read)
-    assert worker.recover_once(now=150)  # The request is still under backoff.
+    assert worker.recover_once(now=150)  # Explicit request has no local delay.
     newer = store.get("newer-backlog")
     older = store.get("older-requested")
-    assert newer is not None and newer["status"] == "completed"
-    assert older is not None and older["status"] == "interrupted"
-    assert store.manual_recovery_pending("older-requested") == 1
-    assert not worker.recover_once(now=151)  # 90-second global pace.
-    assert worker.recover_once(now=500)
-    recovered = store.get("older-requested")
-    assert recovered is not None and recovered["status"] == "completed"
+    assert older is not None and older["status"] == "completed"
+    assert newer is not None and newer["status"] == "interrupted"
     assert store.manual_recovery_pending("older-requested") == 0
+    assert not worker.recover_once(now=239)  # The sole account-wide gate.
+    assert worker.recover_once(now=240)
+    recovered = store.get("newer-backlog")
+    assert recovered is not None and recovered["status"] == "completed"
     assert seen == ["read", "read"]
 
 

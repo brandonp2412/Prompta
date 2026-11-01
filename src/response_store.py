@@ -524,10 +524,6 @@ class ResponseStore:
     def recovery_metrics(self, *, now: float | None = None) -> dict[str, int]:
         """Expose aggregate local capture/recovery state without reading chat text."""
         at = time.time() if now is None else now
-        joined = results.outerjoin(
-            history_recovery_attempts,
-            results.c.send_id == history_recovery_attempts.c.send_id,
-        )
         with self.engine.connect() as connection:
             rows = connection.execute(
                 select(
@@ -535,9 +531,8 @@ class ResponseStore:
                     results.c.conversation_id,
                     results.c.capture_owner,
                     results.c.capture_deadline,
-                    history_recovery_attempts.c.next_attempt_at,
                     func.length(results.c.assistant_text),
-                ).select_from(joined).where(
+                ).where(
                     results.c.status.in_(("accepted", "generating", "interrupted", "unavailable"))
                 )
             ).all()
@@ -549,8 +544,8 @@ class ResponseStore:
                     results.c.status == "completed", results.c.source == "history_dom",
                 )
             ).scalar_one()
-        active = stale = recoverable = due = missing_identity = partial_saved = waiting = 0
-        for status, conversation_id, owner, capture_deadline, next_attempt_at, text_length in rows:
+        active = stale = recoverable = missing_identity = partial_saved = 0
+        for status, conversation_id, owner, capture_deadline, text_length in rows:
             if status in ("accepted", "generating"):
                 if owner and float(capture_deadline or 0.0) > at:
                     active += 1
@@ -565,20 +560,16 @@ class ResponseStore:
                     verified = False
                 if verified:
                     recoverable += 1
-                    if float(next_attempt_at or 0.0) <= at:
-                        due += 1
-                    else:
-                        waiting += 1
                 else:
                     missing_identity += 1
         return {
             "active_captures": active,
             "stale_capture_leases": stale,
             "recoverable": recoverable,
-            "ready_for_read_only_probe": due,
+            "ready_for_read_only_probe": recoverable,
             "missing_verified_identity": missing_identity,
             "partial_text_saved": partial_saved,
-            "waiting_per_chat_backoff": waiting,
+            "waiting_per_chat_backoff": 0,  # Compatibility field: no per-chat gate.
             "recovered_completed": history_completed,
             "attention_chats": attention_chats,
             "security_pause_seconds": int(
@@ -594,7 +585,6 @@ class ResponseStore:
         priority_ids: Collection[str] | None = None,
     ) -> dict[str, object] | None:
         """Choose only expired, Prompta-owned conversations with durable identities."""
-        at = time.time() if now is None else now
         attempts = history_recovery_attempts
         joined = results.outerjoin(attempts, results.c.send_id == attempts.c.send_id)
         if pinned_only:
@@ -607,19 +597,22 @@ class ResponseStore:
             results.c.status.in_(("interrupted", "unavailable")),
             results.c.conversation_id != "",
             results.c.capture_owner == "",
-            func.coalesce(attempts.c.next_attempt_at, 0) <= at,
         )
         if priority_ids is not None:
             if not priority_ids:
                 return None
             query = query.where(results.c.send_id.in_(priority_ids))
         if pinned_only:
-            # Match the sidebar's most recent deliberate user activity, rather
-            # than the time a historical recovery happened to update the row.
-            query = query.order_by(_ACTIVITY_AT.desc(), results.c.created_at.desc())
+            # Sweep lower-attempt pinned chats first. Among ties use the
+            # sidebar's deliberate user activity, not recovery update times.
+            query = query.order_by(
+                func.coalesce(attempts.c.attempt_count, 0),
+                _ACTIVITY_AT.desc(),
+                results.c.created_at.desc(),
+            )
         else:
             query = query.order_by(
-                func.coalesce(attempts.c.next_attempt_at, 0),
+                func.coalesce(attempts.c.attempt_count, 0),
                 results.c.created_at.desc(),
             )
         query = query.limit(1)
@@ -628,18 +621,27 @@ class ResponseStore:
         return dict(row) if row is not None else None
 
     def schedule_history_recovery(
-        self, send_id: str, *, next_attempt_at: float, now: float | None = None,
+        self, send_id: str, *, next_attempt_at: float | None = None,
+        now: float | None = None,
     ) -> None:
-        """Persist retry pacing even if the worker crashes or restarts."""
+        """Record an attempt, without imposing any chat-specific cooldown.
+
+        The two global sentinel rows retain their deadlines. Legacy future
+        deadlines on individual chats are discarded on their next attempt.
+        """
         at = time.time() if now is None else now
+        deadline = (
+            next_attempt_at if send_id in ("__global_pacing__", "__security_pause__")
+            and next_attempt_at is not None else at
+        )
         stmt = insert(history_recovery_attempts).values(
             send_id=send_id, attempt_count=1,
-            next_attempt_at=next_attempt_at, last_attempt_at=at,
+            next_attempt_at=deadline, last_attempt_at=at,
         ).on_conflict_do_update(
             index_elements=[history_recovery_attempts.c.send_id],
             set_={
                 "attempt_count": history_recovery_attempts.c.attempt_count + 1,
-                "next_attempt_at": next_attempt_at,
+                "next_attempt_at": deadline,
                 "last_attempt_at": at,
             },
         )
@@ -874,12 +876,11 @@ class ResponseStore:
                 attempt = connection.execute(select(
                     history_recovery_attempts.c.attempt_count,
                     history_recovery_attempts.c.last_attempt_at,
-                    history_recovery_attempts.c.next_attempt_at,
                 ).where(history_recovery_attempts.c.send_id == send_id)).mappings().one_or_none()
             detail["recovery"] = {
                 "attempt_count": int(attempt["attempt_count"]) if attempt else 0,
                 "last_attempt_at": float(attempt["last_attempt_at"]) if attempt else 0,
-                "next_attempt_at": float(attempt["next_attempt_at"]) if attempt else 0,
+                "next_attempt_at": 0,  # No per-chat retry deadline.
                 "eligible": bool(row["conversation_id"]),
                 "state": "pending" if row["conversation_id"] else "identity_required",
             }

@@ -94,9 +94,14 @@ def test_owned_candidate_pinned_due_only_and_no_ambiguous_identity(
     assert candidate == owned.OwnedRecoveryCandidate("pinned", tabs[0])
     store.schedule_history_recovery("pinned", now=140, next_attempt_at=500)
     candidate = owned.next_owned_recovery_candidate(store, "127.0.0.1:9222", now=150)
+    assert candidate == owned.OwnedRecoveryCandidate("pinned", tabs[0])
+    # Only the pin itself—not a per-chat retry deadline—makes it outrank
+    # an unpinned tab. Unpinning immediately exposes the untouched tab.
+    assert store.set_local_pin("pinned", pinned=False)
+    candidate = owned.next_owned_recovery_candidate(store, "127.0.0.1:9222", now=150)
     assert candidate == owned.OwnedRecoveryCandidate("unpinned", tabs[1])
     store.schedule_history_recovery("unpinned", now=140, next_attempt_at=500)
-    assert owned.next_owned_recovery_candidate(store, "127.0.0.1:9222", now=150) is None
+    assert owned.next_owned_recovery_candidate(store, "127.0.0.1:9222", now=150) is not None
 
     monkeypatch.setattr(
         owned,
@@ -106,7 +111,7 @@ def test_owned_candidate_pinned_due_only_and_no_ambiguous_identity(
     assert owned.next_owned_recovery_candidate(store, "127.0.0.1:9222", now=600) is None
 
 
-def test_surviving_tabs_try_newest_pinned_even_if_older_has_no_attempts(
+def test_surviving_tabs_round_robin_pinned_with_newest_tiebreak(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -133,8 +138,15 @@ def test_surviving_tabs_try_newest_pinned_even_if_older_has_no_attempts(
         now=150,
     )
     assert candidate == owned.OwnedRecoveryCandidate(
-        "newer",
-        owned.SurvivingTab("new-target", OTHER),
+        "older",
+        owned.SurvivingTab("old-target", CONV),
+    )
+    store.schedule_history_recovery("older", now=120, next_attempt_at=9000)
+    candidate = owned.next_owned_recovery_candidate(
+        store, "127.0.0.1:9222", now=150,
+    )
+    assert candidate == owned.OwnedRecoveryCandidate(
+        "newer", owned.SurvivingTab("new-target", OTHER),
     )
 
 

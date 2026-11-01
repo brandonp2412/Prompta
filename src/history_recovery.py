@@ -31,7 +31,6 @@ from .strict_types import int_value
 
 logger = logging.getLogger(__name__)
 _GLOBAL_INTERVAL_SECONDS = 90.0
-_MAX_PER_CHAT_INTERVAL_SECONDS = 4 * 3600.0
 _LOOKUP_TIMEOUT_SECONDS = 55.0
 _READ_PROBE_SECONDS = 25.0
 _RESUMED_COMPLETION_GRACE_SECONDS = 3.0
@@ -299,16 +298,17 @@ class HistoryRecovery:
                 )
 
     def _newest_pinned_due(self, *, now: float) -> dict[str, object] | None:
-        """Pick the newest eligible pinned turn across original sends and replies."""
+        """Sweep least-attempted pinned turns, newest activity first within a sweep."""
         originals = self.results.next_history_recovery(now=now, pinned_only=True)
         replies = self.replies.next_history_reply_recovery(now=now, pinned_only=True)
         choices = [row for row in (originals, replies) if row is not None]
 
-        def activity(row: dict[str, object]) -> float:
-            value = row.get("activity_at")
-            return float(value) if isinstance(value, (int, float)) else float("-inf")
+        def priority(row: dict[str, object]) -> tuple[int, float]:
+            activity = row.get("activity_at")
+            recency = float(activity) if isinstance(activity, (int, float)) else float("-inf")
+            return (-int_value(row.get("attempt_count")), recency)
 
-        return max(choices, key=activity, default=None)
+        return max(choices, key=priority, default=None)
 
     def recover_once(
         self, *, now: float | None = None, preferred_send_id: str | None = None,
@@ -340,24 +340,16 @@ class HistoryRecovery:
         if candidate is None and preferred_send_id is None:
             for target in self.results.pending_manual_recovery_requests():
                 reply_id = target.removeprefix("reply:") if target.startswith("reply:") else ""
-                if reply_id:
-                    due = self.replies.next_history_reply_recovery(
-                        now=at, priority_ids=(reply_id,),
-                    )
-                    eligible = due or self.replies.next_history_reply_recovery(
-                        now=float("inf"), priority_ids=(reply_id,),
-                    )
-                else:
-                    due = self.results.next_history_recovery(
+                requested = (
+                    self.replies.next_history_reply_recovery(now=at, priority_ids=(reply_id,))
+                    if reply_id else self.results.next_history_recovery(
                         now=at, priority_ids=(target,),
                     )
-                    eligible = due or self.results.next_history_recovery(
-                        now=float("inf"), priority_ids=(target,),
-                    )
-                if eligible is None:
+                )
+                if requested is None:
                     self.results.clear_manual_recovery_request(target)
-                elif due is not None:
-                    candidate = due
+                else:
+                    candidate = requested
                     manual_target = target
                     break
         if candidate is None and preferred_send_id is None:
@@ -373,12 +365,9 @@ class HistoryRecovery:
         send_id = "reply:" + reply_id if reply_id else str(candidate["send_id"])
         conversation_id = str(candidate["conversation_id"])
         prompt = str(candidate["user_text"])
-        attempts = int_value(candidate["attempt_count"])
-        delay = min(_MAX_PER_CHAT_INTERVAL_SECONDS, 90.0 * 2 ** min(attempts, 8))
         try:
             if str(UUID(conversation_id)) != conversation_id.lower():
                 logger.warning("Historical recovery skipped invalid conversation identity send_id=%s", send_id)
-                delay = _MAX_PER_CHAT_INTERVAL_SECONDS
             else:
                 if reply_id:
                     allow_resume = self.approval_enabled and reply_id in priority_replies
@@ -415,26 +404,25 @@ class HistoryRecovery:
                             self.results.clear_manual_recovery_request(manual_target)
                         return True
         except RateLimitError as exc:
-            # The rejected chat gets a durable read-only retry gate as well
-            # as the persisted account-wide backoff; honor Retry-After.
-            delay = max(delay, 5 * 60.0, float(exc.retry_after),
-                        _record_read_rate_limit(self.runtime, exc))
+            # Only the account-wide read gate owns Retry-After. Never block
+            # a single chat independently after this failed observation.
+            _record_read_rate_limit(self.runtime, exc)
             logger.warning("Historical recovery paused for account rate limit")
         except BrowserSecurityChallengeError:
             # A challenge is not proof that the answer is unavailable.
             failures = self.results.history_recovery_security_failures(now=at)
-            delay = max(delay, min(_SECURITY_PAUSE_CAP_SECONDS,
-                                   _SECURITY_PAUSE_BASE_SECONDS * 2 ** min(failures, 3)))
-            self.results.pause_history_recovery_security(until=at + delay, now=at)
+            pause = min(
+                _SECURITY_PAUSE_CAP_SECONDS,
+                _SECURITY_PAUSE_BASE_SECONDS * 2 ** min(failures, 3),
+            )
+            self.results.pause_history_recovery_security(until=at + pause, now=at)
             logger.warning("Historical recovery paused for browser security challenge")
         except Exception as exc:
             logger.warning(
                 "Historical recovery will retry send_id=%s error_type=%s",
                 send_id, type(exc).__name__,
             )
-        self.results.schedule_history_recovery(
-            send_id, now=at, next_attempt_at=at + delay,
-        )
+        self.results.schedule_history_recovery(send_id, now=at)
         if manual_target:
             self.results.clear_manual_recovery_request(manual_target)
         return False

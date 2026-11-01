@@ -44,12 +44,9 @@ export type RunDetail = RunSummary & {
   images: { name: string; url: string }[];
 };
 
-export function recoveryProgress(recovery: RunDetail["recovery"], now: number): string | null {
+export function recoveryProgress(recovery: RunDetail["recovery"], _now: number): string | null {
   if (!recovery || !recovery.eligible) return null;
   if (recovery.attempt_count === 0) return "First check pending";
-  if (recovery.next_attempt_at > now) {
-    return `next check ~${Math.ceil((recovery.next_attempt_at - now) / 60)} min`;
-  }
   return "Next check queued";
 }
 

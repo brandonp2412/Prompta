@@ -607,11 +607,7 @@ class ManualReplyStore(ReplyReadState):
 
     def reply_recovery_metrics(self, *, now: float | None = None) -> dict[str, int]:
         """Count unresolved explicit replies without exposing their text or branch IDs."""
-        at = time.time() if now is None else now
-        attempts = history_recovery_attempts.alias("reply_metric_attempts")
-        joined = replies.join(results, replies.c.send_id == results.c.send_id).outerjoin(
-            attempts, attempts.c.send_id == literal("reply:") + replies.c.reply_id,
-        )
+        joined = replies.join(results, replies.c.send_id == results.c.send_id)
         outstanding, verified = _recovery_conditions()
         with self.engine.connect() as connection:
             total = connection.execute(select(func.count()).select_from(replies).where(
@@ -620,13 +616,10 @@ class ManualReplyStore(ReplyReadState):
             recoverable = connection.execute(select(func.count()).select_from(joined).where(
                 *verified
             )).scalar_one()
-            due = connection.execute(select(func.count()).select_from(joined).where(
-                *verified, func.coalesce(attempts.c.next_attempt_at, 0) <= at,
-            )).scalar_one()
         return {
             "unresolved_reply_captures": total,
             "recoverable_reply_captures": recoverable,
-            "due_reply_recovery_probes": due,
+            "due_reply_recovery_probes": recoverable,
         }
 
     def next_history_reply_recovery(
@@ -634,7 +627,6 @@ class ManualReplyStore(ReplyReadState):
         pinned_only: bool = False,
     ) -> dict[str, object] | None:
         """Only verified Prompta-owned parent chains are eligible."""
-        at = time.time() if now is None else now
         attempts = history_recovery_attempts.alias("reply_recovery")
         _, verified = _recovery_conditions()
         joined = replies.join(results, replies.c.send_id == results.c.send_id).outerjoin(
@@ -649,17 +641,19 @@ class ManualReplyStore(ReplyReadState):
             func.coalesce(attempts.c.attempt_count, 0).label("attempt_count"),
         ).select_from(joined).where(
             *verified,
-            func.coalesce(attempts.c.next_attempt_at, 0) <= at,
         )
         if priority_ids is not None:
             if not priority_ids:
                 return None
             query = query.where(replies.c.reply_id.in_(priority_ids))
         if pinned_only:
-            query = query.order_by(replies.c.created_at.desc())
+            query = query.order_by(
+                func.coalesce(attempts.c.attempt_count, 0),
+                replies.c.created_at.desc(),
+            )
         else:
             query = query.order_by(
-                func.coalesce(attempts.c.next_attempt_at, 0), replies.c.created_at.desc(),
+                func.coalesce(attempts.c.attempt_count, 0), replies.c.created_at.desc(),
             )
         query = query.limit(1)
         with self.engine.connect() as connection:
