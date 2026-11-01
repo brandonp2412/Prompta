@@ -179,7 +179,11 @@ async def test_fresh_approval_attachment_verifies_exact_target_and_owner(
                 ),
             )
             page = await context.new_page()
-            await page.goto("https://chatgpt.com/c/12345678-1234-4123-8123-123456789abc")
+            await page.goto(
+                "https://chatgpt.com/c/12345678-1234-4123-8123-123456789abc",
+                wait_until="domcontentloaded", timeout=10000,
+            )
+            await page.locator("#permission").wait_for(timeout=3000)
             await page.evaluate("""() => {
                 window.__grants = 0;
                 document.getElementById('grant').addEventListener('click', event => {
