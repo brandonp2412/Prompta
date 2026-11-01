@@ -145,6 +145,9 @@ def next_owned_recovery_candidate(
         )
         .order_by(
             local_chat_pins.c.send_id.is_(None),
+            # Give every due owned tab a first observation before revisiting
+            # an empty tab; unobserved tabs may expire from Brave.
+            func.coalesce(attempts.c.attempt_count, 0),
             func.coalesce(attempts.c.next_attempt_at, 0),
             results.c.created_at.desc(),
         )

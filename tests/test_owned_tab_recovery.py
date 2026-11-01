@@ -106,6 +106,32 @@ def test_owned_candidate_pinned_due_only_and_no_ambiguous_identity(
     assert owned.next_owned_recovery_candidate(store, "127.0.0.1:9222", now=600) is None
 
 
+def test_due_owned_tabs_receive_first_attempt_before_retries(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store = ResponseStore(tmp_path / "chat-results.sqlite3")
+    _interrupted(store, "already-tried", CONV)
+    _interrupted(store, "never-tried", OTHER)
+    assert store.set_local_pin("already-tried", pinned=True)
+    assert store.set_local_pin("never-tried", pinned=True)
+    store.schedule_history_recovery("already-tried", now=101, next_attempt_at=105)
+    monkeypatch.setattr(
+        owned,
+        "surviving_owned_tabs",
+        lambda *a, **kw: (
+            owned.SurvivingTab("target1", CONV),
+            owned.SurvivingTab("target2", OTHER),
+        ),
+    )
+    candidate = owned.next_owned_recovery_candidate(
+        store,
+        "127.0.0.1:9222",
+        now=150,
+    )
+    assert candidate is not None and candidate.send_id == "never-tried"
+
+
 def test_targeted_owned_recovery_persists_exact_response_without_resending(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
