@@ -12869,6 +12869,7 @@ function createChatsPageController(initialProps) {
 	const items = y$2([]);
 	const pinnedItems = y$2([]);
 	const pinnedIds = y$2([]);
+	const enteringNewChatId = y$2(null);
 	let legacyPinIds = [];
 	let confirmedPins = [];
 	const pinsReady = y$2(false);
@@ -13466,6 +13467,10 @@ function createChatsPageController(initialProps) {
 				message: "The queue receipt has an unknown state; the saved request ID was preserved."
 			};
 			acknowledgeFreshQueueRequest(request.fingerprint, request.requestId);
+			if (!request.reused) {
+				if (!pinnedIds.peek().includes(sendId)) pinnedIds.value = [...pinnedIds.peek(), sendId];
+				enteringNewChatId.value = sendId;
+			}
 			search.value = "";
 			statusFilter.value = "";
 			onQueued.value(sendId);
@@ -13973,6 +13978,7 @@ function createChatsPageController(initialProps) {
 		recoveryReplyBacklog,
 		items,
 		pinnedIds,
+		enteringNewChatId,
 		pinsReady,
 		pinError,
 		readError,
@@ -16569,6 +16575,7 @@ function ChatRow({ item, model }) {
 	const selected = model.view.value === "chats" && model.selectedRunId.value === item.send_id;
 	const unread = model.isUnread(item);
 	const pinned = model.pinnedIds.value.includes(item.send_id);
+	const entering = model.enteringNewChatId.value === item.send_id;
 	const rowStatus = item.needs_attention ? "Needs attention" : statusLabel(item.status);
 	const queued = item.status === "queued" && !item.needs_attention;
 	const showPreview = item.has_response && !!item.preview.trim() && !queued && !(item.status === "accepted" && !item.needs_attention);
@@ -16578,8 +16585,12 @@ function ChatRow({ item, model }) {
 		className: [
 			"chat-entry",
 			selected ? "chosen" : "",
-			unread ? "unread" : ""
+			unread ? "unread" : "",
+			entering ? "arriving" : ""
 		].filter(Boolean).join(" "),
+		onAnimationEnd: (event) => {
+			if (event.target === event.currentTarget && model.enteringNewChatId.peek() === item.send_id) model.enteringNewChatId.value = null;
+		},
 		children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("a", {
 			href: chatUrl(item.send_id),
 			onClick: (event) => {
