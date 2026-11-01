@@ -126,12 +126,14 @@ def test_explicit_requests_get_slots_amid_permanently_eligible_pinned_backlog(
     assert _status(store, "requested-first") == "completed"
     assert store.manual_recovery_pending("requested-first") == 0
     assert worker.recover_once(now=240)
-    assert _status(store, "pinned-new") == "completed"
+    assert sum(_status(store, pinned) == "completed"
+               for pinned in ("pinned-old", "pinned-new")) == 1
     assert worker.recover_once(now=330)
     assert _status(store, "requested-second") == "completed"
     assert store.manual_recovery_pending("requested-second") == 0
     assert worker.recover_once(now=420)
     assert _status(store, "pinned-old") == "completed"
+    assert _status(store, "pinned-new") == "completed"
     assert store.history_recovery_global_attempt_count() == 4
 
 

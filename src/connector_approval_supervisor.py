@@ -69,6 +69,7 @@ async def supervise_connector_approvals(
         if not active():
             break
         result: object = False
+        channel_failed = False
         try:
             result = await asyncio.wait_for(evaluate(_APPROVAL_SCRIPT), timeout=min(5.0, remaining))
             if result == "stuck" and trusted_retry is not None:
@@ -78,6 +79,7 @@ async def supervise_connector_approvals(
         except asyncio.CancelledError:
             raise
         except Exception as exc:
+            channel_failed = True
             failures += 1
             if failures == 1:
                 logger.warning(
@@ -111,7 +113,7 @@ async def supervise_connector_approvals(
             grants += 1
             logger.info("ChatGPT connector grant dismissed source=%s count=%d", source, grants)
             continue
-        if result == "stuck" and failures == 1:
+        if result == "stuck" and failures == 1 and not channel_failed:
             logger.warning("ChatGPT connector grant did not dismiss source=%s", source)
         await asyncio.sleep(min(
             max(poll_interval_seconds, 0.5 if failures else 0.0),

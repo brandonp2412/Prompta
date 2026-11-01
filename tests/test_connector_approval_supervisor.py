@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import os
 import shutil
+from pathlib import Path
 
 import pytest
 from patchright.async_api import async_playwright as async_patchright
@@ -12,6 +13,7 @@ from prompta.connector_approval_supervisor import (
     supervise_connector_approvals,
     trusted_approval_retry,
 )
+from prompta.patchright_driver import PatchrightDriver
 
 
 @pytest.mark.asyncio
@@ -119,6 +121,17 @@ async def test_failed_fresh_retry_never_claims_an_approval() -> None:
         fresh_retry=lambda: asyncio.sleep(0, result=False),
     )
     assert grants == 0
+
+
+@pytest.mark.asyncio
+async def test_fresh_retry_requires_an_active_owned_capture(tmp_path: Path) -> None:
+    driver = PatchrightDriver(
+        profile=tmp_path, debugger_address="127.0.0.1:9222",
+        ownership_prefix="prompta-delivery:",
+    )
+    assert await driver.retry_connector_approval_from_owned_tab() is False
+    driver._send_capture = {}
+    assert await driver.retry_connector_approval_from_owned_tab() is False
 
 
 @pytest.mark.asyncio
