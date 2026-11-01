@@ -2,6 +2,7 @@ import React, { useEffect, useLayoutEffect, useMemo, useState, useRef } from "re
 import { useSignals } from "@preact/signals-react/runtime";
 import { createChatsPageController, type Props } from "./ChatsPageController";
 import { chatUrl } from "./chatUrl";
+import { exactConversationUrl } from "./resultFormatting";
 import JobsPage from "./JobsPage";
 import ChatComposer from "./ChatComposer";
 import ChatsSidebar from "./ChatsSidebar";
@@ -50,6 +51,13 @@ export default function ChatsPage(props: Props & { serverName: string }) {
     escapeDrawer,
   } = model;
   const pageTitle = view.value === "jobs" ? "Jobs" : selectedChatTitle.value;
+  const conversationUrl =
+    detail.value?.send_id === selectedRunId.value
+      ? exactConversationUrl(
+          turns.value.findLast((turn) => exactConversationUrl(turn.conversation_id))
+            ?.conversation_id || detail.value.conversation_id,
+        )
+      : null;
   useEffect(() => {
     document.title = `Prompta · ${pageTitle} · ${props.serverName}`;
   }, [pageTitle, props.serverName]);
@@ -148,6 +156,29 @@ export default function ChatsPage(props: Props & { serverName: string }) {
                   <path d="M12 16V3m-5 5 5-5 5 5M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6" />
                 </svg>
               </button>
+            )}
+            {view.value === "chats" && selectedRunId.value && conversationUrl && (
+              <a
+                className="chat-open-chatgpt"
+                href={conversationUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label="Open in ChatGPT"
+                title="Open in ChatGPT"
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M14 4h6v6m0-6-9 9M20 14v4a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h4" />
+                </svg>
+                <span className="chat-open-chatgpt-label">ChatGPT</span>
+              </a>
             )}
           </div>
           {view.value === "jobs" ? (

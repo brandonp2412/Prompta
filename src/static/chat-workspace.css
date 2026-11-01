@@ -527,6 +527,16 @@
 }
 .chat-share svg { width: 22px; height: 22px; }
 .chat-share:hover { background: #303030; }
+.chat-open-chatgpt {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  flex: none; min-height: 44px; padding: 8px 10px; border-radius: 10px;
+  color: #b8caff; text-decoration: none; white-space: nowrap;
+  font-size: .82rem; font-weight: 550;
+}
+.chat-open-chatgpt svg { width: 18px; height: 18px; flex: none; }
+.workspace-header .chat-open-chatgpt-label { margin: 0; color: inherit; font-size: inherit; }
+.chat-open-chatgpt:hover { background: #303030; color: #d4dfff; }
+.chat-open-chatgpt:focus-visible { outline: 2px solid #b8caff; outline-offset: -3px; }
 .share-toast {
   position: fixed; z-index: 30; top: 72px; right: 24px;
   padding: 12px 18px; border: 1px solid #505050; border-radius: 12px;

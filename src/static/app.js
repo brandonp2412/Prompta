@@ -13977,6 +13977,191 @@ function chatUrl(id) {
 	return url.href;
 }
 //#endregion
+//#region src/ui/resultFormatting.ts
+function responseBadge(status) {
+	switch (status) {
+		case "completed": return "Final";
+		case "generating": return "Live";
+		case "interrupted": return "Interrupted";
+		case "unavailable": return "Unavailable";
+		case "outcome_unknown": return "Send unverified";
+		case "preflight_failed": return "Not sent";
+		case "dispatching": return "Sending";
+		case "accepted": return "Waiting";
+		case "queued": return "Queued";
+		case "prepared": return "Pending";
+	}
+}
+function exactConversationUrl(conversationId) {
+	return conversationId && /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(conversationId) ? "https://chatgpt.com/c/" + conversationId : null;
+}
+function partialResponseLabel(status) {
+	switch (status) {
+		case "generating": return "Live partial response · still generating";
+		case "interrupted": return "Saved partial answer · capture interrupted; read-only recovery may complete it";
+		case "unavailable": return "Saved partial answer · capture unavailable";
+		case "outcome_unknown": return "Saved partial answer · send outcome uncertain; no automatic resend";
+		default: return turnStatus(status);
+	}
+}
+function turnStatus(status) {
+	switch (status) {
+		case "prepared": return "Pending";
+		case "preflight_failed": return "Not sent · preflight check failed. Tap Send to retry.";
+		case "dispatching": return "Sending…";
+		case "outcome_unknown": return "ChatGPT may have received this request. Acceptance remains unverified; no automatic resend.";
+		case "accepted": return "Awaiting captured response";
+		case "generating": return "Response is generating";
+		case "interrupted": return "Response capture interrupted";
+		case "unavailable": return "Response unavailable";
+		case "queued": return "Waiting for job dispatch";
+		case "completed": return "Completed";
+	}
+}
+var dateOptions = {
+	timeZone: "Pacific/Auckland",
+	day: "numeric",
+	month: "short",
+	year: "numeric"
+};
+function dateGroup(epoch) {
+	return new Intl.DateTimeFormat("en-NZ", dateOptions).format(epoch * 1e3);
+}
+function statusLabel(status) {
+	switch (status) {
+		case "queued": return "Queued";
+		case "accepted": return "Accepted";
+		case "generating": return "Generating";
+		case "completed": return "Completed";
+		case "interrupted": return "Interrupted";
+		case "unavailable": return "Unavailable";
+		case "outcome_unknown": return "Send unverified";
+	}
+}
+function safeHref(href) {
+	try {
+		const url = new URL(href);
+		return url.protocol === "https:" || url.protocol === "http:" ? url.href : null;
+	} catch {
+		return null;
+	}
+}
+function plainPreview(text) {
+	return text.replace(/\[([^\]]+)\]\([^)]+\)/g, "$1").replace(/```[^\n]*\n?/g, " ").replace(/^[#>]+\s*/gm, "").replace(/\*\*|__|~~|[`*_]/g, "").replace(/\s+/g, " ").trim();
+}
+function legacyTableRow(chunk) {
+	if (!/\n[ \r\n]*\t[ \r\n]*\n/.test(chunk)) return null;
+	const raw = chunk.split(/\n[ \r\n]*\t[ \r\n]*\n/);
+	if (raw.length < 2 || raw.length > 6) return null;
+	const before = raw[0].split(/\n[ \t]*\n/);
+	const last = raw.length - 1;
+	const after = raw[last].split(/\n[ \t]*\n/);
+	raw[0] = before.at(-1) ?? "";
+	raw[last] = after[0];
+	const cells = raw.map((cell) => cell.trim());
+	if (cells.some((cell) => !cell || cell.includes("\n"))) return null;
+	return {
+		cells,
+		before: before.slice(0, -1).join("\n\n"),
+		after: after.slice(1).join("\n\n")
+	};
+}
+function formatStoredResponse(text, captureSource) {
+	if (captureSource === "sse" || !text.includes("	")) return text;
+	const parts = text.split(/(\n{3,})/);
+	let output = "";
+	for (let i = 0; i < parts.length;) {
+		const first = legacyTableRow(parts[i]);
+		if (!first) {
+			output += parts[i] + (parts[i + 1] ?? "");
+			i += 2;
+			continue;
+		}
+		const rows = [first];
+		let end = i + 2;
+		while (end < parts.length) {
+			const next = legacyTableRow(parts[end]);
+			if (!next || next.cells.length !== first.cells.length || next.before) break;
+			rows.push(next);
+			end += 2;
+		}
+		if (rows.length < 2 || rows.slice(0, -1).some((row) => row.after)) {
+			output += parts[i] + (parts[i + 1] ?? "");
+			i += 2;
+			continue;
+		}
+		const row = (cells) => "| " + cells.map((cell) => cell.replace(/\|/g, "\\|")).join(" | ") + " |";
+		const table = [
+			row(first.cells),
+			row(first.cells.map(() => "---")),
+			...rows.slice(1).map((item) => row(item.cells))
+		].join("\n");
+		output += (first.before ? first.before.trimEnd() + "\n\n" : "") + table + (rows.at(-1)?.after ? "\n\n" + rows.at(-1)?.after.trimStart() : "") + (parts[end - 1] ?? "");
+		i = end;
+	}
+	return output;
+}
+function isFlattenedDomResponse(text, captureSource) {
+	if (captureSource !== "dom") return false;
+	if (/^\s*(?:#{1,6}\s|[-*+]\s|\d+\.\s|>|\|\s|`{3})/m.test(text)) return false;
+	const blocks = text.split(/\n\s*\n/).map((item) => item.trim()).filter(Boolean);
+	if (blocks.length < 10) return false;
+	const shortLabels = blocks.filter((item) => item.length <= 80 && !/[.!?:]$/.test(item) && !item.includes("\n"));
+	return shortLabels.length >= 7 && shortLabels.length >= blocks.length * .45;
+}
+function chatMessageTime(epoch, nowEpoch = Date.now() / 1e3) {
+	if (epoch <= 0) return "Time unavailable";
+	const dayParts = (value) => {
+		const parts = new Intl.DateTimeFormat("en-NZ", {
+			timeZone: "Pacific/Auckland",
+			year: "numeric",
+			month: "numeric",
+			day: "numeric"
+		}).formatToParts(value * 1e3);
+		const read = (type) => Number(parts.find((part) => part.type === type)?.value);
+		return Date.UTC(read("year"), read("month") - 1, read("day")) / 864e5;
+	};
+	const difference = dayParts(nowEpoch) - dayParts(epoch);
+	let day;
+	if (difference === 0) day = "Today";
+	else if (difference === 1) day = "Yesterday";
+	else day = dateGroup(epoch);
+	const time = new Intl.DateTimeFormat("en-NZ", {
+		timeZone: "Pacific/Auckland",
+		hour: "numeric",
+		minute: "2-digit",
+		hour12: true
+	}).format(epoch * 1e3);
+	return day + " " + time;
+}
+function legacyMetricSummary(text) {
+	const lines = text.trim().split(/\r?\n/).map((line) => line.trim());
+	if (lines.length !== 6) return null;
+	const metrics = [];
+	for (let i = 0; i < 6; i += 2) {
+		const value = lines[i];
+		const label = lines[i + 1];
+		if (!/^[+-]?[$£€]?\d[\d,.]*%?$/.test(value) || !/^[\p{L}][\p{L}\p{N} /&-]{0,30}$/u.test(label)) return null;
+		const lower = label.toLowerCase();
+		let tone = "neutral";
+		if (/^(completed|passed|success(?:ful)?|healthy)$/.test(lower)) tone = "success";
+		else if (/^(failed|interrupted|errors?)$/.test(lower)) tone = "error";
+		metrics.push({
+			value,
+			label,
+			tone
+		});
+	}
+	return metrics;
+}
+function legacyLabelList(text, captureSource) {
+	if (captureSource !== "dom") return null;
+	const lines = text.trim().split(/\r?\n/).map((line) => line.trim());
+	if (lines.length < 4 || lines.length > 12 || lines.some((line) => !line || line.length > 110)) return null;
+	if (lines.filter((line) => /^[^:]{2,55}:\s+\S/.test(line)).length < lines.length * .6) return null;
+	return lines;
+}
+//#endregion
 //#region src/ui/jobSorting.ts
 function isRepeatingJob(job) {
 	return job.run_at_epoch === null && (job.daily_at !== null || job.interval_minutes > 0);
@@ -16145,191 +16330,6 @@ function ChatComposer(props) {
 			}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {})
 		]
 	}) });
-}
-//#endregion
-//#region src/ui/resultFormatting.ts
-function responseBadge(status) {
-	switch (status) {
-		case "completed": return "Final";
-		case "generating": return "Live";
-		case "interrupted": return "Interrupted";
-		case "unavailable": return "Unavailable";
-		case "outcome_unknown": return "Send unverified";
-		case "preflight_failed": return "Not sent";
-		case "dispatching": return "Sending";
-		case "accepted": return "Waiting";
-		case "queued": return "Queued";
-		case "prepared": return "Pending";
-	}
-}
-function exactConversationUrl(conversationId) {
-	return conversationId && /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(conversationId) ? "https://chatgpt.com/c/" + conversationId : null;
-}
-function partialResponseLabel(status) {
-	switch (status) {
-		case "generating": return "Live partial response · still generating";
-		case "interrupted": return "Saved partial answer · capture interrupted; read-only recovery may complete it";
-		case "unavailable": return "Saved partial answer · capture unavailable";
-		case "outcome_unknown": return "Saved partial answer · send outcome uncertain; no automatic resend";
-		default: return turnStatus(status);
-	}
-}
-function turnStatus(status) {
-	switch (status) {
-		case "prepared": return "Pending";
-		case "preflight_failed": return "Not sent · preflight check failed. Tap Send to retry.";
-		case "dispatching": return "Sending…";
-		case "outcome_unknown": return "ChatGPT may have received this request. Acceptance remains unverified; no automatic resend.";
-		case "accepted": return "Awaiting captured response";
-		case "generating": return "Response is generating";
-		case "interrupted": return "Response capture interrupted";
-		case "unavailable": return "Response unavailable";
-		case "queued": return "Waiting for job dispatch";
-		case "completed": return "Completed";
-	}
-}
-var dateOptions = {
-	timeZone: "Pacific/Auckland",
-	day: "numeric",
-	month: "short",
-	year: "numeric"
-};
-function dateGroup(epoch) {
-	return new Intl.DateTimeFormat("en-NZ", dateOptions).format(epoch * 1e3);
-}
-function statusLabel(status) {
-	switch (status) {
-		case "queued": return "Queued";
-		case "accepted": return "Accepted";
-		case "generating": return "Generating";
-		case "completed": return "Completed";
-		case "interrupted": return "Interrupted";
-		case "unavailable": return "Unavailable";
-		case "outcome_unknown": return "Send unverified";
-	}
-}
-function safeHref(href) {
-	try {
-		const url = new URL(href);
-		return url.protocol === "https:" || url.protocol === "http:" ? url.href : null;
-	} catch {
-		return null;
-	}
-}
-function plainPreview(text) {
-	return text.replace(/\[([^\]]+)\]\([^)]+\)/g, "$1").replace(/```[^\n]*\n?/g, " ").replace(/^[#>]+\s*/gm, "").replace(/\*\*|__|~~|[`*_]/g, "").replace(/\s+/g, " ").trim();
-}
-function legacyTableRow(chunk) {
-	if (!/\n[ \r\n]*\t[ \r\n]*\n/.test(chunk)) return null;
-	const raw = chunk.split(/\n[ \r\n]*\t[ \r\n]*\n/);
-	if (raw.length < 2 || raw.length > 6) return null;
-	const before = raw[0].split(/\n[ \t]*\n/);
-	const last = raw.length - 1;
-	const after = raw[last].split(/\n[ \t]*\n/);
-	raw[0] = before.at(-1) ?? "";
-	raw[last] = after[0];
-	const cells = raw.map((cell) => cell.trim());
-	if (cells.some((cell) => !cell || cell.includes("\n"))) return null;
-	return {
-		cells,
-		before: before.slice(0, -1).join("\n\n"),
-		after: after.slice(1).join("\n\n")
-	};
-}
-function formatStoredResponse(text, captureSource) {
-	if (captureSource === "sse" || !text.includes("	")) return text;
-	const parts = text.split(/(\n{3,})/);
-	let output = "";
-	for (let i = 0; i < parts.length;) {
-		const first = legacyTableRow(parts[i]);
-		if (!first) {
-			output += parts[i] + (parts[i + 1] ?? "");
-			i += 2;
-			continue;
-		}
-		const rows = [first];
-		let end = i + 2;
-		while (end < parts.length) {
-			const next = legacyTableRow(parts[end]);
-			if (!next || next.cells.length !== first.cells.length || next.before) break;
-			rows.push(next);
-			end += 2;
-		}
-		if (rows.length < 2 || rows.slice(0, -1).some((row) => row.after)) {
-			output += parts[i] + (parts[i + 1] ?? "");
-			i += 2;
-			continue;
-		}
-		const row = (cells) => "| " + cells.map((cell) => cell.replace(/\|/g, "\\|")).join(" | ") + " |";
-		const table = [
-			row(first.cells),
-			row(first.cells.map(() => "---")),
-			...rows.slice(1).map((item) => row(item.cells))
-		].join("\n");
-		output += (first.before ? first.before.trimEnd() + "\n\n" : "") + table + (rows.at(-1)?.after ? "\n\n" + rows.at(-1)?.after.trimStart() : "") + (parts[end - 1] ?? "");
-		i = end;
-	}
-	return output;
-}
-function isFlattenedDomResponse(text, captureSource) {
-	if (captureSource !== "dom") return false;
-	if (/^\s*(?:#{1,6}\s|[-*+]\s|\d+\.\s|>|\|\s|`{3})/m.test(text)) return false;
-	const blocks = text.split(/\n\s*\n/).map((item) => item.trim()).filter(Boolean);
-	if (blocks.length < 10) return false;
-	const shortLabels = blocks.filter((item) => item.length <= 80 && !/[.!?:]$/.test(item) && !item.includes("\n"));
-	return shortLabels.length >= 7 && shortLabels.length >= blocks.length * .45;
-}
-function chatMessageTime(epoch, nowEpoch = Date.now() / 1e3) {
-	if (epoch <= 0) return "Time unavailable";
-	const dayParts = (value) => {
-		const parts = new Intl.DateTimeFormat("en-NZ", {
-			timeZone: "Pacific/Auckland",
-			year: "numeric",
-			month: "numeric",
-			day: "numeric"
-		}).formatToParts(value * 1e3);
-		const read = (type) => Number(parts.find((part) => part.type === type)?.value);
-		return Date.UTC(read("year"), read("month") - 1, read("day")) / 864e5;
-	};
-	const difference = dayParts(nowEpoch) - dayParts(epoch);
-	let day;
-	if (difference === 0) day = "Today";
-	else if (difference === 1) day = "Yesterday";
-	else day = dateGroup(epoch);
-	const time = new Intl.DateTimeFormat("en-NZ", {
-		timeZone: "Pacific/Auckland",
-		hour: "numeric",
-		minute: "2-digit",
-		hour12: true
-	}).format(epoch * 1e3);
-	return day + " " + time;
-}
-function legacyMetricSummary(text) {
-	const lines = text.trim().split(/\r?\n/).map((line) => line.trim());
-	if (lines.length !== 6) return null;
-	const metrics = [];
-	for (let i = 0; i < 6; i += 2) {
-		const value = lines[i];
-		const label = lines[i + 1];
-		if (!/^[+-]?[$£€]?\d[\d,.]*%?$/.test(value) || !/^[\p{L}][\p{L}\p{N} /&-]{0,30}$/u.test(label)) return null;
-		const lower = label.toLowerCase();
-		let tone = "neutral";
-		if (/^(completed|passed|success(?:ful)?|healthy)$/.test(lower)) tone = "success";
-		else if (/^(failed|interrupted|errors?)$/.test(lower)) tone = "error";
-		metrics.push({
-			value,
-			label,
-			tone
-		});
-	}
-	return metrics;
-}
-function legacyLabelList(text, captureSource) {
-	if (captureSource !== "dom") return null;
-	const lines = text.trim().split(/\r?\n/).map((line) => line.trim());
-	if (lines.length < 4 || lines.length > 12 || lines.some((line) => !line || line.length > 110)) return null;
-	if (lines.filter((line) => /^[^:]{2,55}:\s+\S/.test(line)).length < lines.length * .6) return null;
-	return lines;
 }
 //#endregion
 //#region src/ui/ChatRow.tsx
@@ -20419,7 +20419,6 @@ function ChatTranscript({ model, refs }) {
 		detail.value,
 		turns.value
 	]);
-	const conversationUrl = exactConversationUrl(turns.value.findLast((turn) => exactConversationUrl(turn.conversation_id))?.conversation_id || detail.value?.conversation_id);
 	function copyLabel(id) {
 		if (copyState.value === id) return "Copied";
 		if (copyState.value === "error:" + id) return "Copy failed";
@@ -20442,193 +20441,181 @@ function ChatTranscript({ model, refs }) {
 				})]
 			}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {}), detail.value ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 				className: "chat-detail-content",
-				children: [
-					turnsError.value ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-						role: "alert",
-						className: "result-error recovery-error",
-						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: turnsError.value }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-							type: "button",
-							onClick: () => selectedRunId.value && void loadDetail(selectedRunId.value),
-							children: "Retry replies"
-						})]
-					}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {}),
-					turns.value.map((turn, index) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_react.Fragment, { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-						className: "message-group user-group",
-						children: [
-							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-								className: "message-role",
-								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
-									className: "sr-only",
-									children: ["You ", index === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: "· Job prompt" }) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: ["· Reply ", index] })]
-								}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("time", {
-									dateTime: (/* @__PURE__ */ new Date((turn.created_at || detail.value.created_at) * 1e3)).toISOString(),
-									className: "message-timestamp",
-									children: chatMessageTime(turn.created_at || detail.value.created_at)
-								})]
-							}),
-							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-								className: "prompt-bubble",
-								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-									className: ["prompt-message", turn.user_text.length > 280 && !expandedPrompts.value[(detail.value?.send_id ?? "") + ":" + index] ? "collapsed" : ""].filter(Boolean).join(" "),
-									children: turn.user_text
-								}), turn.user_text.length > 280 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
-									type: "button",
-									"aria-expanded": Boolean(expandedPrompts.value[(detail.value?.send_id ?? "") + ":" + index]),
-									onClick: (event) => void togglePrompt((detail.value?.send_id ?? "") + ":" + index, event),
-									className: "prompt-expand",
-									children: [expandedPrompts.value[(detail.value?.send_id ?? "") + ":" + index] ? "Show less" : "Show full prompt", /* @__PURE__ */ (0, import_jsx_runtime.jsx)("svg", {
-										viewBox: "0 0 24 24",
-										fill: "none",
-										stroke: "currentColor",
-										strokeWidth: "2",
-										strokeLinecap: "round",
-										"aria-hidden": "true",
-										className: ["", expandedPrompts.value[(detail.value?.send_id ?? "") + ":" + index] ? "rotated" : ""].filter(Boolean).join(" "),
-										children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: "m6 9 6 6 6-6" })
-									})]
-								}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {})]
-							}),
-							index === 0 && detail.value.images?.length ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-								"aria-label": "Attached files",
-								className: "chat-attachments",
-								children: detail.value.images.map((attachment, __index) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_react.Fragment, { children: isVideoAttachment(attachment.name) ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("video", {
-									src: attachment.url,
-									controls: true,
-									playsInline: true,
-									preload: "metadata",
-									"aria-label": attachment.name
-								}) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("a", {
-									href: attachment.url,
-									target: "_blank",
-									rel: "noopener noreferrer",
-									title: attachment.name,
-									children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("img", {
-										src: attachment.url,
-										alt: attachment.name,
-										loading: "lazy"
-									})
-								}) }, attachment.url))
-							}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {})
-						]
-					}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-						"aria-label": "Assistant response " + (index + 1),
-						className: ["message-group assistant-group response-" + turn.status].filter(Boolean).join(" "),
-						children: [
-							turn.status === "generating" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-								className: "message-role response-header",
-								children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-									className: "response-generation",
-									role: "status",
-									children: [
-										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-											className: "response-generation-spark",
-											"aria-hidden": "true"
-										}),
-										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-											className: "response-state",
-											children: responseBadge(turn.status)
-										}),
-										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-											className: "response-generation-title",
-											children: "Generating response"
-										}),
-										/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
-											className: "response-generation-dots",
-											"aria-hidden": "true",
-											children: [
-												/* @__PURE__ */ (0, import_jsx_runtime.jsx)("i", {}),
-												/* @__PURE__ */ (0, import_jsx_runtime.jsx)("i", {}),
-												/* @__PURE__ */ (0, import_jsx_runtime.jsx)("i", {})
-											]
-										})
-									]
-								})
-							}),
-							turn.status !== "generating" && turn.status !== "completed" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-								className: "message-role response-header",
-								children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-									role: "status",
-									className: "response-state",
-									children: responseBadge(turn.status)
-								})
-							}),
-							turn.tool_calls?.length ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ToolCalls, { calls: turn.tool_calls }) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {}),
-							turn.assistant_text ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
-								/* @__PURE__ */ (0, import_jsx_runtime.jsx)(ResultMarkdown, {
-									source: turn.assistant_text,
-									captureSource: index === 0 ? detail.value.source : ""
-								}),
-								turn.status !== "completed" && turn.status !== "generating" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
-									className: "partial-note",
-									children: partialResponseLabel(turn.status)
-								}) : null,
-								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-									className: "response-actions",
-									children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-										type: "button",
-										"aria-label": "Copy assistant reply " + (index + 1),
-										onClick: () => copyText(formatStoredResponse(turn.assistant_text, index === 0 ? detail.value?.source ?? "" : ""), turn.reply_id || selectedRunId.value || ""),
-										className: "copy-message",
-										children: copyLabel(turn.reply_id || detail.value.send_id)
-									})
-								})
-							] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [turn.status !== "generating" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
-								className: "no-response",
-								children: index > 0 && turn.status === "queued" ? "Follow-up queued · waiting for the preceding response" : turnStatus(turn.status)
-							}), turn.status === "preflight_failed" && turn.reply_id && turn.conversation_id && turn.parent_id ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+				children: [turnsError.value ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+					role: "alert",
+					className: "result-error recovery-error",
+					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: turnsError.value }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+						type: "button",
+						onClick: () => selectedRunId.value && void loadDetail(selectedRunId.value),
+						children: "Retry replies"
+					})]
+				}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {}), turns.value.map((turn, index) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_react.Fragment, { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+					className: "message-group user-group",
+					children: [
+						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+							className: "message-role",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+								className: "sr-only",
+								children: ["You ", index === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: "· Job prompt" }) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: ["· Reply ", index] })]
+							}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("time", {
+								dateTime: (/* @__PURE__ */ new Date((turn.created_at || detail.value.created_at) * 1e3)).toISOString(),
+								className: "message-timestamp",
+								children: chatMessageTime(turn.created_at || detail.value.created_at)
+							})]
+						}),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+							className: "prompt-bubble",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+								className: ["prompt-message", turn.user_text.length > 280 && !expandedPrompts.value[(detail.value?.send_id ?? "") + ":" + index] ? "collapsed" : ""].filter(Boolean).join(" "),
+								children: turn.user_text
+							}), turn.user_text.length > 280 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
 								type: "button",
-								onClick: () => void retryFailedTurn(turn),
-								className: "row-action",
-								children: "Retry unsent reply"
-							}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {})] }),
-							index === turns.value.length - 1 && turns.value.some((saved) => saved.assistant_text.trim()) && [
-								"preflight_failed",
-								"interrupted",
-								"unavailable",
-								"outcome_unknown"
-							].includes(turn.status) && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-								className: "chat-recovery-guidance",
-								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-									className: "row-action",
-									type: "button",
-									disabled: startingNewChat.value,
-									"aria-busy": startingNewChat.value,
-									onClick: () => void startFailedReplyInNewChat(turn),
-									children: "Continue in new chat"
-								}), turn.status === "outcome_unknown" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "The original reply may still have been delivered." })]
-							}),
-							index === 0 && [
-								"interrupted",
-								"unavailable",
-								"outcome_unknown"
-							].includes(turn.status) && !detail.value?.conversation_id && !turn.conversation_id && !turn.assistant_text.trim() && Boolean(turn.user_text.trim()) && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-								className: "chat-recovery-guidance",
-								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-									className: "row-action",
-									type: "button",
-									disabled: startingNewChat.value,
-									"aria-busy": startingNewChat.value,
-									onClick: () => void continueUnverifiedInNewChat(),
-									children: "Continue in new chat"
-								}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { children: "Original send unverified; continuing starts a separate request." })]
-							}),
-							index === 0 && ["interrupted", "unavailable"].includes(turn.status) && detail.value?.recovery?.eligible === false && (Boolean(turn.assistant_text.trim()) || !turn.user_text.trim()) && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-								className: "chat-recovery-guidance",
+								"aria-expanded": Boolean(expandedPrompts.value[(detail.value?.send_id ?? "") + ":" + index]),
+								onClick: (event) => void togglePrompt((detail.value?.send_id ?? "") + ":" + index, event),
+								className: "prompt-expand",
+								children: [expandedPrompts.value[(detail.value?.send_id ?? "") + ":" + index] ? "Show less" : "Show full prompt", /* @__PURE__ */ (0, import_jsx_runtime.jsx)("svg", {
+									viewBox: "0 0 24 24",
+									fill: "none",
+									stroke: "currentColor",
+									strokeWidth: "2",
+									strokeLinecap: "round",
+									"aria-hidden": "true",
+									className: ["", expandedPrompts.value[(detail.value?.send_id ?? "") + ":" + index] ? "rotated" : ""].filter(Boolean).join(" "),
+									children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: "m6 9 6 6 6-6" })
+								})]
+							}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {})]
+						}),
+						index === 0 && detail.value.images?.length ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+							"aria-label": "Attached files",
+							className: "chat-attachments",
+							children: detail.value.images.map((attachment, __index) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_react.Fragment, { children: isVideoAttachment(attachment.name) ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("video", {
+								src: attachment.url,
+								controls: true,
+								playsInline: true,
+								preload: "metadata",
+								"aria-label": attachment.name
+							}) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("a", {
+								href: attachment.url,
+								target: "_blank",
+								rel: "noopener noreferrer",
+								title: attachment.name,
+								children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("img", {
+									src: attachment.url,
+									alt: attachment.name,
+									loading: "lazy"
+								})
+							}) }, attachment.url))
+						}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {})
+					]
+				}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+					"aria-label": "Assistant response " + (index + 1),
+					className: ["message-group assistant-group response-" + turn.status].filter(Boolean).join(" "),
+					children: [
+						turn.status === "generating" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+							className: "message-role response-header",
+							children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								className: "response-generation",
 								role: "status",
-								children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { children: "No verified ChatGPT chat for read-only recovery." })
+								children: [
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+										className: "response-generation-spark",
+										"aria-hidden": "true"
+									}),
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+										className: "response-state",
+										children: responseBadge(turn.status)
+									}),
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+										className: "response-generation-title",
+										children: "Generating response"
+									}),
+									/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+										className: "response-generation-dots",
+										"aria-hidden": "true",
+										children: [
+											/* @__PURE__ */ (0, import_jsx_runtime.jsx)("i", {}),
+											/* @__PURE__ */ (0, import_jsx_runtime.jsx)("i", {}),
+											/* @__PURE__ */ (0, import_jsx_runtime.jsx)("i", {})
+										]
+									})
+								]
 							})
-						]
-					})] }, turn.reply_id || detail.value.send_id)),
-					conversationUrl && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-						className: "chat-recovery-guidance",
-						children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("a", {
-							href: conversationUrl,
-							target: "_blank",
-							rel: "noopener noreferrer",
-							children: "Open in ChatGPT"
+						}),
+						turn.status !== "generating" && turn.status !== "completed" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+							className: "message-role response-header",
+							children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+								role: "status",
+								className: "response-state",
+								children: responseBadge(turn.status)
+							})
+						}),
+						turn.tool_calls?.length ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ToolCalls, { calls: turn.tool_calls }) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {}),
+						turn.assistant_text ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)(ResultMarkdown, {
+								source: turn.assistant_text,
+								captureSource: index === 0 ? detail.value.source : ""
+							}),
+							turn.status !== "completed" && turn.status !== "generating" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+								className: "partial-note",
+								children: partialResponseLabel(turn.status)
+							}) : null,
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+								className: "response-actions",
+								children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+									type: "button",
+									"aria-label": "Copy assistant reply " + (index + 1),
+									onClick: () => copyText(formatStoredResponse(turn.assistant_text, index === 0 ? detail.value?.source ?? "" : ""), turn.reply_id || selectedRunId.value || ""),
+									className: "copy-message",
+									children: copyLabel(turn.reply_id || detail.value.send_id)
+								})
+							})
+						] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [turn.status !== "generating" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+							className: "no-response",
+							children: index > 0 && turn.status === "queued" ? "Follow-up queued · waiting for the preceding response" : turnStatus(turn.status)
+						}), turn.status === "preflight_failed" && turn.reply_id && turn.conversation_id && turn.parent_id ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+							type: "button",
+							onClick: () => void retryFailedTurn(turn),
+							className: "row-action",
+							children: "Retry unsent reply"
+						}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {})] }),
+						index === turns.value.length - 1 && turns.value.some((saved) => saved.assistant_text.trim()) && [
+							"preflight_failed",
+							"interrupted",
+							"unavailable",
+							"outcome_unknown"
+						].includes(turn.status) && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+							className: "chat-recovery-guidance",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+								className: "row-action",
+								type: "button",
+								disabled: startingNewChat.value,
+								"aria-busy": startingNewChat.value,
+								onClick: () => void startFailedReplyInNewChat(turn),
+								children: "Continue in new chat"
+							}), turn.status === "outcome_unknown" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "The original reply may still have been delivered." })]
+						}),
+						index === 0 && [
+							"interrupted",
+							"unavailable",
+							"outcome_unknown"
+						].includes(turn.status) && !detail.value?.conversation_id && !turn.conversation_id && !turn.assistant_text.trim() && Boolean(turn.user_text.trim()) && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+							className: "chat-recovery-guidance",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+								className: "row-action",
+								type: "button",
+								disabled: startingNewChat.value,
+								"aria-busy": startingNewChat.value,
+								onClick: () => void continueUnverifiedInNewChat(),
+								children: "Continue in new chat"
+							}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { children: "Original send unverified; continuing starts a separate request." })]
+						}),
+						index === 0 && ["interrupted", "unavailable"].includes(turn.status) && detail.value?.recovery?.eligible === false && (Boolean(turn.assistant_text.trim()) || !turn.user_text.trim()) && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+							className: "chat-recovery-guidance",
+							role: "status",
+							children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { children: "No verified ChatGPT chat for read-only recovery." })
 						})
-					})
-				]
+					]
+				})] }, turn.reply_id || detail.value.send_id))]
 			}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {})]
 		}), switchingChat.value ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 			role: "status",
@@ -20681,6 +20668,7 @@ function ChatsPage(props) {
 	}
 	const { view, selectedRunId, newChatOpen, readError, drawerOpen, filtersOpen, detail, turns, recoveringReply, jobsWorkspace, replyBlockedReason, selectedChatTitle, retryReadSync, sendFresh, freshContinuationPrompt, originalImageRefs, sendReply, cancelSwipe, startSwipe, finishSwipe, createChat, escapeDrawer } = model;
 	const pageTitle = view.value === "jobs" ? "Jobs" : selectedChatTitle.value;
+	const conversationUrl = detail.value?.send_id === selectedRunId.value ? exactConversationUrl(turns.value.findLast((turn) => exactConversationUrl(turn.conversation_id))?.conversation_id || detail.value.conversation_id) : null;
 	(0, import_react.useEffect)(() => {
 		document.title = `Prompta · ${pageTitle} · ${props.serverName}`;
 	}, [pageTitle, props.serverName]);
@@ -20771,6 +20759,27 @@ function ChatsPage(props) {
 									"aria-hidden": "true",
 									children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: "M12 16V3m-5 5 5-5 5 5M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6" })
 								})
+							}),
+							view.value === "chats" && selectedRunId.value && conversationUrl && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("a", {
+								className: "chat-open-chatgpt",
+								href: conversationUrl,
+								target: "_blank",
+								rel: "noopener noreferrer",
+								"aria-label": "Open in ChatGPT",
+								title: "Open in ChatGPT",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("svg", {
+									viewBox: "0 0 24 24",
+									fill: "none",
+									stroke: "currentColor",
+									strokeWidth: "1.8",
+									strokeLinecap: "round",
+									strokeLinejoin: "round",
+									"aria-hidden": "true",
+									children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: "M14 4h6v6m0-6-9 9M20 14v4a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h4" })
+								}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+									className: "chat-open-chatgpt-label",
+									children: "ChatGPT"
+								})]
 							})
 						]
 					}),

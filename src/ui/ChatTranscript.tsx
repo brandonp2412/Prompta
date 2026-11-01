@@ -9,7 +9,6 @@ import {
   formatStoredResponse,
   partialResponseLabel,
   responseBadge,
-  exactConversationUrl,
   turnStatus,
 } from "./resultFormatting";
 
@@ -46,11 +45,6 @@ export default function ChatTranscript({
   useLayoutEffect(() => {
     model.revealSelectedChat();
   }, [model, detail.value, turns.value]);
-
-  const conversationUrl = exactConversationUrl(
-    turns.value.findLast((turn) => exactConversationUrl(turn.conversation_id))?.conversation_id ||
-      detail.value?.conversation_id,
-  );
 
   function copyLabel(id: string) {
     if (copyState.value === id) return "Copied";
@@ -350,13 +344,6 @@ export default function ChatTranscript({
                   </div>
                 </React.Fragment>
               ))}
-              {conversationUrl && (
-                <div className="chat-recovery-guidance">
-                  <a href={conversationUrl} target="_blank" rel="noopener noreferrer">
-                    Open in ChatGPT
-                  </a>
-                </div>
-              )}
             </div>
           </>
         ) : (

@@ -14,7 +14,7 @@ from test_stage5_composer import serve_test_ui
 from prompta.response_store import ResponseStore
 
 
-@pytest.mark.parametrize("width,height", [(1440, 900), (390, 844)])
+@pytest.mark.parametrize("width,height", [(1440, 900), (320, 720), (360, 800), (390, 844), (412, 915)])
 def test_interrupted_chat_omits_backlog_without_reopening_chatgpt(
     tmp_path: Path,
     width: int,
@@ -61,6 +61,11 @@ def test_interrupted_chat_omits_backlog_without_reopening_chatgpt(
         expect(summary).to_have_count(0)
         expect(page.get_by_text("Recovery backlog:")).to_have_count(0)
         expect(page.get_by_role("link", name="Open in ChatGPT", exact=True)).to_have_count(1)
+        header_link = page.locator(".workspace-header").get_by_role("link", name="Open in ChatGPT")
+        expect(header_link).to_be_visible()
+        bounds = header_link.bounding_box()
+        assert bounds is not None and 0 <= bounds["x"]
+        assert bounds["x"] + bounds["width"] <= width
         expect(page.get_by_role("link", name="Open in ChatGPT", exact=True)).to_have_attribute(
             "href", "https://chatgpt.com/c/12345678-1234-4123-8123-123456789abc",
         )
