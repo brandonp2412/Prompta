@@ -79,6 +79,49 @@ test("loads older chats as the reader approaches the end of the sidebar", async 
   expect(requests).toHaveLength(2);
 });
 
+test("sidebar search responds within a short typing pause and cancels obsolete requests", async () => {
+  const queries: string[] = [];
+  let firstAborted = false;
+  globalThis.fetch = Object.assign(
+    (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      const url = new URL(String(input), "http://localhost");
+      const query = url.searchParams.get("q") ?? "";
+      queries.push(query);
+      if (query === "first") {
+        return new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener(
+            "abort",
+            () => {
+              firstAborted = true;
+              reject(new DOMException("Superseded", "AbortError"));
+            },
+            { once: true },
+          );
+        });
+      }
+      return Promise.resolve(Response.json({ items: [run(query === "second" ? 2 : 1)], total: 1 }));
+    },
+    { preconnect: originalFetch.preconnect },
+  );
+  const { model } = sidebar();
+  await act(async () => {
+    model.items.value = [run(0)];
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Search chats" }));
+  const search = screen.getByRole("searchbox", { name: "Search chats" });
+  fireEvent.change(search, { target: { value: "first" } });
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 220));
+  });
+  expect(queries).toEqual(["first"]);
+  fireEvent.change(search, { target: { value: "second" } });
+  await waitFor(() => expect(queries).toEqual(["first", "second"]));
+  await waitFor(() => expect(screen.getByText("Chat 2")).toBeTruthy());
+  expect(firstAborted).toBe(true);
+  expect(screen.queryByText("Chat 1")).toBeNull();
+  expect(model.nextOffset.value).toBe(1);
+});
+
 test("a failed older-chat page stops auto-retries and provides a manual retry", async () => {
   let failOlderPage = true;
   let olderPageRequests = 0;

@@ -25,7 +25,7 @@ export default function ChatsSidebar({
     markingAllRead,
     drawerOpen,
     filtersOpen,
-    search,
+    searchActive,
     loadingList,
     listError,
     pinned,
@@ -37,8 +37,6 @@ export default function ChatsSidebar({
     nextOffset,
     total,
     loadMore,
-    searchChanged,
-    clearSearch,
     toggleSearch,
     showJobs,
     createChat,
@@ -204,7 +202,7 @@ export default function ChatsSidebar({
 
   function emptyChatsLabel() {
     if (listError.value) return "Chat list temporarily unavailable";
-    if (search.value) return "No matching chats";
+    if (searchActive.value) return "No matching chats";
     return "No chats";
   }
 
@@ -235,7 +233,9 @@ export default function ChatsSidebar({
               <circle cx="10.5" cy="10.5" r="6.5" />
               <path d="m16 16 5 5" />
             </svg>
-            {search.value && <span aria-label="Search active" className="filter-active-dot" />}
+            {searchActive.value && (
+              <span aria-label="Search active" className="filter-active-dot" />
+            )}
           </button>
         </nav>
         <button
@@ -250,32 +250,7 @@ export default function ChatsSidebar({
       {filtersOpen.value ? (
         <>
           <div id="chat-filters" className="chats-controls">
-            <div className="search-field">
-              <label className="search-label">
-                <span className="sr-only">Search chats</span>
-                <input
-                  type="search"
-                  placeholder="Search chats"
-                  ref={refs.searchInput}
-                  value={search.value}
-                  onChange={(event) => {
-                    search.value = event.currentTarget.value;
-                    searchChanged();
-                  }}
-                />
-              </label>
-              {search.value && (
-                <button
-                  type="button"
-                  aria-label="Clear chat search"
-                  title="Clear search"
-                  className="chat-search-clear"
-                  onClick={clearSearch}
-                >
-                  ×
-                </button>
-              )}
-            </div>
+            <SidebarSearchField model={model} inputRef={refs.searchInput} />
           </div>
         </>
       ) : (
@@ -533,5 +508,45 @@ export default function ChatsSidebar({
           document.body,
         )}
     </aside>
+  );
+}
+
+// The search input updates on every keystroke; keep that subscription out of
+// the sidebar's potentially hundreds of chat rows.
+function SidebarSearchField({
+  model,
+  inputRef,
+}: {
+  model: ReturnType<typeof createChatsPageController>;
+  inputRef: SidebarRefs["searchInput"];
+}) {
+  useSignals();
+  return (
+    <div className="search-field">
+      <label className="search-label">
+        <span className="sr-only">Search chats</span>
+        <input
+          type="search"
+          placeholder="Search chats"
+          ref={inputRef}
+          value={model.search.value}
+          onChange={(event) => {
+            model.search.value = event.currentTarget.value;
+            model.searchChanged();
+          }}
+        />
+      </label>
+      {model.search.value && (
+        <button
+          type="button"
+          aria-label="Clear chat search"
+          title="Clear search"
+          className="chat-search-clear"
+          onClick={model.clearSearch}
+        >
+          ×
+        </button>
+      )}
+    </div>
   );
 }

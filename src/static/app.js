@@ -12491,11 +12491,11 @@ var transientGatewayStatuses = /* @__PURE__ */ new Set([
 ]);
 var transientRetryDelayMs = 250;
 var firstAttemptTimeoutMs = 6e3;
-async function localGet(url) {
+async function localGet(url, signal) {
 	const startedAt = Date.now();
 	const request = (timeoutMs) => fetch(url, {
 		cache: "no-store",
-		signal: AbortSignal.timeout(timeoutMs)
+		signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)]) : AbortSignal.timeout(timeoutMs)
 	});
 	let response;
 	let failure;
@@ -12504,12 +12504,14 @@ async function localGet(url) {
 	} catch (error) {
 		failure = error;
 	}
+	if (signal?.aborted) throw signal.reason;
 	if (response && !transientGatewayStatuses.has(response.status)) return response;
 	if (12e3 - (Date.now() - startedAt) <= transientRetryDelayMs) {
 		if (response) return response;
 		throw failure;
 	}
 	await new Promise((resolve) => setTimeout(resolve, transientRetryDelayMs));
+	if (signal?.aborted) throw signal.reason;
 	const remaining = localReadTimeoutMs - (Date.now() - startedAt);
 	if (remaining <= 0) {
 		if (response) return response;
@@ -12855,6 +12857,8 @@ function createChatsPageController(initialProps) {
 	const nextOffset = y$2(0);
 	const loadingMore = y$2(false);
 	const search = y$2("");
+	const appliedSearch = y$2("");
+	const searchActive = O(() => search.value.trim().length > 0);
 	const detail = y$2(null);
 	const turns = y$2([]);
 	const turnsError = y$2("");
@@ -12874,6 +12878,7 @@ function createChatsPageController(initialProps) {
 	const detailError = y$2("");
 	let listGeneration = 0;
 	let listInFlight = false;
+	let listAbort;
 	let listRefreshPending = false;
 	let pinsGeneration = 0;
 	let detailGeneration = 0;
@@ -12996,11 +13001,11 @@ function createChatsPageController(initialProps) {
 	let searchTimer;
 	let liveRefreshTimer;
 	const newestFirst = (a, b) => (b.activity_at ?? b.created_at) - (a.activity_at ?? a.created_at) || b.created_at - a.created_at || b.send_id.localeCompare(a.send_id);
-	const visibleWaiting = O(() => queueSnapshot.value.waiting.filter((job) => !search.value.trim() || job.name.toLowerCase().includes(search.value.trim().toLowerCase())));
+	const visibleWaiting = O(() => queueSnapshot.value.waiting.filter((job) => !appliedSearch.value || job.name.toLowerCase().includes(appliedSearch.value.toLowerCase())));
 	const queuedWaitingChat = (item) => item.status === "queued" && visibleWaiting.value.some((job) => job.name === item.job_name);
 	const pinned = O(() => {
 		const byId = new Map([...pinnedItems.value, ...items.value].map((item) => [item.send_id, item]));
-		const filtered = search.value.trim();
+		const filtered = appliedSearch.value;
 		return pinnedIds.value.map((id) => byId.get(id)).filter((item) => !!item).filter((item) => !filtered || items.value.some((listed) => listed.send_id === item.send_id)).filter((item) => !queuedWaitingChat(item));
 	});
 	const replyBlockedReason = O(() => {
@@ -13282,7 +13287,7 @@ function createChatsPageController(initialProps) {
 			limit: String(pageSize),
 			offset: String(offset)
 		});
-		if (search.value.trim()) params.set("q", search.value.trim());
+		if (appliedSearch.value) params.set("q", appliedSearch.value);
 		return params;
 	}
 	function mergeRuns(previous, incoming) {
@@ -13293,12 +13298,16 @@ function createChatsPageController(initialProps) {
 			listRefreshPending = true;
 			return;
 		}
+		listAbort?.abort();
+		const controller = new AbortController();
+		listAbort = controller;
+		if (reset) listRefreshPending = false;
 		const generation = ++listGeneration;
 		listInFlight = true;
 		loadingMore.value = false;
 		loadingList.value = items.value.length === 0;
 		try {
-			const response = await localGet("./api/results?" + resultsParams(0));
+			const response = await localGet("./api/results?" + resultsParams(0), controller.signal);
 			if (!response.ok) throw new Error("Results could not be loaded");
 			const body = await response.json();
 			if (generation !== listGeneration) return;
@@ -13309,7 +13318,7 @@ function createChatsPageController(initialProps) {
 			listError.value = "";
 			if (reset) morePageFailed.value = false;
 		} catch {
-			if (generation === listGeneration) {
+			if (generation === listGeneration && !controller.signal.aborted) {
 				if (reset) morePageFailed.value = false;
 				listError.value = "Local results are temporarily unavailable.";
 			}
@@ -13318,6 +13327,7 @@ function createChatsPageController(initialProps) {
 				loadingList.value = false;
 				await tick();
 				listInFlight = false;
+				if (listAbort === controller) listAbort = void 0;
 				if (listRefreshPending) {
 					listRefreshPending = false;
 					loadList();
@@ -13843,11 +13853,12 @@ function createChatsPageController(initialProps) {
 		if (view.value === "chats" && selectedRunId.value) loadDetail(selectedRunId.value);
 	}
 	function applyFilter() {
+		appliedSearch.value = search.value.trim();
 		loadList(true);
 	}
 	function searchChanged() {
 		clearTimeout(searchTimer);
-		searchTimer = setTimeout(applyFilter, 300);
+		searchTimer = setTimeout(applyFilter, 100);
 	}
 	function clearSearch() {
 		clearTimeout(searchTimer);
@@ -13949,6 +13960,7 @@ function createChatsPageController(initialProps) {
 			liveRefreshTimer = void 0;
 			clearTimeout(searchTimer);
 			clearTimeout(hoverPrefetchTimer);
+			listAbort?.abort();
 		};
 	};
 	function mount() {
@@ -14031,6 +14043,7 @@ function createChatsPageController(initialProps) {
 		filtersOpen,
 		expandedPrompts,
 		search,
+		searchActive,
 		detail,
 		turns,
 		turnsError,
@@ -16698,7 +16711,7 @@ function ChatRow({ item, model }) {
 //#region src/ui/ChatsSidebar.tsx
 function ChatsSidebar({ model, refs }) {
 	N$1();
-	const { queueSnapshot, items, markingAllRead, drawerOpen, filtersOpen, search, loadingList, listError, pinned, visibleWaiting, unpinned, markAllRead, loadingMore, morePageFailed, nextOffset, total, loadMore, searchChanged, clearSearch, toggleSearch, showJobs, createChat } = model;
+	const { queueSnapshot, items, markingAllRead, drawerOpen, filtersOpen, searchActive, loadingList, listError, pinned, visibleWaiting, unpinned, markAllRead, loadingMore, morePageFailed, nextOffset, total, loadMore, toggleSearch, showJobs, createChat } = model;
 	const [profileOpen, setProfileOpen] = (0, import_react.useState)(false);
 	const [settingsOpen, setSettingsOpen] = (0, import_react.useState)(false);
 	const profileTriggerRef = (0, import_react.useRef)(null);
@@ -16836,7 +16849,7 @@ function ChatsSidebar({ model, refs }) {
 	else if (!settingsReady && settingsError) settingsButtonLabel = "Retry loading settings";
 	function emptyChatsLabel() {
 		if (listError.value) return "Chat list temporarily unavailable";
-		if (search.value) return "No matching chats";
+		if (searchActive.value) return "No matching chats";
 		return "No chats";
 	}
 	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("aside", {
@@ -16874,7 +16887,7 @@ function ChatsSidebar({ model, refs }) {
 									cy: "10.5",
 									r: "6.5"
 								}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: "m16 16 5 5" })]
-							}), search.value && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+							}), searchActive.value && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
 								"aria-label": "Search active",
 								className: "filter-active-dot"
 							})]
@@ -16892,31 +16905,9 @@ function ChatsSidebar({ model, refs }) {
 			filtersOpen.value ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 				id: "chat-filters",
 				className: "chats-controls",
-				children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-					className: "search-field",
-					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
-						className: "search-label",
-						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-							className: "sr-only",
-							children: "Search chats"
-						}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
-							type: "search",
-							placeholder: "Search chats",
-							ref: refs.searchInput,
-							value: search.value,
-							onChange: (event) => {
-								search.value = event.currentTarget.value;
-								searchChanged();
-							}
-						})]
-					}), search.value && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-						type: "button",
-						"aria-label": "Clear chat search",
-						title: "Clear search",
-						className: "chat-search-clear",
-						onClick: clearSearch,
-						children: "×"
-					})]
+				children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(SidebarSearchField, {
+					model,
+					inputRef: refs.searchInput
 				})
 			}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {}),
 			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
@@ -17148,6 +17139,35 @@ function ChatsSidebar({ model, refs }) {
 				})
 			}), document.body)
 		]
+	});
+}
+function SidebarSearchField({ model, inputRef }) {
+	N$1();
+	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+		className: "search-field",
+		children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
+			className: "search-label",
+			children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+				className: "sr-only",
+				children: "Search chats"
+			}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+				type: "search",
+				placeholder: "Search chats",
+				ref: inputRef,
+				value: model.search.value,
+				onChange: (event) => {
+					model.search.value = event.currentTarget.value;
+					model.searchChanged();
+				}
+			})]
+		}), model.search.value && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+			type: "button",
+			"aria-label": "Clear chat search",
+			title: "Clear search",
+			className: "chat-search-clear",
+			onClick: model.clearSearch,
+			children: "×"
+		})]
 	});
 }
 //#endregion

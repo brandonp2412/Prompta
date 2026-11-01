@@ -93,6 +93,8 @@ export function createChatsPageController(initialProps: Props) {
   const nextOffset = signal(0);
   const loadingMore = signal(false);
   const search = signal("");
+  const appliedSearch = signal("");
+  const searchActive = computed(() => search.value.trim().length > 0);
   const detail = signal<RunDetail | null>(null);
   const turns = signal<LocalTurn[]>([]);
   const turnsError = signal("");
@@ -112,6 +114,7 @@ export function createChatsPageController(initialProps: Props) {
   const detailError = signal("");
   let listGeneration = 0;
   let listInFlight = false;
+  let listAbort: AbortController | undefined;
   let listRefreshPending = false;
   let pinsGeneration = 0;
   let detailGeneration = 0;
@@ -263,7 +266,7 @@ export function createChatsPageController(initialProps: Props) {
   const visibleWaiting = computed(() =>
     queueSnapshot.value.waiting.filter(
       (job) =>
-        !search.value.trim() || job.name.toLowerCase().includes(search.value.trim().toLowerCase()),
+        !appliedSearch.value || job.name.toLowerCase().includes(appliedSearch.value.toLowerCase()),
     ),
   );
   const queuedWaitingChat = (item: RunSummary) =>
@@ -272,7 +275,7 @@ export function createChatsPageController(initialProps: Props) {
     const byId = new Map(
       [...pinnedItems.value, ...items.value].map((item) => [item.send_id, item]),
     );
-    const filtered = search.value.trim();
+    const filtered = appliedSearch.value;
     return pinnedIds.value
       .map((id) => byId.get(id))
       .filter((item): item is RunSummary => !!item)
@@ -695,7 +698,7 @@ export function createChatsPageController(initialProps: Props) {
 
   function resultsParams(offset: number) {
     const params = new URLSearchParams({ limit: String(pageSize), offset: String(offset) });
-    if (search.value.trim()) params.set("q", search.value.trim());
+    if (appliedSearch.value) params.set("q", appliedSearch.value);
     return params;
   }
 
@@ -712,6 +715,10 @@ export function createChatsPageController(initialProps: Props) {
       listRefreshPending = true;
       return;
     }
+    listAbort?.abort();
+    const controller = new AbortController();
+    listAbort = controller;
+    if (reset) listRefreshPending = false;
     const generation = ++listGeneration;
     listInFlight = true;
     loadingMore.value = false; // A fresh first-page response supersedes an in-flight append.
@@ -719,7 +726,7 @@ export function createChatsPageController(initialProps: Props) {
     // and its scroll position until the new result page is actually available.
     loadingList.value = items.value.length === 0;
     try {
-      const response = await localGet("./api/results?" + resultsParams(0));
+      const response = await localGet("./api/results?" + resultsParams(0), controller.signal);
       if (!response.ok) throw new Error("Results could not be loaded");
       const body: { items: RunSummary[]; total: number } = await response.json();
       if (generation !== listGeneration) return;
@@ -734,7 +741,7 @@ export function createChatsPageController(initialProps: Props) {
       listError.value = "";
       if (reset) morePageFailed.value = false;
     } catch {
-      if (generation === listGeneration) {
+      if (generation === listGeneration && !controller.signal.aborted) {
         if (reset) morePageFailed.value = false;
         listError.value = "Local results are temporarily unavailable.";
       }
@@ -743,6 +750,7 @@ export function createChatsPageController(initialProps: Props) {
         loadingList.value = false;
         await tick();
         listInFlight = false;
+        if (listAbort === controller) listAbort = undefined;
         if (listRefreshPending) {
           listRefreshPending = false;
           void loadList();
@@ -1458,12 +1466,14 @@ export function createChatsPageController(initialProps: Props) {
   }
 
   function applyFilter() {
+    appliedSearch.value = search.value.trim();
     void loadList(true);
   }
 
   function searchChanged() {
     clearTimeout(searchTimer);
-    searchTimer = setTimeout(applyFilter, 300);
+    // SQLite search is fast; only coalesce a short typing burst.
+    searchTimer = setTimeout(applyFilter, 100);
   }
 
   function clearSearch() {
@@ -1583,6 +1593,7 @@ export function createChatsPageController(initialProps: Props) {
       liveRefreshTimer = undefined;
       clearTimeout(searchTimer);
       clearTimeout(hoverPrefetchTimer);
+      listAbort?.abort();
     };
   };
   function mount() {
@@ -1668,6 +1679,7 @@ export function createChatsPageController(initialProps: Props) {
     filtersOpen,
     expandedPrompts,
     search,
+    searchActive,
     detail,
     turns,
     turnsError,
