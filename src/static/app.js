@@ -21,7 +21,7 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 	enumerable: true
 }) : target, mod));
 //#endregion
-//#region ../../prompta/node_modules/scheduler/cjs/scheduler.production.js
+//#region node_modules/scheduler/cjs/scheduler.production.js
 /**
 * @license React
 * scheduler.production.js
@@ -276,12 +276,12 @@ var require_scheduler_production = /* @__PURE__ */ __commonJSMin(((exports) => {
 	};
 }));
 //#endregion
-//#region ../../prompta/node_modules/scheduler/index.js
+//#region node_modules/scheduler/index.js
 var require_scheduler = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_scheduler_production();
 }));
 //#endregion
-//#region ../../prompta/node_modules/react/cjs/react.production.js
+//#region node_modules/react/cjs/react.production.js
 /**
 * @license React
 * react.production.js
@@ -668,12 +668,12 @@ var require_react_production = /* @__PURE__ */ __commonJSMin(((exports) => {
 	exports.version = "19.3.1";
 }));
 //#endregion
-//#region ../../prompta/node_modules/react/index.js
+//#region node_modules/react/index.js
 var require_react = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_react_production();
 }));
 //#endregion
-//#region ../../prompta/node_modules/react-dom/cjs/react-dom.production.js
+//#region node_modules/react-dom/cjs/react-dom.production.js
 /**
 * @license React
 * react-dom.production.js
@@ -826,7 +826,7 @@ var require_react_dom_production = /* @__PURE__ */ __commonJSMin(((exports) => {
 	exports.version = "19.3.1";
 }));
 //#endregion
-//#region ../../prompta/node_modules/react-dom/index.js
+//#region node_modules/react-dom/index.js
 var require_react_dom = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	function checkDCE() {
 		if (typeof __REACT_DEVTOOLS_GLOBAL_HOOK__ === "undefined" || typeof __REACT_DEVTOOLS_GLOBAL_HOOK__.checkDCE !== "function") return;
@@ -840,7 +840,7 @@ var require_react_dom = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_react_dom_production();
 }));
 //#endregion
-//#region ../../prompta/node_modules/react-dom/cjs/react-dom-client.production.js
+//#region node_modules/react-dom/cjs/react-dom-client.production.js
 /**
 * @license React
 * react-dom-client.production.js
@@ -11415,7 +11415,7 @@ var require_react_dom_client_production = /* @__PURE__ */ __commonJSMin(((export
 	};
 }));
 //#endregion
-//#region ../../prompta/node_modules/react-dom/client.js
+//#region node_modules/react-dom/client.js
 var require_client = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	function checkDCE() {
 		if (typeof __REACT_DEVTOOLS_GLOBAL_HOOK__ === "undefined" || typeof __REACT_DEVTOOLS_GLOBAL_HOOK__.checkDCE !== "function") return;
@@ -11429,7 +11429,7 @@ var require_client = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_react_dom_client_production();
 }));
 //#endregion
-//#region ../../prompta/node_modules/@preact/signals-core/dist/signals-core.module.js
+//#region node_modules/@preact/signals-core/dist/signals-core.module.js
 var import_react = /* @__PURE__ */ __toESM(require_react());
 var import_client = require_client();
 var i$1 = Symbol.for("preact-signals");
@@ -11841,7 +11841,7 @@ function x$2(i, t) {
 	return n;
 }
 //#endregion
-//#region ../../prompta/node_modules/use-sync-external-store/cjs/use-sync-external-store-shim.production.js
+//#region node_modules/use-sync-external-store/cjs/use-sync-external-store-shim.production.js
 /**
 * @license React
 * use-sync-external-store-shim.production.js
@@ -11901,7 +11901,7 @@ var require_use_sync_external_store_shim_production = /* @__PURE__ */ __commonJS
 	exports.useSyncExternalStore = void 0 !== React.useSyncExternalStore ? React.useSyncExternalStore : shim;
 }));
 //#endregion
-//#region ../../prompta/node_modules/@preact/signals-react/runtime/dist/runtime.module.js
+//#region node_modules/@preact/signals-react/runtime/dist/runtime.module.js
 var import_shim = (/* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_use_sync_external_store_shim_production();
 })))();
@@ -12349,7 +12349,7 @@ function subscribeLiveStatus(listener) {
 var activeToast = y$2(null);
 var nextToastId = 0;
 var waitingToasts = [];
-function notify(message, tone = "info", action, duration = tone === "error" ? 6500 : 2800) {
+function notify(message, tone = "info", action, duration = tone === "error" ? 6500 : 2800, replaceCurrent = false) {
 	const current = activeToast.peek();
 	if (current?.message === message && current.tone === tone) return current.id;
 	const waiting = waitingToasts.find((notice) => notice.message === message && notice.tone === tone);
@@ -12364,8 +12364,8 @@ function notify(message, tone = "info", action, duration = tone === "error" ? 65
 	};
 	if (!current) activeToast.value = notice;
 	else if (tone === "success" || tone === "info") activeToast.value = notice;
-	else if (tone === "error" && current.tone !== "error") {
-		if (current.duration > 0) waitingToasts.unshift(current);
+	else if (replaceCurrent || tone === "error" && current.tone !== "error") {
+		if (!replaceCurrent && current.duration > 0) waitingToasts.unshift(current);
 		activeToast.value = notice;
 	} else {
 		waitingToasts.push(notice);
@@ -12389,7 +12389,7 @@ function useToastSignal(source, options = {}) {
 		if (!message) return;
 		const current = optionsRef.current;
 		if (current.when && !current.when(message)) return;
-		notify(message, (typeof current.tone === "function" ? current.tone(message) : current.tone) ?? "error", current.action);
+		notify(message, (typeof current.tone === "function" ? current.tone(message) : current.tone) ?? "error", current.action, void 0, current.immediate);
 	}), [source]);
 }
 function feedbackTone(message) {
@@ -15032,7 +15032,7 @@ function createJobsPageController(initialProps) {
 	};
 }
 //#endregion
-//#region ../../prompta/node_modules/react/cjs/react-jsx-runtime.production.js
+//#region node_modules/react/cjs/react-jsx-runtime.production.js
 /**
 * @license React
 * react-jsx-runtime.production.js
@@ -16333,7 +16333,10 @@ function RecoverChatIcon() {
 function ChatComposer(props) {
 	const model = (0, import_react.useMemo)(() => createChatComposerController(props), []);
 	N$1();
-	useToastSignal(model.feedback, { tone: feedbackTone });
+	useToastSignal(model.feedback, {
+		tone: feedbackTone,
+		immediate: true
+	});
 	const { mode, onFallbackSend, onNewChat, disabled, draft, images, uploading, sending, fallbackAvailable, offerFreshContinuation, dragging, fileInput, draftStorageKey, canAttach, hasDraft, canSend, canFallback, draftChanged, addFiles, showStop, stopping, stop, submit, keydown, pasted, dropped } = model;
 	const refs = (0, import_react.useMemo)(() => ({
 		textarea: (element) => {
@@ -16691,7 +16694,9 @@ function ChatsSidebar({ model, refs }) {
 				return;
 			}
 			if (event.key !== "Tab") return;
-			const lastControl = settingsSaveRef.current?.disabled ? settingsApprovalRef.current : settingsSaveRef.current;
+			let lastControl = settingsSaveRef.current;
+			if (lastControl?.disabled) lastControl = settingsApprovalRef.current;
+			if (lastControl?.disabled) lastControl = settingsCloseRef.current;
 			if (event.shiftKey && document.activeElement === settingsCloseRef.current) {
 				event.preventDefault();
 				lastControl?.focus();
@@ -16812,10 +16817,10 @@ function ChatsSidebar({ model, refs }) {
 							type: "search",
 							placeholder: "Search chats",
 							ref: refs.searchInput,
-							onInput: searchChanged,
 							value: search.value,
 							onChange: (event) => {
 								search.value = event.currentTarget.value;
+								searchChanged();
 							}
 						})]
 					}), search.value && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
@@ -16969,6 +16974,7 @@ function ChatsSidebar({ model, refs }) {
 								type: "button",
 								onClick: () => {
 									setSettingsReady(false);
+									setSettingsError("");
 									setSettingsOpen(true);
 									setProfileOpen(false);
 								},
@@ -17014,6 +17020,7 @@ function ChatsSidebar({ model, refs }) {
 								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
 									type: "checkbox",
 									checked: concurrency.enabled,
+									disabled: !settingsReady || saving,
 									onChange: (event) => setConcurrency({
 										...concurrency,
 										enabled: event.target.checked
@@ -17029,7 +17036,7 @@ function ChatsSidebar({ model, refs }) {
 								type: "number",
 								min: "1",
 								max: "128",
-								disabled: !concurrency.enabled,
+								disabled: !settingsReady || saving || !concurrency.enabled,
 								value: concurrency.max_workers,
 								onChange: (event) => setConcurrency({
 									...concurrency,
@@ -17045,6 +17052,7 @@ function ChatsSidebar({ model, refs }) {
 								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
 									type: "checkbox",
 									checked: approval,
+									disabled: !settingsReady || saving,
 									ref: settingsApprovalRef,
 									onChange: (event) => setApproval(event.target.checked)
 								}),
@@ -17071,7 +17079,7 @@ function ChatsSidebar({ model, refs }) {
 	});
 }
 //#endregion
-//#region ../../prompta/node_modules/marked/lib/marked.esm.js
+//#region node_modules/marked/lib/marked.esm.js
 /**
 * marked v16.4.2 - a markdown parser
 * Copyright (c) 2018-2025, MarkedJS. (MIT License)
@@ -18612,7 +18620,7 @@ x.lex;
 * @public
 */
 //#endregion
-//#region ../../prompta/node_modules/prismjs/components/prism-typescript.js
+//#region node_modules/prismjs/components/prism-typescript.js
 var import_prism = /* @__PURE__ */ __toESM((/* @__PURE__ */ __commonJSMin(((exports, module) => {
 	var Prism = function(_self) {
 		var lang = /(?:^|\s)lang(?:uage)?-([\w-]+)(?=\s|$)/i;
@@ -20075,7 +20083,7 @@ highlight: function highlight(container) {
 	Prism.languages.ts = Prism.languages.typescript;
 })(Prism);
 //#endregion
-//#region ../../prompta/node_modules/prismjs/components/prism-python.js
+//#region node_modules/prismjs/components/prism-python.js
 Prism.languages.python = {
 	"comment": {
 		pattern: /(^|[^\\])#.*/,
@@ -20137,7 +20145,7 @@ Prism.languages.python = {
 Prism.languages.python["string-interpolation"].inside["interpolation"].inside.rest = Prism.languages.python;
 Prism.languages.py = Prism.languages.python;
 //#endregion
-//#region ../../prompta/node_modules/prismjs/components/prism-bash.js
+//#region node_modules/prismjs/components/prism-bash.js
 (function(Prism) {
 	var envVars = "\\b(?:BASH|BASHOPTS|BASH_ALIASES|BASH_ARGC|BASH_ARGV|BASH_CMDS|BASH_COMPLETION_COMPAT_DIR|BASH_LINENO|BASH_REMATCH|BASH_SOURCE|BASH_VERSINFO|BASH_VERSION|COLORTERM|COLUMNS|COMP_WORDBREAKS|DBUS_SESSION_BUS_ADDRESS|DEFAULTS_PATH|DESKTOP_SESSION|DIRSTACK|DISPLAY|EUID|GDMSESSION|GDM_LANG|GNOME_KEYRING_CONTROL|GNOME_KEYRING_PID|GPG_AGENT_INFO|GROUPS|HISTCONTROL|HISTFILE|HISTFILESIZE|HISTSIZE|HOME|HOSTNAME|HOSTTYPE|IFS|INSTANCE|JOB|LANG|LANGUAGE|LC_ADDRESS|LC_ALL|LC_IDENTIFICATION|LC_MEASUREMENT|LC_MONETARY|LC_NAME|LC_NUMERIC|LC_PAPER|LC_TELEPHONE|LC_TIME|LESSCLOSE|LESSOPEN|LINES|LOGNAME|LS_COLORS|MACHTYPE|MAILCHECK|MANDATORY_PATH|NO_AT_BRIDGE|OLDPWD|OPTERR|OPTIND|ORBIT_SOCKETDIR|OSTYPE|PAPERSIZE|PATH|PIPESTATUS|PPID|PS1|PS2|PS3|PS4|PWD|RANDOM|REPLY|SECONDS|SELINUX_INIT|SESSION|SESSIONTYPE|SESSION_MANAGER|SHELL|SHELLOPTS|SHLVL|SSH_AUTH_SOCK|TERM|UID|UPSTART_EVENTS|UPSTART_INSTANCE|UPSTART_JOB|UPSTART_SESSION|USER|WINDOWID|XAUTHORITY|XDG_CONFIG_DIRS|XDG_CURRENT_DESKTOP|XDG_DATA_DIRS|XDG_GREETER_DATA_DIR|XDG_MENU_PREFIX|XDG_RUNTIME_DIR|XDG_SEAT|XDG_SEAT_PATH|XDG_SESSION_DESKTOP|XDG_SESSION_ID|XDG_SESSION_PATH|XDG_SESSION_TYPE|XDG_VTNR|XMODIFIERS)\\b";
 	var commandAfterHeredoc = {
@@ -20318,7 +20326,7 @@ Prism.languages.py = Prism.languages.python;
 	Prism.languages.shell = Prism.languages.bash;
 })(Prism);
 //#endregion
-//#region ../../prompta/node_modules/prismjs/components/prism-json.js
+//#region node_modules/prismjs/components/prism-json.js
 Prism.languages.json = {
 	"property": {
 		pattern: /(^|[^\\])"(?:\\.|[^\\"\r\n])*"(?=\s*:)/,

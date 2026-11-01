@@ -164,7 +164,17 @@ test("settings cannot be saved before a successful load", async () => {
   await user.click(screen.getByRole("button", { name: "Profile" }));
   await user.click(screen.getByRole("button", { name: "Settings" }));
   const save = screen.getByRole("button", { name: "Save settings" }) as HTMLButtonElement;
+  const limit = screen.getByRole("checkbox", {
+    name: "Limit concurrent jobs and chats",
+  }) as HTMLInputElement;
+  const workers = screen.getByRole("spinbutton", { name: "Maximum workers" }) as HTMLInputElement;
+  const approval = screen.getByRole("checkbox", {
+    name: "Automatically approve trusted connector prompts",
+  }) as HTMLInputElement;
   expect(save.disabled).toBe(true);
+  expect(limit.disabled).toBe(true);
+  expect(workers.disabled).toBe(true);
+  expect(approval.disabled).toBe(true);
   await user.click(save);
   expect(saves).toEqual([]);
 
@@ -177,6 +187,9 @@ test("settings cannot be saved before a successful load", async () => {
     );
   });
   await waitFor(() => expect(save.disabled).toBe(false));
+  expect(limit.disabled).toBe(false);
+  expect(workers.disabled).toBe(false);
+  expect(approval.disabled).toBe(false);
   expect(
     (screen.getByRole("spinbutton", { name: "Maximum workers" }) as HTMLInputElement).value,
   ).toBe("7");
@@ -199,5 +212,19 @@ test("settings remain unsaveable when loading fails", async () => {
   await screen.findByRole("alert");
   expect(
     (screen.getByRole("button", { name: "Save settings" }) as HTMLButtonElement).disabled,
+  ).toBe(true);
+  expect(
+    (screen.getByRole("checkbox", { name: "Limit concurrent jobs and chats" }) as HTMLInputElement)
+      .disabled,
+  ).toBe(true);
+  expect(
+    (screen.getByRole("spinbutton", { name: "Maximum workers" }) as HTMLInputElement).disabled,
+  ).toBe(true);
+  expect(
+    (
+      screen.getByRole("checkbox", {
+        name: "Automatically approve trusted connector prompts",
+      }) as HTMLInputElement
+    ).disabled,
   ).toBe(true);
 });

@@ -350,6 +350,7 @@
   font-size: .83rem;
 }
 .assistant-group .response-actions { display: flex; justify-content: flex-start; margin: 5px 0 0 -9px; }
+.assistant-group .chat-recovery-guidance > .chat-action-button { margin-left: -9px; padding-inline: 8px; }
 .assistant-group .copy-message { color: #a6a6a6; font-weight: 500; }
 .assistant-group .copy-message:hover,
 .assistant-group .copy-message:focus-visible { background: #303030; color: #fff; }

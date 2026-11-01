@@ -20,7 +20,9 @@ def serve_candidate_assets(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
-@pytest.mark.parametrize("width,height", [(320, 700), (390, 844), (1440, 900)])
+@pytest.mark.parametrize(
+    "width,height", [(320, 700), (360, 800), (390, 844), (412, 915), (1440, 900)]
+)
 def test_profile_menu_dismissal_and_footer_single_line(
     tmp_path: Path, width: int, height: int
 ) -> None:
@@ -83,7 +85,7 @@ def test_profile_menu_dismissal_and_footer_single_line(
             browser.close()
 
 
-@pytest.mark.parametrize("width,height", [(320, 700), (390, 844)])
+@pytest.mark.parametrize("width,height", [(320, 700), (360, 800), (390, 844), (412, 915)])
 def test_settings_modal_covers_viewport_from_mobile_drawer(
     tmp_path: Path, width: int, height: int
 ) -> None:

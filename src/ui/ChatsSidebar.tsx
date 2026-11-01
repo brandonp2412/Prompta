@@ -124,9 +124,9 @@ export default function ChatsSidebar({
         return;
       }
       if (event.key !== "Tab") return;
-      const lastControl = settingsSaveRef.current?.disabled
-        ? settingsApprovalRef.current
-        : settingsSaveRef.current;
+      let lastControl: HTMLButtonElement | HTMLInputElement | null = settingsSaveRef.current;
+      if (lastControl?.disabled) lastControl = settingsApprovalRef.current;
+      if (lastControl?.disabled) lastControl = settingsCloseRef.current;
       if (event.shiftKey && document.activeElement === settingsCloseRef.current) {
         event.preventDefault();
         lastControl?.focus();
@@ -240,10 +240,10 @@ export default function ChatsSidebar({
                   type="search"
                   placeholder="Search chats"
                   ref={refs.searchInput}
-                  onInput={searchChanged}
                   value={search.value}
                   onChange={(event) => {
                     search.value = event.currentTarget.value;
+                    searchChanged();
                   }}
                 />
               </label>
@@ -413,6 +413,7 @@ export default function ChatsSidebar({
               type="button"
               onClick={() => {
                 setSettingsReady(false);
+                setSettingsError("");
                 setSettingsOpen(true);
                 setProfileOpen(false);
               }}
@@ -458,6 +459,7 @@ export default function ChatsSidebar({
                 <input
                   type="checkbox"
                   checked={concurrency.enabled}
+                  disabled={!settingsReady || saving}
                   onChange={(event) =>
                     setConcurrency({ ...concurrency, enabled: event.target.checked })
                   }
@@ -470,7 +472,7 @@ export default function ChatsSidebar({
                   type="number"
                   min="1"
                   max="128"
-                  disabled={!concurrency.enabled}
+                  disabled={!settingsReady || saving || !concurrency.enabled}
                   value={concurrency.max_workers}
                   onChange={(event) =>
                     setConcurrency({ ...concurrency, max_workers: Number(event.target.value) })
@@ -486,6 +488,7 @@ export default function ChatsSidebar({
                 <input
                   type="checkbox"
                   checked={approval}
+                  disabled={!settingsReady || saving}
                   ref={settingsApprovalRef}
                   onChange={(event) => setApproval(event.target.checked)}
                 />{" "}
