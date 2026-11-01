@@ -319,6 +319,9 @@ export function createChatsPageController(initialProps: Props) {
 
   function isUnread(item: RunSummary) {
     if (!item.last_reply_revision) return false;
+    // A confirmed server read wins over an older optimistic receipt from this tab.
+    // Keep the optimistic receipt for list snapshots that have not caught up yet.
+    if (item.last_read_revision === item.last_reply_revision) return false;
     const seenRevision =
       optimisticReads.value[item.send_id] ||
       item.last_read_revision ||
