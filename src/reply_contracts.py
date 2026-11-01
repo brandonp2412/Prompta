@@ -235,11 +235,28 @@ class ManualReplyStore(ReplyReadState):
     ) -> tuple[str, ReplyIntent] | None:
         """Bind one explicitly queued turn only after verified, ordered predecessors."""
         at = time.time() if now is None else now
+        eligible = (
+            replies.c.queued_by_user.is_(True),
+            replies.c.status.in_(("queued", "prepared")),
+            results.c.status.in_(("completed", "interrupted", "unavailable", "stopped")),
+            results.c.conversation_id != "",
+            results.c.message_id != "",
+        )
+        # The one-second pump must not take SQLite's writer lock while idle.
+        # Re-check under BEGIN IMMEDIATE before preparing anything: this
+        # preflight is only a hint, never authorization to dispatch.
+        with self.engine.connect() as connection:
+            pending = connection.execute(
+                select(replies.c.reply_id)
+                .join(results, results.c.send_id == replies.c.send_id)
+                .where(*eligible).limit(1)
+            ).first()
+        if pending is None:
+            return None
         with self.engine.begin() as connection:
             connection.exec_driver_sql("BEGIN IMMEDIATE")
-            # The queue pump runs every second. Load the eligible source rows and
-            # predecessor chains once, instead of querying them for every intent
-            # while holding SQLite's write lock.
+            # Load eligible source rows and predecessor chains together,
+            # retaining the atomic claim boundary for concurrent workers.
             candidates = connection.execute(
                 select(
                     replies,
@@ -247,13 +264,7 @@ class ManualReplyStore(ReplyReadState):
                     results.c.message_id.label("original_message_id"),
                 )
                 .join(results, results.c.send_id == replies.c.send_id)
-                .where(
-                    replies.c.queued_by_user.is_(True),
-                    replies.c.status.in_(("queued", "prepared")),
-                    results.c.status.in_(("completed", "interrupted", "unavailable", "stopped")),
-                    results.c.conversation_id != "",
-                    results.c.message_id != "",
-                )
+                .where(*eligible)
                 .order_by(replies.c.created_at, replies.c.reply_id)
             ).mappings().all()
             if not candidates:

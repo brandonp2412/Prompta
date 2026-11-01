@@ -184,6 +184,10 @@ class ManualReplyDispatcher:
         # A queued reply is explicit consent to reopen its exact branch.
         # Recovery runs off the 1s queue-pump path and never dispatches a send;
         # only next_queued_intent can authorize dispatch after verified lineage.
+        # A scan is wasted while the previous background scan is still running.
+        with self._lock:
+            if self._recovery_scheduled:
+                return
         if (self.store.responses.history_recovery_global_pace_remaining() > 0
                 or self.store.responses.history_recovery_security_pause_remaining() > 0
                 or self.runtime.read_backoff_remaining() > 0):

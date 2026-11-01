@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import sqlite3
 import stat
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -98,7 +99,7 @@ def test_early_followups_wait_for_verified_parent_and_dispatch_in_order(tmp_path
     ]
 
 
-def test_queued_dispatch_scans_many_blocked_chats_in_two_selects(tmp_path: Path) -> None:
+def test_queued_dispatch_scans_many_blocked_chats_in_three_selects(tmp_path: Path) -> None:
     store = seed(tmp_path)
     for index in range(12):
         send_id = f"missing-parent-{index}"
@@ -130,11 +131,30 @@ def test_queued_dispatch_scans_many_blocked_chats_in_two_selects(tmp_path: Path)
         event.remove(store.engine, "before_cursor_execute", count_select)
 
     assert ready == ("run", ReplyIntent(ready_id, CONVERSATION, PARENT, "Ready to send"))
-    assert len(selects) == 2
+    assert len(selects) == 3  # Preflight read avoids writer locks when idle.
     for index in range(12):
         blocked = store.get(f"blocked-followup-{index:016d}")
         assert blocked is not None
         assert blocked["status"] == "queued"
+
+
+def test_blocked_queued_reply_scan_does_not_wait_for_a_writer(tmp_path: Path) -> None:
+    store = ManualReplyStore(tmp_path / "private" / "chat-results.sqlite3")
+    store.responses.ensure_queued("awaiting-parent", "Question", now=100)
+    store.queue_followup("awaiting-parent", "queued-1111111111111111", "Continue", now=101)
+
+    # An unrelated delivery/database write can be in progress every time
+    # the one-second queue pump wakes up. Blocked parents are read-only.
+    writer = sqlite3.connect(store.responses.path, timeout=0.1, isolation_level=None)
+    try:
+        writer.execute("BEGIN IMMEDIATE")
+        assert store.next_queued_intent(now=102) is None
+    finally:
+        writer.rollback()
+        writer.close()
+
+    queued = store.get("queued-1111111111111111")
+    assert queued is not None and queued["status"] == "queued"
 
 
 def test_explicit_queue_pump_waits_for_first_answer_and_serializes_followups(
@@ -714,3 +734,19 @@ def test_queued_recovery_prioritizes_pins_then_rotates_failed_chats(
             time.sleep(0.01)
         assert recovered[-1:] == [expected]
     assert recovered == ["pinned", "recent"]
+
+
+def test_queued_recovery_does_not_rescan_while_a_probe_is_active(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from prompta.manual_reply_dispatch import ManualReplyDispatcher
+
+    store = ManualReplyStore(tmp_path / "queued-priority.sqlite3")
+    dispatcher = ManualReplyDispatcher(store, tmp_path / "state.sqlite3")
+    dispatcher._recovery_scheduled.add("already-recovering")
+
+    def unexpected_scan() -> list[str]:
+        raise AssertionError("A running recovery must not rescan the queued transcript")
+
+    monkeypatch.setattr(store, "queued_recovery_candidates", unexpected_scan)
+    dispatcher._schedule_queued_parent_recovery()
