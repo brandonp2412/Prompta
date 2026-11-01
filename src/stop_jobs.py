@@ -9,14 +9,14 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from patchright.async_api import async_playwright
-from sqlalchemy import select, update
+from sqlalchemy import delete, select, update
 
 from .delivery_queue import DeliveryQueueStore
 from .reply_contracts import ManualReplyStore, ReplyConflict
 from .reply_tables import replies
 from .response_capture import conversation_id_from_path
 from .response_store import ResponseStore
-from .response_tables import results
+from .response_tables import local_chat_pins, results
 
 
 async def click_chatgpt_stop(conversation_id: str, message_id: str) -> bool:
@@ -177,5 +177,10 @@ class StopJobService:
                     replies.c.status.in_(("dispatching", "accepted", "generating")),
                 )
                 .values(status="stopped", lease_owner="", lease_deadline=0, updated_at=at)
+            )
+            # Stopping a chat removes only its Prompta sidebar pin. Keep this
+            # in the same transaction as the stopped status so it persists.
+            connection.execute(
+                delete(local_chat_pins).where(local_chat_pins.c.send_id == send_id)
             )
         return {"ok": True, "cancelled_pending": cancelled, "browser_stopped": browser_stopped}

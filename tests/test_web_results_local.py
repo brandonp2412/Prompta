@@ -478,6 +478,55 @@ def test_mark_all_as_read_button_persists_across_tabs_and_reload(tmp_path: Path)
                 browser.close()
 
 
+def test_stopping_chat_in_ui_unpins_it_and_preserves_other_pins(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from prompta import stop_jobs
+
+    chromium_path = os.environ.get("PROMPTA_TEST_CHROMIUM")
+    if not chromium_path or not Path(chromium_path).is_file():
+        pytest.skip("Visual Chromium binary unavailable")
+
+    async def clicked(conversation: str, message: str) -> bool:
+        assert (conversation, message) == ("chat", "message")
+        return True
+
+    monkeypatch.setattr(stop_jobs, "click_chatgpt_stop", clicked)
+    with server(tmp_path) as (app, port):
+        completed_run(app, "other", "Other pinned", 100)
+        app.results.ensure_queued("stoppable", "Stoppable chat")
+        assert app.results.set_local_pin("other", pinned=True)
+        assert app.results.set_local_pin("stoppable", pinned=True)
+        assert app.results.accept("stoppable", "owner", deadline=10**12)
+        assert app.results.write("stoppable", "owner", CaptureResult(
+            "sse", "unknown", "Partial response", "chat", "message", None,
+        ))
+        with sync_patchright() as patchright:
+            browser = patchright.chromium.launch(
+                executable_path=chromium_path, headless=True, args=["--no-sandbox"],
+            )
+            try:
+                page = browser.new_page(viewport={"width": 1440, "height": 900})
+                page.goto(f"http://127.0.0.1:{port}/?view=chats&run=stoppable")
+                stopped_pin = page.locator(".chat-entry").filter(has_text="Stoppable chat").locator(
+                    ".chat-pin"
+                )
+                other_pin = page.locator(".chat-entry").filter(has_text="Other pinned").locator(
+                    ".chat-pin"
+                )
+                expect(stopped_pin).to_have_attribute("aria-pressed", "true")
+                expect(other_pin).to_have_attribute("aria-pressed", "true")
+                page.get_by_role("button", name="Stop generating").click()
+                expect(stopped_pin).to_have_attribute("aria-pressed", "false")
+                expect(other_pin).to_have_attribute("aria-pressed", "true")
+                page.reload()
+                expect(stopped_pin).to_have_attribute("aria-pressed", "false")
+                expect(other_pin).to_have_attribute("aria-pressed", "true")
+                assert pin_ids(get(port, "/api/local-chat-pins")[1]) == ["other"]
+            finally:
+                browser.close()
+
+
 def test_server_local_pins_across_browser_contexts_and_rapid_clicks(tmp_path: Path) -> None:
     chromium_path = os.environ.get("PROMPTA_TEST_CHROMIUM")
     if not chromium_path or not Path(chromium_path).is_file():

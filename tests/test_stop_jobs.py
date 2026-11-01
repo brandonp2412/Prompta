@@ -14,12 +14,15 @@ def test_stop_queued_job_prevents_dispatch_and_is_idempotent(tmp_path: Path) -> 
     service = StopJobService(tmp_path / "runtime.sqlite3")
     queued = service.queue.enqueue_manual("Do some work", request_id="a" * 32)
     send_id = str(queued["send_id"])
+    assert service.results.set_local_pin(send_id, pinned=True)
     outcome = service.stop(send_id)
     assert outcome == {"ok": True, "cancelled_pending": True, "browser_stopped": False}
     assert service.queue.claim_next("worker", lease_seconds=30) is None
     detail = service.results.get(send_id)
     assert detail is not None and detail["status"] == "stopped"
+    assert service.results.local_pinned_runs() == []
     assert service.stop(send_id)["ok"] is True
+    assert service.results.local_pinned_runs() == []
 
 
 def test_stop_active_job_clicks_exact_chat_and_preserves_partial(
@@ -27,6 +30,7 @@ def test_stop_active_job_clicks_exact_chat_and_preserves_partial(
 ) -> None:
     service = StopJobService(tmp_path / "runtime.sqlite3")
     service.results.ensure_queued("active", "Work")
+    assert service.results.set_local_pin("active", pinned=True)
     assert service.results.accept("active", "owner", deadline=10**12)
     partial = CaptureResult("sse", "unknown", "Saved partial answer", "chat", "message", None)
     assert service.results.write("active", "owner", partial)
@@ -43,6 +47,7 @@ def test_stop_active_job_clicks_exact_chat_and_preserves_partial(
     detail = service.results.get("active")
     assert detail is not None and detail["status"] == "stopped"
     assert detail["assistant_text"] == "Saved partial answer"
+    assert service.results.local_pinned_runs() == []
     assert service.results.next_history_recovery() is None
 
 
@@ -51,6 +56,7 @@ def test_failed_browser_stop_keeps_capture_active(
 ) -> None:
     service = StopJobService(tmp_path / "runtime.sqlite3")
     service.results.ensure_queued("active", "Work")
+    assert service.results.set_local_pin("active", pinned=True)
     assert service.results.accept("active", "owner", deadline=10**12)
     assert service.results.write("active", "owner", CaptureResult(
         "sse", "unknown", "Partial", "chat", "message", None,
@@ -65,6 +71,7 @@ def test_failed_browser_stop_keeps_capture_active(
     detail = service.results.get("active")
     assert detail is not None and detail["status"] == "generating"
     assert detail["capture_owner"] == "owner"
+    assert [row["send_id"] for row in service.results.local_pinned_runs()] == ["active"]
 
 
 def test_stop_queued_replies_keeps_completed_original(tmp_path: Path) -> None:
@@ -92,12 +99,14 @@ def test_stop_http_endpoint_cancels_queued_run(tmp_path: Path) -> None:
     with server(tmp_path) as (app, port):
         queued = app.queue.enqueue_manual("HTTP stop", request_id="d" * 32)
         send_id = str(queued["send_id"])
+        assert app.results.set_local_pin(send_id, pinned=True)
         status, body = post_json(port, f"/api/results/{send_id}/stop", {})
         assert status == 200
         assert body["cancelled_pending"] is True
         assert body["browser_stopped"] is False
         detail = app.results.get(send_id)
         assert detail is not None and detail["status"] == "stopped"
+        assert app.results.local_pinned_runs() == []
 
 
 def test_stop_active_reply_preserves_original_and_partial_reply(
@@ -105,6 +114,7 @@ def test_stop_active_reply_preserves_original_and_partial_reply(
 ) -> None:
     service = StopJobService(tmp_path / "runtime.sqlite3")
     service.results.ensure_queued("run", "Work")
+    assert service.results.set_local_pin("run", pinned=True)
     assert service.results.accept("run", "original-owner", deadline=10**12)
     assert service.results.write("run", "original-owner", CaptureResult(
         "sse", "complete", "Original answer", "chat", "message", None,
@@ -132,6 +142,7 @@ def test_stop_active_reply_preserves_original_and_partial_reply(
     assert not service.replies.observe(intent.reply_id, "reply-owner", partial)
     original = service.results.get("run")
     assert original is not None and original["status"] == "completed"
+    assert service.results.local_pinned_runs() == []
 
 
 def test_stop_during_dispatch_reports_retry_without_requeuing(tmp_path: Path) -> None:
