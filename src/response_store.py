@@ -717,6 +717,16 @@ class ResponseStore:
             ).scalar_one_or_none()
         return max(0.0, float(next_allowed or 0.0) - at)
 
+    def history_recovery_global_attempt_count(self) -> int:
+        """Persisted read-slot count for fair scheduling of explicit requests."""
+        with self.engine.connect() as connection:
+            count = connection.execute(select(
+                history_recovery_attempts.c.attempt_count,
+            ).where(
+                history_recovery_attempts.c.send_id == "__global_pacing__",
+            )).scalar_one_or_none()
+        return int(count or 0)
+
     def reserve_history_recovery_global_slot(self, *, now: float, interval: float) -> bool:
         """Atomically grant one read slot across processes and worker restarts.
 

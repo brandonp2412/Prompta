@@ -16854,14 +16854,18 @@ function ChatsSidebar({ model, refs }) {
 						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h3", { children: "Concurrency" }),
 						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
 							className: "settings-check",
-							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
-								type: "checkbox",
-								checked: concurrency.enabled,
-								onChange: (event) => setConcurrency({
-									...concurrency,
-									enabled: event.target.checked
-								})
-							}), " Limit concurrent jobs and chats"]
+							children: [
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+									type: "checkbox",
+									checked: concurrency.enabled,
+									onChange: (event) => setConcurrency({
+										...concurrency,
+										enabled: event.target.checked
+									})
+								}),
+								" ",
+								"Limit concurrent jobs and chats"
+							]
 						}),
 						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
 							className: "settings-number",
@@ -16881,11 +16885,15 @@ function ChatsSidebar({ model, refs }) {
 						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h3", { children: "Connector approval" }),
 						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
 							className: "settings-check",
-							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
-								type: "checkbox",
-								checked: approval,
-								onChange: (event) => setApproval(event.target.checked)
-							}), " Automatically approve trusted connector prompts"]
+							children: [
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+									type: "checkbox",
+									checked: approval,
+									onChange: (event) => setApproval(event.target.checked)
+								}),
+								" ",
+								"Automatically approve trusted connector prompts"
+							]
 						}),
 						settingsError && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
 							role: "alert",

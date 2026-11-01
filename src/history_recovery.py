@@ -310,6 +310,23 @@ class HistoryRecovery:
 
         return max(choices, key=priority, default=None)
 
+    def _next_requested_candidate(
+        self, requests: list[str], *, now: float,
+    ) -> tuple[dict[str, object] | None, str]:
+        """Take the oldest eligible manual request; discard resolved requests."""
+        for target in requests:
+            reply_id = target.removeprefix("reply:") if target.startswith("reply:") else ""
+            candidate = (
+                self.replies.next_history_reply_recovery(now=now, priority_ids=(reply_id,))
+                if reply_id else self.results.next_history_recovery(
+                    now=now, priority_ids=(target,),
+                )
+            )
+            if candidate is not None:
+                return candidate, target
+            self.results.clear_manual_recovery_request(target)
+        return None, ""
+
     def recover_once(
         self, *, now: float | None = None, preferred_send_id: str | None = None,
         owned_tab_recovery: bool = False,
@@ -326,32 +343,32 @@ class HistoryRecovery:
         # captures and explicit manual requests remain the fallbacks, all under
         # the same single verified recovery slot.
         priority_sends, priority_replies = deployment_recovery_priority(self.results.path.parent)
-        candidate = (
-            self.results.next_history_recovery(now=at, priority_ids=(preferred_send_id,))
-            if preferred_send_id is not None else self._newest_pinned_due(now=at)
+        manual_requests = (
+            self.results.pending_manual_recovery_requests()
+            if preferred_send_id is None else []
         )
+        # One in every three account-wide slots is for explicit recovery.
+        # Pinned chats lead the other slots, without starving manual requests.
+        manual_slot = bool(manual_requests) and (
+            self.results.history_recovery_global_attempt_count() % 3 == 0
+        )
+        manual_target = ""
+        candidate = None
+        if manual_slot:
+            candidate, manual_target = self._next_requested_candidate(manual_requests, now=at)
+        if candidate is None:
+            candidate = (
+                self.results.next_history_recovery(now=at, priority_ids=(preferred_send_id,))
+                if preferred_send_id is not None else self._newest_pinned_due(now=at)
+            )
         if candidate is None and preferred_send_id is None and priority_replies:
             candidate = self.replies.next_history_reply_recovery(
                 now=at, priority_ids=priority_replies,
             )
         if candidate is None and preferred_send_id is None and priority_sends:
             candidate = self.results.next_history_recovery(now=at, priority_ids=priority_sends)
-        manual_target = ""
         if candidate is None and preferred_send_id is None:
-            for target in self.results.pending_manual_recovery_requests():
-                reply_id = target.removeprefix("reply:") if target.startswith("reply:") else ""
-                requested = (
-                    self.replies.next_history_reply_recovery(now=at, priority_ids=(reply_id,))
-                    if reply_id else self.results.next_history_recovery(
-                        now=at, priority_ids=(target,),
-                    )
-                )
-                if requested is None:
-                    self.results.clear_manual_recovery_request(target)
-                else:
-                    candidate = requested
-                    manual_target = target
-                    break
+            candidate, manual_target = self._next_requested_candidate(manual_requests, now=at)
         if candidate is None and preferred_send_id is None:
             candidate = (self.replies.next_history_reply_recovery(now=at)
                          or self.results.next_history_recovery(now=at))
@@ -363,6 +380,13 @@ class HistoryRecovery:
             return False
         reply_id = str(candidate["reply_id"]) if "reply_id" in candidate else ""
         send_id = "reply:" + reply_id if reply_id else str(candidate["send_id"])
+        # Automatic pinned/owned-tab probes must consume an explicit request
+        # for the same turn, even if it was not chosen by the manual branch.
+        if not manual_target and send_id in (
+            manual_requests if preferred_send_id is None else
+            self.results.pending_manual_recovery_requests()
+        ):
+            manual_target = send_id
         conversation_id = str(candidate["conversation_id"])
         prompt = str(candidate["user_text"])
         try:
@@ -466,13 +490,24 @@ def run_history_recovery(
                                     )
                                 pinned = recovery._newest_pinned_due(now=time.time())
                                 network_read_allowed = _read_backoff_remaining(runtime) <= 0
+                                manual_slot = (
+                                    network_read_allowed
+                                    and bool(results.pending_manual_recovery_requests())
+                                    and results.history_recovery_global_attempt_count() % 3 == 0
+                                )
                                 if (
                                     network_read_allowed
-                                    and pinned is not None
+                                    and (manual_slot or pinned is not None)
                                     and (
-                                        owned_candidate is None
-                                        or "reply_id" in pinned
-                                        or owned_candidate.send_id != pinned["send_id"]
+                                        manual_slot
+                                        or owned_candidate is None
+                                        or (
+                                            pinned is not None
+                                            and (
+                                                "reply_id" in pinned
+                                                or owned_candidate.send_id != pinned["send_id"]
+                                            )
+                                        )
                                     )
                                 ):
                                     # A newer pinned chat without a live tab

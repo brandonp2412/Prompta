@@ -20,13 +20,13 @@ import uvicorn
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import HTMLResponse, JSONResponse, Response
+from pydantic import BaseModel, Field
 from sse_starlette import EventSourceResponse, ServerSentEvent
 from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from .config import DEFAULT_CONFIG_PATH, ConnectorApproval, StageConcurrencySettings
 from .core import DEFAULT_JOBS_PATH, DEFAULT_STATE_PATH
-from .config import DEFAULT_CONFIG_PATH, StageConcurrencySettings, ConnectorApproval
-from pydantic import BaseModel, Field
 from .delivery_queue import DeliveryQueueStore
 from .image_store import ImageStore
 from .live_events import LocalEventSignals
@@ -164,8 +164,10 @@ class _ConcurrencyUpdate(BaseModel):
     enabled: bool
     max_workers: int = Field(ge=1, le=128)
 
+
 class _ApprovalUpdate(BaseModel):
     enabled: bool
+
 
 class _SettingsUpdate(BaseModel):
     stage_concurrency: _ConcurrencyUpdate

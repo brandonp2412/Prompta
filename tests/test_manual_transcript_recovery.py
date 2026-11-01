@@ -19,6 +19,12 @@ from prompta.scheduler_runtime import SchedulerRuntime
 CONVERSATION = "12345678-1234-4123-8123-123456789abc"
 
 
+def _status(store: ResponseStore, send_id: str) -> object:
+    row = store.get(send_id)
+    assert row is not None
+    return row["status"]
+
+
 def test_manual_recovery_endpoint_persists_one_request_without_resending(tmp_path: Path) -> None:
     with server(tmp_path) as (app, port):
         store = app.results
@@ -99,6 +105,70 @@ def test_requested_chat_is_next_without_local_delay_and_is_consumed_once(
     recovered = store.get("newer-backlog")
     assert recovered is not None and recovered["status"] == "completed"
     assert seen == ["read", "read"]
+
+
+def test_explicit_requests_get_slots_amid_permanently_eligible_pinned_backlog(
+    tmp_path: Path,
+) -> None:
+    store = ResponseStore(tmp_path / "chat-results.sqlite3")
+    for send_id in ("requested-first", "requested-second", "pinned-old", "pinned-new"):
+        _expired(store, send_id)
+    assert store.set_local_pin("pinned-old", pinned=True)
+    assert store.set_local_pin("pinned-new", pinned=True)
+    assert store.queue_manual_recovery("requested-first", ["requested-first"], now=101) == 1
+    assert store.queue_manual_recovery("requested-second", ["requested-second"], now=102) == 1
+    runtime = SchedulerRuntime(tmp_path / "runtime.sqlite3", tmp_path / "jobs.json")
+    worker = HistoryRecovery(store, runtime, FakeHistoryDriver)
+
+    # The backlog stays eligible even after a failed read. A manual request
+    # still gets its next fair slot, and pins retain the other two slots.
+    assert worker.recover_once(now=150)
+    assert _status(store, "requested-first") == "completed"
+    assert store.manual_recovery_pending("requested-first") == 0
+    assert worker.recover_once(now=240)
+    assert worker.recover_once(now=330)
+    assert _status(store, "pinned-old") == "completed"
+    assert _status(store, "pinned-new") == "completed"
+    assert _status(store, "requested-second") == "interrupted"
+    assert worker.recover_once(now=420)
+    assert _status(store, "requested-second") == "completed"
+    assert store.manual_recovery_pending("requested-second") == 0
+    assert store.history_recovery_global_attempt_count() == 4
+
+
+def test_pinned_probe_consumes_matching_manual_request_even_when_not_selected(
+    tmp_path: Path,
+) -> None:
+    store = ResponseStore(tmp_path / "chat-results.sqlite3")
+    _expired(store, "pinned-target")
+    assert store.set_local_pin("pinned-target", pinned=True)
+    assert store.queue_manual_recovery("pinned-target", ["pinned-target"], now=100) == 1
+    # The first slot was already used by another process; the next is pinned-first.
+    assert store.reserve_history_recovery_global_slot(now=10, interval=90)
+    runtime = SchedulerRuntime(tmp_path / "runtime.sqlite3", tmp_path / "jobs.json")
+    worker = HistoryRecovery(store, runtime, FakeHistoryDriver)
+    assert worker.recover_once(now=150)
+    assert _status(store, "pinned-target") == "completed"
+    assert store.manual_recovery_pending("pinned-target") == 0
+
+
+def test_failed_requested_probe_is_not_permanently_shown_as_queued(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store = ResponseStore(tmp_path / "chat-results.sqlite3")
+    _expired(store, "incomplete-target")
+    assert store.queue_manual_recovery("incomplete-target", ["incomplete-target"], now=100) == 1
+    runtime = SchedulerRuntime(tmp_path / "runtime.sqlite3", tmp_path / "jobs.json")
+    worker = HistoryRecovery(store, runtime, FakeHistoryDriver)
+
+    async def no_response(_conversation_id: str, _prompt: str) -> None:
+        return None
+
+    monkeypatch.setattr(worker, "_read_original_response", no_response)
+    assert not worker.recover_once(now=150)
+    assert _status(store, "incomplete-target") == "interrupted"
+    assert store.manual_recovery_pending("incomplete-target") == 0
+    assert store.history_recovery_global_attempt_count() == 1
 
 
 @pytest.mark.parametrize("width,height", [(360, 800), (390, 844), (412, 915), (1440, 900)])
