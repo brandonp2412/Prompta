@@ -303,13 +303,9 @@ class ManualReplyStore(ReplyReadState):
         return None
 
     def queued_recovery_candidates(self) -> list[str]:
-        """Chats with user-authorized replies blocked by a missing assistant ID.
-
-        Return only exact-conversation branches with a terminal predecessor;
-        recovery must verify the identity before any queued send is dispatched.
-        """
+        """Find queued chats needing a verified parent, with two bounded DB reads."""
         with self.engine.connect() as connection:
-            ids = connection.execute(
+            ids = list(connection.execute(
                 select(replies.c.send_id)
                 .outerjoin(local_chat_pins, local_chat_pins.c.send_id == replies.c.send_id)
                 .where(replies.c.queued_by_user.is_(True), replies.c.status == "queued")
@@ -319,22 +315,58 @@ class ManualReplyStore(ReplyReadState):
                     func.max(replies.c.created_at).desc(),
                     replies.c.send_id.desc(),
                 )
-            ).scalars().all()
-        candidates: list[str] = []
-        for send_id in ids:
-            turns = self.turns(str(send_id)) or []
-            previous = [turn for turn in turns if turn["status"] != "queued"]
-            if not previous:
-                continue
-            tip = previous[-1]
-            if (tip["status"] not in ("completed", "interrupted", "unavailable",
-                                      "outcome_unknown", "stopped")
-                    or not tip["conversation_id"] or tip["message_id"]):
-                continue
-            if len(previous) > 1 and not previous[-2]["message_id"]:
-                continue
-            candidates.append(str(send_id))
-        return candidates
+            ).scalars())
+            if not ids:
+                return []
+            # Only state and identity columns are needed. Do not materialize
+            # entire transcripts (including text/tool calls) for every chat.
+            rows = connection.execute(
+                select(
+                    replies.c.send_id, replies.c.status, replies.c.conversation_id,
+                    replies.c.message_id, replies.c.live_observed_at,
+                    results.c.status.label("original_status"),
+                    results.c.conversation_id.label("original_conversation_id"),
+                    results.c.message_id.label("original_message_id"),
+                )
+                .join(results, results.c.send_id == replies.c.send_id)
+                .where(replies.c.send_id.in_(ids))
+                .order_by(replies.c.send_id, replies.c.created_at, replies.c.reply_id)
+            ).mappings()
+
+            tips: dict[str, tuple[str, str, str]] = {}
+            predecessors: dict[str, str] = {}
+            now = time.time()
+            for row in rows:
+                send_id = str(row["send_id"])
+                if send_id not in tips:
+                    tips[send_id] = (
+                        str(row["original_status"]),
+                        str(row["original_conversation_id"] or ""),
+                        str(row["original_message_id"] or ""),
+                    )
+                status = str(row["status"])
+                observed_at = row["live_observed_at"]
+                visible = visible_reply_status(
+                    status,
+                    float(observed_at) if isinstance(observed_at, (int, float)) else 0.0,
+                    now=now,
+                )
+                if visible != "queued":
+                    predecessors[send_id] = tips[send_id][2]
+                    tips[send_id] = (
+                        visible,
+                        str(row["conversation_id"] or ""),
+                        str(row["message_id"] or ""),
+                    )
+        return [
+            send_id for send_id in ids
+            if send_id in tips
+            and tips[send_id][0] in (
+                "completed", "interrupted", "unavailable", "outcome_unknown", "stopped"
+            )
+            and tips[send_id][1] and not tips[send_id][2]
+            and (send_id not in predecessors or bool(predecessors[send_id]))
+        ]
 
     def mark_preflight_failed(self, reply_id: str, *, now: float | None = None) -> bool:
         """Only a never-claimed reply can fail safely before dispatch."""
