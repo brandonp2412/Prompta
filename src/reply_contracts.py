@@ -19,6 +19,7 @@ from sqlalchemy import (
     update,
 )
 from sqlalchemy.dialects.sqlite import insert
+from sqlalchemy.engine import RowMapping
 from sqlalchemy.sql.elements import ColumnElement
 
 from .reply_read_state import ReplyReadState, visible_reply_status
@@ -236,29 +237,44 @@ class ManualReplyStore(ReplyReadState):
         at = time.time() if now is None else now
         with self.engine.begin() as connection:
             connection.exec_driver_sql("BEGIN IMMEDIATE")
-            candidates = connection.execute(select(replies).where(
-                replies.c.queued_by_user.is_(True),
-                replies.c.status.in_(("queued", "prepared")),
-            ).order_by(replies.c.created_at, replies.c.reply_id)).mappings().all()
+            # The queue pump runs every second. Load the eligible source rows and
+            # predecessor chains once, instead of querying them for every intent
+            # while holding SQLite's write lock.
+            candidates = connection.execute(
+                select(
+                    replies,
+                    results.c.conversation_id.label("original_conversation_id"),
+                    results.c.message_id.label("original_message_id"),
+                )
+                .join(results, results.c.send_id == replies.c.send_id)
+                .where(
+                    replies.c.queued_by_user.is_(True),
+                    replies.c.status.in_(("queued", "prepared")),
+                    results.c.status.in_(("completed", "interrupted", "unavailable", "stopped")),
+                    results.c.conversation_id != "",
+                    results.c.message_id != "",
+                )
+                .order_by(replies.c.created_at, replies.c.reply_id)
+            ).mappings().all()
+            if not candidates:
+                return None
+            predecessor_rows = connection.execute(
+                select(replies)
+                .where(replies.c.send_id.in_({str(row["send_id"]) for row in candidates}))
+                .order_by(replies.c.send_id, replies.c.created_at, replies.c.reply_id)
+            ).mappings()
+            predecessors_by_send: dict[str, list[RowMapping]] = {}
+            for predecessor in predecessor_rows:
+                predecessors_by_send.setdefault(str(predecessor["send_id"]), []).append(predecessor)
             for row in candidates:
                 reply_id = str(row["reply_id"])
                 if exclude and reply_id in exclude:
                     continue
                 send_id = str(row["send_id"])
-                original = connection.execute(select(results).where(
-                    results.c.send_id == send_id,
-                )).mappings().one_or_none()
-                if (original is None or original["status"] not in
-                        ("completed", "interrupted", "unavailable", "stopped") or
-                        not original["conversation_id"] or not original["message_id"]):
-                    continue
-                conversation_id = str(original["conversation_id"])
-                parent_id = str(original["message_id"])
-                predecessors = connection.execute(select(replies).where(
-                    replies.c.send_id == send_id,
-                ).order_by(replies.c.created_at, replies.c.reply_id)).mappings().all()
+                conversation_id = str(row["original_conversation_id"])
+                parent_id = str(row["original_message_id"])
                 eligible = False
-                for previous in predecessors:
+                for previous in predecessors_by_send[send_id]:
                     if previous["status"] == "cancelled":
                         continue
                     if previous["reply_id"] == reply_id:

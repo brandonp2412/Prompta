@@ -7,7 +7,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
-from sqlalchemy import inspect
+from sqlalchemy import event, inspect
 
 from prompta.browser_ownership import (
     MAX_OWNED_TAB_AGE_SECONDS,
@@ -96,6 +96,45 @@ def test_early_followups_wait_for_verified_parent_and_dispatch_in_order(tmp_path
     assert [turn["user_text"] for turn in restored.turns("run") or []] == [
         "Original question", "One more question", "And a second",
     ]
+
+
+def test_queued_dispatch_scans_many_blocked_chats_in_two_selects(tmp_path: Path) -> None:
+    store = seed(tmp_path)
+    for index in range(12):
+        send_id = f"missing-parent-{index}"
+        store.responses.ensure_queued(send_id, "Original question", now=100 + index)
+        assert store.responses.accept(send_id, f"{index}:initial", deadline=300, now=120 + index)
+        assert store.responses.write(
+            send_id, f"{index}:initial",
+            CaptureResult(
+                "dom", "complete", "Answer with missing identity", CONVERSATION,
+                None, None, "rendered:assistant",
+            ), now=140 + index,
+        )
+        store.queue_followup(
+            send_id, f"blocked-followup-{index:016d}", "Continue", now=200 + index,
+        )
+    ready_id = "ready-followup-111111111"
+    store.queue_followup("run", ready_id, "Ready to send", now=300)
+
+    selects: list[str] = []
+
+    def count_select(connection, cursor, statement, parameters, context, executemany) -> None:
+        if statement.lstrip().upper().startswith("SELECT"):
+            selects.append(statement)
+
+    event.listen(store.engine, "before_cursor_execute", count_select)
+    try:
+        ready = store.next_queued_intent(now=400)
+    finally:
+        event.remove(store.engine, "before_cursor_execute", count_select)
+
+    assert ready == ("run", ReplyIntent(ready_id, CONVERSATION, PARENT, "Ready to send"))
+    assert len(selects) == 2
+    assert all(
+        store.get(f"blocked-followup-{index:016d}")["status"] == "queued"
+        for index in range(12)
+    )
 
 
 def test_explicit_queue_pump_waits_for_first_answer_and_serializes_followups(
