@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import os
-import re
 import time
 from pathlib import Path
 from urllib.parse import urlparse
@@ -33,17 +32,56 @@ async def click_chatgpt_stop(conversation_id: str, message_id: str) -> bool:
                 if conversation_id_from_path(url.path) != conversation_id:
                     continue
                 marker = await page.evaluate("window.name")
-                if not isinstance(marker, str) or not marker.startswith(("prompta:", "prompta-delivery:", "prompta-reply:")):
+                if not isinstance(marker, str) or not marker.startswith(
+                    ("prompta:", "prompta-delivery:", "prompta-reply:")
+                ):
                     continue
-                if message_id:
-                    assistants = page.locator('[data-message-author-role="assistant"]')
-                    if await assistants.count() == 0:
-                        continue
-                    latest = await assistants.last.get_attribute("data-message-id", timeout=1000)
-                    if latest != message_id:
-                        continue
-                stop = page.get_by_test_id("stop-button").or_(
-                    page.get_by_role("button", name=re.compile(r"^stop generating$", re.IGNORECASE))
+                if message_id and not await page.evaluate(
+                    r"""(expected) => {
+                    const root = document.querySelector("main") || document;
+                    const visible = (node) => node.isConnected &&
+                        node.getClientRects().length > 0 && getComputedStyle(node).visibility !== "hidden";
+                    const assistants = [...root.querySelectorAll(
+                        '[data-message-author-role="assistant"][data-message-id], ' +
+                        '[data-chatgpt-search-unit-key$=":assistant"], ' +
+                        '[data-content-search-unit-key$=":assistant"]'
+                    )].filter(visible);
+                    const latest = assistants.at(-1);
+                    if (!latest) return false;
+                    const users = [...root.querySelectorAll(
+                        '[data-message-author-role="user"], ' +
+                        '[data-chatgpt-search-unit-key$=":user"], ' +
+                        '[data-content-search-unit-key$=":user"]'
+                    )].filter(visible);
+                    const lastUser = users.at(-1);
+                    if (lastUser && (latest.compareDocumentPosition(lastUser) & Node.DOCUMENT_POSITION_FOLLOWING))
+                        return false;
+                    const key = (node) => node.getAttribute("data-chatgpt-search-unit-key") ||
+                        node.getAttribute("data-content-search-unit-key") || "";
+                    // Modern ChatGPT splits a single assistant turn into multiple
+                    // units (tools/thoughts/final). Check only the latest turn.
+                    const group = key(latest).match(/^(fallback-turn-\d+):\d+:assistant$/)?.[1];
+                    const candidates = group
+                        ? assistants.filter((node) => key(node).startsWith(group + ":"))
+                        : [latest];
+                    return candidates.some((node) => {
+                        if (node.getAttribute("data-message-id") === expected || key(node) === expected)
+                            return true;
+                        const raw = node.getAttribute("data-chatgpt-search-message-ids") ||
+                            node.getAttribute("data-content-search-message-ids") || "";
+                        let ids;
+                        try {
+                            ids = raw.trim().startsWith("[") ? JSON.parse(raw) : raw.trim().split(/\s+/);
+                        } catch { return false; }
+                        return Array.isArray(ids) && ids.includes(expected);
+                    });
+                }""",
+                    message_id,
+                ):
+                    continue
+                stop = page.locator(
+                    'button[data-testid="stop-button"], '
+                    'button[aria-label="Stop generating"], button[aria-label="Stop streaming"]'
                 ).first
                 if await stop.is_visible():
                     await stop.click(timeout=3000)
@@ -66,42 +104,78 @@ class StopJobService:
             raise ValueError("Run not found")
         cancelled = self.queue.cancel_pending(send_id, error="Stopped by user")
         with self.results.engine.connect() as connection:
-            pending_replies = connection.execute(select(replies).where(
-                replies.c.send_id == send_id,
-                replies.c.status.in_(("queued", "prepared", "dispatching", "accepted", "generating")),
-            )).mappings().all()
-        active = [row for row in pending_replies if row["status"] in ("dispatching", "accepted", "generating")]
+            pending_replies = (
+                connection.execute(
+                    select(replies).where(
+                        replies.c.send_id == send_id,
+                        replies.c.status.in_(
+                            ("queued", "prepared", "dispatching", "accepted", "generating")
+                        ),
+                    )
+                )
+                .mappings()
+                .all()
+            )
+        active = [
+            row
+            for row in pending_replies
+            if row["status"] in ("dispatching", "accepted", "generating")
+        ]
         targets: set[tuple[str, str]] = set()
         if record is not None and record["status"] in ("accepted", "generating"):
             targets.add((str(record["conversation_id"]), str(record["message_id"])))
         for row in active:
             targets.add((str(row["conversation_id"]), str(row["message_id"])))
         if queued is not None and queued["status"] == "running" and not targets:
-            raise ReplyConflict("This job is still starting. Try Stop again once ChatGPT accepts it.")
+            raise ReplyConflict(
+                "This job is still starting. Try Stop again once ChatGPT accepts it."
+            )
         browser_stopped = False
         for conversation, message in targets:
             if not conversation:
-                raise ReplyConflict("The ChatGPT conversation is not available yet. Try Stop again shortly.")
+                raise ReplyConflict(
+                    "The ChatGPT conversation is not available yet. Try Stop again shortly."
+                )
             try:
                 clicked = asyncio.run(click_chatgpt_stop(conversation, message))
             except Exception as exc:
                 raise ReplyConflict("Could not reach ChatGPT's Stop button. Try again.") from exc
             if not clicked:
-                raise ReplyConflict("ChatGPT's Stop button was not available in the matching tab. Refresh and try again.")
+                raise ReplyConflict(
+                    "ChatGPT's Stop button was not available in the matching tab. Refresh and try again."
+                )
             browser_stopped = True
         at = time.time()
         with self.results.engine.begin() as connection:
             # Stale capture owners cannot overwrite a deliberate stop.
-            connection.execute(update(results).where(
-                results.c.send_id == send_id,
-                results.c.status.in_(("queued", "accepted", "generating", "unavailable")),
-            ).values(status="stopped", capture_owner="", capture_deadline=0, updated_at=at, finished_at=at))
-            connection.execute(update(replies).where(
-                replies.c.send_id == send_id,
-                replies.c.status.in_(("queued", "prepared")),
-            ).values(status="cancelled", lease_owner="", lease_deadline=0, updated_at=at))
-            connection.execute(update(replies).where(
-                replies.c.send_id == send_id,
-                replies.c.status.in_(("dispatching", "accepted", "generating")),
-            ).values(status="stopped", lease_owner="", lease_deadline=0, updated_at=at))
+            connection.execute(
+                update(results)
+                .where(
+                    results.c.send_id == send_id,
+                    results.c.status.in_(("queued", "accepted", "generating", "unavailable")),
+                )
+                .values(
+                    status="stopped",
+                    capture_owner="",
+                    capture_deadline=0,
+                    updated_at=at,
+                    finished_at=at,
+                )
+            )
+            connection.execute(
+                update(replies)
+                .where(
+                    replies.c.send_id == send_id,
+                    replies.c.status.in_(("queued", "prepared")),
+                )
+                .values(status="cancelled", lease_owner="", lease_deadline=0, updated_at=at)
+            )
+            connection.execute(
+                update(replies)
+                .where(
+                    replies.c.send_id == send_id,
+                    replies.c.status.in_(("dispatching", "accepted", "generating")),
+                )
+                .values(status="stopped", lease_owner="", lease_deadline=0, updated_at=at)
+            )
         return {"ok": True, "cancelled_pending": cancelled, "browser_stopped": browser_stopped}
