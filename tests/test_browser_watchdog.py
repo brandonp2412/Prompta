@@ -132,6 +132,11 @@ def test_watchdog_uses_http_expiry_if_cdp_session_fails(monkeypatch, tmp_path) -
     monkeypatch.setattr(watchdog, "debugger_responding", lambda address: True)
     monkeypatch.setattr(watchdog, "delivery_in_flight", lambda database, now: False)
 
+    async def healthy_renderer(address: str) -> bool:
+        return True
+
+    monkeypatch.setattr(watchdog, "bounded_renderer_probe", healthy_renderer)
+
     async def fail_cdp(address: str, *, now: float) -> None:
         raise RuntimeError("CDP websocket unavailable")
 
@@ -326,3 +331,83 @@ def test_http_fallback_never_closes_a_refreshed_or_unowned_page(monkeypatch, tmp
     assert watchdog.reap_expired_leases_http(now=3000) == 1
     assert closed == ["owned"]
     assert owned_tab_records(path) == {}
+
+
+def test_renderer_failure_restarts_browser_despite_healthy_http(monkeypatch, tmp_path):
+    from types import SimpleNamespace
+
+    import prompta.browser_watchdog as watchdog
+
+    monkeypatch.setattr(watchdog, "STATE_DIR", tmp_path)
+    monkeypatch.setattr(watchdog, "STATE_FILE", tmp_path / "watchdog.json")
+    monkeypatch.setattr(watchdog, "debugger_responding", lambda address: True)
+    monkeypatch.setattr(watchdog, "delivery_in_flight", lambda database, now: False)
+    monkeypatch.setattr(watchdog.time, "time", lambda: 2000.0)
+
+    async def crashed_renderer(address):
+        return False
+
+    monkeypatch.setattr(watchdog, "bounded_renderer_probe", crashed_renderer)
+    commands = []
+
+    def run(args, **kwargs):
+        commands.append(args)
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(watchdog.subprocess, "run", run)
+    watchdog.main()
+    assert commands == []
+    watchdog.main()
+    assert commands[-1] == ["systemctl", "--user", "restart", "prompta-browser.service"]
+
+
+def test_watchdog_skips_checks_while_browser_operation_holds_gate(monkeypatch, tmp_path):
+    import prompta.browser_watchdog as watchdog
+    from prompta.deployment_gate import DeploymentGate
+
+    monkeypatch.setattr(watchdog, "STATE_DIR", tmp_path)
+    gate = DeploymentGate(tmp_path / "runtime.sqlite3")
+
+    def unexpected_check():
+        raise AssertionError("Watchdog must not probe or restart during browser operations")
+
+    monkeypatch.setattr(watchdog, "check_browser", unexpected_check)
+    with gate.admission() as admitted:
+        assert admitted
+        watchdog.main()
+    gate.pause_path.touch()
+    watchdog.main()
+
+
+async def test_renderer_probe_closes_tab_after_evaluation_failure(monkeypatch):
+    from types import SimpleNamespace
+
+    import prompta.browser_watchdog as watchdog
+
+    closed = []
+
+    class Page:
+        async def evaluate(self, expression):
+            raise RuntimeError("Target crashed")
+
+        async def close(self):
+            closed.append(True)
+
+    class Context:
+        async def new_page(self):
+            return Page()
+
+    class Chromium:
+        async def connect_over_cdp(self, address, *, timeout):
+            return SimpleNamespace(contexts=[Context()])
+
+    class Patchright:
+        async def __aenter__(self):
+            return SimpleNamespace(chromium=Chromium())
+
+        async def __aexit__(self, *args):
+            pass
+
+    monkeypatch.setattr(watchdog, "async_patchright", Patchright)
+    assert not await watchdog.bounded_renderer_probe("127.0.0.1:9222")
+    assert closed == [True]

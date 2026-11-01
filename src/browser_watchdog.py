@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import fcntl
 import json
 import logging
 import os
@@ -22,6 +23,7 @@ from .browser_ownership import (
     forget_owned_tabs,
     owned_tab_records,
 )
+from .deployment_gate import DeploymentGate
 from .reply_contracts import ManualReplyStore
 
 logger = logging.getLogger(__name__)
@@ -44,6 +46,32 @@ def debugger_responding(address: str = "127.0.0.1:9222") -> bool:
             payload = json.load(response)
         return isinstance(payload, dict) and bool(payload.get("webSocketDebuggerUrl"))
     except (OSError, ValueError):
+        return False
+
+
+async def renderer_responding(address: str) -> bool:
+    """Exercise a new renderer without navigating to ChatGPT or sending a prompt."""
+    try:
+        async with async_patchright() as patchright:
+            browser = await patchright.chromium.connect_over_cdp(
+                f"http://{address}", timeout=5000,
+            )
+            page = await browser.contexts[0].new_page()
+            try:
+                result: object = await page.evaluate("1 + 1")
+                return isinstance(result, int) and result == 2
+            finally:
+                await page.close()
+    except Exception as exc:
+        logger.warning("Browser renderer probe failed error_type=%s", type(exc).__name__)
+        return False
+
+
+async def bounded_renderer_probe(address: str) -> bool:
+    try:
+        return await asyncio.wait_for(renderer_responding(address), timeout=10.0)
+    except TimeoutError:
+        logger.warning("Browser renderer probe timed out")
         return False
 
 
@@ -256,6 +284,21 @@ def decide_restart(
 
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
+    gate = DeploymentGate(STATE_DIR / "runtime.sqlite3")
+    # Serialize probes and restarts against every worker browser operation.
+    with gate.lock_path.open("a+b") as handle:
+        try:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return
+        try:
+            if not gate.is_paused():
+                check_browser()
+        finally:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
+def check_browser() -> None:
     now = time.time()
     state = load_state(STATE_FILE)
     address = os.environ.get("PROMPTA_CHROME_DEBUGGER_ADDRESS", "127.0.0.1:9222")
@@ -266,6 +309,8 @@ def main() -> None:
         logger.warning("Manual reply lease recovery failed error_type=%s", type(exc).__name__)
     healthy = debugger_responding(address)
     busy = delivery_in_flight(STATE_DIR / "runtime.sqlite3", now)
+    if healthy and not busy:
+        healthy = asyncio.run(bounded_renderer_probe(address))
     if healthy and not busy:
         try:
             asyncio.run(reap_expired_owned_tabs(address=address, now=now))
@@ -294,7 +339,7 @@ def main() -> None:
             state.consecutive_failures = 0
             save_state(STATE_FILE, state)
             return
-        logger.warning("Browser CDP unavailable; restarting %s", browser_service)
+        logger.warning("Browser endpoint or renderer unavailable; restarting %s", browser_service)
         subprocess.run(
             ["systemctl", "--user", "restart", browser_service],
             check=True,

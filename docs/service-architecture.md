@@ -32,6 +32,24 @@ the pause; investigate and verify services before running
 `python -m scripts.deploy_guarded --resume`. The interruption inventory remains
 available after deployment for diagnosis.
 
+## Browser watchdog
+
+`prompta-browser-watchdog.timer` checks every 20 seconds. While browser operations
+are idle, it verifies both the CDP endpoint and a fresh blank renderer executing
+JavaScript. Two consecutive failures restart the configured browser service;
+restarts have a five-minute cooldown and intentionally stopped services stay
+stopped. A nonblocking exclusive deployment lock prevents probes and restarts
+from racing worker operations; active durable send/capture leases also defer
+recovery. Deployment pauses skip watchdog checks.
+
+On Nox, the watchdog's `PROMPTA_CHROME_DEBUGGER_ADDRESS` and
+`PROMPTA_BROWSER_SERVICE` must match the delivery worker's browser (currently
+`127.0.0.1:9222` and `prompta-browser.service`). A stale FlareSolverr override
+must not redirect checks to its separate browser. Install the checked-in
+`systemd/nox/prompta-browser-watchdog.service.d/90-delivery-browser.conf` under
+`~/.config/systemd/user/prompta-browser-watchdog.service.d/`, run
+`systemctl --user daemon-reload`, and enable the watchdog timer.
+
 ## HTTP API
 
 `prompta-ui` serves a FastAPI application through Uvicorn on `127.0.0.1:8765`.
