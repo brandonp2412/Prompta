@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import {
+  canStopTurn,
   dateGroup,
   exactConversationUrl,
   responseBadge,
@@ -14,6 +15,18 @@ import {
   turnStatus,
   type RunSummary,
 } from "../src/ui/resultFormatting";
+
+test("only active or explicitly queued turns offer Stop", () => {
+  expect(canStopTurn(undefined)).toBe(false);
+  for (const status of ["queued", "dispatching", "accepted", "generating"] as const) {
+    expect(canStopTurn({ status })).toBe(true);
+  }
+  expect(canStopTurn({ status: "prepared", queued_by_user: true })).toBe(true);
+  expect(canStopTurn({ status: "prepared", queued_by_user: false })).toBe(false);
+  expect(canStopTurn({ status: "preflight_failed", queued_by_user: true })).toBe(false);
+  expect(canStopTurn({ status: "completed" })).toBe(false);
+  expect(canStopTurn({ status: "interrupted" })).toBe(false);
+});
 
 test("timestamps use Auckland 12-hour clock and DST", () => {
   expect(nzTime(Date.UTC(2026, 9, 26, 10, 15) / 1000)).toContain("11:15 pm");

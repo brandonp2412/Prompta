@@ -83,6 +83,14 @@ export type LocalTurn = {
   updated_at: number;
 };
 
+export function canStopTurn(
+  turn: Pick<LocalTurn, "status" | "queued_by_user"> | undefined,
+): boolean {
+  if (!turn) return false;
+  if (turn.status === "prepared") return turn.queued_by_user === true;
+  return ["queued", "dispatching", "accepted", "generating"].includes(turn.status);
+}
+
 export function responseBadge(status: LocalTurn["status"]): string {
   switch (status) {
     case "cancelled":

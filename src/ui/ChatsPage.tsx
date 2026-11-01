@@ -2,7 +2,7 @@ import React, { useEffect, useLayoutEffect, useMemo, useState, useRef } from "re
 import { useSignals } from "@preact/signals-react/runtime";
 import { createChatsPageController, type Props } from "./ChatsPageController";
 import { chatUrl } from "./chatUrl";
-import { exactConversationUrl } from "./resultFormatting";
+import { canStopTurn, exactConversationUrl } from "./resultFormatting";
 import JobsPage from "./JobsPage";
 import ChatComposer from "./ChatComposer";
 import ChatsSidebar from "./ChatsSidebar";
@@ -58,6 +58,11 @@ export default function ChatsPage(props: Props & { serverName: string }) {
             ?.conversation_id || detail.value.conversation_id,
         )
       : null;
+  const latestSelectedTurn =
+    selectedRunId.value && detail.value?.send_id === selectedRunId.value
+      ? turns.value.findLast((turn) => turn.status !== "cancelled")
+      : undefined;
+  const activeSelectedChat = canStopTurn(latestSelectedTurn);
   useEffect(() => {
     document.title = `Prompta · ${pageTitle} · ${props.serverName}`;
   }, [pageTitle, props.serverName]);
@@ -234,13 +239,7 @@ export default function ChatsPage(props: Props & { serverName: string }) {
               <ChatComposer
                 mode={selectedRunId.value ? "reply" : "fresh"}
                 chatId={selectedRunId.value ?? undefined}
-                active={Boolean(
-                  selectedRunId.value &&
-                  detail.value?.send_id === selectedRunId.value &&
-                  ["queued", "prepared", "dispatching", "accepted", "generating"].includes(
-                    turns.value.findLast((turn) => turn.status !== "cancelled")?.status ?? "",
-                  ),
-                )}
+                active={activeSelectedChat}
                 stopping={model.stopping.value === selectedRunId.value}
                 onStop={() => {
                   const id = selectedRunId.value;
