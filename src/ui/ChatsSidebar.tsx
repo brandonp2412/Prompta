@@ -4,7 +4,6 @@ import { useSignals } from "@preact/signals-react/runtime";
 import type { createChatsPageController } from "./ChatsPageController";
 import ChatRow from "./ChatRow";
 import { queueEtaExplanation, queueEtaText } from "./queueStatus";
-import type { ChatListStatus } from "./resultFormatting";
 
 type SidebarRefs = {
   sidebarPane: (element: HTMLElement | null) => void;
@@ -21,14 +20,12 @@ export default function ChatsSidebar({
 }) {
   useSignals();
   const {
-    statuses,
     queueSnapshot,
     items,
     markingAllRead,
     drawerOpen,
     filtersOpen,
     search,
-    statusFilter,
     loadingList,
     listError,
     pinned,
@@ -40,7 +37,6 @@ export default function ChatsSidebar({
     nextOffset,
     total,
     loadMore,
-    applyFilter,
     searchChanged,
     clearSearch,
     toggleSearch,
@@ -208,7 +204,7 @@ export default function ChatsSidebar({
 
   function emptyChatsLabel() {
     if (listError.value) return "Chat list temporarily unavailable";
-    if (search.value || statusFilter.value) return "No matching chats";
+    if (search.value) return "No matching chats";
     return "No chats";
   }
 
@@ -239,9 +235,7 @@ export default function ChatsSidebar({
               <circle cx="10.5" cy="10.5" r="6.5" />
               <path d="m16 16 5 5" />
             </svg>
-            {(search.value || statusFilter.value) && (
-              <span aria-label="Filters active" className="filter-active-dot" />
-            )}
+            {search.value && <span aria-label="Search active" className="filter-active-dot" />}
           </button>
         </nav>
         <button
@@ -282,22 +276,6 @@ export default function ChatsSidebar({
                 </button>
               )}
             </div>
-            <label>
-              <span className="sr-only">Filter results by state</span>
-              <select
-                value={statusFilter.value}
-                onChange={(event) => {
-                  statusFilter.value = event.currentTarget.value as ChatListStatus;
-                  applyFilter();
-                }}
-              >
-                {statuses.map((choice) => (
-                  <option key={choice.value} value={choice.value}>
-                    {choice.label}
-                  </option>
-                ))}
-              </select>
-            </label>
           </div>
         </>
       ) : (

@@ -21,7 +21,7 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 	enumerable: true
 }) : target, mod));
 //#endregion
-//#region ../../prompta/node_modules/scheduler/cjs/scheduler.production.js
+//#region ../prompta/node_modules/scheduler/cjs/scheduler.production.js
 /**
 * @license React
 * scheduler.production.js
@@ -276,12 +276,12 @@ var require_scheduler_production = /* @__PURE__ */ __commonJSMin(((exports) => {
 	};
 }));
 //#endregion
-//#region ../../prompta/node_modules/scheduler/index.js
+//#region ../prompta/node_modules/scheduler/index.js
 var require_scheduler = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_scheduler_production();
 }));
 //#endregion
-//#region ../../prompta/node_modules/react/cjs/react.production.js
+//#region ../prompta/node_modules/react/cjs/react.production.js
 /**
 * @license React
 * react.production.js
@@ -668,12 +668,12 @@ var require_react_production = /* @__PURE__ */ __commonJSMin(((exports) => {
 	exports.version = "19.3.1";
 }));
 //#endregion
-//#region ../../prompta/node_modules/react/index.js
+//#region ../prompta/node_modules/react/index.js
 var require_react = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_react_production();
 }));
 //#endregion
-//#region ../../prompta/node_modules/react-dom/cjs/react-dom.production.js
+//#region ../prompta/node_modules/react-dom/cjs/react-dom.production.js
 /**
 * @license React
 * react-dom.production.js
@@ -826,7 +826,7 @@ var require_react_dom_production = /* @__PURE__ */ __commonJSMin(((exports) => {
 	exports.version = "19.3.1";
 }));
 //#endregion
-//#region ../../prompta/node_modules/react-dom/index.js
+//#region ../prompta/node_modules/react-dom/index.js
 var require_react_dom = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	function checkDCE() {
 		if (typeof __REACT_DEVTOOLS_GLOBAL_HOOK__ === "undefined" || typeof __REACT_DEVTOOLS_GLOBAL_HOOK__.checkDCE !== "function") return;
@@ -840,7 +840,7 @@ var require_react_dom = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_react_dom_production();
 }));
 //#endregion
-//#region ../../prompta/node_modules/react-dom/cjs/react-dom-client.production.js
+//#region ../prompta/node_modules/react-dom/cjs/react-dom-client.production.js
 /**
 * @license React
 * react-dom-client.production.js
@@ -11415,7 +11415,7 @@ var require_react_dom_client_production = /* @__PURE__ */ __commonJSMin(((export
 	};
 }));
 //#endregion
-//#region ../../prompta/node_modules/react-dom/client.js
+//#region ../prompta/node_modules/react-dom/client.js
 var require_client = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	function checkDCE() {
 		if (typeof __REACT_DEVTOOLS_GLOBAL_HOOK__ === "undefined" || typeof __REACT_DEVTOOLS_GLOBAL_HOOK__.checkDCE !== "function") return;
@@ -11429,7 +11429,7 @@ var require_client = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_react_dom_client_production();
 }));
 //#endregion
-//#region ../../prompta/node_modules/@preact/signals-core/dist/signals-core.module.js
+//#region ../prompta/node_modules/@preact/signals-core/dist/signals-core.module.js
 var import_react = /* @__PURE__ */ __toESM(require_react());
 var import_client = require_client();
 var i$1 = Symbol.for("preact-signals");
@@ -11841,7 +11841,7 @@ function x$2(i, t) {
 	return n;
 }
 //#endregion
-//#region ../../prompta/node_modules/use-sync-external-store/cjs/use-sync-external-store-shim.production.js
+//#region ../prompta/node_modules/use-sync-external-store/cjs/use-sync-external-store-shim.production.js
 /**
 * @license React
 * use-sync-external-store-shim.production.js
@@ -11901,7 +11901,7 @@ var require_use_sync_external_store_shim_production = /* @__PURE__ */ __commonJS
 	exports.useSyncExternalStore = void 0 !== React.useSyncExternalStore ? React.useSyncExternalStore : shim;
 }));
 //#endregion
-//#region ../../prompta/node_modules/@preact/signals-react/runtime/dist/runtime.module.js
+//#region ../prompta/node_modules/@preact/signals-react/runtime/dist/runtime.module.js
 var import_shim = (/* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_use_sync_external_store_shim_production();
 })))();
@@ -12813,44 +12813,6 @@ function createChatsPageController(initialProps) {
 	const pageSize = 100;
 	const preferencesKey = "prompta.local-sidebar.v1";
 	const readSyncKey = "prompta.local-read-sync.v1";
-	const statuses = [
-		{
-			value: "",
-			label: "All states"
-		},
-		{
-			value: "needs_attention",
-			label: "Needs attention"
-		},
-		{
-			value: "accepted",
-			label: "Accepted"
-		},
-		{
-			value: "generating",
-			label: "Generating"
-		},
-		{
-			value: "completed",
-			label: "Completed"
-		},
-		{
-			value: "interrupted",
-			label: "Interrupted"
-		},
-		{
-			value: "unavailable",
-			label: "Unavailable"
-		},
-		{
-			value: "outcome_unknown",
-			label: "Send unverified"
-		},
-		{
-			value: "queued",
-			label: "Queued"
-		}
-	];
 	const queueSnapshot = y$2(emptyQueueSnapshot);
 	const queueError = y$2("");
 	let queueGeneration = 0;
@@ -12893,7 +12855,6 @@ function createChatsPageController(initialProps) {
 	const nextOffset = y$2(0);
 	const loadingMore = y$2(false);
 	const search = y$2("");
-	const statusFilter = y$2("");
 	const detail = y$2(null);
 	const turns = y$2([]);
 	const turnsError = y$2("");
@@ -12970,11 +12931,11 @@ function createChatsPageController(initialProps) {
 	let searchTimer;
 	let liveRefreshTimer;
 	const newestFirst = (a, b) => (b.activity_at ?? b.created_at) - (a.activity_at ?? a.created_at) || b.created_at - a.created_at || b.send_id.localeCompare(a.send_id);
-	const visibleWaiting = O(() => statusFilter.value && statusFilter.value !== "queued" ? [] : queueSnapshot.value.waiting.filter((job) => !search.value.trim() || job.name.toLowerCase().includes(search.value.trim().toLowerCase())));
+	const visibleWaiting = O(() => queueSnapshot.value.waiting.filter((job) => !search.value.trim() || job.name.toLowerCase().includes(search.value.trim().toLowerCase())));
 	const queuedWaitingChat = (item) => item.status === "queued" && visibleWaiting.value.some((job) => job.name === item.job_name);
 	const pinned = O(() => {
 		const byId = new Map([...pinnedItems.value, ...items.value].map((item) => [item.send_id, item]));
-		const filtered = search.value.trim() || statusFilter.value;
+		const filtered = search.value.trim();
 		return pinnedIds.value.map((id) => byId.get(id)).filter((item) => !!item).filter((item) => !filtered || items.value.some((listed) => listed.send_id === item.send_id)).filter((item) => !queuedWaitingChat(item));
 	});
 	const replyBlockedReason = O(() => {
@@ -13257,7 +13218,6 @@ function createChatsPageController(initialProps) {
 			offset: String(offset)
 		});
 		if (search.value.trim()) params.set("q", search.value.trim());
-		if (statusFilter.value) params.set("status", statusFilter.value);
 		return params;
 	}
 	function mergeRuns(previous, incoming) {
@@ -13277,7 +13237,7 @@ function createChatsPageController(initialProps) {
 			if (!response.ok) throw new Error("Results could not be loaded");
 			const body = await response.json();
 			if (generation !== listGeneration) return;
-			items.value = reset ? body.items : reconcileResultPage(items.value, body.items, body.total, pageSize, statusFilter.value);
+			items.value = reset ? body.items : reconcileResultPage(items.value, body.items, body.total, pageSize, "");
 			total.value = body.total;
 			nextOffset.value = reset ? Math.min(body.total, body.items.length) : Math.min(body.total, Math.max(nextOffset.value, body.items.length));
 			if (reset && listPane.value) listPane.value.scrollTop = 0;
@@ -13473,7 +13433,6 @@ function createChatsPageController(initialProps) {
 				enteringNewChatId.value = sendId;
 			}
 			search.value = "";
-			statusFilter.value = "";
 			onQueued.value(sendId);
 			loadList();
 			loadPins();
@@ -13968,7 +13927,6 @@ function createChatsPageController(initialProps) {
 		onTranscriptKeyDown,
 		newChatOpen,
 		onSelect,
-		statuses,
 		queueSnapshot,
 		queueError,
 		recoveryPauseSeconds,
@@ -13993,7 +13951,6 @@ function createChatsPageController(initialProps) {
 		filtersOpen,
 		expandedPrompts,
 		search,
-		statusFilter,
 		detail,
 		turns,
 		turnsError,
@@ -14035,7 +13992,6 @@ function createChatsPageController(initialProps) {
 		sendReply,
 		retryFailedTurn,
 		copyText,
-		applyFilter,
 		searchChanged,
 		clearSearch,
 		toggleSearch,
@@ -15054,7 +15010,7 @@ function createJobsPageController(initialProps) {
 	};
 }
 //#endregion
-//#region ../../prompta/node_modules/react/cjs/react-jsx-runtime.production.js
+//#region ../prompta/node_modules/react/cjs/react-jsx-runtime.production.js
 /**
 * @license React
 * react-jsx-runtime.production.js
@@ -16655,7 +16611,7 @@ function ChatRow({ item, model }) {
 //#region src/ui/ChatsSidebar.tsx
 function ChatsSidebar({ model, refs }) {
 	N$1();
-	const { statuses, queueSnapshot, items, markingAllRead, drawerOpen, filtersOpen, search, statusFilter, loadingList, listError, pinned, visibleWaiting, unpinned, markAllRead, loadingMore, morePageFailed, nextOffset, total, loadMore, applyFilter, searchChanged, clearSearch, toggleSearch, showJobs, createChat } = model;
+	const { queueSnapshot, items, markingAllRead, drawerOpen, filtersOpen, search, loadingList, listError, pinned, visibleWaiting, unpinned, markAllRead, loadingMore, morePageFailed, nextOffset, total, loadMore, searchChanged, clearSearch, toggleSearch, showJobs, createChat } = model;
 	const [profileOpen, setProfileOpen] = (0, import_react.useState)(false);
 	const [settingsOpen, setSettingsOpen] = (0, import_react.useState)(false);
 	const profileTriggerRef = (0, import_react.useRef)(null);
@@ -16793,7 +16749,7 @@ function ChatsSidebar({ model, refs }) {
 	else if (!settingsReady && settingsError) settingsButtonLabel = "Retry loading settings";
 	function emptyChatsLabel() {
 		if (listError.value) return "Chat list temporarily unavailable";
-		if (search.value || statusFilter.value) return "No matching chats";
+		if (search.value) return "No matching chats";
 		return "No chats";
 	}
 	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("aside", {
@@ -16831,8 +16787,8 @@ function ChatsSidebar({ model, refs }) {
 									cy: "10.5",
 									r: "6.5"
 								}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: "m16 16 5 5" })]
-							}), (search.value || statusFilter.value) && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-								"aria-label": "Filters active",
+							}), search.value && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+								"aria-label": "Search active",
 								className: "filter-active-dot"
 							})]
 						})
@@ -16846,10 +16802,10 @@ function ChatsSidebar({ model, refs }) {
 					})
 				]
 			}),
-			filtersOpen.value ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+			filtersOpen.value ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 				id: "chat-filters",
 				className: "chats-controls",
-				children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+				children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 					className: "search-field",
 					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
 						className: "search-label",
@@ -16874,20 +16830,7 @@ function ChatsSidebar({ model, refs }) {
 						onClick: clearSearch,
 						children: "×"
 					})]
-				}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-					className: "sr-only",
-					children: "Filter results by state"
-				}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("select", {
-					value: statusFilter.value,
-					onChange: (event) => {
-						statusFilter.value = event.currentTarget.value;
-						applyFilter();
-					},
-					children: statuses.map((choice) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
-						value: choice.value,
-						children: choice.label
-					}, choice.value))
-				})] })]
+				})
 			}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {}),
 			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 				ref: refs.listPane,
@@ -17121,7 +17064,7 @@ function ChatsSidebar({ model, refs }) {
 	});
 }
 //#endregion
-//#region ../../prompta/node_modules/marked/lib/marked.esm.js
+//#region ../prompta/node_modules/marked/lib/marked.esm.js
 /**
 * marked v16.4.2 - a markdown parser
 * Copyright (c) 2018-2025, MarkedJS. (MIT License)
@@ -18662,7 +18605,7 @@ x.lex;
 * @public
 */
 //#endregion
-//#region ../../prompta/node_modules/prismjs/components/prism-typescript.js
+//#region ../prompta/node_modules/prismjs/components/prism-typescript.js
 var import_prism = /* @__PURE__ */ __toESM((/* @__PURE__ */ __commonJSMin(((exports, module) => {
 	var Prism = function(_self) {
 		var lang = /(?:^|\s)lang(?:uage)?-([\w-]+)(?=\s|$)/i;
@@ -20125,7 +20068,7 @@ highlight: function highlight(container) {
 	Prism.languages.ts = Prism.languages.typescript;
 })(Prism);
 //#endregion
-//#region ../../prompta/node_modules/prismjs/components/prism-python.js
+//#region ../prompta/node_modules/prismjs/components/prism-python.js
 Prism.languages.python = {
 	"comment": {
 		pattern: /(^|[^\\])#.*/,
@@ -20187,7 +20130,7 @@ Prism.languages.python = {
 Prism.languages.python["string-interpolation"].inside["interpolation"].inside.rest = Prism.languages.python;
 Prism.languages.py = Prism.languages.python;
 //#endregion
-//#region ../../prompta/node_modules/prismjs/components/prism-bash.js
+//#region ../prompta/node_modules/prismjs/components/prism-bash.js
 (function(Prism) {
 	var envVars = "\\b(?:BASH|BASHOPTS|BASH_ALIASES|BASH_ARGC|BASH_ARGV|BASH_CMDS|BASH_COMPLETION_COMPAT_DIR|BASH_LINENO|BASH_REMATCH|BASH_SOURCE|BASH_VERSINFO|BASH_VERSION|COLORTERM|COLUMNS|COMP_WORDBREAKS|DBUS_SESSION_BUS_ADDRESS|DEFAULTS_PATH|DESKTOP_SESSION|DIRSTACK|DISPLAY|EUID|GDMSESSION|GDM_LANG|GNOME_KEYRING_CONTROL|GNOME_KEYRING_PID|GPG_AGENT_INFO|GROUPS|HISTCONTROL|HISTFILE|HISTFILESIZE|HISTSIZE|HOME|HOSTNAME|HOSTTYPE|IFS|INSTANCE|JOB|LANG|LANGUAGE|LC_ADDRESS|LC_ALL|LC_IDENTIFICATION|LC_MEASUREMENT|LC_MONETARY|LC_NAME|LC_NUMERIC|LC_PAPER|LC_TELEPHONE|LC_TIME|LESSCLOSE|LESSOPEN|LINES|LOGNAME|LS_COLORS|MACHTYPE|MAILCHECK|MANDATORY_PATH|NO_AT_BRIDGE|OLDPWD|OPTERR|OPTIND|ORBIT_SOCKETDIR|OSTYPE|PAPERSIZE|PATH|PIPESTATUS|PPID|PS1|PS2|PS3|PS4|PWD|RANDOM|REPLY|SECONDS|SELINUX_INIT|SESSION|SESSIONTYPE|SESSION_MANAGER|SHELL|SHELLOPTS|SHLVL|SSH_AUTH_SOCK|TERM|UID|UPSTART_EVENTS|UPSTART_INSTANCE|UPSTART_JOB|UPSTART_SESSION|USER|WINDOWID|XAUTHORITY|XDG_CONFIG_DIRS|XDG_CURRENT_DESKTOP|XDG_DATA_DIRS|XDG_GREETER_DATA_DIR|XDG_MENU_PREFIX|XDG_RUNTIME_DIR|XDG_SEAT|XDG_SEAT_PATH|XDG_SESSION_DESKTOP|XDG_SESSION_ID|XDG_SESSION_PATH|XDG_SESSION_TYPE|XDG_VTNR|XMODIFIERS)\\b";
 	var commandAfterHeredoc = {
@@ -20368,7 +20311,7 @@ Prism.languages.py = Prism.languages.python;
 	Prism.languages.shell = Prism.languages.bash;
 })(Prism);
 //#endregion
-//#region ../../prompta/node_modules/prismjs/components/prism-json.js
+//#region ../prompta/node_modules/prismjs/components/prism-json.js
 Prism.languages.json = {
 	"property": {
 		pattern: /(^|[^\\])"(?:\\.|[^\\"\r\n])*"(?=\s*:)/,

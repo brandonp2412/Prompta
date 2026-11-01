@@ -27,12 +27,7 @@ import {
   queuedFollowupReceiptState,
   type ExactReplyPayload,
 } from "./exactReplyReceipt";
-import {
-  type LocalTurn,
-  type ChatListStatus,
-  type RunDetail,
-  type RunSummary,
-} from "./resultFormatting";
+import { type LocalTurn, type RunDetail, type RunSummary } from "./resultFormatting";
 export type Props = {
   view: "jobs" | "chats";
   selectedRunId: string | null;
@@ -56,18 +51,6 @@ export function createChatsPageController(initialProps: Props) {
   const pageSize = 100;
   const preferencesKey = "prompta.local-sidebar.v1";
   const readSyncKey = "prompta.local-read-sync.v1";
-  const statuses: { value: ChatListStatus; label: string }[] = [
-    { value: "", label: "All states" },
-    { value: "needs_attention", label: "Needs attention" },
-    { value: "accepted", label: "Accepted" },
-    { value: "generating", label: "Generating" },
-    { value: "completed", label: "Completed" },
-    { value: "interrupted", label: "Interrupted" },
-    { value: "unavailable", label: "Unavailable" },
-    { value: "outcome_unknown", label: "Send unverified" },
-    { value: "queued", label: "Queued" },
-  ];
-
   const queueSnapshot = signal<QueueSnapshot>(emptyQueueSnapshot);
   const queueError = signal("");
   let queueGeneration = 0;
@@ -110,7 +93,6 @@ export function createChatsPageController(initialProps: Props) {
   const nextOffset = signal(0);
   const loadingMore = signal(false);
   const search = signal("");
-  const statusFilter = signal<ChatListStatus>("");
   const detail = signal<RunDetail | null>(null);
   const turns = signal<LocalTurn[]>([]);
   const turnsError = signal("");
@@ -208,13 +190,10 @@ export function createChatsPageController(initialProps: Props) {
     b.created_at - a.created_at ||
     b.send_id.localeCompare(a.send_id);
   const visibleWaiting = computed(() =>
-    statusFilter.value && statusFilter.value !== "queued"
-      ? []
-      : queueSnapshot.value.waiting.filter(
-          (job) =>
-            !search.value.trim() ||
-            job.name.toLowerCase().includes(search.value.trim().toLowerCase()),
-        ),
+    queueSnapshot.value.waiting.filter(
+      (job) =>
+        !search.value.trim() || job.name.toLowerCase().includes(search.value.trim().toLowerCase()),
+    ),
   );
   const queuedWaitingChat = (item: RunSummary) =>
     item.status === "queued" && visibleWaiting.value.some((job) => job.name === item.job_name);
@@ -222,7 +201,7 @@ export function createChatsPageController(initialProps: Props) {
     const byId = new Map(
       [...pinnedItems.value, ...items.value].map((item) => [item.send_id, item]),
     );
-    const filtered = search.value.trim() || statusFilter.value;
+    const filtered = search.value.trim();
     return pinnedIds.value
       .map((id) => byId.get(id))
       .filter((item): item is RunSummary => !!item)
@@ -646,7 +625,6 @@ export function createChatsPageController(initialProps: Props) {
   function resultsParams(offset: number) {
     const params = new URLSearchParams({ limit: String(pageSize), offset: String(offset) });
     if (search.value.trim()) params.set("q", search.value.trim());
-    if (statusFilter.value) params.set("status", statusFilter.value);
     return params;
   }
 
@@ -676,7 +654,7 @@ export function createChatsPageController(initialProps: Props) {
       if (generation !== listGeneration) return;
       items.value = reset
         ? body.items
-        : reconcileResultPage(items.value, body.items, body.total, pageSize, statusFilter.value);
+        : reconcileResultPage(items.value, body.items, body.total, pageSize, "");
       total.value = body.total;
       nextOffset.value = reset
         ? Math.min(body.total, body.items.length)
@@ -942,7 +920,6 @@ export function createChatsPageController(initialProps: Props) {
         enteringNewChatId.value = sendId;
       }
       search.value = "";
-      statusFilter.value = "";
       onQueued.value(sendId);
       void loadList();
       void loadPins();
@@ -1580,7 +1557,6 @@ export function createChatsPageController(initialProps: Props) {
     onTranscriptKeyDown,
     newChatOpen,
     onSelect,
-    statuses,
     queueSnapshot,
     queueError,
     recoveryPauseSeconds,
@@ -1605,7 +1581,6 @@ export function createChatsPageController(initialProps: Props) {
     filtersOpen,
     expandedPrompts,
     search,
-    statusFilter,
     detail,
     turns,
     turnsError,
@@ -1647,7 +1622,6 @@ export function createChatsPageController(initialProps: Props) {
     sendReply,
     retryFailedTurn,
     copyText,
-    applyFilter,
     searchChanged,
     clearSearch,
     toggleSearch,
