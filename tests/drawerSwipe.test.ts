@@ -10,16 +10,26 @@ function touch(x: number, y = 100, identifier = 1) {
   return { clientX: x, clientY: y, identifier };
 }
 
-function event(x: number, y = 100, identifier = 1) {
+function event(
+  x: number,
+  y = 100,
+  identifier = 1,
+  target: { closest: (selector: string) => boolean } | null = null,
+) {
   let prevented = false;
   const point = touch(x, y, identifier);
   return {
     value: {
       touches: [point],
       changedTouches: [point],
-      preventDefault() { prevented = true; },
+      target,
+      preventDefault() {
+        prevented = true;
+      },
     } as unknown as TouchEvent,
-    get prevented() { return prevented; },
+    get prevented() {
+      return prevented;
+    },
   };
 }
 
@@ -35,7 +45,14 @@ function setup(open = false, list = false, position?: number) {
     drawerPosition: () => position ?? (drawerOpen.value ? 1 : 0),
     clock: { now: () => time },
   });
-  return { drawerOpen, drawerProgress, ...swipe, advance: (ms: number) => { time += ms; } };
+  return {
+    drawerOpen,
+    drawerProgress,
+    ...swipe,
+    advance: (ms: number) => {
+      time += ms;
+    },
+  };
 }
 
 describe("drawer swipe", () => {
@@ -117,6 +134,26 @@ describe("drawer swipe", () => {
     expect(ui.drawerProgress.value).toBeCloseTo(0.5);
     ui.finishSwipe(event(52).value);
     expect(ui.drawerOpen.value).toBe(true);
+  });
+
+  test("does not close the drawer when a modal or editable surface is touched", () => {
+    for (const protectedSelector of [
+      ".settings-backdrop",
+      ".sidebar-profile-menu",
+      "input",
+      "textarea",
+      "select",
+      "[contenteditable]",
+      "pre",
+    ]) {
+      const ui = setup(true);
+      const target = { closest: (selector: string) => selector.includes(protectedSelector) };
+      ui.startSwipe(event(240, 100, 1, target).value);
+      ui.moveSwipe(event(40).value);
+      ui.finishSwipe(event(40).value);
+      expect(ui.drawerProgress.value).toBeNull();
+      expect(ui.drawerOpen.value).toBe(true);
+    }
   });
 
   test("cancels a partial drag", () => {
