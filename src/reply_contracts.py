@@ -280,6 +280,33 @@ class ManualReplyStore(ReplyReadState):
                 )
         return None
 
+    def queued_recovery_candidates(self) -> list[str]:
+        """Chats with user-authorized replies blocked by a missing assistant ID.
+
+        Return only exact-conversation branches with a terminal predecessor;
+        recovery must verify the identity before any queued send is dispatched.
+        """
+        with self.engine.connect() as connection:
+            ids = connection.execute(select(replies.c.send_id).where(
+                replies.c.queued_by_user.is_(True),
+                replies.c.status == "queued",
+            ).distinct().order_by(replies.c.send_id)).scalars().all()
+        candidates: list[str] = []
+        for send_id in ids:
+            turns = self.turns(str(send_id)) or []
+            previous = [turn for turn in turns if turn["status"] != "queued"]
+            if not previous:
+                continue
+            tip = previous[-1]
+            if (tip["status"] not in ("completed", "interrupted", "unavailable",
+                                      "outcome_unknown", "stopped")
+                    or not tip["conversation_id"] or tip["message_id"]):
+                continue
+            if len(previous) > 1 and not previous[-2]["message_id"]:
+                continue
+            candidates.append(str(send_id))
+        return candidates
+
     def mark_preflight_failed(self, reply_id: str, *, now: float | None = None) -> bool:
         """Only a never-claimed reply can fail safely before dispatch."""
         at = time.time() if now is None else now
@@ -329,18 +356,24 @@ class ManualReplyStore(ReplyReadState):
             return False
         with self.engine.begin() as connection:
             connection.exec_driver_sql("BEGIN IMMEDIATE")
+            # A user may queue the next message before recovery finishes.
+            # Those unsent intents do not invalidate proof of the original turn.
             existing = connection.execute(select(replies.c.reply_id).where(
-                replies.c.send_id == send_id
+                replies.c.send_id == send_id,
+                replies.c.status != "queued",
             ).limit(1)).first()
             if existing is not None:
                 return False
             changed = connection.execute(update(results).where(
                 results.c.send_id == send_id,
-                results.c.status.in_(("completed", "interrupted", "unavailable", "stopped")),
+                results.c.status.in_(("completed", "interrupted", "unavailable", "outcome_unknown", "stopped")),
                 results.c.conversation_id == conversation_id,
                 results.c.message_id == "",
                 results.c.assistant_text == original_answer,
-            ).values(message_id=message_id.lower()))
+            ).values(message_id=message_id.lower(), status=case(
+                (results.c.status == "outcome_unknown", "interrupted"),
+                else_=results.c.status,
+            )))
         return changed.rowcount == 1
 
     def recover_reply_parent(
@@ -366,7 +399,8 @@ class ManualReplyStore(ReplyReadState):
             if original != conversation_id:
                 return False
             rows = connection.execute(select(replies).where(
-                replies.c.send_id == send_id
+                replies.c.send_id == send_id,
+                replies.c.status != "queued",
             ).order_by(replies.c.created_at, replies.c.reply_id)).mappings().all()
             if not rows or rows[-1]["reply_id"] != reply_id:
                 return False

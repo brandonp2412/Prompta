@@ -13,7 +13,6 @@ import { pinReceiptConfirmed, readReceiptConfirmed } from "./localReceiptReconci
 import {
   acknowledgeExactReplyRequest,
   acknowledgeQueuedFollowupRequest,
-  pendingExactReplyRequest,
   pendingQueuedFollowupRequest,
 } from "./pendingExactReply";
 import {
@@ -114,7 +113,6 @@ export function createChatsPageController(initialProps: Props) {
   const detail = signal<RunDetail | null>(null);
   const turns = signal<LocalTurn[]>([]);
   const turnsError = signal("");
-  const recoveringReply = signal(false);
   const requestingManualRecovery = signal(false);
   const startingNewChatFromFailure = signal(false);
   const copyState = signal("");
@@ -920,44 +918,6 @@ export function createChatsPageController(initialProps: Props) {
     }
   }
 
-  async function recoverReply(sendId: string): Promise<{ messageId: string; issue?: string }> {
-    if (recoveringReply.value)
-      return { messageId: "", issue: "Exact-branch verification is already running." };
-    recoveringReply.value = true;
-    try {
-      // Only an explicit Send invokes this read-only, exact-branch verification.
-      const response = await localPost(
-        "./api/results/" + encodeURIComponent(sendId) + "/reply-recover",
-        {},
-        { timeoutMs: 90_000 },
-      );
-      if (!response.ok) {
-        if (response.status >= 500)
-          return {
-            messageId: "",
-            issue: "Exact-branch verification is temporarily unavailable. Nothing was sent.",
-          };
-        return {
-          messageId: "",
-          issue: await localRejectionDetail(response, "The saved branch cannot be verified yet."),
-        };
-      }
-      const recovered = (await response.json()) as { message_id?: string };
-      if (selectedRunId.value !== sendId) return { messageId: "" };
-      if (typeof recovered.message_id === "string" && recovered.message_id)
-        return { messageId: recovered.message_id };
-      return { messageId: "", issue: "Verification returned no assistant identity." };
-    } catch {
-      return {
-        messageId: "",
-        issue:
-          "Exact-branch verification timed out or lost its local connection. Nothing was sent.",
-      };
-    } finally {
-      recoveringReply.value = false;
-    }
-  }
-
   function freshContinuationPrompt(text: string): string {
     const lastResultIndex = turns.value.findLastIndex((turn) =>
       Boolean(turn.assistant_text.trim()),
@@ -1199,57 +1159,13 @@ export function createChatsPageController(initialProps: Props) {
         ok: false,
         fallbackAvailable: true,
         message:
-          "This chat has no verified ChatGPT conversation ID. Nothing was sent. Choose Continue in new chat to create a separate conversation with saved context.",
+          "This chat has no verified ChatGPT conversation ID. The reply cannot be revived on its original branch. Continue in a new chat instead.",
       };
     }
-    // Explicit Send is the sole trigger for recovering a persisted ChatGPT branch.
-    // Failed or partial response capture must never permanently lock the composer.
-    const verification = latest.message_id
-      ? { messageId: latest.message_id }
-      : await recoverReply(sendId);
-    const parentId = verification.messageId;
-    if (!parentId) {
-      if (selectedRunId.value !== sendId) {
-        return { ok: false, message: "The selected chat changed. Nothing was sent." };
-      }
-      return {
-        ok: false,
-        message:
-          (verification.issue ?? "The exact ChatGPT branch could not be verified yet.") +
-          " Press Send to retry later, or continue in a new chat.",
-        fallbackAvailable: true,
-      };
-    }
-    if (selectedRunId.value !== sendId) {
-      return { ok: false, message: "The selected chat changed. Nothing was sent." };
-    }
-    // Persist the immutable parent/text fingerprint before any possible dispatch.
-    // A lost response followed by a reload must reuse the same server receipt ID.
-    let request: Awaited<ReturnType<typeof pendingExactReplyRequest>>;
-    try {
-      request = await pendingExactReplyRequest(sendId, latest.conversation_id, parentId, text);
-    } catch (error) {
-      return {
-        ok: false,
-        message: receiptFailureMessage(
-          error,
-          "A durable reply ID could not be created. Nothing was sent.",
-        ),
-      };
-    }
-    if (selectedRunId.value !== sendId) {
-      return { ok: false, message: "The selected chat changed. Nothing was sent." };
-    }
-    return sendExactReply(
-      sendId,
-      {
-        reply_id: request.replyId,
-        conversation_id: latest.conversation_id,
-        parent_id: parentId,
-        text,
-      },
-      request,
-    );
+    // An explicit Send immediately persists an authorized, ordered follow-up.
+    // The durable reply worker recovers any missing assistant parent in the
+    // background; the composer never waits on ChatGPT history reads.
+    return queueEarlyReply(sendId, text);
   }
 
   async function sendExactReply(
@@ -1578,7 +1494,6 @@ export function createChatsPageController(initialProps: Props) {
     detail,
     turns,
     turnsError,
-    recoveringReply,
     requestingManualRecovery,
     requestManualRecovery,
     startingNewChatFromFailure,

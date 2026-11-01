@@ -12615,34 +12615,6 @@ function persist$1(items) {
 		throw new Error("Unresolved reply receipts cannot be saved in browser storage; nothing was sent.");
 	}
 }
-async function pendingExactReplyRequest(sendId, conversationId, parentId, text) {
-	const bytes = new TextEncoder().encode(JSON.stringify([
-		sendId,
-		conversationId,
-		parentId,
-		text
-	]));
-	const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
-	const fingerprint = Array.from(digest, (byte) => byte.toString(16).padStart(2, "0")).join("");
-	const saved = records$1();
-	const previous = saved.find((entry) => entry.fingerprint === fingerprint);
-	if (previous) return {
-		replyId: previous.replyId,
-		fingerprint,
-		reused: true
-	};
-	const replyId = crypto.randomUUID().replaceAll("-", "");
-	persist$1([...saved, {
-		fingerprint,
-		replyId,
-		createdAt: Date.now()
-	}]);
-	return {
-		replyId,
-		fingerprint,
-		reused: false
-	};
-}
 function acknowledgeExactReplyRequest(fingerprint, replyId) {
 	try {
 		persist$1(records$1().filter((entry) => entry.fingerprint !== fingerprint || entry.replyId !== replyId));
@@ -12921,7 +12893,6 @@ function createChatsPageController(initialProps) {
 	const detail = y$2(null);
 	const turns = y$2([]);
 	const turnsError = y$2("");
-	const recoveringReply = y$2(false);
 	const requestingManualRecovery = y$2(false);
 	const startingNewChatFromFailure = y$2(false);
 	const copyState = y$2("");
@@ -13494,40 +13465,6 @@ function createChatsPageController(initialProps) {
 			requestingManualRecovery.value = false;
 		}
 	}
-	async function recoverReply(sendId) {
-		if (recoveringReply.value) return {
-			messageId: "",
-			issue: "Exact-branch verification is already running."
-		};
-		recoveringReply.value = true;
-		try {
-			const response = await localPost("./api/results/" + encodeURIComponent(sendId) + "/reply-recover", {}, { timeoutMs: 9e4 });
-			if (!response.ok) {
-				if (response.status >= 500) return {
-					messageId: "",
-					issue: "Exact-branch verification is temporarily unavailable. Nothing was sent."
-				};
-				return {
-					messageId: "",
-					issue: await localRejectionDetail(response, "The saved branch cannot be verified yet.")
-				};
-			}
-			const recovered = await response.json();
-			if (selectedRunId.value !== sendId) return { messageId: "" };
-			if (typeof recovered.message_id === "string" && recovered.message_id) return { messageId: recovered.message_id };
-			return {
-				messageId: "",
-				issue: "Verification returned no assistant identity."
-			};
-		} catch {
-			return {
-				messageId: "",
-				issue: "Exact-branch verification timed out or lost its local connection. Nothing was sent."
-			};
-		} finally {
-			recoveringReply.value = false;
-		}
-	}
 	function freshContinuationPrompt(text) {
 		const lastResultIndex = turns.value.findLastIndex((turn) => Boolean(turn.assistant_text.trim()));
 		const lastResult = lastResultIndex >= 0 ? turns.value[lastResultIndex].assistant_text : "";
@@ -13704,44 +13641,9 @@ function createChatsPageController(initialProps) {
 		if (!latest.conversation_id) return {
 			ok: false,
 			fallbackAvailable: true,
-			message: "This chat has no verified ChatGPT conversation ID. Nothing was sent. Choose Continue in new chat to create a separate conversation with saved context."
+			message: "This chat has no verified ChatGPT conversation ID. The reply cannot be revived on its original branch. Continue in a new chat instead."
 		};
-		const verification = latest.message_id ? { messageId: latest.message_id } : await recoverReply(sendId);
-		const parentId = verification.messageId;
-		if (!parentId) {
-			if (selectedRunId.value !== sendId) return {
-				ok: false,
-				message: "The selected chat changed. Nothing was sent."
-			};
-			return {
-				ok: false,
-				message: (verification.issue ?? "The exact ChatGPT branch could not be verified yet.") + " Press Send to retry later, or continue in a new chat.",
-				fallbackAvailable: true
-			};
-		}
-		if (selectedRunId.value !== sendId) return {
-			ok: false,
-			message: "The selected chat changed. Nothing was sent."
-		};
-		let request;
-		try {
-			request = await pendingExactReplyRequest(sendId, latest.conversation_id, parentId, text);
-		} catch (error) {
-			return {
-				ok: false,
-				message: receiptFailureMessage(error, "A durable reply ID could not be created. Nothing was sent.")
-			};
-		}
-		if (selectedRunId.value !== sendId) return {
-			ok: false,
-			message: "The selected chat changed. Nothing was sent."
-		};
-		return sendExactReply(sendId, {
-			reply_id: request.replyId,
-			conversation_id: latest.conversation_id,
-			parent_id: parentId,
-			text
-		}, request);
+		return queueEarlyReply(sendId, text);
 	}
 	async function sendExactReply(sendId, payload, request) {
 		const accepted = async () => {
@@ -14015,7 +13917,6 @@ function createChatsPageController(initialProps) {
 		detail,
 		turns,
 		turnsError,
-		recoveringReply,
 		requestingManualRecovery,
 		requestManualRecovery,
 		startingNewChatFromFailure,
@@ -16120,6 +16021,44 @@ function createChatComposerController(initialProps) {
 	}
 	async function submit(useFallback = false) {
 		if (useFallback ? !canFallback.value : !canSend.value) return;
+		if (mode.value === "reply" && !useFallback) {
+			const submittedKey = draftStorageKey.value;
+			const submitted = draft.value;
+			const send = onSend.value;
+			clearComposerDraft(submittedKey);
+			clearComposerImages(submittedKey);
+			try {
+				if (submittedKey && localStorage.getItem(submittedKey) === submitted) localStorage.removeItem(submittedKey);
+			} catch {}
+			draft.value = "";
+			images.value = [];
+			hasLocalDraft.value = false;
+			feedback.value = "";
+			fallbackAvailable.value = false;
+			requestAnimationFrame(() => fitTextarea(true));
+			const restore = (reason, fallback = false) => {
+				const current = readComposerDraft(submittedKey) ?? "";
+				const restored = current ? submitted + "\n\n" + current : submitted;
+				rememberComposerDraft(submittedKey, restored);
+				if (draftStorageKey.value === submittedKey) {
+					draft.value = restored;
+					hasLocalDraft.value = true;
+					fallbackAvailable.value = fallback;
+					feedback.value = reason;
+					requestAnimationFrame(resizeTextarea);
+				}
+				try {
+					if (submittedKey) localStorage.setItem(submittedKey, restored);
+				} catch {}
+			};
+			try {
+				const result = await send(submitted, []);
+				if (!result.ok) restore(result.message, Boolean(result.fallbackAvailable));
+			} catch {
+				restore("Queue confirmation was lost. Your message was restored for safe reconciliation.");
+			}
+			return;
+		}
 		const submittedKey = draftStorageKey.value;
 		const generation = ++submissionGeneration;
 		const submitted = draft.value;
@@ -20638,6 +20577,12 @@ function ChatTranscript({ model, refs, conversationUrl }) {
 		if (copyState.value === "error:" + id) return "Copy failed";
 		return "Copy";
 	}
+	function queuedFollowupLabel(index) {
+		const preceding = turns.value[index - 1];
+		if (preceding?.status === "queued") return "Follow-up queued · waiting for earlier follow-up";
+		if (!preceding?.message_id) return "Follow-up queued · reviving chat";
+		return "Follow-up queued · waiting for the preceding response";
+	}
 	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 		className: "chat-transcript-shell",
 		children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
@@ -20743,7 +20688,7 @@ function ChatTranscript({ model, refs, conversationUrl }) {
 								})
 							] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [turn.status !== "generating" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
 								className: "no-response",
-								children: index > 0 && turn.status === "queued" ? "Follow-up queued · waiting for the preceding response" : turnStatus(turn.status)
+								children: index > 0 && turn.status === "queued" ? queuedFollowupLabel(index) : turnStatus(turn.status)
 							}), turn.status === "preflight_failed" && turn.reply_id && turn.conversation_id && turn.parent_id ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 								type: "button",
 								onClick: () => void retryFailedTurn(turn),
@@ -20926,7 +20871,7 @@ function ChatsPage(props) {
 			notify("Could not copy chat link", "error");
 		}
 	}
-	const { view, selectedRunId, newChatOpen, drawerOpen, filtersOpen, detail, turns, recoveringReply, jobsWorkspace, replyBlockedReason, selectedChatTitle, sendFresh, freshContinuationPrompt, originalImageRefs, sendReply, cancelSwipe, startSwipe, finishSwipe, createChat, escapeDrawer } = model;
+	const { view, selectedRunId, newChatOpen, drawerOpen, filtersOpen, detail, turns, jobsWorkspace, replyBlockedReason, selectedChatTitle, sendFresh, freshContinuationPrompt, originalImageRefs, sendReply, cancelSwipe, startSwipe, finishSwipe, createChat, escapeDrawer } = model;
 	const pageTitle = view.value === "jobs" ? "Jobs" : selectedChatTitle.value;
 	const conversationUrl = detail.value?.send_id === selectedRunId.value ? exactConversationUrl(turns.value.findLast((turn) => exactConversationUrl(turn.conversation_id))?.conversation_id || detail.value.conversation_id) : null;
 	const activeSelectedChat = canStopTurn(selectedRunId.value && detail.value?.send_id === selectedRunId.value ? turns.value.findLast((turn) => turn.status !== "cancelled") : void 0);
@@ -21079,7 +21024,7 @@ function ChatsPage(props) {
 						onNewChat: createChat,
 						restoreDraft: selectedRunId.value && detail.value?.send_id === selectedRunId.value && turns.value.at(-1)?.status === "preflight_failed" ? turns.value.at(-1)?.user_text ?? "" : "",
 						retryablePreflight: Boolean(selectedRunId.value && detail.value?.send_id === selectedRunId.value && turns.value.at(-1)?.status === "preflight_failed"),
-						sendDisabled: Boolean(selectedRunId.value && (detail.value?.send_id !== selectedRunId.value || replyBlockedReason.value || recoveringReply.value))
+						sendDisabled: Boolean(selectedRunId.value && (detail.value?.send_id !== selectedRunId.value || replyBlockedReason.value))
 					}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {})
 				]
 			})

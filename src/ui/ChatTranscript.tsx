@@ -62,6 +62,13 @@ export default function ChatTranscript({
     return "Copy";
   }
 
+  function queuedFollowupLabel(index: number) {
+    const preceding = turns.value[index - 1];
+    if (preceding?.status === "queued") return "Follow-up queued · waiting for earlier follow-up";
+    if (!preceding?.message_id) return "Follow-up queued · reviving chat";
+    return "Follow-up queued · waiting for the preceding response";
+  }
+
   return (
     <div className="chat-transcript-shell">
       <div
@@ -237,7 +244,7 @@ export default function ChatTranscript({
                         {turn.status !== "generating" && (
                           <p className="no-response">
                             {index > 0 && turn.status === "queued"
-                              ? "Follow-up queued · waiting for the preceding response"
+                              ? queuedFollowupLabel(index)
                               : turnStatus(turn.status)}
                           </p>
                         )}

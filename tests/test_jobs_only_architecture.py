@@ -31,7 +31,8 @@ def test_ui_keeps_jobs_and_forbids_unsafe_chat_actions() -> None:
     local_reads = Path("src/ui/localRead.ts").read_text()
     assert 'cache: "no-store"' in local_reads
     assert "AbortSignal.timeout" in local_reads
-    assert '"./api/results/" + encodeURIComponent(sendId) + "/reply-recover"' in controller
+    assert '"./api/results/" + encodeURIComponent(sendId) + "/reply-queue"' in controller
+    assert '"./api/results/" + encodeURIComponent(sendId) + "/reply-recover"' not in controller
     assert re.search(r"localStorage\.setItem\(\s*preferencesKey", controller)
     assert re.search(r'localPost\(\s*"\./api/local-chat-pins"', controller)
     local_mutations = Path("src/ui/localMutation.ts").read_text()

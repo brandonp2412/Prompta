@@ -334,23 +334,23 @@ def test_existing_chat_reply_composer_is_explicit_and_branch_bound(
             path.chmod(0o600)
             assert page.evaluate("document.documentElement.scrollWidth <= innerWidth + 1")
             with page.expect_response(
-                lambda response: response.url.endswith("/reply-send")
+                lambda response: response.url.endswith("/reply-queue")
             ) as sent:
                 composer.press("Enter")
             assert sent.value.status == 202
             page.locator(".message-group.user-group").nth(1).wait_for()
             persisted = app.replies.turns("run-1") or []
             assert len(persisted) == 2
-            assert persisted[-1]["status"] == "prepared"
+            assert persisted[-1]["status"] == "queued"
             assert persisted[-1]["queued_by_user"] is True
-            assert persisted[-1]["conversation_id"] == conversation_id
-            assert persisted[-1]["parent_id"] == parent_id
-            assert recoveries == (["run-1"] if missing_parent else [])
+            assert persisted[-1]["conversation_id"] == ""
+            assert persisted[-1]["parent_id"] == ""
+            assert recoveries == []
             assert len(
                 [1 for method, url in observed if method == "POST" and "/reply-recover" in url]
-            ) == int(missing_parent)
+            ) == 0
             assert (
-                len([1 for method, url in observed if method == "POST" and "/reply-send" in url])
+                len([1 for method, url in observed if method == "POST" and "/reply-queue" in url])
                 == 1
             )
             assert page.get_by_role("button", name="Reply to this chat").count() == 0
@@ -359,7 +359,7 @@ def test_existing_chat_reply_composer_is_explicit_and_branch_bound(
             expect(composer).to_be_enabled()
             expect(composer).to_have_value("")
             expect(
-                page.locator(".chat-composer-wrap").get_by_role("button", name="New chat")
+                page.locator(".chat-composer-wrap").get_by_role("button", name="Stop generating")
             ).to_be_enabled()
             # Acknowledged prepared replies survive reload in the transcript,
             # not the composer: replay must require a separate explicit intent.
@@ -369,12 +369,12 @@ def test_existing_chat_reply_composer_is_explicit_and_branch_bound(
             expect(page.locator(".message-group.user-group")).to_have_count(2)
             persisted = app.replies.turns("run-1") or []
             assert len(persisted) == 2
-            assert persisted[-1]["status"] == "prepared"
+            assert persisted[-1]["status"] == "queued"
             assert persisted[-1]["queued_by_user"] is True
-            assert persisted[-1]["conversation_id"] == conversation_id
-            assert persisted[-1]["parent_id"] == parent_id
+            assert persisted[-1]["conversation_id"] == ""
+            assert persisted[-1]["parent_id"] == ""
             assert (
-                len([1 for method, url in observed if method == "POST" and "/reply-send" in url])
+                len([1 for method, url in observed if method == "POST" and "/reply-queue" in url])
                 == 1
             )
             assert all(url.startswith(f"http://127.0.0.1:{port}/") for _, url in observed)

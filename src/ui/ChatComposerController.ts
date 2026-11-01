@@ -232,6 +232,54 @@ export function createChatComposerController(initialProps: Props) {
 
   async function submit(useFallback = false) {
     if (useFallback ? !canFallback.value : !canSend.value) return;
+    if (mode.value === "reply" && !useFallback) {
+      // A reply click is consent to queue and revive its branch. Free the
+      // composer synchronously; branch verification and delivery are worker
+      // concerns, not a pending send-button state.
+      const submittedKey = draftStorageKey.value;
+      const submitted = draft.value;
+      const send = onSend.value;
+      clearComposerDraft(submittedKey);
+      clearComposerImages(submittedKey);
+      try {
+        if (submittedKey && localStorage.getItem(submittedKey) === submitted)
+          localStorage.removeItem(submittedKey);
+      } catch {
+        /* Storage may be unavailable. */
+      }
+      draft.value = "";
+      images.value = [];
+      hasLocalDraft.value = false;
+      feedback.value = "";
+      fallbackAvailable.value = false;
+      requestAnimationFrame(() => fitTextarea(true));
+      const restore = (reason: string, fallback = false) => {
+        // The POST may have failed before SQLite accepted it. Never drop the
+        // text, even if another draft was composed in the meantime.
+        const current = readComposerDraft(submittedKey) ?? "";
+        const restored = current ? submitted + "\n\n" + current : submitted;
+        rememberComposerDraft(submittedKey, restored);
+        if (draftStorageKey.value === submittedKey) {
+          draft.value = restored;
+          hasLocalDraft.value = true;
+          fallbackAvailable.value = fallback;
+          feedback.value = reason;
+          requestAnimationFrame(resizeTextarea);
+        }
+        try {
+          if (submittedKey) localStorage.setItem(submittedKey, restored);
+        } catch {
+          /* Retained in memory when persistent storage is blocked. */
+        }
+      };
+      try {
+        const result = await send(submitted, []);
+        if (!result.ok) restore(result.message, Boolean(result.fallbackAvailable));
+      } catch {
+        restore("Queue confirmation was lost. Your message was restored for safe reconciliation.");
+      }
+      return;
+    }
     const submittedKey = draftStorageKey.value;
     const generation = ++submissionGeneration;
     const submitted = draft.value;

@@ -111,6 +111,8 @@ class ManualReplyDispatcher:
         self.state_path = state_path
         self._active: set[str] = set()
         self._recovering: set[str] = set()
+        self._recovery_scheduled: set[str] = set()
+        self._recovery_retry_after: dict[str, float] = {}
         self._lock = threading.Lock()
 
     def submit(self, send_id: str, intent: ReplyIntent) -> dict[str, object]:
@@ -154,6 +156,7 @@ class ManualReplyDispatcher:
         """
         if DeploymentGate(self.state_path).is_paused():
             return
+        self._schedule_queued_parent_recovery()
         selected: set[str] = set()
         for _ in range(_MAX_QUEUED_REPLY_DISPATCHES):
             if self.active_count() >= _MAX_QUEUED_REPLY_DISPATCHES:
@@ -169,8 +172,44 @@ class ManualReplyDispatcher:
                 # A concurrent explicit request may already own this turn.
                 continue
 
+    def _schedule_queued_parent_recovery(self) -> None:
+        # A queued reply is explicit consent to reopen its exact branch.
+        # Recovery runs off the 1s queue-pump path and never dispatches a send;
+        # only next_queued_intent can authorize dispatch after verified lineage.
+        for send_id in self.store.queued_recovery_candidates():
+            with self._lock:
+                if (send_id in self._recovery_scheduled or send_id in self._recovering
+                        or time.monotonic() < self._recovery_retry_after.get(send_id, 0)
+                        or len(self._recovery_scheduled) >= 1):
+                    continue
+                self._recovery_scheduled.add(send_id)
+            try:
+                threading.Thread(
+                    target=self._recover_queued_parent,
+                    args=(send_id,),
+                    name="prompta-queued-reply-recovery",
+                    daemon=True,
+                ).start()
+            except RuntimeError:
+                with self._lock:
+                    self._recovery_scheduled.discard(send_id)
+                logger.warning("Queued reply recovery thread unavailable")
+            return
+
+    def _recover_queued_parent(self, send_id: str) -> None:
+        try:
+            self.recover(send_id)
+        except (ReplyConflict, PatchrightError, RuntimeError, TimeoutError) as exc:
+            logger.info("Queued reply parent recovery pending error_type=%s", type(exc).__name__)
+        except Exception as exc:
+            logger.warning("Queued reply parent recovery failed error_type=%s", type(exc).__name__)
+        finally:
+            with self._lock:
+                self._recovery_scheduled.discard(send_id)
+                self._recovery_retry_after[send_id] = time.monotonic() + 30.0
+
     def recover(self, send_id: str) -> dict[str, str]:
-        """Only an explicit UI POST can inspect the exact persisted branch."""
+        """Inspect the exact branch after a direct click or a queued reply consent."""
         with self._lock:
             if send_id in self._recovering:
                 raise ReplyConflict("This chat's reply identity is already being verified")
@@ -182,11 +221,13 @@ class ManualReplyDispatcher:
                 self._recovering.discard(send_id)
 
     async def _recover_exact_parent(self, send_id: str) -> dict[str, str]:
-        turns = self.store.turns(send_id)
+        # Ignore later unsent follow-ups: their durable presence must not
+        # prevent verifying the preceding assistant message.
+        turns = [turn for turn in (self.store.turns(send_id) or []) if turn["status"] != "queued"]
         if not turns:
             raise ReplyConflict("A saved Prompta chat is required")
         latest = turns[-1]
-        if latest["status"] not in ("completed", "interrupted", "unavailable", "outcome_unknown"):
+        if latest["status"] not in ("completed", "interrupted", "unavailable", "outcome_unknown", "stopped"):
             raise ReplyConflict("A terminal Prompta turn is required")
         conversation_id = str(latest.get("conversation_id") or "")
         answer = str(latest["assistant_text"])

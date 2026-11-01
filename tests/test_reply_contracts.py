@@ -456,3 +456,103 @@ def test_manual_tip_recovery_after_uncertain_send(tmp_path: Path) -> None:
         "run", ReplyIntent("reply-99999999999999", conversation, recovered_id, "Continue"),
         now=205,
     )["status"] == "prepared"
+
+
+def test_queued_reply_authorizes_background_original_parent_recovery(tmp_path: Path) -> None:
+    store = ManualReplyStore(tmp_path / "queued-revival.sqlite3")
+    conversation = "00000000-0000-4000-8000-000000000001"
+    parent = "00000000-0000-4000-8000-000000000002"
+    reply_id = "queued-revival-1111111111"
+    store.responses.ensure_queued("run", "Original prompt", now=10)
+    assert store.responses.accept("run", "test:owner", deadline=100, now=11)
+    assert store.responses.write(
+        "run", "test:owner",
+        CaptureResult("dom", "complete", "Original answer", conversation,
+                      None, None, "rendered:assistant"), now=12,
+    )
+    assert store.queue_followup("run", reply_id, "Revive and continue", now=13)["status"] == "queued"
+    assert store.queued_recovery_candidates() == ["run"]
+    assert store.next_queued_intent() is None
+    assert not store.recover_original_parent("run", conversation, parent, "Wrong answer")
+    assert store.recover_original_parent("run", conversation, parent, "Original answer")
+    assert store.queued_recovery_candidates() == []
+    assert store.next_queued_intent() == (
+        "run", ReplyIntent(reply_id, conversation, parent, "Revive and continue"),
+    )
+
+
+def test_queued_reply_recovers_uncertain_manual_tip_without_resending_it(tmp_path: Path) -> None:
+    store = ManualReplyStore(tmp_path / "queued-tip-revival.sqlite3")
+    conversation = "00000000-0000-4000-8000-000000000001"
+    original_id = "00000000-0000-4000-8000-000000000002"
+    recovered_id = "00000000-0000-4000-8000-000000000003"
+    store.responses.ensure_queued("run", "Original", now=10)
+    assert store.responses.accept("run", "test:owner", deadline=200, now=11)
+    assert store.responses.write(
+        "run", "test:owner",
+        CaptureResult("sse", "complete", "Answer", conversation,
+                      original_id, "00000000-0000-4000-8000-000000000004"), now=12,
+    )
+    previous = ReplyIntent("uncertain-reply-11111111", conversation, original_id, "Before revival")
+    store.prepare("run", previous, now=13)
+    assert store.claim(previous.reply_id, "dead:worker", deadline=20, now=14)
+    assert store.recover_orphans(now=30) == 1
+    queued_id = "queued-revival-2222222222"
+    assert store.queue_followup("run", queued_id, "Next request", now=31)["status"] == "queued"
+    assert store.queued_recovery_candidates() == ["run"]
+    assert store.recover_reply_parent(
+        "run", previous.reply_id, conversation, original_id, "Before revival", "", recovered_id,
+    )
+    assert store.next_queued_intent() == (
+        "run", ReplyIntent(queued_id, conversation, recovered_id, "Next request"),
+    )
+
+
+def test_queued_reply_pump_recovers_missing_parent_in_background(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import threading
+
+    from prompta.manual_reply_dispatch import ManualReplyDispatcher
+
+    store = ManualReplyStore(tmp_path / "queued-worker.sqlite3")
+    conversation = "00000000-0000-4000-8000-000000000001"
+    parent = "00000000-0000-4000-8000-000000000002"
+    store.responses.ensure_queued("run", "Original", now=10)
+    assert store.responses.accept("run", "test:owner", deadline=100, now=11)
+    assert store.responses.write(
+        "run", "test:owner", CaptureResult(
+            "dom", "complete", "Answer", conversation, None, None, "rendered:assistant",
+        ), now=12,
+    )
+    queued_id = "queued-worker-1111111111"
+    store.queue_followup("run", queued_id, "Continue", now=13)
+    dispatcher = ManualReplyDispatcher(store, tmp_path / "state.sqlite3")
+    verified = threading.Event()
+    release = threading.Event()
+    dispatched: list[ReplyIntent] = []
+
+    def recover(send_id: str) -> dict[str, str]:
+        assert send_id == "run"
+        verified.set()
+        assert release.wait(2)
+        assert store.recover_original_parent(send_id, conversation, parent, "Answer")
+        return {"message_id": parent}
+
+    def submit(send_id: str, intent: ReplyIntent) -> dict[str, object]:
+        assert send_id == "run"
+        dispatched.append(intent)
+        return {"status": "prepared"}
+
+    monkeypatch.setattr(dispatcher, "recover", recover)
+    monkeypatch.setattr(dispatcher, "submit", submit)
+    dispatcher.pump_queued()
+    assert verified.wait(2)
+    assert not dispatched  # The branch must be verified before any send.
+    release.set()
+    for _ in range(100):
+        if not dispatcher._recovery_scheduled:
+            break
+        time.sleep(0.01)
+    dispatcher.pump_queued()
+    assert dispatched == [ReplyIntent(queued_id, conversation, parent, "Continue")]

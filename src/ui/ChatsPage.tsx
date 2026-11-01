@@ -63,7 +63,6 @@ export default function ChatsPage(props: Props & { serverName: string }) {
     filtersOpen,
     detail,
     turns,
-    recoveringReply,
     jobsWorkspace,
     replyBlockedReason,
     selectedChatTitle,
@@ -278,9 +277,7 @@ export default function ChatsPage(props: Props & { serverName: string }) {
                 )}
                 sendDisabled={Boolean(
                   selectedRunId.value &&
-                  (detail.value?.send_id !== selectedRunId.value ||
-                    replyBlockedReason.value ||
-                    recoveringReply.value),
+                  (detail.value?.send_id !== selectedRunId.value || replyBlockedReason.value),
                 )}
               ></ChatComposer>
             </>
