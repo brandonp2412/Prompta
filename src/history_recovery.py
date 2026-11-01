@@ -17,6 +17,7 @@ from uuid import UUID
 from patchright.async_api import Error as PatchrightError
 
 from .browser_script_loader import load_browser_script
+from .deployment_gate import DeploymentGate
 from .patchright_driver import BrowserSecurityChallengeError
 from .rate_limit import RateLimitError, is_rate_limited_text
 from .reply_contracts import ManualReplyStore
@@ -274,8 +275,10 @@ def run_history_recovery(
                     # The global pacing clock advances for each attempted scan.
                     if (results.next_history_recovery() is not None
                             or recovery.replies.next_history_reply_recovery() is not None):
-                        last_checked_at = current
-                        recovery.recover_once()
+                        with DeploymentGate(results.path).admission() as deploy_allowed:
+                            if deploy_allowed:
+                                last_checked_at = current
+                                recovery.recover_once()
         except Exception as exc:
             last_checked_at = time.monotonic()
             logger.warning("Historical recovery loop will retry error_type=%s", type(exc).__name__)

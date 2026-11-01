@@ -17,6 +17,7 @@ from patchright.async_api import Error as PatchrightError
 from .browser_ownership import MAX_OWNED_TAB_AGE_SECONDS
 from .browser_script_loader import load_browser_script
 from .delivery_browser import BrowserDeliverySender
+from .deployment_gate import DeploymentGate
 from .patchright_driver import PatchrightDriver, _normalise_composer_text
 from .rate_limit import RateLimitError
 from .reply_contracts import ManualReplyStore, ReplyConflict, ReplyIntent
@@ -134,6 +135,8 @@ class ManualReplyDispatcher:
         intent that was never claimed can be resumed; failed preflights and
         ambiguous submissions are never automatically retried.
         """
+        if DeploymentGate(self.state_path).is_paused():
+            return
         selected: set[str] = set()
         for _ in range(_MAX_QUEUED_REPLY_DISPATCHES):
             if self.active_count() >= _MAX_QUEUED_REPLY_DISPATCHES:
@@ -260,11 +263,17 @@ class ManualReplyDispatcher:
 
     def _run(self, turn: dict[str, object]) -> None:
         try:
-            asyncio.run(self._dispatch(turn))
-        except Exception as exc:
-            # Never log the submitted text, provider response, or browser URL.
-            logger.warning("Explicit reply dispatch stopped error_type=%s", type(exc).__name__)
-            self.store.mark_preflight_failed(str(turn["reply_id"]))
+            with DeploymentGate(self.state_path).admission() as deploy_allowed:
+                if not deploy_allowed:
+                    return  # Remains durably prepared for the worker after deploy.
+                try:
+                    asyncio.run(self._dispatch(turn))
+                except Exception as exc:
+                    # Never log submitted text, provider response or browser URL.
+                    logger.warning(
+                        "Explicit reply dispatch stopped error_type=%s", type(exc).__name__
+                    )
+                    self.store.mark_preflight_failed(str(turn["reply_id"]))
         finally:
             with self._lock:
                 self._active.discard(str(turn["reply_id"]))
