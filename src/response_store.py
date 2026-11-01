@@ -13,6 +13,7 @@ from sqlalchemy.dialects.sqlite import insert
 from sqlalchemy.engine import Engine, RowMapping
 from sqlalchemy.pool import NullPool
 
+from .reply_tables import replies
 from .response_capture import CaptureResult, conversation_id_from_path
 from .response_tables import (
     _attention_filter,
@@ -49,7 +50,20 @@ def _alive(owner: str) -> bool:
     return True
 
 
+# Sidebar position tracks a deliberate user message, not capture/recovery metadata.
+# In particular, read-only historical recovery advances updated_at on older runs.
+_REPLY_ACTIVITY_AT = (
+    select(func.max(replies.c.created_at))
+    .where(replies.c.send_id == results.c.send_id, replies.c.queued_by_user.is_(True))
+    .correlate(results)
+    .scalar_subquery()
+)
+_ACTIVITY_AT = func.max(
+    results.c.created_at, func.coalesce(_REPLY_ACTIVITY_AT, results.c.created_at),
+).label("activity_at")
+
 _SUMMARY_COLUMNS = (
+    _ACTIVITY_AT,
     results.c.send_id,
     results.c.job_name,
     func.substr(results.c.user_text, 1, 180).label("user_preview"),
@@ -69,7 +83,8 @@ def _summary(row: RowMapping) -> dict[str, object]:
         "send_id": row["send_id"], "job_name": row["job_name"], "title": title,
         "status": row["status"], "preview": (answer or prompt)[:180],
         "has_response": bool(answer), "created_at": row["created_at"],
-        "updated_at": row["updated_at"], "finished_at": row["finished_at"],
+        "activity_at": row["activity_at"], "updated_at": row["updated_at"],
+        "finished_at": row["finished_at"],
     }
 
 
@@ -788,7 +803,7 @@ class ResponseStore:
             count = connection.execute(select(func.count()).select_from(results).where(*criteria)).scalar_one()
             rows = connection.execute(
                 select(*_SUMMARY_COLUMNS)
-                .where(*criteria).order_by(results.c.created_at.desc(), results.c.send_id.desc())
+                .where(*criteria).order_by(_ACTIVITY_AT.desc(), results.c.created_at.desc(), results.c.send_id.desc())
                 .limit(limit).offset(offset)
             ).mappings().all()
         return {"items": [_summary(row) for row in rows], "total": count, "limit": limit, "offset": offset}

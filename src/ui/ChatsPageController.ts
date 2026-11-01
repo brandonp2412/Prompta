@@ -137,9 +137,9 @@ export function createChatsPageController(initialProps: Props) {
   let searchTimer: ReturnType<typeof setTimeout> | undefined;
   let liveRefreshTimer: ReturnType<typeof setTimeout> | undefined;
   const newestFirst = (a: RunSummary, b: RunSummary) =>
-    (b.updated_at || b.created_at) - (a.updated_at || a.created_at) ||
+    (b.activity_at ?? b.created_at) - (a.activity_at ?? a.created_at) ||
     b.created_at - a.created_at ||
-    a.send_id.localeCompare(b.send_id);
+    b.send_id.localeCompare(a.send_id);
   const visibleWaiting = computed(() =>
     statusFilter.value && statusFilter.value !== "queued"
       ? []

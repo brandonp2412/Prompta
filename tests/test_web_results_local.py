@@ -86,6 +86,41 @@ def test_attention_filter_marks_interrupted_chats_in_react_sidebar(
                 browser.close()
 
 
+def test_sidebar_order_uses_user_activity_not_recovery_updates(tmp_path: Path) -> None:
+    from sqlalchemy import update
+
+    from prompta.response_store import results as result_table
+
+    with server(tmp_path) as (app, port):
+        completed_run(app, "old", "Old chat", 100)
+        completed_run(app, "new", "New chat", 200)
+        # The recovery worker changes updated_at without any user interaction.
+        with app.results.engine.begin() as connection:
+            connection.execute(
+                update(result_table)
+                .where(result_table.c.send_id == "old")
+                .values(updated_at=900, source="history_dom")
+            )
+
+        def page_row(offset: int) -> dict[str, object]:
+            items = get(port, f"/api/results?limit=1&offset={offset}")[1]["items"]
+            assert isinstance(items, list) and len(items) == 1
+            row = string_object_dict(items[0])
+            assert row is not None
+            return row
+
+        first, second = page_row(0), page_row(1)
+        assert [first["send_id"], second["send_id"]] == ["new", "old"]
+        assert second["activity_at"] == 100
+        assert second["updated_at"] == 900
+
+        # Only an explicitly queued user message should move the older chat.
+        app.replies.queue_followup("old", "reply-activity-001", "Follow-up", now=300)
+        first, second = page_row(0), page_row(1)
+        assert [first["send_id"], second["send_id"]] == ["old", "new"]
+        assert first["activity_at"] == 300
+
+
 def test_results_api_lists_only_local_runs_with_filter_search_and_pagination(
     tmp_path: Path,
 ) -> None:

@@ -13,6 +13,38 @@ from web_results_support import completed_run, server
 from prompta.response_capture import CaptureResult
 
 
+def test_recovery_update_does_not_reorder_sidebar_but_user_followup_does(tmp_path: Path) -> None:
+    from sqlalchemy import update
+
+    from prompta.response_store import results as result_table
+
+    executable = os.environ.get("PROMPTA_TEST_CHROMIUM", "")
+    if not executable or not Path(executable).exists():
+        pytest.skip("Headless Chromium unavailable")
+    now = time.time()
+    with server(tmp_path) as (app, port), sync_patchright() as patchright:
+        completed_run(app, "old-run", "Old chat", now - 500)
+        completed_run(app, "new-run", "New chat", now - 100)
+        with app.results.engine.begin() as connection:
+            connection.execute(
+                update(result_table)
+                .where(result_table.c.send_id == "old-run")
+                .values(updated_at=now, source="history_dom")
+            )
+        browser = patchright.chromium.launch(executable_path=executable, headless=True)
+        page = browser.new_page(viewport={"width": 1440, "height": 900})
+        page.route("**/api/events", lambda route: route.abort())
+        page.goto(f"http://127.0.0.1:{port}/?view=chats")
+        rows = page.locator(".chats-list .chat-row")
+        expect(rows).to_have_count(2)
+        expect(rows.first).to_contain_text("New chat")
+
+        app.replies.queue_followup("old-run", "sidebar-followup-001", "Follow-up", now=now + 1)
+        page.evaluate("window.dispatchEvent(new Event('online'))")
+        expect(rows.first).to_contain_text("Old chat")
+        browser.close()
+
+
 @pytest.mark.parametrize("width,height", [(1440, 900), (390, 844)])
 def test_status_filtered_chat_disappears_after_completion(
     tmp_path: Path, width: int, height: int,

@@ -22,9 +22,9 @@ export function reconcileResultPage(
   return [...byId.values()]
     .sort(
       (a, b) =>
-        (b.updated_at || b.created_at) - (a.updated_at || a.created_at) ||
+        (b.activity_at ?? b.created_at) - (a.activity_at ?? a.created_at) ||
         b.created_at - a.created_at ||
-        a.send_id.localeCompare(b.send_id),
+        b.send_id.localeCompare(a.send_id),
     )
     .slice(0, Math.max(0, total));
 }

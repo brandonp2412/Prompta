@@ -62,8 +62,19 @@ test("a new first page updates rows without duplicates and respects the server t
     2,
     "",
   );
-  expect(next.map((row) => row.send_id)).toEqual(["same", "newer"]);
+  expect(next.map((row) => row.send_id)).toEqual(["newer", "same"]);
   expect(next.find((row) => row.send_id === "same")?.status).toBe("completed");
+});
+
+test("background recovery never bumps an old chat, but a user follow-up does", () => {
+  const recovered = item("recovered", "interrupted", 100, 900);
+  const recent = item("recent", "completed", 200, 200);
+  expect(reconcileResultPage([], [recovered, recent], 2, 20, "").map((row) => row.send_id))
+    .toEqual(["recent", "recovered"]);
+
+  const replied = { ...recovered, activity_at: 300 };
+  expect(reconcileResultPage([], [replied, recent], 2, 20, "").map((row) => row.send_id))
+    .toEqual(["recovered", "recent"]);
 });
 
 test("stalled pagination halts automatic refetch until an explicit retry", () => {

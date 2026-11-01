@@ -22,6 +22,7 @@ export type RunSummary = {
   last_read_revision: string;
   last_reply_at: number;
   created_at: number;
+  activity_at?: number;
   updated_at: number;
   finished_at: number;
 };
