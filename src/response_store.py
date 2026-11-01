@@ -14,6 +14,7 @@ from sqlalchemy.dialects.sqlite import insert
 from sqlalchemy.engine import Engine, RowMapping
 from sqlalchemy.pool import NullPool
 
+from .display_blocks_store import deserialize_display_blocks, merge_display_blocks
 from .reply_tables import replies
 from .response_capture import CaptureResult, conversation_id_from_path
 from .response_tables import (
@@ -182,6 +183,7 @@ class ResponseStore:
                 source="dom",
                 assistant_text=capture.text[:_MAX_TEXT],
                 tool_calls_json=merge_tool_calls("[]", capture.tool_calls),
+                display_blocks_json=merge_display_blocks("[]", capture.display_blocks),
                 conversation_id=capture.conversation_id,
                 message_id=message_id,
                 parent_id=capture.parent_id or "",
@@ -255,6 +257,7 @@ class ResponseStore:
             )
             prior = str(row["assistant_text"])
             tool_json = merge_tool_calls(row["tool_calls_json"], capture.tool_calls)
+            blocks_json = merge_display_blocks(row["display_blocks_json"], capture.display_blocks)
             if not text:
                 # Tool-only snapshots can carry the first verified branch IDs.
                 # Persist them even if the tools did not change; otherwise a
@@ -267,7 +270,9 @@ class ResponseStore:
                         ("parent_id", capture.parent_id),
                     )
                 )
-                if tool_json == row["tool_calls_json"] and identities_unchanged:
+                if (tool_json == row["tool_calls_json"]
+                        and blocks_json == row["display_blocks_json"]
+                        and identities_unchanged):
                     return True
                 changed = connection.execute(update(results).where(
                     results.c.send_id == send_id,
@@ -276,6 +281,7 @@ class ResponseStore:
                     results.c.capture_deadline > at,
                 ).values(
                     tool_calls_json=tool_json,
+                    display_blocks_json=blocks_json,
                     conversation_id=capture.conversation_id or row["conversation_id"],
                     message_id=capture.message_id or row["message_id"],
                     parent_id=capture.parent_id or row["parent_id"],
@@ -291,6 +297,7 @@ class ResponseStore:
                 and row["status"] == "generating"
                 and text == prior
                 and tool_json == row["tool_calls_json"]
+                and blocks_json == row["display_blocks_json"]
                 and row["source"] == capture.source
                 and (not capture.conversation_id or row["conversation_id"] == capture.conversation_id)
                 and (not capture.message_id or row["message_id"] == capture.message_id)
@@ -307,6 +314,7 @@ class ResponseStore:
                 ).values(
                     assistant_text=text,
                     tool_calls_json=tool_json,
+                    display_blocks_json=blocks_json,
                     status="completed" if complete else "generating",
                     source=capture.source if complete or len(text) >= len(prior) else row["source"],
                     conversation_id=capture.conversation_id or row["conversation_id"],
@@ -830,6 +838,7 @@ class ResponseStore:
             ).values(
                 assistant_text=text, source="history_dom",
                 tool_calls_json=merge_tool_calls(row["tool_calls_json"], capture.tool_calls),
+                display_blocks_json=merge_display_blocks(row["display_blocks_json"], capture.display_blocks),
                 message_id=capture.message_id or row["message_id"],
                 parent_id=capture.parent_id or row["parent_id"],
                 status="completed" if complete else row["status"],
@@ -893,6 +902,7 @@ class ResponseStore:
             "created_at", "accepted_at", "updated_at", "finished_at",
         )}
         detail["tool_calls"] = deserialize_tool_calls(row["tool_calls_json"])
+        detail["display_blocks"] = deserialize_display_blocks(row["display_blocks_json"])
         detail["manual_recovery_pending"] = self.manual_recovery_pending(send_id)
         # Recovery is read-only and rate-limited. Expose its persisted schedule
         # so users can distinguish a pending check from a silent failure.

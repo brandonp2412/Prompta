@@ -12,7 +12,7 @@
 
   const visible = (element) => element.isConnected && element.getClientRects().length > 0 && getComputedStyle(element).visibility !== "hidden";
   // Preserve visible response headings, lists, tables and code as Markdown.
-  // Only the newly owned final-answer node is read; no history or HTTP requests.
+  // Only newly owned, rendered response units are read; no history or HTTP requests.
   /* PROMPTA_MARKDOWN_FROM_DOM */
   const identity = (element) => {
     const legacy = element.getAttribute("data-message-id");
@@ -43,7 +43,7 @@
   let ambiguous = false;
   let result = { message_id: "", branch_message_id: "", pathname: "", text: "", complete: false, ambiguous: false };
   const publish = () => {
-    const signature = `${result.message_id}:${result.branch_message_id}:${result.pathname}:${result.complete}:${result.ambiguous}:${result.text}:${JSON.stringify(result.tool_calls || [])}`;
+    const signature = `${result.message_id}:${result.branch_message_id}:${result.pathname}:${result.complete}:${result.ambiguous}:${result.text}:${JSON.stringify(result.tool_calls || [])}:${JSON.stringify(result.display_blocks || [])}}`;
     if (signature !== published && typeof window.__promptaPassiveUpdate === "function") {
       published = signature;
       Promise.resolve(window.__promptaPassiveUpdate({ ...result })).catch(() => {});
@@ -65,7 +65,8 @@
     observedId = nextId;
     const segments = fresh.map((element) => {
       const roots = [...element.querySelectorAll(markdownSelector)].filter((root) =>
-        !root.parentElement?.closest(markdownSelector) && visible(root));
+        !root.parentElement?.closest(markdownSelector) &&
+        !root.closest('[data-testid*="reasoning"], [data-testid*="thought"], [data-testid*="thinking"], [data-testid*="tool-call"], [data-testid*="tool-result"]') && visible(root));
       return roots.map(markdownFromRoot).filter(Boolean).join("\n\n").trim();
     });
     // Aggregate separate user-visible final chunks of the SAME reply turn.
@@ -81,6 +82,7 @@
     }
     const turns = fresh.map(responseTurnRoot);
     const tool_calls = toolCallsFromTurns(turns, visible, markdownSelector);
+    const display_blocks = displayBlocksFromUnits(fresh, visible, markdownSelector);
     const copyReady = turns.some((turn) => [...turn.querySelectorAll(copySelector)].some(visible));
     const streaming = turns.some((turn) =>
       !!turn.querySelector('[data-is-streaming="true"], .result-streaming'));
@@ -97,6 +99,7 @@
       complete,
       ambiguous: false,
       tool_calls,
+      display_blocks,
     };
     // Emit only mutation-coalesced changes over Patchright's in-page binding.
     // No network request, periodic polling, or alternate conversation access.

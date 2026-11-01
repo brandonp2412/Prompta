@@ -21,6 +21,7 @@ const markdown = (text) => ({
   isConnected: true,
   getClientRects: () => [{}],
   parentElement: null,
+  closest: () => null,
 });
 const makeMessage = (id, text, copy = false) => {
   const region = markdown(text);
