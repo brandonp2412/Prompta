@@ -21,7 +21,7 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 	enumerable: true
 }) : target, mod));
 //#endregion
-//#region ../../prompta/node_modules/scheduler/cjs/scheduler.production.js
+//#region node_modules/scheduler/cjs/scheduler.production.js
 /**
 * @license React
 * scheduler.production.js
@@ -276,12 +276,12 @@ var require_scheduler_production = /* @__PURE__ */ __commonJSMin(((exports) => {
 	};
 }));
 //#endregion
-//#region ../../prompta/node_modules/scheduler/index.js
+//#region node_modules/scheduler/index.js
 var require_scheduler = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_scheduler_production();
 }));
 //#endregion
-//#region ../../prompta/node_modules/react/cjs/react.production.js
+//#region node_modules/react/cjs/react.production.js
 /**
 * @license React
 * react.production.js
@@ -668,12 +668,12 @@ var require_react_production = /* @__PURE__ */ __commonJSMin(((exports) => {
 	exports.version = "19.3.1";
 }));
 //#endregion
-//#region ../../prompta/node_modules/react/index.js
+//#region node_modules/react/index.js
 var require_react = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_react_production();
 }));
 //#endregion
-//#region ../../prompta/node_modules/react-dom/cjs/react-dom.production.js
+//#region node_modules/react-dom/cjs/react-dom.production.js
 /**
 * @license React
 * react-dom.production.js
@@ -826,7 +826,7 @@ var require_react_dom_production = /* @__PURE__ */ __commonJSMin(((exports) => {
 	exports.version = "19.3.1";
 }));
 //#endregion
-//#region ../../prompta/node_modules/react-dom/index.js
+//#region node_modules/react-dom/index.js
 var require_react_dom = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	function checkDCE() {
 		if (typeof __REACT_DEVTOOLS_GLOBAL_HOOK__ === "undefined" || typeof __REACT_DEVTOOLS_GLOBAL_HOOK__.checkDCE !== "function") return;
@@ -840,7 +840,7 @@ var require_react_dom = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_react_dom_production();
 }));
 //#endregion
-//#region ../../prompta/node_modules/react-dom/cjs/react-dom-client.production.js
+//#region node_modules/react-dom/cjs/react-dom-client.production.js
 /**
 * @license React
 * react-dom-client.production.js
@@ -11415,7 +11415,7 @@ var require_react_dom_client_production = /* @__PURE__ */ __commonJSMin(((export
 	};
 }));
 //#endregion
-//#region ../../prompta/node_modules/react-dom/client.js
+//#region node_modules/react-dom/client.js
 var require_client = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	function checkDCE() {
 		if (typeof __REACT_DEVTOOLS_GLOBAL_HOOK__ === "undefined" || typeof __REACT_DEVTOOLS_GLOBAL_HOOK__.checkDCE !== "function") return;
@@ -11429,7 +11429,7 @@ var require_client = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_react_dom_client_production();
 }));
 //#endregion
-//#region ../../prompta/node_modules/@preact/signals-core/dist/signals-core.module.js
+//#region node_modules/@preact/signals-core/dist/signals-core.module.js
 var import_react = /* @__PURE__ */ __toESM(require_react());
 var import_client = require_client();
 var i$1 = Symbol.for("preact-signals");
@@ -11841,7 +11841,7 @@ function x$2(i, t) {
 	return n;
 }
 //#endregion
-//#region ../../prompta/node_modules/use-sync-external-store/cjs/use-sync-external-store-shim.production.js
+//#region node_modules/use-sync-external-store/cjs/use-sync-external-store-shim.production.js
 /**
 * @license React
 * use-sync-external-store-shim.production.js
@@ -11901,7 +11901,7 @@ var require_use_sync_external_store_shim_production = /* @__PURE__ */ __commonJS
 	exports.useSyncExternalStore = void 0 !== React.useSyncExternalStore ? React.useSyncExternalStore : shim;
 }));
 //#endregion
-//#region ../../prompta/node_modules/@preact/signals-react/runtime/dist/runtime.module.js
+//#region node_modules/@preact/signals-react/runtime/dist/runtime.module.js
 var import_shim = (/* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_use_sync_external_store_shim_production();
 })))();
@@ -14973,7 +14973,7 @@ function createJobsPageController(initialProps) {
 	};
 }
 //#endregion
-//#region ../../prompta/node_modules/react/cjs/react-jsx-runtime.production.js
+//#region node_modules/react/cjs/react-jsx-runtime.production.js
 /**
 * @license React
 * react-jsx-runtime.production.js
@@ -16557,7 +16557,46 @@ function ChatRow({ item, model }) {
 //#region src/ui/ChatsSidebar.tsx
 function ChatsSidebar({ model, refs }) {
 	N$1();
-	const { view, statuses, queueSnapshot, items, markingAllRead, drawerOpen, filtersOpen, search, statusFilter, loadingList, listError, pinned, visibleWaiting, unpinned, markAllRead, loadingMore, nextOffset, total, loadMore, applyFilter, searchChanged, clearSearch, toggleSearch, showJobs, createChat } = model;
+	const { statuses, queueSnapshot, items, markingAllRead, drawerOpen, filtersOpen, search, statusFilter, loadingList, listError, pinned, visibleWaiting, unpinned, markAllRead, loadingMore, nextOffset, total, loadMore, applyFilter, searchChanged, clearSearch, toggleSearch, showJobs, createChat } = model;
+	const [profileOpen, setProfileOpen] = (0, import_react.useState)(false);
+	const [settingsOpen, setSettingsOpen] = (0, import_react.useState)(false);
+	const [concurrency, setConcurrency] = (0, import_react.useState)({
+		enabled: true,
+		max_workers: 3
+	});
+	const [approval, setApproval] = (0, import_react.useState)(false);
+	const [settingsError, setSettingsError] = (0, import_react.useState)("");
+	const [saving, setSaving] = (0, import_react.useState)(false);
+	(0, import_react.useEffect)(() => {
+		if (!settingsOpen) return;
+		fetch("./api/settings").then(async (response) => {
+			if (!response.ok) throw new Error("Could not load settings");
+			return response.json();
+		}).then((data) => {
+			setConcurrency(data.stage_concurrency);
+			setApproval(data.connector_approval.enabled);
+			setSettingsError("");
+		}).catch(() => setSettingsError("Could not load settings"));
+	}, [settingsOpen]);
+	async function saveSettings() {
+		setSaving(true);
+		setSettingsError("");
+		try {
+			if (!(await fetch("./api/settings", {
+				method: "PUT",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					stage_concurrency: concurrency,
+					connector_approval: { enabled: approval }
+				})
+			})).ok) throw new Error("Settings could not be saved");
+			setSettingsOpen(false);
+		} catch {
+			setSettingsError("Settings could not be saved");
+		} finally {
+			setSaving(false);
+		}
+	}
 	function emptyChatsLabel() {
 		if (listError.value) return "Chat list temporarily unavailable";
 		if (search.value || statusFilter.value) return "No matching chats";
@@ -16571,111 +16610,38 @@ function ChatsSidebar({ model, refs }) {
 			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 				className: "sidebar-topbar",
 				children: [
-					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 						className: "sidebar-brand",
-						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("strong", { children: "Prompta" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+						children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("strong", { children: "Prompta" })
+					}),
+					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("nav", {
+						"aria-label": "Main navigation",
+						className: "sidebar-actions",
+						children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
 							type: "button",
-							onClick: () => void markAllRead(),
-							disabled: markingAllRead.value,
-							"aria-label": "Mark all local chats as read",
-							title: markingAllRead.value ? "Marking as read…" : "Mark all as read",
-							className: "mark-all-read",
-							children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("svg", {
+							"aria-label": "Search chats",
+							title: "Search chats",
+							"aria-expanded": filtersOpen.value,
+							"aria-controls": "chat-filters",
+							onClick: toggleSearch,
+							className: "sidebar-search",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("svg", {
 								viewBox: "0 0 24 24",
 								fill: "none",
 								stroke: "currentColor",
 								strokeWidth: "1.8",
 								strokeLinecap: "round",
-								strokeLinejoin: "round",
 								"aria-hidden": "true",
-								children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: "m2 12 4 4L16 6M9 12l4 4L23 6" })
-							})
-						})]
-					}),
-					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("nav", {
-						"aria-label": "Main navigation",
-						className: "sidebar-actions",
-						children: [
-							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
-								type: "button",
-								onClick: showJobs,
-								"aria-label": "Jobs",
-								title: "Jobs",
-								"aria-current": view.value === "jobs" ? "page" : void 0,
-								className: ["sidebar-jobs", view.value === "jobs" ? "active" : ""].filter(Boolean).join(" "),
-								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("svg", {
-									viewBox: "0 0 24 24",
-									fill: "none",
-									stroke: "currentColor",
-									strokeWidth: "1.8",
-									strokeLinecap: "round",
-									strokeLinejoin: "round",
-									"aria-hidden": "true",
-									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("rect", {
-										x: "4",
-										y: "4",
-										width: "16",
-										height: "16",
-										rx: "3"
-									}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: "M8 9h8M8 13h8M8 17h5" })]
-								}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-									className: "action-label",
-									children: "Jobs"
-								})]
-							}),
-							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
-								type: "button",
-								onClick: createChat,
-								"aria-label": "New chat",
-								title: "New chat",
-								className: "sidebar-primary",
-								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("svg", {
-									viewBox: "0 0 24 24",
-									fill: "none",
-									stroke: "currentColor",
-									strokeWidth: "1.8",
-									strokeLinecap: "round",
-									strokeLinejoin: "round",
-									"aria-hidden": "true",
-									children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: "M12 5H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7M16 4l4 4M9 15l3.5-.7L21 5.8a2.1 2.1 0 0 0-3-3l-8.5 8.5L9 15Z" })
-								}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-									className: "action-label",
-									children: "New"
-								})]
-							}),
-							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
-								type: "button",
-								"aria-label": "Search chats",
-								title: "Search chats",
-								"aria-expanded": filtersOpen.value,
-								"aria-controls": "chat-filters",
-								onClick: toggleSearch,
-								className: ["sidebar-search", filtersOpen.value ? "active" : ""].filter(Boolean).join(" "),
-								children: [
-									/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("svg", {
-										viewBox: "0 0 24 24",
-										fill: "none",
-										stroke: "currentColor",
-										strokeWidth: "1.8",
-										strokeLinecap: "round",
-										"aria-hidden": "true",
-										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("circle", {
-											cx: "10.5",
-											cy: "10.5",
-											r: "6.5"
-										}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: "m16 16 5 5" })]
-									}),
-									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-										className: "action-label",
-										children: "Search"
-									}),
-									search.value || statusFilter.value ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-										"aria-label": "Filters active",
-										className: "filter-active-dot"
-									}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {})
-								]
-							})
-						]
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("circle", {
+									cx: "10.5",
+									cy: "10.5",
+									r: "6.5"
+								}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: "m16 16 5 5" })]
+							}), (search.value || statusFilter.value) && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+								"aria-label": "Filters active",
+								className: "filter-active-dot"
+							})]
+						})
 					}),
 					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 						type: "button",
@@ -16790,12 +16756,156 @@ function ChatsSidebar({ model, refs }) {
 						children: loadingMore.value ? "Loading chats…" : "Load more chats"
 					}) : null
 				]
+			}),
+			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+				className: "sidebar-footer",
+				children: [
+					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+						type: "button",
+						onClick: createChat,
+						"aria-label": "New chat",
+						title: "New chat",
+						className: "sidebar-footer-new",
+						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("svg", {
+							viewBox: "0 0 24 24",
+							fill: "none",
+							stroke: "currentColor",
+							strokeWidth: "1.8",
+							strokeLinecap: "round",
+							strokeLinejoin: "round",
+							"aria-hidden": "true",
+							children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: "M12 5H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7M16 4l4 4M9 15l3.5-.7L21 5.8a2.1 2.1 0 0 0-3-3l-8.5 8.5L9 15Z" })
+						}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "New chat" })]
+					}),
+					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+						type: "button",
+						"aria-label": "Profile",
+						"aria-expanded": profileOpen,
+						onClick: () => setProfileOpen(!profileOpen),
+						className: "sidebar-profile",
+						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("svg", {
+							viewBox: "0 0 24 24",
+							fill: "none",
+							stroke: "currentColor",
+							strokeWidth: "1.8",
+							"aria-hidden": "true",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("circle", {
+								cx: "12",
+								cy: "8",
+								r: "4"
+							}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: "M4 21c0-5 16-5 16 0" })]
+						}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Profile" })]
+					}),
+					profileOpen && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+						className: "sidebar-profile-menu",
+						role: "menu",
+						children: [
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+								type: "button",
+								role: "menuitem",
+								onClick: () => {
+									showJobs();
+									setProfileOpen(false);
+								},
+								children: "Jobs"
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+								type: "button",
+								role: "menuitem",
+								onClick: () => {
+									setSettingsOpen(true);
+									setProfileOpen(false);
+								},
+								children: "Settings"
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+								type: "button",
+								role: "menuitem",
+								disabled: markingAllRead.value,
+								onClick: () => {
+									markAllRead();
+									setProfileOpen(false);
+								},
+								children: "Mark all as read"
+							})
+						]
+					})
+				]
+			}),
+			settingsOpen && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+				className: "settings-backdrop",
+				onClick: () => setSettingsOpen(false),
+				children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", {
+					role: "dialog",
+					"aria-modal": "true",
+					"aria-label": "Prompta settings",
+					className: "settings-dialog",
+					onClick: (event) => event.stopPropagation(),
+					children: [
+						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+							className: "settings-heading",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { children: "Settings" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+								type: "button",
+								"aria-label": "Close settings",
+								onClick: () => setSettingsOpen(false),
+								children: "×"
+							})]
+						}),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h3", { children: "Concurrency" }),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
+							className: "settings-check",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+								type: "checkbox",
+								checked: concurrency.enabled,
+								onChange: (event) => setConcurrency({
+									...concurrency,
+									enabled: event.target.checked
+								})
+							}), " Limit concurrent jobs and chats"]
+						}),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
+							className: "settings-number",
+							children: ["Maximum workers", /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+								type: "number",
+								min: "1",
+								max: "128",
+								disabled: !concurrency.enabled,
+								value: concurrency.max_workers,
+								onChange: (event) => setConcurrency({
+									...concurrency,
+									max_workers: Number(event.target.value)
+								})
+							})]
+						}),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { children: "One global limit for new chats, replies, one-off and repeating jobs. Running work is not interrupted." }),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h3", { children: "Connector approval" }),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
+							className: "settings-check",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+								type: "checkbox",
+								checked: approval,
+								onChange: (event) => setApproval(event.target.checked)
+							}), " Automatically approve trusted connector prompts"]
+						}),
+						settingsError && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+							role: "alert",
+							children: settingsError
+						}),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+							type: "button",
+							className: "settings-save",
+							disabled: saving || concurrency.enabled && (!Number.isInteger(concurrency.max_workers) || concurrency.max_workers < 1 || concurrency.max_workers > 128),
+							onClick: () => void saveSettings(),
+							children: saving ? "Saving…" : "Save settings"
+						})
+					]
+				})
 			})
 		]
 	});
 }
 //#endregion
-//#region ../../prompta/node_modules/marked/lib/marked.esm.js
+//#region node_modules/marked/lib/marked.esm.js
 /**
 * marked v16.4.2 - a markdown parser
 * Copyright (c) 2018-2025, MarkedJS. (MIT License)
@@ -18336,7 +18446,7 @@ x.lex;
 * @public
 */
 //#endregion
-//#region ../../prompta/node_modules/prismjs/components/prism-typescript.js
+//#region node_modules/prismjs/components/prism-typescript.js
 var import_prism = /* @__PURE__ */ __toESM((/* @__PURE__ */ __commonJSMin(((exports, module) => {
 	var Prism = function(_self) {
 		var lang = /(?:^|\s)lang(?:uage)?-([\w-]+)(?=\s|$)/i;
@@ -19799,7 +19909,7 @@ highlight: function highlight(container) {
 	Prism.languages.ts = Prism.languages.typescript;
 })(Prism);
 //#endregion
-//#region ../../prompta/node_modules/prismjs/components/prism-python.js
+//#region node_modules/prismjs/components/prism-python.js
 Prism.languages.python = {
 	"comment": {
 		pattern: /(^|[^\\])#.*/,
@@ -19861,7 +19971,7 @@ Prism.languages.python = {
 Prism.languages.python["string-interpolation"].inside["interpolation"].inside.rest = Prism.languages.python;
 Prism.languages.py = Prism.languages.python;
 //#endregion
-//#region ../../prompta/node_modules/prismjs/components/prism-bash.js
+//#region node_modules/prismjs/components/prism-bash.js
 (function(Prism) {
 	var envVars = "\\b(?:BASH|BASHOPTS|BASH_ALIASES|BASH_ARGC|BASH_ARGV|BASH_CMDS|BASH_COMPLETION_COMPAT_DIR|BASH_LINENO|BASH_REMATCH|BASH_SOURCE|BASH_VERSINFO|BASH_VERSION|COLORTERM|COLUMNS|COMP_WORDBREAKS|DBUS_SESSION_BUS_ADDRESS|DEFAULTS_PATH|DESKTOP_SESSION|DIRSTACK|DISPLAY|EUID|GDMSESSION|GDM_LANG|GNOME_KEYRING_CONTROL|GNOME_KEYRING_PID|GPG_AGENT_INFO|GROUPS|HISTCONTROL|HISTFILE|HISTFILESIZE|HISTSIZE|HOME|HOSTNAME|HOSTTYPE|IFS|INSTANCE|JOB|LANG|LANGUAGE|LC_ADDRESS|LC_ALL|LC_IDENTIFICATION|LC_MEASUREMENT|LC_MONETARY|LC_NAME|LC_NUMERIC|LC_PAPER|LC_TELEPHONE|LC_TIME|LESSCLOSE|LESSOPEN|LINES|LOGNAME|LS_COLORS|MACHTYPE|MAILCHECK|MANDATORY_PATH|NO_AT_BRIDGE|OLDPWD|OPTERR|OPTIND|ORBIT_SOCKETDIR|OSTYPE|PAPERSIZE|PATH|PIPESTATUS|PPID|PS1|PS2|PS3|PS4|PWD|RANDOM|REPLY|SECONDS|SELINUX_INIT|SESSION|SESSIONTYPE|SESSION_MANAGER|SHELL|SHELLOPTS|SHLVL|SSH_AUTH_SOCK|TERM|UID|UPSTART_EVENTS|UPSTART_INSTANCE|UPSTART_JOB|UPSTART_SESSION|USER|WINDOWID|XAUTHORITY|XDG_CONFIG_DIRS|XDG_CURRENT_DESKTOP|XDG_DATA_DIRS|XDG_GREETER_DATA_DIR|XDG_MENU_PREFIX|XDG_RUNTIME_DIR|XDG_SEAT|XDG_SEAT_PATH|XDG_SESSION_DESKTOP|XDG_SESSION_ID|XDG_SESSION_PATH|XDG_SESSION_TYPE|XDG_VTNR|XMODIFIERS)\\b";
 	var commandAfterHeredoc = {
@@ -20042,7 +20152,7 @@ Prism.languages.py = Prism.languages.python;
 	Prism.languages.shell = Prism.languages.bash;
 })(Prism);
 //#endregion
-//#region ../../prompta/node_modules/prismjs/components/prism-json.js
+//#region node_modules/prismjs/components/prism-json.js
 Prism.languages.json = {
 	"property": {
 		pattern: /(^|[^\\])"(?:\\.|[^\\"\r\n])*"(?=\s*:)/,

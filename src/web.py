@@ -25,6 +25,8 @@ from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from .core import DEFAULT_JOBS_PATH, DEFAULT_STATE_PATH
+from .config import DEFAULT_CONFIG_PATH, StageConcurrencySettings, ConnectorApproval
+from pydantic import BaseModel, Field
 from .delivery_queue import DeliveryQueueStore
 from .image_store import ImageStore
 from .live_events import LocalEventSignals
@@ -156,6 +158,18 @@ class WebServices:
             "admission": self.queue_view.runtime.account_admission_status(),
             "recovery": recovery,
         }
+
+
+class _ConcurrencyUpdate(BaseModel):
+    enabled: bool
+    max_workers: int = Field(ge=1, le=128)
+
+class _ApprovalUpdate(BaseModel):
+    enabled: bool
+
+class _SettingsUpdate(BaseModel):
+    stage_concurrency: _ConcurrencyUpdate
+    connector_approval: _ApprovalUpdate
 
 
 def create_app(
@@ -292,6 +306,46 @@ def create_app(
     @app.get("/api/queue-status")
     def queue_status() -> dict[str, object]:
         return dict(local.queue_view.concurrency_queue_snapshot())
+
+    @app.get("/api/settings")
+    def get_settings() -> dict[str, object]:
+        return {
+            "stage_concurrency": StageConcurrencySettings.load(DEFAULT_CONFIG_PATH).model_dump(),
+            "connector_approval": ConnectorApproval.load(DEFAULT_CONFIG_PATH).model_dump(),
+        }
+
+    @app.put("/api/settings")
+    def update_settings(payload: _SettingsUpdate) -> dict[str, object]:
+        # Replace only the two supported sections, preserving unrelated TOML.
+        import re
+        import tempfile
+        config_path = DEFAULT_CONFIG_PATH.expanduser()
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        original = config_path.read_text() if config_path.exists() else ""
+        sections = {
+            "stage_concurrency": payload.stage_concurrency.model_dump(),
+            "connector_approval": payload.connector_approval.model_dump(),
+        }
+        for section, values in sections.items():
+            original = re.sub(r"(?m)^\[" + re.escape(section) + r"\]\s*\n(?:(?!\[).*(?:\n|$))*", "", original)
+            original = original.rstrip() + "\n\n[" + section + "]\n" + "".join(
+                key + " = " + (str(value).lower() if isinstance(value, bool) else str(value)) + "\n"
+                for key, value in values.items()
+            )
+        # Validate the complete generated configuration before replacing it.
+        import tomllib
+        tomllib.loads(original)
+        fd, temporary = tempfile.mkstemp(prefix=".config-", dir=config_path.parent)
+        try:
+            with os.fdopen(fd, "w") as handle:
+                handle.write(original)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temporary, config_path)
+        finally:
+            if os.path.exists(temporary):
+                os.unlink(temporary)
+        return get_settings()
 
     register_chat_routes(app, local)
 
