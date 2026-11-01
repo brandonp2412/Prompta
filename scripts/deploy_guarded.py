@@ -82,10 +82,20 @@ def wait_for_idle(gate: DeploymentGate, *, timeout: float = _DRAIN_TIMEOUT_SECON
                     (now,),
                 ).fetchone()[0])
         if active == 0:
-            return True
+            # History probes and parent recovery hold a shared operation lock,
+            # but have no capture lease in either database. Do not stop their
+            # browser-owning process while one of these read-only probes runs.
+            with gate.lock_path.open("a+b") as lock_handle:
+                try:
+                    fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except BlockingIOError:
+                    pass
+                else:
+                    fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
+                    return True
         remaining = deadline - time.monotonic()
         if remaining <= 0:
-            logger.warning("Deployment deferred: %s active leased operations remain", active)
+            logger.warning("Deployment deferred: %s active leases or browser reads remain", active)
             return False
         time.sleep(min(3.0, remaining))
 

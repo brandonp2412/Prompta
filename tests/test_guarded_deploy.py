@@ -112,6 +112,17 @@ def test_wait_for_idle_checks_live_leases_not_stale_statuses(tmp_path: Path) -> 
     assert deploy_guarded.wait_for_idle(gate, timeout=0)
 
 
+def test_wait_for_idle_drains_read_only_browser_operations(tmp_path: Path) -> None:
+    gate = DeploymentGate(tmp_path / "runtime.sqlite3")
+    make_databases(tmp_path)
+    with gate.admission() as admitted:
+        assert admitted
+        deploy_guarded.request_pause(gate)
+        # No active database leases: the in-flight read is protected by flock.
+        assert not deploy_guarded.wait_for_idle(gate, timeout=0)
+    assert deploy_guarded.wait_for_idle(gate, timeout=0)
+
+
 def test_busy_deployment_aborts_without_stopping_workers(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:

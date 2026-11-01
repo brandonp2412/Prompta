@@ -150,6 +150,11 @@ class ManualReplyDispatcher:
         with self._lock:
             return len(self._active)
 
+    def inflight_count(self) -> int:
+        """All sends and read-only recoveries that must drain at shutdown."""
+        with self._lock:
+            return len(self._active | self._recovering | self._recovery_scheduled)
+
     def pump_queued(self) -> None:
         """Dispatch only explicit user-clicked follow-ups whose parent is ready.
 
@@ -226,7 +231,10 @@ class ManualReplyDispatcher:
                 raise ReplyConflict("This chat's reply identity is already being verified")
             self._recovering.add(send_id)
         try:
-            return asyncio.run(self._recover_exact_parent(send_id))
+            with DeploymentGate(self.state_path).admission() as deploy_allowed:
+                if not deploy_allowed:
+                    raise ReplyConflict("Prompta is paused for deployment")
+                return asyncio.run(self._recover_exact_parent(send_id))
         finally:
             with self._lock:
                 self._recovering.discard(send_id)

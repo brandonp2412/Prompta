@@ -38,10 +38,9 @@ def run(state_path: Path = DEFAULT_RUNTIME_PATH, *, stop: threading.Event | None
             logger.warning("Manual reply queue scan failed error_type=%s", type(exc).__name__)
         shutdown.wait(1.0)
 
-    # systemd waits through the full owned-tab lifetime before stopping the
-    # worker. No new reply starts, but verified active captures can finish.
-    logger.info("Manual reply worker draining active captures")
-    while dispatcher.active_count() > 0:
+    # Drain sends and exact-parent reads before stopping browser owners.
+    logger.info("Manual reply worker draining active operations")
+    while dispatcher.inflight_count() > 0:
         health.beat("manual_reply_worker")
         time.sleep(1.0)
     logger.info("Manual reply worker drained")
