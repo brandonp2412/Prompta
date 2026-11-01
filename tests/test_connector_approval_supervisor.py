@@ -234,7 +234,7 @@ async def test_fresh_approval_attachment_verifies_exact_target_and_owner(
                         pathname: '/c/12345678-1234-4123-8123-123456789abc',
                     }),
                 };
-            }""")
+            }""", isolated_context=False)
 
             async def stale_eval(_script: str, *, main_world: bool = False) -> object:
                 raise RuntimeError("stale original browser channel")
