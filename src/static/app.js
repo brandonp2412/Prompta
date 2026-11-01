@@ -15100,9 +15100,6 @@ function JobEditor({ model, refs }) {
 	const cancelRef = (0, import_react.useRef)(null);
 	const wasConfirmingRef = (0, import_react.useRef)(false);
 	const { saving, editing, runOnce, name, schedule, interval, onceDelay, pinChat, dailyAt, exact, prompt, images, uploadingImage, imageInput, editorError, confirmDiscard, dirty, duplicateName, requestClose, discardEditor, keepFocusedPromptVisible, addImages, submit } = model;
-	(0, import_react.useEffect)(() => {
-		if (duplicateName.value) notify("This job already exists. Choose another name.", "error");
-	}, [duplicateName.value]);
 	function editorFeedback() {
 		if (editorError.value || duplicateName.value) return {
 			text: "",
@@ -15190,8 +15187,10 @@ function JobEditor({ model, refs }) {
 										readOnly: Boolean(editing.value),
 										required: true,
 										value: name.value,
+										"aria-invalid": duplicateName.value,
 										onChange: (event) => {
 											name.value = event.currentTarget.value;
+											if (duplicateName.value) notify("This job already exists. Choose another name.", "error");
 										}
 									})]
 								}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {}),
@@ -20883,6 +20882,88 @@ function ToolCalls({ calls, turnTimestamp }) {
 	});
 }
 //#endregion
+//#region src/ui/TurnActivity.tsx
+/** Preserve the visible assistant/tool chronology, including commentary before calls. */
+function orderedActivity(turn) {
+	const calls = turn.tool_calls ?? [];
+	const blocks = turn.display_blocks ?? [];
+	if (!blocks.some((block) => block.kind === "text")) return [...calls.length ? [{
+		kind: "tools",
+		id: "tools",
+		calls
+	}] : [], ...turn.assistant_text ? [{
+		kind: "text",
+		id: "answer",
+		text: turn.assistant_text
+	}] : []];
+	const claimed = /* @__PURE__ */ new Set();
+	const activity = [];
+	for (const block of blocks) {
+		if (block.kind === "text") {
+			activity.push({
+				kind: "text",
+				id: block.id,
+				text: block.text
+			});
+			continue;
+		}
+		const index = Number(block.id.replace(/^dom-tool-/, ""));
+		const call = calls.find((candidate) => candidate.id === block.id) ?? calls[index];
+		if (!call || claimed.has(call.id)) continue;
+		claimed.add(call.id);
+		const last = activity.at(-1);
+		if (last?.kind === "tools") last.calls.push(call);
+		else activity.push({
+			kind: "tools",
+			id: block.id,
+			calls: [call]
+		});
+	}
+	const remaining = calls.filter((call) => !claimed.has(call.id));
+	if (remaining.length) {
+		const lastText = activity.findLastIndex((item) => item.kind === "text");
+		const insertAt = lastText > 0 ? lastText : activity.length;
+		activity.splice(insertAt, 0, {
+			kind: "tools",
+			id: "unplaced-tools",
+			calls: remaining
+		});
+	}
+	const rendered = blocks.filter((block) => block.kind === "text").map((block) => block.text).join("\n\n").trim();
+	const answer = turn.assistant_text.trim();
+	if (answer && !rendered.includes(answer)) {
+		if (answer.startsWith(rendered)) {
+			const tail = answer.slice(rendered.length).trim();
+			if (tail) activity.push({
+				kind: "text",
+				id: "answer-tail",
+				text: tail
+			});
+		} else if (answer.endsWith(rendered)) {
+			const head = answer.slice(0, -rendered.length).trim();
+			if (head) activity.unshift({
+				kind: "text",
+				id: "answer-head",
+				text: head
+			});
+		} else activity.push({
+			kind: "text",
+			id: "answer-fallback",
+			text: answer
+		});
+	}
+	return activity;
+}
+function TurnActivity({ turn, captureSource, turnTimestamp }) {
+	return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: orderedActivity(turn).map((item) => item.kind === "text" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ResultMarkdown, {
+		source: item.text,
+		captureSource
+	}, item.id) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ToolCalls, {
+		calls: item.calls,
+		turnTimestamp
+	}, item.id)) });
+}
+//#endregion
 //#region src/ui/ChatTranscript.tsx
 function ChatTranscript({ model, refs, conversationUrl }) {
 	N$1();
@@ -21002,14 +21083,11 @@ function ChatTranscript({ model, refs, conversationUrl }) {
 									children: responseBadge(turn.status)
 								})
 							}),
-							turn.tool_calls?.length ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ToolCalls, {
-								calls: turn.tool_calls,
-								turnTimestamp: turn.created_at || detail.value.created_at
-							}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {}),
-							turn.assistant_text ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
-								/* @__PURE__ */ (0, import_jsx_runtime.jsx)(ResultMarkdown, {
-									source: turn.assistant_text,
-									captureSource: index === 0 ? detail.value.source : ""
+							turn.assistant_text || turn.tool_calls?.length || turn.display_blocks?.some((block) => block.kind === "text") ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)(TurnActivity, {
+									turn,
+									captureSource: index === 0 ? detail.value.source : "",
+									turnTimestamp: turn.created_at || detail.value.created_at
 								}),
 								turn.status !== "completed" && turn.status !== "generating" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
 									className: "partial-note",

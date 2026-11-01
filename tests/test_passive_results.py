@@ -12,6 +12,7 @@ from sqlalchemy import event, inspect
 
 from prompta.delivery_browser import BrowserDeliverySender
 from prompta.delivery_queue import DeliveryQueueStore
+from prompta.rate_limit import RateLimitError
 from prompta.response_capture import CaptureResult
 from prompta.response_store import ResponseStore
 from prompta.strict_types import string_object_dict
@@ -430,6 +431,50 @@ async def test_late_same_tab_recovery_after_observer_failure(
     assert row["assistant_text"] == "Recovered final answer"
     assert row["conversation_id"] == _RECOVERED_CHAT
     assert driver.dom_reads == 1 and driver.eval_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_same_tab_recovery_runs_during_history_read_cooldown(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from prompta import delivery_browser
+
+    sender = BrowserDeliverySender(tmp_path / "runtime.sqlite3", connector_approval=False)
+    sender.results.ensure_queued("cooldown", "private prompt")
+    owner = f"{os.getpid()}:cooldown"
+    assert sender.results.accept("cooldown", owner, deadline=time.time() + 60)
+    sender.runtime.record_read_rate_limit(
+        RateLimitError("ChatGPT history reads limited", retry_after=600)
+    )
+    assert sender.runtime.read_backoff_remaining() > 0
+    monkeypatch.setattr(delivery_browser, "_PASSIVE_RECOVERY_PROBE_SECONDS", 0.03)
+
+    class RecoveringDriver(StreamDriver):
+        async def observed_assistant_response(self) -> CaptureResult:
+            self.dom_reads += 1
+            return CaptureResult(
+                "dom", "complete", "Answer captured from the owned tab", _RECOVERED_CHAT,
+                "11111111-1111-4111-8111-111111111111", None,
+                observer_id="owned-answer",
+            )
+
+        async def eval(self, _script: str, *, main_world: bool = False) -> str:
+            self.eval_calls += 1
+            return f"/c/{_RECOVERED_CHAT}"
+
+    driver = RecoveringDriver([])
+    await sender._capture_until_complete(
+        driver, {"status": 200}, "cooldown", owner,
+        deadline=asyncio.get_running_loop().time() + 2.0,
+    )
+    row = sender.results.get("cooldown")
+    assert row is not None
+    assert row["status"] == "completed"
+    assert row["assistant_text"] == "Answer captured from the owned tab"
+    assert row["conversation_id"] == _RECOVERED_CHAT
+    assert driver.dom_reads > 0
+    # Only a real account-history read can clear its persisted 429 backoff.
+    assert sender.runtime.read_backoff_remaining() > 0
 
 
 @pytest.mark.asyncio

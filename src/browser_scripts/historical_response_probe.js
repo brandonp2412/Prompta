@@ -68,5 +68,6 @@
     branch_message_id: branch, pathname: location.pathname, text,
     complete: !!text && copyReady && !streaming && !generating,
     rate_limited: false, tool_calls,
+    display_blocks: displayBlocksFromUnits(answerUnits, visible, markdownSelector),
   };
 })()

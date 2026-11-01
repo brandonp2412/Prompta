@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from typing import Literal
 from uuid import UUID
 
+from .display_blocks_store import normalize_display_blocks
 from .tool_events import ToolEventCollector, normalize_dom_tool_calls
 
 CaptureStatus = Literal[
@@ -37,6 +38,7 @@ class CaptureResult:
     tool_calls: tuple[dict[str, object], ...] = ()
     ended_without_answer: bool = False
     verified_generating: bool = False
+    display_blocks: tuple[dict[str, str], ...] = ()
 
 
 def conversation_id_from_path(path: object) -> str | None:
@@ -381,4 +383,5 @@ def normalize_dom_snapshot(
         branch_id, _string(record.get("verified_parent_id")), identity,
         tool_calls=normalize_dom_tool_calls(record.get("tool_calls")),
         verified_generating=record.get("generating") is True and record.get("complete") is not True,
+        display_blocks=normalize_display_blocks(record.get("display_blocks")),
     )

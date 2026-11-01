@@ -312,7 +312,9 @@ class HistoryRecovery:
     def _next_requested_candidate(
         self, requests: list[str], *, now: float,
     ) -> tuple[dict[str, object] | None, str]:
-        """Take the oldest eligible request without losing transient in-flight turns."""
+        """Try never-probed manual turns before repeatedly failing older requests."""
+        best: dict[str, object] | None = None
+        best_target = ""
         for target in requests:
             reply_id = target.removeprefix("reply:") if target.startswith("reply:") else ""
             candidate = (
@@ -322,14 +324,16 @@ class HistoryRecovery:
                 )
             )
             if candidate is not None:
-                return candidate, target
-            # An active capture, queued follow-up, or temporarily unverifiable
-            # parent may become eligible again. Only terminal or missing turns
-            # can consume the user's durable recovery intent.
+                if (best is None or int_value(candidate.get("attempt_count"))
+                        < int_value(best.get("attempt_count"))):
+                    best, best_target = candidate, target
+                continue
+            # Keep active captures and temporarily unverifiable parents queued.
+            # Only terminal or missing turns consume the durable recovery intent.
             row = self.replies.get(reply_id) if reply_id else self.results.get(target)
             if row is None or row["status"] in ("completed", "stopped", "cancelled"):
                 self.results.clear_manual_recovery_request(target)
-        return None, ""
+        return best, best_target
 
     def recover_once(
         self, *, now: float | None = None, preferred_send_id: str | None = None,
@@ -351,15 +355,17 @@ class HistoryRecovery:
             self.results.pending_manual_recovery_requests()
             if preferred_send_id is None else []
         )
-        # One in every three account-wide slots is for explicit recovery.
-        # Pinned chats lead the other slots, without starving manual requests.
-        manual_slot = bool(manual_requests) and (
-            self.results.history_recovery_global_attempt_count() % 3 == 0
+        # Untried explicit requests get the next available non-pinned slot;
+        # retries retain one in three slots so automatic recovery progresses.
+        requested, requested_target = self._next_requested_candidate(manual_requests, now=at)
+        slot_number = self.results.history_recovery_global_attempt_count() % 3
+        manual_slot = requested is not None and (
+            slot_number == 0 or (
+                slot_number == 2 and int_value(requested.get("attempt_count")) == 0
+            )
         )
-        manual_target = ""
-        candidate = None
-        if manual_slot:
-            candidate, manual_target = self._next_requested_candidate(manual_requests, now=at)
+        manual_target = requested_target if manual_slot else ""
+        candidate = requested if manual_slot else None
         if candidate is None:
             candidate = (
                 self.results.next_history_recovery(now=at, priority_ids=(preferred_send_id,))
@@ -494,10 +500,19 @@ def run_history_recovery(
                                     )
                                 pinned = recovery._newest_pinned_due(now=time.time())
                                 network_read_allowed = _read_backoff_remaining(runtime) <= 0
+                                requested, _ = recovery._next_requested_candidate(
+                                    results.pending_manual_recovery_requests(), now=time.time(),
+                                )
+                                slot_number = results.history_recovery_global_attempt_count() % 3
                                 manual_slot = (
                                     network_read_allowed
-                                    and bool(results.pending_manual_recovery_requests())
-                                    and results.history_recovery_global_attempt_count() % 3 == 0
+                                    and requested is not None
+                                    and (
+                                        slot_number == 0 or (
+                                            slot_number == 2
+                                            and int_value(requested.get("attempt_count")) == 0
+                                        )
+                                    )
                                 )
                                 if (
                                     network_read_allowed

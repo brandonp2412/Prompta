@@ -21,6 +21,7 @@ from sqlalchemy.dialects.sqlite import insert
 from sqlalchemy.engine import Connection, RowMapping
 from sqlalchemy.sql.elements import ColumnElement
 
+from .display_blocks_store import deserialize_display_blocks, merge_display_blocks
 from .reply_read_state import ReplyReadState, visible_reply_status
 from .reply_tables import replies
 from .response_capture import CaptureResult
@@ -99,6 +100,7 @@ class ManualReplyStore(ReplyReadState):
             now=time.time(),
         )
         public["tool_calls"] = deserialize_tool_calls(row["tool_calls_json"])
+        public["display_blocks"] = deserialize_display_blocks(row["display_blocks_json"])
         return public
 
     def get(self, reply_id: str) -> dict[str, object] | None:
@@ -595,14 +597,15 @@ class ManualReplyStore(ReplyReadState):
             ).values(status="completed" if complete else "generating",
                      assistant_text=capture.text[:2 * 1024 * 1024],
                       tool_calls_json=merge_tool_calls(row["tool_calls_json"], capture.tool_calls),
+                       display_blocks_json=merge_display_blocks(row["display_blocks_json"], capture.display_blocks),
                       updated_at=at,
                      lease_owner="" if complete else owner))
         return changed.rowcount == 1
 
     def observe_tools(self, reply_id: str, owner: str, capture: CaptureResult,
                       *, now: float | None = None) -> bool:
-        """Persist owned tool activity before final answer identity is available."""
-        if not capture.tool_calls or not capture.conversation_id:
+        """Persist visible progress before final answer identity is available."""
+        if not (capture.tool_calls or capture.display_blocks) or not capture.conversation_id:
             return False
         at = time.time() if now is None else now
         with self.engine.begin() as connection:
@@ -616,9 +619,10 @@ class ManualReplyStore(ReplyReadState):
             if row is None:
                 return False
             merged = merge_tool_calls(row["tool_calls_json"], capture.tool_calls)
-            if merged != row["tool_calls_json"]:
+            blocks = merge_display_blocks(row["display_blocks_json"], capture.display_blocks)
+            if merged != row["tool_calls_json"] or blocks != row["display_blocks_json"]:
                 connection.execute(update(replies).where(replies.c.reply_id == reply_id).values(
-                    tool_calls_json=merged, updated_at=at,
+                    tool_calls_json=merged, display_blocks_json=blocks, updated_at=at,
                 ))
         return True
 
@@ -789,6 +793,7 @@ class ManualReplyStore(ReplyReadState):
             ).values(
                 assistant_text=text,
                 tool_calls_json=merge_tool_calls(row["tool_calls_json"], capture.tool_calls),
+                display_blocks_json=merge_display_blocks(row["display_blocks_json"], capture.display_blocks),
                 message_id=capture.message_id or row["message_id"],
                 status="completed" if complete else row["status"],
                 live_observed_at=at if capture.verified_generating and not complete else 0,
@@ -810,6 +815,7 @@ class ManualReplyStore(ReplyReadState):
              "message_id": original["message_id"], "user_text": original["user_text"],
              "assistant_text": original["assistant_text"],
               "tool_calls": deserialize_tool_calls(original["tool_calls_json"]),
+               "display_blocks": deserialize_display_blocks(original["display_blocks_json"]),
               "status": original["status"],
              "created_at": original["created_at"], "updated_at": original["updated_at"]},
             *(self._public(dict(row)) for row in rows),

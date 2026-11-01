@@ -66,21 +66,28 @@ async def supervise_connector_approvals(
     poll_interval_seconds: float,
     active: Callable[[], bool],
     trusted_retry: Callable[[], Awaitable[object]] | None = None,
+    fresh_retry: Callable[[], Awaitable[object]] | None = None,
 ) -> int:
-    """Click scoped permissions until expiry or loss of ownership.
+    """Keep scoped permissions moving if the original CDP page handle goes stale.
 
-    Healthy checks remain fast. A failed browser pipe is given progressively
-    longer recovery opportunities; repeatedly writing to it floods the journal.
+    The fresh retry is independently verified by the caller's owned-tab check.
+    Initial probes stay responsive for that fallback; repeated pipe failures
+    then back off to avoid flooding the system journal.
     """
     loop = asyncio.get_running_loop()
     grants = 0
     failures = 0
-    consecutive_failures = 0
+    total_errors = 0
+    consecutive_errors = 0
+    fresh_errors = 0
     last_error_classes = ""
+    next_fresh_retry_at = 0.0
     stuck_reported = False
     while (remaining := deadline - loop.time()) > 0:
         if not active():
             break
+        result: object = False
+        channel_failed = False
         try:
             result = await asyncio.wait_for(evaluate(_APPROVAL_SCRIPT), timeout=min(5.0, remaining))
             if result == "stuck" and trusted_retry is not None:
@@ -90,53 +97,97 @@ async def supervise_connector_approvals(
         except asyncio.CancelledError:
             raise
         except Exception as exc:
+            channel_failed = True
             failures += 1
-            consecutive_failures += 1
+            total_errors += 1
+            consecutive_errors += 1
             last_error_classes = _error_classes(exc)
-            delay = min(
-                30.0, max(1.0, poll_interval_seconds) * (2 ** min(consecutive_failures - 1, 5))
-            )
-            if consecutive_failures == 1:
+            if consecutive_errors == 1:
                 logger.warning(
-                    "event=connector_approval_check_failed source=%s error_classes=%s retry_seconds=%.1f",
+                    "event=connector_approval_check_failed source=%s error_classes=%s",
                     source,
                     last_error_classes,
-                    delay,
                 )
-            await asyncio.sleep(min(delay, max(0.0, deadline - loop.time())))
-            continue
+            result = "stuck"
+        else:
+            failures = failures + 1 if result == "stuck" else 0
+            if consecutive_errors:
+                logger.info(
+                    "event=connector_approval_check_recovered source=%s failed_checks=%d",
+                    source,
+                    consecutive_errors,
+                )
+                consecutive_errors = 0
 
-        if consecutive_failures:
-            logger.info(
-                "event=connector_approval_check_recovered source=%s failed_checks=%d",
-                source,
-                consecutive_failures,
-            )
-            consecutive_failures = 0
+        if failures >= 3 and fresh_retry is not None and loop.time() >= next_fresh_retry_at:
+            next_fresh_retry_at = loop.time() + 10.0
+            try:
+                result = await asyncio.wait_for(
+                    fresh_retry(), timeout=min(12.0, max(0.1, deadline - loop.time()))
+                )
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                fresh_errors += 1
+                if fresh_errors == 1:
+                    logger.warning(
+                        "event=connector_approval_fresh_retry_failed source=%s error_classes=%s",
+                        source,
+                        _error_classes(exc),
+                    )
+            else:
+                if result in (True, "progress"):
+                    failures = 0
+                    if consecutive_errors:
+                        logger.info(
+                            "event=connector_approval_fresh_retry_recovered source=%s failed_checks=%d",
+                            source,
+                            consecutive_errors,
+                        )
+                        consecutive_errors = 0
+
         if result == "progress":
-            continue  # A persistent-grant checkbox was selected; click Allow next.
+            continue
         if result is True:
             grants += 1
             stuck_reported = False
             logger.info("ChatGPT connector grant dismissed source=%s count=%d", source, grants)
             continue
-        if result == "stuck":
+        if result == "stuck" and not channel_failed:
             if not stuck_reported:
                 logger.warning("event=connector_approval_stuck source=%s", source)
                 stuck_reported = True
         else:
             stuck_reported = False
-        await asyncio.sleep(min(poll_interval_seconds, max(0.0, deadline - loop.time())))
-    if consecutive_failures:
+
+        if channel_failed:
+            if fresh_retry is not None and consecutive_errors <= 3:
+                delay = max(poll_interval_seconds, 0.5)
+            else:
+                exponent = max(0, consecutive_errors - (3 if fresh_retry is not None else 1))
+                delay = min(30.0, max(1.0, poll_interval_seconds) * (2 ** min(exponent, 5)))
+        else:
+            delay = max(poll_interval_seconds, 0.5 if failures else 0.0)
+        await asyncio.sleep(min(delay, max(0.0, deadline - loop.time())))
+
+    if consecutive_errors:
         logger.warning(
             "event=connector_approval_check_unavailable source=%s failed_checks=%d "
             "error_classes=%s",
             source,
-            consecutive_failures,
+            consecutive_errors,
             last_error_classes,
         )
-    elif failures:
+    elif total_errors:
         logger.info(
-            "event=connector_approval_check_summary source=%s failed_checks=%d", source, failures
+            "event=connector_approval_check_summary source=%s failed_checks=%d",
+            source,
+            total_errors,
+        )
+    if fresh_errors:
+        logger.warning(
+            "event=connector_approval_fresh_retry_summary source=%s failed_checks=%d",
+            source,
+            fresh_errors,
         )
     return grants
