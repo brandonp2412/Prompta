@@ -275,7 +275,7 @@ def test_chat_links_and_share_use_the_selected_chat_url(
                 }});
             }""", isolated_context=False)
             page.get_by_role("button", name="Share chat", exact=True).click()
-            expect(page.locator(".share-toast")).to_have_count(1 if width > 680 else 0)
+            expect(page.get_by_role("status").filter(has_text="Chat link copied")).to_be_visible()
             assert page.evaluate("window.__copied", isolated_context=False) == [
                 f"http://127.0.0.1:{port}/?view=chats&run=share-alpha"
             ]
