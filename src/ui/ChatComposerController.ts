@@ -387,7 +387,6 @@ export function createChatComposerController(initialProps: Props) {
   }
 
   const onMountImpl = () => {
-    if (mode.value === "fresh") textarea.value?.focus();
     requestAnimationFrame(resizeTextarea);
     window.addEventListener("resize", resizeTextarea);
     return () => {

@@ -453,6 +453,8 @@ def test_new_chat_composer_keyboard_layout(tmp_path: Path, width: int, height: i
             composer = page.get_by_role("textbox", name="Message for new chat")
             expect(composer).to_be_visible()
             page.wait_for_timeout(80)
+            # Opening a draft must not summon the phone keyboard before a tap.
+            assert not composer.evaluate("element => document.activeElement === element")
             initial_height = composer.bounding_box()
             assert initial_height is not None
             assert initial_height["height"] <= 90, initial_height
@@ -469,5 +471,21 @@ def test_new_chat_composer_keyboard_layout(tmp_path: Path, width: int, height: i
             assert page.evaluate("document.documentElement.scrollWidth - innerWidth") <= 1
             assert composer.input_value().startswith("A draft")
             assert requests.count("POST") == 0
+        finally:
+            browser.close()
+
+
+def test_new_chat_desktop_autofocus(tmp_path: Path) -> None:
+    chromium = os.environ.get("PROMPTA_TEST_CHROMIUM", "/usr/bin/chromium")
+    if not Path(chromium).exists():
+        pytest.skip("Chromium unavailable")
+    with server(tmp_path) as (_, port), sync_patchright() as patchright:
+        browser = patchright.chromium.launch(
+            executable_path=chromium, headless=True, args=["--no-sandbox", "--no-zygote"]
+        )
+        try:
+            page = browser.new_page(viewport={"width": 1440, "height": 900})
+            page.goto(f"http://127.0.0.1:{port}/?view=chats&draft=new")
+            expect(page.get_by_role("textbox", name="Message for new chat")).to_be_focused()
         finally:
             browser.close()
