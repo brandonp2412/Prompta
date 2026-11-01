@@ -601,6 +601,7 @@ class ResponseStore:
             joined = joined.join(local_chat_pins, results.c.send_id == local_chat_pins.c.send_id)
         query = select(
             results.c.send_id, results.c.user_text, results.c.conversation_id,
+            _ACTIVITY_AT,
             func.coalesce(attempts.c.attempt_count, 0).label("attempt_count"),
         ).select_from(joined).where(
             results.c.status.in_(("interrupted", "unavailable")),
@@ -612,10 +613,16 @@ class ResponseStore:
             if not priority_ids:
                 return None
             query = query.where(results.c.send_id.in_(priority_ids))
-        query = query.order_by(
-            func.coalesce(attempts.c.next_attempt_at, 0),
-            results.c.created_at.desc(),
-        ).limit(1)
+        if pinned_only:
+            # Match the sidebar's most recent deliberate user activity, rather
+            # than the time a historical recovery happened to update the row.
+            query = query.order_by(_ACTIVITY_AT.desc(), results.c.created_at.desc())
+        else:
+            query = query.order_by(
+                func.coalesce(attempts.c.next_attempt_at, 0),
+                results.c.created_at.desc(),
+            )
+        query = query.limit(1)
         with self.engine.connect() as connection:
             row = connection.execute(query).mappings().one_or_none()
         return dict(row) if row is not None else None

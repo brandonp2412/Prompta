@@ -106,6 +106,38 @@ def test_owned_candidate_pinned_due_only_and_no_ambiguous_identity(
     assert owned.next_owned_recovery_candidate(store, "127.0.0.1:9222", now=600) is None
 
 
+def test_surviving_tabs_try_newest_pinned_even_if_older_has_no_attempts(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store = ResponseStore(tmp_path / "chat-results.sqlite3")
+    _interrupted(store, "older", CONV)
+    store.ensure_queued("newer", "Newer prompt", now=20)
+    assert store.accept("newer", "123:owner", deadline=100, now=21)
+    assert store.bind_conversation_route("newer", "123:owner", "/c/" + OTHER, now=22)
+    assert store.finish("newer", "123:owner", "interrupted", now=100)
+    assert store.set_local_pin("older", pinned=True)
+    assert store.set_local_pin("newer", pinned=True)
+    store.schedule_history_recovery("newer", now=110, next_attempt_at=125)
+    monkeypatch.setattr(
+        owned,
+        "surviving_owned_tabs",
+        lambda *a, **kw: (
+            owned.SurvivingTab("old-target", CONV),
+            owned.SurvivingTab("new-target", OTHER),
+        ),
+    )
+    candidate = owned.next_owned_recovery_candidate(
+        store,
+        "127.0.0.1:9222",
+        now=150,
+    )
+    assert candidate == owned.OwnedRecoveryCandidate(
+        "newer",
+        owned.SurvivingTab("new-target", OTHER),
+    )
+
+
 def test_due_owned_tabs_receive_first_attempt_before_retries(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

@@ -298,6 +298,18 @@ class HistoryRecovery:
                     type(exc).__name__,
                 )
 
+    def _newest_pinned_due(self, *, now: float) -> dict[str, object] | None:
+        """Pick the newest eligible pinned turn across original sends and replies."""
+        originals = self.results.next_history_recovery(now=now, pinned_only=True)
+        replies = self.replies.next_history_reply_recovery(now=now, pinned_only=True)
+        choices = [row for row in (originals, replies) if row is not None]
+
+        def activity(row: dict[str, object]) -> float:
+            value = row.get("activity_at")
+            return float(value) if isinstance(value, (int, float)) else float("-inf")
+
+        return max(choices, key=activity, default=None)
+
     def recover_once(
         self, *, now: float | None = None, preferred_send_id: str | None = None,
         owned_tab_recovery: bool = False,
@@ -310,16 +322,18 @@ class HistoryRecovery:
             or self.results.history_recovery_global_pace_remaining(now=at) > 0
         ):
             return False
-        # First reconcile conversations whose capture owner was stopped by a
-        # deploy. This is still one verified, read-only lookup per global slot.
+        # Newest eligible pinned chats take precedence. Deployment-interrupted
+        # captures and explicit manual requests remain the fallbacks, all under
+        # the same single verified recovery slot.
         priority_sends, priority_replies = deployment_recovery_priority(self.results.path.parent)
         candidate = (
             self.results.next_history_recovery(now=at, priority_ids=(preferred_send_id,))
-            if preferred_send_id is not None else (
-                self.replies.next_history_reply_recovery(now=at, priority_ids=priority_replies)
-                if priority_replies else None
-            )
+            if preferred_send_id is not None else self._newest_pinned_due(now=at)
         )
+        if candidate is None and preferred_send_id is None and priority_replies:
+            candidate = self.replies.next_history_reply_recovery(
+                now=at, priority_ids=priority_replies,
+            )
         if candidate is None and preferred_send_id is None and priority_sends:
             candidate = self.results.next_history_recovery(now=at, priority_ids=priority_sends)
         manual_target = ""
@@ -347,9 +361,7 @@ class HistoryRecovery:
                     manual_target = target
                     break
         if candidate is None and preferred_send_id is None:
-            # Preserve deliberate pinned-chat priority for the normal backlog.
-            candidate = (self.results.next_history_recovery(now=at, pinned_only=True)
-                         or self.replies.next_history_reply_recovery(now=at)
+            candidate = (self.replies.next_history_reply_recovery(now=at)
                          or self.results.next_history_recovery(now=at))
         if candidate is None:
             return False
@@ -464,7 +476,21 @@ def run_history_recovery(
                                     owned_candidate = next_owned_recovery_candidate(
                                         results, debugger_address,
                                     )
-                                if owned_candidate is not None:
+                                pinned = recovery._newest_pinned_due(now=time.time())
+                                network_read_allowed = _read_backoff_remaining(runtime) <= 0
+                                if (
+                                    network_read_allowed
+                                    and pinned is not None
+                                    and (
+                                        owned_candidate is None
+                                        or "reply_id" in pinned
+                                        or owned_candidate.send_id != pinned["send_id"]
+                                    )
+                                ):
+                                    # A newer pinned chat without a live tab
+                                    # outranks an older or unpinned owned tab.
+                                    recovery.recover_once()
+                                elif owned_candidate is not None:
                                     tab = owned_candidate.tab
                                     owned_recovery = HistoryRecovery(
                                         results, runtime,
@@ -474,7 +500,7 @@ def run_history_recovery(
                                         preferred_send_id=owned_candidate.send_id,
                                         owned_tab_recovery=True,
                                     )
-                                elif _read_backoff_remaining(runtime) <= 0:
+                                elif network_read_allowed:
                                     recovery.recover_once()
         except Exception as exc:
             last_checked_at = time.monotonic()

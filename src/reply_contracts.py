@@ -25,7 +25,7 @@ from .reply_read_state import ReplyReadState
 from .reply_tables import replies
 from .response_capture import CaptureResult
 from .response_store import ResponseStore
-from .response_tables import history_recovery_attempts, results
+from .response_tables import history_recovery_attempts, local_chat_pins, results
 from .tool_call_store import deserialize_tool_calls, merge_tool_calls
 from .web_models import ReplyRequest
 
@@ -597,6 +597,7 @@ class ManualReplyStore(ReplyReadState):
 
     def next_history_reply_recovery(
         self, *, now: float | None = None, priority_ids: Collection[str] | None = None,
+        pinned_only: bool = False,
     ) -> dict[str, object] | None:
         """Only verified Prompta-owned parent chains are eligible."""
         at = time.time() if now is None else now
@@ -605,9 +606,12 @@ class ManualReplyStore(ReplyReadState):
         joined = replies.join(results, replies.c.send_id == results.c.send_id).outerjoin(
             attempts, attempts.c.send_id == literal("reply:") + replies.c.reply_id,
         )
+        if pinned_only:
+            joined = joined.join(local_chat_pins, local_chat_pins.c.send_id == results.c.send_id)
         query = select(
             replies.c.reply_id, replies.c.conversation_id, replies.c.parent_id,
             replies.c.user_text, results.c.user_text.label("original_prompt"),
+            replies.c.created_at.label("activity_at"),
             func.coalesce(attempts.c.attempt_count, 0).label("attempt_count"),
         ).select_from(joined).where(
             *verified,
@@ -617,9 +621,13 @@ class ManualReplyStore(ReplyReadState):
             if not priority_ids:
                 return None
             query = query.where(replies.c.reply_id.in_(priority_ids))
-        query = query.order_by(
-            func.coalesce(attempts.c.next_attempt_at, 0), replies.c.created_at.desc(),
-        ).limit(1)
+        if pinned_only:
+            query = query.order_by(replies.c.created_at.desc())
+        else:
+            query = query.order_by(
+                func.coalesce(attempts.c.next_attempt_at, 0), replies.c.created_at.desc(),
+            )
+        query = query.limit(1)
         with self.engine.connect() as connection:
             row = connection.execute(query).mappings().one_or_none()
         return dict(row) if row is not None else None

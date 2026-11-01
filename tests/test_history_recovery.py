@@ -32,14 +32,19 @@ def _expired(store: ResponseStore, send_id: str = "manual-1") -> None:
 
 
 def test_deployed_capture_is_recovered_before_older_backlog_without_resending(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     store = ResponseStore(tmp_path / "chat-results.sqlite3")
     _expired(store, "deployment-capture")
     _expired(store, "ordinary-newer")
-    (tmp_path / "deployment-interrupted.json").write_text(json.dumps({
-        "priority": {"job_responses": ["deployment-capture"], "manual_reply_turns": []},
-    }))
+    (tmp_path / "deployment-interrupted.json").write_text(
+        json.dumps(
+            {
+                "priority": {"job_responses": ["deployment-capture"], "manual_reply_turns": []},
+            }
+        )
+    )
     runtime = SchedulerRuntime(tmp_path / "runtime.sqlite3", tmp_path / "jobs.json")
     worker = HistoryRecovery(store, runtime, FakeHistoryDriver)
     observed: list[str] = []
@@ -47,8 +52,9 @@ def test_deployed_capture_is_recovered_before_older_backlog_without_resending(
     async def read(conversation_id: str, original_prompt: str) -> CaptureResult:
         assert conversation_id == CONVERSATION
         observed.append(original_prompt)
-        return CaptureResult("dom", "complete", "Recovered existing answer",
-                             CONVERSATION, None, None, "turn")
+        return CaptureResult(
+            "dom", "complete", "Recovered existing answer", CONVERSATION, None, None, "turn"
+        )
 
     # Both use the same prompt in this fixture; only the exact persisted ID
     # chosen by the store can transition to completed.
@@ -60,6 +66,66 @@ def test_deployed_capture_is_recovered_before_older_backlog_without_resending(
     assert recovered is not None and recovered["status"] == "completed"
     assert pending is not None and pending["status"] == "interrupted"
     assert not worker.recover_once(now=151)  # account-wide 90-second slot
+
+
+def test_newest_pinned_chat_beats_older_pinned_retry_and_newer_deploy_priority(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store = ResponseStore(tmp_path / "chat-results.sqlite3")
+    conversations = {
+        "older-pinned": "12345678-1234-4123-8123-123456789abd",
+        "newer-pinned": "12345678-1234-4123-8123-123456789abe",
+        "newest-unpinned": "12345678-1234-4123-8123-123456789abf",
+    }
+    for at, (send_id, conversation) in enumerate(conversations.items(), start=10):
+        stamp = float(at * 10)
+        store.ensure_queued(send_id, send_id + " prompt", now=stamp)
+        assert store.accept(send_id, "123:owner", deadline=200, now=stamp + 1)
+        assert store.bind_conversation_route(
+            send_id,
+            "123:owner",
+            "/c/" + conversation,
+            now=stamp + 2,
+        )
+        assert store.finish(send_id, "123:owner", "interrupted", now=100)
+    assert store.set_local_pin("older-pinned", pinned=True)
+    assert store.set_local_pin("newer-pinned", pinned=True)
+    store.schedule_history_recovery("newer-pinned", now=110, next_attempt_at=125)
+    (tmp_path / "deployment-interrupted.json").write_text(
+        json.dumps(
+            {
+                "priority": {"job_responses": ["newest-unpinned"], "manual_reply_turns": []},
+            }
+        )
+    )
+    newest_pinned = store.next_history_recovery(now=150, pinned_only=True)
+    assert newest_pinned is not None and newest_pinned["send_id"] == "newer-pinned"
+
+    runtime = SchedulerRuntime(tmp_path / "runtime.sqlite3", tmp_path / "jobs.json")
+    worker = HistoryRecovery(store, runtime, FakeHistoryDriver)
+    observed: list[str] = []
+
+    async def read(conversation_id: str, original_prompt: str) -> CaptureResult:
+        observed.append(original_prompt)
+        return CaptureResult(
+            "dom",
+            "complete",
+            "Recovered pinned answer",
+            conversation_id,
+            None,
+            None,
+            "turn",
+        )
+
+    monkeypatch.setattr(worker, "_read_original_response", read)
+    assert worker.recover_once(now=150)
+    assert observed == ["newer-pinned prompt"]
+    newer = store.get("newer-pinned")
+    assert newer is not None and newer["status"] == "completed"
+    for still_waiting in ("older-pinned", "newest-unpinned"):
+        row = store.get(still_waiting)
+        assert row is not None and row["status"] == "interrupted"
 
 
 def test_deployment_priority_never_bypasses_per_chat_backoff(tmp_path: Path) -> None:
@@ -95,7 +161,10 @@ def test_only_verified_incomplete_conversations_are_recovery_candidates(tmp_path
     [(0, 90), (1, 180), (6, 5760), (8, 14400), (30, 14400)],
 )
 def test_repeated_failed_reads_back_off_without_resending(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, attempts: int, delay: int,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    attempts: int,
+    delay: int,
 ) -> None:
     store = ResponseStore(tmp_path / "chat-results.sqlite3")
     _expired(store)
@@ -160,15 +229,25 @@ def test_recovery_never_overwrites_completed_or_crosses_branches(tmp_path: Path)
     shorter = CaptureResult("dom", "partial", "Tiny", CONVERSATION, None, None, "turn")
     assert not store.recover_historical_response("manual-1", shorter, now=112)
     tool_only = CaptureResult(
-        "dom", "unknown", "", CONVERSATION, None, None, "turn",
-        tool_calls=({"id": "dom-tool-0", "connector": "", "action": "Used search", "status": "observed"},),
+        "dom",
+        "unknown",
+        "",
+        CONVERSATION,
+        None,
+        None,
+        "turn",
+        tool_calls=(
+            {"id": "dom-tool-0", "connector": "", "action": "Used search", "status": "observed"},
+        ),
     )
     assert store.recover_historical_response("manual-1", tool_only, now=112.5)
     saved = store.detail("manual-1")
     assert saved is not None and saved["assistant_text"] == "Still working"
     calls = saved["tool_calls"]
     assert isinstance(calls, list) and len(calls) == 1
-    complete = CaptureResult("dom", "complete", "Finished response", CONVERSATION, None, None, "turn")
+    complete = CaptureResult(
+        "dom", "complete", "Finished response", CONVERSATION, None, None, "turn"
+    )
     assert store.recover_historical_response("manual-1", complete, now=113)
     row = store.get("manual-1")
     assert row is not None and row["status"] == "completed"
@@ -179,7 +258,10 @@ def test_recovery_never_overwrites_completed_or_crosses_branches(tmp_path: Path)
 
 class FakeHistoryDriver:
     def __init__(
-        self, *, rate_limited: bool = False, challenge: bool = False,
+        self,
+        *,
+        rate_limited: bool = False,
+        challenge: bool = False,
         http_limited: bool = False,
     ) -> None:
         self.context = "owned"
@@ -207,10 +289,13 @@ class FakeHistoryDriver:
     async def eval(self, expression: str, *, main_world: bool = False) -> object:
         assert CONVERSATION in expression and "Original prompt" in expression
         return {
-            "verified": True, "ambiguous": False,
-            "message_id": "turn", "branch_message_id": "",
+            "verified": True,
+            "ambiguous": False,
+            "message_id": "turn",
+            "branch_message_id": "",
             "pathname": "/c/" + CONVERSATION,
-            "text": "Recovered from existing chat", "complete": True,
+            "text": "Recovered from existing chat",
+            "complete": True,
         }
 
     async def close(self) -> None:
@@ -218,7 +303,8 @@ class FakeHistoryDriver:
 
 
 def test_transient_ambiguous_dom_does_not_discard_same_tab_recovery(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     store = ResponseStore(tmp_path / "chat-results.sqlite3")
     _expired(store)
@@ -249,7 +335,9 @@ def test_transient_ambiguous_dom_does_not_discard_same_tab_recovery(
 
 @pytest.mark.parametrize("transient", [TimeoutError, PatchrightError])
 def test_transient_dom_and_probe_timeouts_retry_same_owned_tab(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, transient: type[Exception],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    transient: type[Exception],
 ) -> None:
     store = ResponseStore(tmp_path / "chat-results.sqlite3")
     _expired(store)
@@ -320,7 +408,8 @@ def test_cleanup_failure_does_not_discard_verified_read_only_response(
 
 
 def test_stuck_cleanup_has_a_deadline_without_losing_verified_response(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     store = ResponseStore(tmp_path / "chat-results.sqlite3")
     _expired(store)
@@ -337,15 +426,27 @@ def test_stuck_cleanup_has_a_deadline_without_losing_verified_response(
     assert row is not None and row["status"] == "completed"
 
 
-def test_read_only_recovery_restores_uncertain_explicit_reply_without_resending(tmp_path: Path) -> None:
+def test_read_only_recovery_restores_uncertain_explicit_reply_without_resending(
+    tmp_path: Path,
+) -> None:
     path = tmp_path / "chat-results.sqlite3"
     responses = ResponseStore(path)
     original_id = "87654321-4321-4321-8321-123456789abc"
     responses.ensure_queued("manual-original", "Original prompt", now=10)
     assert responses.accept("manual-original", "123:owner", deadline=300, now=11)
-    assert responses.write("manual-original", "123:owner", CaptureResult(
-        "sse", "complete", "Original answer", CONVERSATION, original_id, None,
-    ), now=12)
+    assert responses.write(
+        "manual-original",
+        "123:owner",
+        CaptureResult(
+            "sse",
+            "complete",
+            "Original answer",
+            CONVERSATION,
+            original_id,
+            None,
+        ),
+        now=12,
+    )
     replies = ManualReplyStore(path)
     intent = ReplyIntent("reply-123456789abcdef", CONVERSATION, original_id, "Follow up")
     assert replies.prepare("manual-original", intent, now=13)["status"] == "prepared"
@@ -358,10 +459,14 @@ def test_read_only_recovery_restores_uncertain_explicit_reply_without_resending(
         async def eval(self, expression: str, *, main_world: bool = False) -> object:
             assert "Follow up" in expression and original_id in expression
             return {
-                "verified": True, "ambiguous": False,
-                "message_id": "reply-unit", "branch_message_id": "11111111-1111-4111-8111-111111111111",
-                "verified_parent_id": original_id, "pathname": "/c/" + CONVERSATION,
-                "text": "Recovered follow-up", "complete": True,
+                "verified": True,
+                "ambiguous": False,
+                "message_id": "reply-unit",
+                "branch_message_id": "11111111-1111-4111-8111-111111111111",
+                "verified_parent_id": original_id,
+                "pathname": "/c/" + CONVERSATION,
+                "text": "Recovered follow-up",
+                "complete": True,
                 "tool_calls": [{"action": "Used test connector", "status": "completed"}],
             }
 
@@ -386,9 +491,11 @@ def test_rate_limit_stops_recovery_and_preserves_retry_state(tmp_path: Path) -> 
     worker = HistoryRecovery(store, runtime, lambda: driver)
     assert not worker.recover_once(now=150)
     assert driver.closed and runtime.read_backoff_remaining() >= 299
-    assert DeliveryAdmission(runtime, resource_admission=lambda: (True, ""))(
-        manual=True
-    ) == (True, "", 0.0)
+    assert DeliveryAdmission(runtime, resource_admission=lambda: (True, ""))(manual=True) == (
+        True,
+        "",
+        0.0,
+    )
     restarted = SchedulerRuntime(tmp_path / "runtime.sqlite3", tmp_path / "jobs.json")
     assert restarted.read_backoff_remaining() > 0
     row = store.get("manual-1")
@@ -421,7 +528,9 @@ def test_global_pacing_survives_worker_restart(tmp_path: Path) -> None:
     assert store.history_recovery_global_pace_remaining(now=151) == 89
     second_driver = FakeHistoryDriver()
     restarted_worker = HistoryRecovery(
-        ResponseStore(tmp_path / "chat-results.sqlite3"), runtime, lambda: second_driver,
+        ResponseStore(tmp_path / "chat-results.sqlite3"),
+        runtime,
+        lambda: second_driver,
     )
     assert not restarted_worker.recover_once(now=151)
     assert second_driver.visited == []
