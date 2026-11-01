@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import time
 from pathlib import Path
 
 import pytest
@@ -65,8 +66,16 @@ def test_manual_recovery_targets_verified_uncertain_followup_only(tmp_path: Path
         )
         intent = ReplyIntent("uncertain-followup", CONVERSATION, original_id, "Private follow-up")
         assert app.replies.prepare("reply-run", intent, now=13)["status"] == "prepared"
-        assert app.replies.claim(intent.reply_id, "123:reply", deadline=100, now=14)
-        assert app.replies.finish(intent.reply_id, "123:reply", uncertain=True, now=15)
+        # The live server runs orphan recovery concurrently: a 1970-era
+        # deadline or a dead test PID would let it steal this dispatch lease.
+        owner = f"{os.getpid()}:reply"
+        claim_at = time.time()
+        assert app.replies.claim(
+            intent.reply_id, owner, deadline=claim_at + 100, now=claim_at,
+        )
+        assert app.replies.finish(
+            intent.reply_id, owner, uncertain=True, now=claim_at + 1,
+        )
         assert post_json(port, "/api/results/reply-run/manual-recover", {}) == (
             202, {"ok": True, "pending": 1},
         )
