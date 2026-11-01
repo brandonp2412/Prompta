@@ -11,6 +11,7 @@ from pathlib import Path
 from .config import DEFAULT_CONFIG_PATH, ParallelismSettings
 from .delivery_queue import DeliveryQueueStore
 from .jobs import PromptJob, remove_job
+from .logging_config import configure_logging
 from .persistence import DEFAULT_RUNTIME_PATH
 from .queue_eta import QueueEtaEstimator
 from .scheduler_policy import (
@@ -107,21 +108,25 @@ class DurableSchedulerProducer:
             eta = projection.enqueue() if projection is not None else 0
             # Retry and account rate-limit delays are a lower bound on start time.
             eta = max(eta, math.ceil(max(0.0, float_value(receipt["retry_at"]) - at)))
-            waiting_runs.append({
-                "send_id": receipt["send_id"],
-                "eta_seconds": eta,
-            })
+            waiting_runs.append(
+                {
+                    "send_id": receipt["send_id"],
+                    "eta_seconds": eta,
+                }
+            )
             client_id = str(receipt["client_id"])
             if limit is None or not client_id.startswith("scheduled:"):
                 continue
-            waiting.append({
-                "name": client_id.rsplit(":", 1)[-1],
-                "position": len(waiting) + 1,
-                "reason": "global",
-                "occupied": len(active),
-                "limit": limit,
-                "eta_seconds": eta,
-            })
+            waiting.append(
+                {
+                    "name": client_id.rsplit(":", 1)[-1],
+                    "position": len(waiting) + 1,
+                    "reason": "global",
+                    "occupied": len(active),
+                    "limit": limit,
+                    "eta_seconds": eta,
+                }
+            )
         return {
             "max_workers": limit,
             "occupied_slots": len(active),
@@ -322,7 +327,7 @@ def main() -> None:
     parser.add_argument("--once", action="store_true")
     args = parser.parse_args()
 
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    configure_logging("scheduler")
     producer = DurableSchedulerProducer(args.state, args.jobs_file, args.queue)
     if args.once:
         producer.tick()

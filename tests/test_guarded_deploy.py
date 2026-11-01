@@ -18,8 +18,7 @@ def make_databases(state_dir: Path, *, active: bool = False) -> None:
             "(status TEXT, capture_deadline REAL, capture_owner TEXT, send_id TEXT)"
         )
         db.execute(
-            "CREATE TABLE manual_reply_turns "
-            "(status TEXT, lease_deadline REAL, reply_id TEXT)"
+            "CREATE TABLE manual_reply_turns (status TEXT, lease_deadline REAL, reply_id TEXT)"
         )
         db.execute(
             "INSERT INTO job_responses VALUES (?, 200, 'capture-owner', 'fresh-one')",
@@ -55,8 +54,29 @@ def test_records_active_work_without_waiting(tmp_path: Path) -> None:
     assert inventory["manual_reply_turns"] == [{"id": "reply-one", "status": "accepted"}]
     assert inventory["job_deliveries"] == [{"id": "fresh-one", "status": "running"}]
     assert inventory["priority"] == {
-        "job_responses": ["fresh-one"], "manual_reply_turns": ["reply-one"],
+        "job_responses": ["fresh-one"],
+        "manual_reply_turns": ["reply-one"],
     }
+
+
+def test_deploy_verification_reports_pending_recovery_without_claiming_completion(
+    tmp_path: Path,
+) -> None:
+    gate = DeploymentGate(tmp_path / "runtime.sqlite3")
+    make_databases(tmp_path, active=True)
+    deploy_guarded.record_interrupted_work(gate)
+    assert deploy_guarded.verify_recorded_work(gate)
+    report = json.loads((tmp_path / "deployment-verification.json").read_text())
+    assert report["preserved"] == 3
+    assert report["pending_recovery"] == 3
+    assert report["missing"] == {}
+    assert report["status_counts"]["job_responses"] == {"generating": 1}
+
+    with sqlite3.connect(tmp_path / "chat-results.sqlite3") as db:
+        db.execute("DELETE FROM manual_reply_turns WHERE reply_id='reply-one'")
+    assert not deploy_guarded.verify_recorded_work(gate)
+    report = json.loads((tmp_path / "deployment-verification.json").read_text())
+    assert report["missing"] == {"manual_reply_turns": ["reply-one"]}
 
 
 def test_next_deploy_keeps_unfinished_recovery_priority(tmp_path: Path) -> None:
@@ -69,7 +89,8 @@ def test_next_deploy_keeps_unfinished_recovery_priority(tmp_path: Path) -> None:
     deploy_guarded.record_interrupted_work(gate)
     inventory = json.loads((tmp_path / "deployment-interrupted.json").read_text())
     assert inventory["priority"] == {
-        "job_responses": ["fresh-one"], "manual_reply_turns": ["reply-one"],
+        "job_responses": ["fresh-one"],
+        "manual_reply_turns": ["reply-one"],
     }
 
 
@@ -124,7 +145,8 @@ def test_wait_for_idle_drains_read_only_browser_operations(tmp_path: Path) -> No
 
 
 def test_busy_deployment_aborts_without_stopping_workers(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     state = tmp_path / "state"
     state.mkdir()

@@ -19,6 +19,7 @@ from urllib.error import URLError
 from urllib.request import urlopen
 
 from prompta.deployment_gate import DeploymentGate, deployment_recovery_priority
+from prompta.logging_config import configure_logging
 
 logger = logging.getLogger(__name__)
 SERVICES = (
@@ -41,15 +42,23 @@ def stop_workers(*, timeout: float = 5.0) -> None:
     subprocess.run(["systemctl", "--user", "stop", "--no-block", *SERVICES], check=True)
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        if all(subprocess.run(
-            ["systemctl", "--user", "show", "--property=ActiveState", "--value", unit],
-            check=True, capture_output=True, text=True, timeout=3,
-        ).stdout.strip() in {"inactive", "failed"} for unit in SERVICES):
+        if all(
+            subprocess.run(
+                ["systemctl", "--user", "show", "--property=ActiveState", "--value", unit],
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=3,
+            ).stdout.strip()
+            in {"inactive", "failed"}
+            for unit in SERVICES
+        ):
             break
         time.sleep(0.25)
     else:
         subprocess.run(
-            ["systemctl", "--user", "kill", "--signal=SIGKILL", *SERVICES], check=False,
+            ["systemctl", "--user", "kill", "--signal=SIGKILL", *SERVICES],
+            check=False,
         )
     # Wait for the stop jobs to complete before changing the loaded checkout.
     subprocess.run(["systemctl", "--user", "stop", *SERVICES], check=True, timeout=15)
@@ -63,24 +72,35 @@ def wait_for_idle(gate: DeploymentGate, *, timeout: float = _DRAIN_TIMEOUT_SECON
     state_dir = gate.pause_path.parent
     deadline = time.monotonic() + max(0.0, timeout)
     checks = (
-        ("chat-results.sqlite3", "job_responses",
-         "status IN ('accepted', 'generating')", "capture_deadline"),
-        ("chat-results.sqlite3", "manual_reply_turns",
-         "status IN ('dispatching', 'accepted', 'generating')", "lease_deadline"),
-        ("ui-send-jobs.sqlite3", "job_deliveries",
-         "status = 'running'", "lease_expires_at"),
+        (
+            "chat-results.sqlite3",
+            "job_responses",
+            "status IN ('accepted', 'generating')",
+            "capture_deadline",
+        ),
+        (
+            "chat-results.sqlite3",
+            "manual_reply_turns",
+            "status IN ('dispatching', 'accepted', 'generating')",
+            "lease_deadline",
+        ),
+        ("ui-send-jobs.sqlite3", "job_deliveries", "status = 'running'", "lease_expires_at"),
     )
     while True:
         now = time.time()
         active = 0
         for filename, table, condition, lease_column in checks:
             with sqlite3.connect(
-                f"file:{state_dir / filename}?mode=ro", uri=True, timeout=3,
+                f"file:{state_dir / filename}?mode=ro",
+                uri=True,
+                timeout=3,
             ) as db:
-                active += int(db.execute(
-                    f"SELECT COUNT(*) FROM {table} WHERE {condition} AND {lease_column}>?",
-                    (now,),
-                ).fetchone()[0])
+                active += int(
+                    db.execute(
+                        f"SELECT COUNT(*) FROM {table} WHERE {condition} AND {lease_column}>?",
+                        (now,),
+                    ).fetchone()[0]
+                )
         if active == 0:
             # History probes and parent recovery hold a shared operation lock,
             # but have no capture lease in either database. Do not stop their
@@ -135,6 +155,80 @@ def record_interrupted_work(gate: DeploymentGate) -> None:
     logger.info("Recorded interrupted work in %s", target)
 
 
+def verify_recorded_work(gate: DeploymentGate) -> bool:
+    """Confirm deploy-time operation IDs survived the restart.
+
+    Pending recovery is explicitly reported, never presented as completed.
+    Recovery itself resumes only after the admission pause is released.
+    """
+    state_dir = gate.pause_path.parent
+    inventory = json.loads((state_dir / "deployment-interrupted.json").read_text(encoding="utf-8"))
+    observations: dict[str, dict[str, int]] = {}
+    missing: dict[str, list[str]] = {}
+    pending = 0
+    preserved = 0
+    for filename, table, key in (
+        ("chat-results.sqlite3", "job_responses", "send_id"),
+        ("chat-results.sqlite3", "manual_reply_turns", "reply_id"),
+        ("ui-send-jobs.sqlite3", "job_deliveries", "send_id"),
+    ):
+        items = inventory.get(table)
+        if not isinstance(items, list):
+            raise ValueError(f"Invalid deployment recovery inventory table={table}")
+        counts: dict[str, int] = {}
+        lost: list[str] = []
+        with sqlite3.connect(f"file:{state_dir / filename}?mode=ro", uri=True, timeout=3) as db:
+            for item in items:
+                if not isinstance(item, dict) or not isinstance(item.get("id"), str):
+                    raise ValueError(f"Invalid deployment recovery inventory record table={table}")
+                identifier = item["id"]
+                row = db.execute(
+                    f"SELECT status FROM {table} WHERE {key}=?", (identifier,)
+                ).fetchone()
+                if row is None:
+                    lost.append(identifier)
+                    continue
+                preserved += 1
+                status = str(row[0])
+                counts[status] = counts.get(status, 0) + 1
+                if status in {
+                    "running",
+                    "dispatching",
+                    "accepted",
+                    "generating",
+                    "partial",
+                    "interrupted",
+                    "outcome_unknown",
+                }:
+                    pending += 1
+        observations[table] = counts
+        if lost:
+            missing[table] = lost
+
+    report = {
+        "recorded_at": inventory.get("recorded_at"),
+        "checked_at": time.time(),
+        "preserved": preserved,
+        "pending_recovery": pending,
+        "missing": missing,
+        "status_counts": observations,
+    }
+    destination = state_dir / "deployment-verification.json"
+    temporary = destination.with_suffix(".tmp")
+    temporary.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+    temporary.replace(destination)
+    level = logging.ERROR if missing else logging.INFO
+    logger.log(
+        level,
+        "event=deployment_continuity_checked preserved=%d pending_recovery=%d missing=%d report=%s",
+        preserved,
+        pending,
+        sum(len(ids) for ids in missing.values()),
+        destination,
+    )
+    return not missing
+
+
 def verify_services(*, timeout: float = 45.0) -> bool:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
@@ -142,7 +236,8 @@ def verify_services(*, timeout: float = 45.0) -> bool:
             subprocess.run(
                 ["systemctl", "--user", "is-active", "--quiet", unit],
                 check=False,
-            ).returncode == 0
+            ).returncode
+            == 0
             for unit in SERVICES
         )
         if units_active:
@@ -164,9 +259,7 @@ def deploy(repo: Path, gate: DeploymentGate) -> bool:
         fcntl.flock(merge_handle.fileno(), fcntl.LOCK_EX)
         # Fetch is safe before pausing browser operations; checkout is not.
         subprocess.run(["git", "fetch", "origin", "main"], cwd=repo, check=True)
-        if subprocess.run(
-            ["git", "diff", "--quiet"], cwd=repo, check=False
-        ).returncode != 0:
+        if subprocess.run(["git", "diff", "--quiet"], cwd=repo, check=False).returncode != 0:
             raise RuntimeError("Installed checkout has local modifications")
         request_pause(gate)
         changed = False
@@ -191,9 +284,7 @@ def deploy(repo: Path, gate: DeploymentGate) -> bool:
                 )
             # Unconfirmed deliveries are also quarantined without retry.
             with sqlite3.connect(gate.pause_path.parent / "ui-send-jobs.sqlite3") as db:
-                db.execute(
-                    "UPDATE job_deliveries SET lease_expires_at=0 WHERE status='running'"
-                )
+                db.execute("UPDATE job_deliveries SET lease_expires_at=0 WHERE status='running'")
             subprocess.run(["git", "merge", "--ff-only", "origin/main"], cwd=repo, check=True)
             subprocess.run([str(repo / ".venv/bin/prompta-migrate")], cwd=repo, check=True)
             # The browser process, its tabs and profile are never restarted here.
@@ -201,16 +292,16 @@ def deploy(repo: Path, gate: DeploymentGate) -> bool:
                 subprocess.run(["systemctl", "--user", "restart", unit], check=True)
             if not verify_services():
                 raise RuntimeError("Deployment health verification failed; admission stays paused")
-            logger.info("Deployment verified; resuming durable queues and history recovery")
+            if not verify_recorded_work(gate):
+                raise RuntimeError("Deployment lost recorded work; admission stays paused")
+            logger.info("event=deployment_health_verified recovery_may_be_pending=true")
             success = True
             return True
         finally:
             if not changed or success:
                 gate.pause_path.unlink()
             else:
-                logger.error(
-                    "Deployment incomplete; pause marker retained until operator recovery"
-                )
+                logger.error("Deployment incomplete; pause marker retained until operator recovery")
 
 
 def main() -> None:
@@ -218,11 +309,12 @@ def main() -> None:
     parser.add_argument("--repo", type=Path, default=Path.home() / "prompta")
     parser.add_argument("--state", type=Path, default=DEFAULT_STATE)
     parser.add_argument(
-        "--resume", action="store_true",
+        "--resume",
+        action="store_true",
         help="Remove a leftover pause only after separately verifying services are healthy",
     )
     args = parser.parse_args()
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    configure_logging("deploy_guarded")
     gate = DeploymentGate(args.state)
     if args.resume:
         if not verify_services():

@@ -13,6 +13,7 @@ from urllib.request import urlopen
 import pytest
 from patchright.async_api import async_playwright as async_patchright
 
+import prompta.connector_approval_supervisor as supervisor
 from prompta import patchright_driver
 from prompta.browser_ownership import new_owned_window_marker
 from prompta.browser_script_loader import load_browser_script
@@ -87,6 +88,79 @@ async def test_shared_supervisor_does_not_retry_stuck_dialog_tightly() -> None:
 
 
 @pytest.mark.asyncio
+async def test_failed_permission_pipe_backs_off_and_aggregates(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    attempts = 0
+    sleeps: list[float] = []
+    real_sleep = asyncio.sleep
+
+    async def unavailable(_script: str) -> object:
+        nonlocal attempts
+        attempts += 1
+        try:
+            raise RuntimeError("do-not-log-message-or-authentication-data")
+        except RuntimeError as cause:
+            raise Exception("do-not-log-browser-exception-text") from cause
+
+    async def observe_sleep(seconds: float) -> None:
+        sleeps.append(seconds)
+        await real_sleep(0)
+
+    monkeypatch.setattr(supervisor.asyncio, "sleep", observe_sleep)
+    with caplog.at_level("INFO"):
+        count = await supervise_connector_approvals(
+            unavailable,
+            deadline=asyncio.get_running_loop().time() + 60,
+            source="test",
+            poll_interval_seconds=0.2,
+            active=lambda: attempts < 5,
+        )
+    assert count == 0
+    assert attempts == 5
+    assert sleeps == [1.0, 2.0, 4.0, 8.0, 16.0]
+    assert caplog.text.count("event=connector_approval_check_failed") == 1
+    assert caplog.text.count("event=connector_approval_check_unavailable") == 1
+    assert "builtins.Exception>builtins.RuntimeError" in caplog.text
+    assert "do-not-log" not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_approval_check_recovery_resets_failure_backoff(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    outcomes = iter(("fail", False, False))
+    sleeps: list[float] = []
+    real_sleep = asyncio.sleep
+    checks = 0
+
+    async def evaluate(_script: str) -> object:
+        nonlocal checks
+        checks += 1
+        outcome = next(outcomes)
+        if outcome == "fail":
+            raise ConnectionError("connection closed")
+        return outcome
+
+    async def observe_sleep(seconds: float) -> None:
+        sleeps.append(seconds)
+        await real_sleep(0)
+
+    monkeypatch.setattr(supervisor.asyncio, "sleep", observe_sleep)
+    with caplog.at_level("INFO"):
+        await supervise_connector_approvals(
+            evaluate,
+            deadline=asyncio.get_running_loop().time() + 30,
+            source="test",
+            poll_interval_seconds=0.2,
+            active=lambda: checks < 3,
+        )
+    assert sleeps == [1.0, 0.2, 0.2]
+    assert "event=connector_approval_check_recovered" in caplog.text
+    assert "event=connector_approval_check_unavailable" not in caplog.text
+
+
+@pytest.mark.asyncio
 async def test_broken_live_channel_uses_independent_owned_tab_retry() -> None:
     primary_calls = 0
     fallback_calls = 0
@@ -133,7 +207,8 @@ async def test_failed_fresh_retry_never_claims_an_approval() -> None:
 @pytest.mark.asyncio
 async def test_fresh_retry_requires_an_active_owned_capture(tmp_path: Path) -> None:
     driver = PatchrightDriver(
-        profile=tmp_path, debugger_address="127.0.0.1:9222",
+        profile=tmp_path,
+        debugger_address="127.0.0.1:9222",
         ownership_prefix="prompta-delivery:",
     )
     assert await driver.retry_connector_approval_from_owned_tab() is False
@@ -143,7 +218,8 @@ async def test_fresh_retry_requires_an_active_owned_capture(tmp_path: Path) -> N
 
 @pytest.mark.asyncio
 async def test_fresh_approval_attachment_verifies_exact_target_and_owner(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     chromium = os.environ.get("PROMPTA_TEST_CHROMIUM") or shutil.which("chromium")
     if chromium is None:
@@ -152,10 +228,17 @@ async def test_fresh_approval_attachment_verifies_exact_target_and_owner(
         listener.bind(("127.0.0.1", 0))
         port = listener.getsockname()[1]
     process = subprocess.Popen(
-        [chromium, "--headless=new", "--no-sandbox", "--disable-gpu",
-         f"--remote-debugging-port={port}",
-         f"--user-data-dir={tmp_path / 'isolated-browser'}", "about:blank"],
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        [
+            chromium,
+            "--headless=new",
+            "--no-sandbox",
+            "--disable-gpu",
+            f"--remote-debugging-port={port}",
+            f"--user-data-dir={tmp_path / 'isolated-browser'}",
+            "about:blank",
+        ],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
     )
     address = f"127.0.0.1:{port}"
     try:
@@ -178,7 +261,7 @@ async def test_fresh_approval_attachment_verifies_exact_target_and_owner(
             await page.set_content(
                 '<main><div role="dialog" id="permission">'
                 '<button id="grant">Always allow</button>'
-                '<button>Allow once</button><button>Deny</button></div></main>'
+                "<button>Allow once</button><button>Deny</button></div></main>"
             )
             await page.evaluate("""() => {
                 window.__grants = 0;
@@ -199,7 +282,8 @@ async def test_fresh_approval_attachment_verifies_exact_target_and_owner(
             assert isinstance(target_id, str)
 
             driver = PatchrightDriver(
-                profile=tmp_path, debugger_address=address,
+                profile=tmp_path,
+                debugger_address=address,
                 ownership_prefix="prompta-delivery:",
             )
             driver.context = "captured"
@@ -207,7 +291,8 @@ async def test_fresh_approval_attachment_verifies_exact_target_and_owner(
             driver._owned_target_ids["captured"] = target_id
             driver._send_capture = {}
             marker = new_owned_window_marker(
-                prefix="prompta-delivery:", owner_id=driver.page_owner_id,
+                prefix="prompta-delivery:",
+                owner_id=driver.page_owner_id,
             )
             await page.evaluate("(value) => { window.name = value; }", marker)
             # The isolated browser has no network route to ChatGPT. First
@@ -216,14 +301,16 @@ async def test_fresh_approval_attachment_verifies_exact_target_and_owner(
             assert await driver.retry_connector_approval_from_owned_tab() is False
             synthetic_url = "https://chatgpt.com/c/12345678-1234-4123-8123-123456789abc"
             monkeypatch.setattr(
-                patchright_driver, "urlsplit",
+                patchright_driver,
+                "urlsplit",
                 lambda value: urlsplit(synthetic_url if value == page.url else value),
             )
             assert await driver.retry_connector_approval_from_owned_tab() is True
             assert await page.evaluate("window.__grants") == 1
 
             # A stale original channel must not lose the answer on this exact tab.
-            await page.evaluate("""() => {
+            await page.evaluate(
+                """() => {
                 window.__promptaPassiveResponseObserver = {
                     read: () => ({
                         message_id: 'owned-answer',
@@ -234,7 +321,9 @@ async def test_fresh_approval_attachment_verifies_exact_target_and_owner(
                         pathname: '/c/12345678-1234-4123-8123-123456789abc',
                     }),
                 };
-            }""", isolated_context=False)
+            }""",
+                isolated_context=False,
+            )
 
             async def stale_eval(_script: str, *, main_world: bool = False) -> object:
                 raise RuntimeError("stale original browser channel")
@@ -280,9 +369,9 @@ async def test_trusted_retry_handles_unhydrated_permission_controls() -> None:
         try:
             page = await browser.new_page()
             await page.set_content(
-                '<div role="dialog"><button onclick="document.body.dataset.events=(document.body.dataset.events||\'\')+(event.isTrusted?\'T\':\'F\');'
+                "<div role=\"dialog\"><button onclick=\"document.body.dataset.events=(document.body.dataset.events||'')+(event.isTrusted?'T':'F');"
                 'if(event.isTrusted)this.parentElement.remove()">Always allow</button>'
-                '<button>Allow once</button><button>Deny</button></div>'
+                "<button>Allow once</button><button>Deny</button></div>"
             )
             grants = await supervise_connector_approvals(
                 page.evaluate,
@@ -312,8 +401,8 @@ async def test_trusted_retry_checks_checkbox_before_grant() -> None:
             await page.set_content(
                 '<div role="dialog"><label><input type="checkbox" id="persistent">'
                 'Always allow</label><button id="confirm" onclick="'
-                'if(event.isTrusted){document.body.dataset.approved=\'true\';this.parentElement.remove()}">'
-                'Allow</button></div>'
+                "if(event.isTrusted){document.body.dataset.approved='true';this.parentElement.remove()}\">"
+                "Allow</button></div>"
             )
             await page.evaluate(
                 "document.getElementById('persistent').addEventListener('click', "
