@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import fcntl
 import logging
+import math
 import random
 import time
 from pathlib import Path
@@ -78,10 +79,10 @@ class DurableSchedulerProducer:
         )
 
     def concurrency_queue_snapshot(self, *, now: float | None = None) -> dict[str, object]:
-        """Read-only view of actual queued scheduled jobs behind the global cap.
+        """Read-only approximate start ETAs for queued deliveries and scheduled jobs.
 
-        Queued records are durable, including one-shot jobs whose definitions
-        have been removed. Never read or expose their private prompt bodies.
+        The projection respects manual-chat dispatch priority and never reads or
+        exposes stored prompt bodies.
         """
         at = time.time() if now is None else float(now)
         limit = self._current_concurrency_settings().active_limit
@@ -92,33 +93,42 @@ class DurableSchedulerProducer:
             "estimated_run_seconds": 600,
             "estimate_samples": 0,
             "waiting": [],
+            "waiting_runs": [],
         }
-        if limit is None:
+        pending = self.queue.pending_dispatch_metadata()
+        if not pending:
             return baseline
 
-        queued = self.queue.pending_scheduled_deliveries()
-        if not queued:
-            return baseline
         estimator = QueueEtaEstimator(self.queue, now=at, active_ids=active)
-        projection = estimator.projection(limit, active)
+        projection = estimator.projection(limit, active) if limit is not None else None
         waiting: list[dict[str, object]] = []
-        for job_name in queued:
-            waiting.append(
-                {
-                    "name": job_name,
-                    "position": len(waiting) + 1,
-                    "reason": "global",
-                    "occupied": len(active),
-                    "limit": limit,
-                    "eta_seconds": projection.enqueue(),
-                }
-            )
+        waiting_runs: list[dict[str, object]] = []
+        for receipt in pending:
+            eta = projection.enqueue() if projection is not None else 0
+            # Retry and account rate-limit delays are a lower bound on start time.
+            eta = max(eta, math.ceil(max(0.0, float_value(receipt["retry_at"]) - at)))
+            waiting_runs.append({
+                "send_id": receipt["send_id"],
+                "eta_seconds": eta,
+            })
+            client_id = str(receipt["client_id"])
+            if limit is None or not client_id.startswith("scheduled:"):
+                continue
+            waiting.append({
+                "name": client_id.rsplit(":", 1)[-1],
+                "position": len(waiting) + 1,
+                "reason": "global",
+                "occupied": len(active),
+                "limit": limit,
+                "eta_seconds": eta,
+            })
         return {
             "max_workers": limit,
             "occupied_slots": len(active),
             "estimated_run_seconds": estimator.duration_seconds,
             "estimate_samples": estimator.samples,
             "waiting": waiting,
+            "waiting_runs": waiting_runs,
         }
 
     def _external_mutex_group_busy(self, job: PromptJob) -> bool:

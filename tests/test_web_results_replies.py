@@ -366,6 +366,10 @@ def test_queue_status_api_is_private_read_only_and_exposes_worker_wait_order(
             "occupied_slots": 0,
             "estimated_run_seconds": 600,
             "estimate_samples": 0,
+            "waiting_runs": [
+                {"send_id": receipt["send_id"], "eta_seconds": (index - 1) * 600}
+                for index, receipt in enumerate(app.queue.records(), start=1)
+            ],
             "waiting": [
                 {
                     "name": name,
@@ -381,6 +385,36 @@ def test_queue_status_api_is_private_read_only_and_exposes_worker_wait_order(
         assert "Secret prompt" not in str(payload)
         assert get(port, "/api/queue-status", method="POST")[0] == 405
         assert len(app.queue.records()) == 3
+
+
+def test_queued_chat_sidebar_subtitle_uses_its_dispatch_eta(tmp_path: Path) -> None:
+    chromium_path = os.environ.get("PROMPTA_TEST_CHROMIUM")
+    if not chromium_path or not Path(chromium_path).is_file():
+        pytest.skip("Visual Chromium binary unavailable")
+    with server(tmp_path) as (app, port):
+        config_path = tmp_path / "config.toml"
+        config_path.write_text("[stage_concurrency]\nenabled = true\nmax_workers = 1\n")
+        app.queue_view.concurrency_config_path = config_path
+        now = time.time()
+        first = app.queue.enqueue_manual("First queued chat", now=now, request_id="b" * 32)
+        assert app.queue.claim_next("worker", lease_seconds=600, now=now, max_active=1)
+        second = app.queue.enqueue_manual("Second queued chat", now=now, request_id="c" * 32)
+        assert second["send_id"] != first["send_id"]
+
+        with sync_patchright() as patchright:
+            browser = patchright.chromium.launch(
+                executable_path=chromium_path, headless=True, args=["--no-sandbox"]
+            )
+            try:
+                for width, height in ((390, 844), (1440, 900)):
+                    page = browser.new_page(viewport={"width": width, "height": height})
+                    page.goto(f"http://127.0.0.1:{port}/?view=chats")
+                    row = page.locator(".chat-entry").filter(has_text="Second queued chat")
+                    expect(row.locator(".chat-row-meta")).to_contain_text("Queued · ETA ~10 min")
+                    assert page.evaluate("document.documentElement.scrollWidth <= innerWidth + 1")
+                    page.close()
+            finally:
+                browser.close()
 
 
 def test_waiting_chats_render_and_advance_on_desktop_and_mobile(tmp_path: Path) -> None:

@@ -391,6 +391,24 @@ def test_disabled_global_cap_allows_all_due_jobs(tmp_path: Path) -> None:
         ) is not None
 
 
+def test_queued_chat_eta_uses_actual_manual_dispatch_priority(tmp_path: Path) -> None:
+    producer = _due_producer(tmp_path, due=1000, count=2)
+    _stage_config(tmp_path, max_workers=1)
+    assert producer.tick(now=1000) == 2
+    manual = producer.queue.enqueue_manual("Queued user request", now=1001, request_id="a" * 32)
+
+    snapshot = producer.concurrency_queue_snapshot(now=1002)
+    assert snapshot["waiting_runs"] == [
+        {"send_id": manual["send_id"], "eta_seconds": 0},
+        *[
+            {"send_id": receipt["send_id"], "eta_seconds": index * 600}
+            for index, receipt in enumerate(producer.queue.records(), start=1)
+            if str(receipt["send_id"]).startswith("scheduled-")
+        ],
+    ]
+    assert [row["eta_seconds"] for row in snapshot["waiting"]] == [600, 1200]
+
+
 def test_concurrency_queue_snapshot_includes_all_due_job_types(tmp_path: Path) -> None:
     producer = _due_producer(tmp_path, due=1000, count=3)
     _stage_config(tmp_path, max_workers=2)
@@ -400,6 +418,10 @@ def test_concurrency_queue_snapshot_includes_all_due_job_types(tmp_path: Path) -
         "occupied_slots": 0,
         "estimated_run_seconds": 600,
         "estimate_samples": 0,
+        "waiting_runs": [
+            {"send_id": receipt["send_id"], "eta_seconds": (index // 2) * 600}
+            for index, receipt in enumerate(producer.queue.records())
+        ],
         "waiting": [
             {
                 "name": name,

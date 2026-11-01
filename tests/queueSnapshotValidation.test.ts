@@ -34,6 +34,21 @@ test("only finite, coherent queue counts and estimates reach the UI", () => {
   }
 });
 
+test("queued chat estimates require a valid send ID and finite ETA", () => {
+  expect(
+    isQueueSnapshot({ ...valid(), waiting_runs: [{ send_id: "manual-chat", eta_seconds: 75 }] }),
+  ).toBe(true);
+  for (const waiting_runs of [
+    [{ send_id: "", eta_seconds: 60 }],
+    [{ send_id: "manual-chat", eta_seconds: -1 }],
+    [{ send_id: "manual-chat", eta_seconds: Infinity }],
+    [{ send_id: "manual-chat", eta_seconds: NaN }],
+    [{ eta_seconds: 60 }],
+  ]) {
+    expect(isQueueSnapshot({ ...valid(), waiting_runs })).toBe(false);
+  }
+});
+
 test("malformed waiting rows cannot produce nonsensical positions or ETAs", () => {
   for (const row of [
     { position: -1 },

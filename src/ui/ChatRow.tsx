@@ -2,6 +2,7 @@ import { chatUrl } from "./chatUrl";
 import { useSignals } from "@preact/signals-react/runtime";
 import type { createChatsPageController } from "./ChatsPageController";
 import { plainPreview, statusLabel, type RunSummary } from "./resultFormatting";
+import { queuedChatEtaText, queueEtaExplanation } from "./queueStatus";
 
 type Controller = ReturnType<typeof createChatsPageController>;
 
@@ -18,6 +19,8 @@ export default function ChatRow({ item, model }: Props) {
   const hasPreview = item.has_response && !!item.preview.trim();
   const preview = hasPreview ? plainPreview(item.preview) : "";
   const rowStatus = item.needs_attention ? "Needs attention" : statusLabel(item.status);
+  const queued = item.status === "queued" && !item.needs_attention;
+  const subtitle = queued ? queuedChatEtaText(item.send_id, model.queueSnapshot.value) : rowStatus;
 
   return (
     <div
@@ -62,7 +65,12 @@ export default function ChatRow({ item, model }: Props) {
             {preview}
           </span>
         ) : (
-          <span className="chat-row-meta">{rowStatus}</span>
+          <span
+            className="chat-row-meta"
+            title={queued ? queueEtaExplanation(model.queueSnapshot.value) : rowStatus}
+          >
+            {subtitle}
+          </span>
         )}
       </a>
       <button

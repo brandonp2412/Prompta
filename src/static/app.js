@@ -12413,6 +12413,7 @@ function positiveInteger(value) {
 function isQueueSnapshot(value) {
 	if (!value || typeof value !== "object") return false;
 	if (!("waiting" in value) || !Array.isArray(value.waiting) || !("occupied_slots" in value) || !nonNegativeInteger(value.occupied_slots) || !("max_workers" in value) || value.max_workers !== null && !positiveInteger(value.max_workers) || !("estimated_run_seconds" in value) || typeof value.estimated_run_seconds !== "number" || !Number.isFinite(value.estimated_run_seconds) || value.estimated_run_seconds < 0 || !("estimate_samples" in value) || !nonNegativeInteger(value.estimate_samples)) return false;
+	if ("waiting_runs" in value && value.waiting_runs !== void 0 && (!Array.isArray(value.waiting_runs) || !value.waiting_runs.every((run) => run !== null && typeof run === "object" && "send_id" in run && typeof run.send_id === "string" && run.send_id.length > 0 && "eta_seconds" in run && typeof run.eta_seconds === "number" && Number.isFinite(run.eta_seconds) && run.eta_seconds >= 0))) return false;
 	return value.waiting.every((job) => job !== null && typeof job === "object" && "name" in job && typeof job.name === "string" && job.name.length > 0 && "position" in job && positiveInteger(job.position) && "reason" in job && (job.reason === "global" || job.reason === "stage") && "occupied" in job && nonNegativeInteger(job.occupied) && "limit" in job && positiveInteger(job.limit) && "eta_seconds" in job && typeof job.eta_seconds === "number" && Number.isFinite(job.eta_seconds) && job.eta_seconds >= 0);
 }
 function queueEtaText(waiting) {
@@ -12422,6 +12423,10 @@ function queueEtaText(waiting) {
 	const hours = Math.floor(minutes / 60);
 	const remainder = minutes % 60;
 	return "ETA ~" + hours + "h" + (remainder ? " " + remainder + "m" : "");
+}
+function queuedChatEtaText(sendId, snapshot) {
+	const waiting = snapshot.waiting_runs?.find((run) => run.send_id === sendId);
+	return "Queued · " + (waiting ? queueEtaText(waiting) : "ETA unavailable");
 }
 function queueEtaExplanation(snapshot) {
 	return snapshot.estimate_samples >= 3 ? "Approximate time to start, based on recent completed jobs. Rate limits and long-running jobs can shift it." : "Initial approximate time to start while recent job-duration data accumulates. Rate limits can shift it.";
@@ -16490,6 +16495,8 @@ function ChatRow({ item, model }) {
 	const hasPreview = item.has_response && !!item.preview.trim();
 	const preview = hasPreview ? plainPreview(item.preview) : "";
 	const rowStatus = item.needs_attention ? "Needs attention" : statusLabel(item.status);
+	const queued = item.status === "queued" && !item.needs_attention;
+	const subtitle = queued ? queuedChatEtaText(item.send_id, model.queueSnapshot.value) : rowStatus;
 	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 		className: [
 			"chat-entry",
@@ -16532,7 +16539,8 @@ function ChatRow({ item, model }) {
 				children: [item.needs_attention ? "Needs attention · " : "", preview]
 			}) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
 				className: "chat-row-meta",
-				children: rowStatus
+				title: queued ? queueEtaExplanation(model.queueSnapshot.value) : rowStatus,
+				children: subtitle
 			})]
 		}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 			type: "button",

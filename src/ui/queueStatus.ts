@@ -13,6 +13,7 @@ export type QueueSnapshot = {
   estimated_run_seconds: number;
   estimate_samples: number;
   waiting: WaitingJob[];
+  waiting_runs?: { send_id: string; eta_seconds: number }[];
 };
 
 export const emptyQueueSnapshot: QueueSnapshot = {
@@ -49,6 +50,25 @@ export function isQueueSnapshot(value: unknown): value is QueueSnapshot {
   )
     return false;
 
+  if (
+    "waiting_runs" in value &&
+    value.waiting_runs !== undefined &&
+    (!Array.isArray(value.waiting_runs) ||
+      !value.waiting_runs.every(
+        (run: unknown) =>
+          run !== null &&
+          typeof run === "object" &&
+          "send_id" in run &&
+          typeof run.send_id === "string" &&
+          run.send_id.length > 0 &&
+          "eta_seconds" in run &&
+          typeof run.eta_seconds === "number" &&
+          Number.isFinite(run.eta_seconds) &&
+          run.eta_seconds >= 0,
+      ))
+  )
+    return false;
+
   return value.waiting.every(
     (job: unknown) =>
       job !== null &&
@@ -71,13 +91,18 @@ export function isQueueSnapshot(value: unknown): value is QueueSnapshot {
   );
 }
 
-export function queueEtaText(waiting: WaitingJob): string {
+export function queueEtaText(waiting: Pick<WaitingJob, "eta_seconds">): string {
   if (!Number.isFinite(waiting.eta_seconds) || waiting.eta_seconds < 0) return "ETA unavailable";
   const minutes = Math.max(1, Math.ceil(waiting.eta_seconds / 60));
   if (minutes < 60) return "ETA ~" + minutes + " min";
   const hours = Math.floor(minutes / 60);
   const remainder = minutes % 60;
   return "ETA ~" + hours + "h" + (remainder ? " " + remainder + "m" : "");
+}
+
+export function queuedChatEtaText(sendId: string, snapshot: QueueSnapshot): string {
+  const waiting = snapshot.waiting_runs?.find((run) => run.send_id === sendId);
+  return "Queued · " + (waiting ? queueEtaText(waiting) : "ETA unavailable");
 }
 
 export function queueEtaExplanation(snapshot: QueueSnapshot): string {

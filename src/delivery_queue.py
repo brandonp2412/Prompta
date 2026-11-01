@@ -217,6 +217,28 @@ class DeliveryQueueStore:
             ).scalars().all()
         return [str(client).rsplit(":", 1)[-1] for client in clients]
 
+    def pending_dispatch_metadata(self) -> list[dict[str, object]]:
+        """Queued fresh-chat IDs in claim priority, without stored prompt bodies."""
+        manual = job_deliveries.c.client_id.like("manual:%")
+        with self.engine.connect() as connection:
+            rows = connection.execute(
+                select(
+                    job_deliveries.c.send_id,
+                    job_deliveries.c.client_id,
+                    job_deliveries.c.retry_at,
+                )
+                .where(job_deliveries.c.status.in_(("queued", "retrying", "rate_limited")))
+                .order_by(case((manual, 0), else_=1), job_deliveries.c.sequence)
+            ).mappings().all()
+        return [
+            {
+                "send_id": str(row["send_id"]),
+                "client_id": str(row["client_id"]),
+                "retry_at": float_value(row["retry_at"]),
+            }
+            for row in rows
+        ]
+
     def active_delivery_send_ids(self, *, now: float) -> set[str]:
         """Count in-flight queue claims and owned fresh-chat captures once each."""
         active = self.results.active_capture_send_ids(now=now)
