@@ -108,7 +108,7 @@ def test_foundations_readability_and_editor_hit_testing(
                     assert page.locator(".editor-footer").evaluate(
                         "element => getComputedStyle(element).position"
                     ) == "static"
-                    picker = page.get_by_role("button", name="Add images")
+                    picker = page.get_by_role("button", name="Add photos or videos")
                     picker.scroll_into_view_if_needed()
                     assert picker.evaluate(
                         """element => {

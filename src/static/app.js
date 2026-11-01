@@ -16619,6 +16619,11 @@ function ChatsSidebar({ model, refs }) {
 	const { statuses, queueSnapshot, items, markingAllRead, drawerOpen, filtersOpen, search, statusFilter, loadingList, listError, pinned, visibleWaiting, unpinned, markAllRead, loadingMore, nextOffset, total, loadMore, applyFilter, searchChanged, clearSearch, toggleSearch, showJobs, createChat } = model;
 	const [profileOpen, setProfileOpen] = (0, import_react.useState)(false);
 	const [settingsOpen, setSettingsOpen] = (0, import_react.useState)(false);
+	const profileTriggerRef = (0, import_react.useRef)(null);
+	const profileMenuRef = (0, import_react.useRef)(null);
+	const settingsCloseRef = (0, import_react.useRef)(null);
+	const settingsSaveRef = (0, import_react.useRef)(null);
+	const settingsApprovalRef = (0, import_react.useRef)(null);
 	const [concurrency, setConcurrency] = (0, import_react.useState)({
 		enabled: true,
 		max_workers: 3
@@ -16626,6 +16631,51 @@ function ChatsSidebar({ model, refs }) {
 	const [approval, setApproval] = (0, import_react.useState)(false);
 	const [settingsError, setSettingsError] = (0, import_react.useState)("");
 	const [saving, setSaving] = (0, import_react.useState)(false);
+	(0, import_react.useEffect)(() => {
+		if (!profileOpen) return;
+		const dismissOutside = (event) => {
+			if (!(event.target instanceof Node)) return;
+			if (profileTriggerRef.current?.contains(event.target) || profileMenuRef.current?.contains(event.target)) return;
+			setProfileOpen(false);
+		};
+		const dismissOnEscape = (event) => {
+			if (event.key !== "Escape") return;
+			event.preventDefault();
+			setProfileOpen(false);
+			profileTriggerRef.current?.focus();
+		};
+		document.addEventListener("pointerdown", dismissOutside);
+		document.addEventListener("keydown", dismissOnEscape);
+		return () => {
+			document.removeEventListener("pointerdown", dismissOutside);
+			document.removeEventListener("keydown", dismissOnEscape);
+		};
+	}, [profileOpen]);
+	(0, import_react.useEffect)(() => {
+		if (!settingsOpen) return;
+		settingsCloseRef.current?.focus();
+		const handleKeys = (event) => {
+			if (event.key === "Escape") {
+				event.preventDefault();
+				setSettingsOpen(false);
+				return;
+			}
+			if (event.key !== "Tab") return;
+			const lastControl = settingsSaveRef.current?.disabled ? settingsApprovalRef.current : settingsSaveRef.current;
+			if (event.shiftKey && document.activeElement === settingsCloseRef.current) {
+				event.preventDefault();
+				lastControl?.focus();
+			} else if (!event.shiftKey && document.activeElement === lastControl) {
+				event.preventDefault();
+				settingsCloseRef.current?.focus();
+			}
+		};
+		document.addEventListener("keydown", handleKeys);
+		return () => {
+			document.removeEventListener("keydown", handleKeys);
+			profileTriggerRef.current?.focus();
+		};
+	}, [settingsOpen]);
 	(0, import_react.useEffect)(() => {
 		if (!settingsOpen) return;
 		fetch("./api/settings").then(async (response) => {
@@ -16840,6 +16890,8 @@ function ChatsSidebar({ model, refs }) {
 						type: "button",
 						"aria-label": "Profile",
 						"aria-expanded": profileOpen,
+						"aria-controls": "sidebar-profile-menu",
+						ref: profileTriggerRef,
 						onClick: () => setProfileOpen(!profileOpen),
 						className: "sidebar-profile",
 						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("svg", {
@@ -16856,12 +16908,14 @@ function ChatsSidebar({ model, refs }) {
 						}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Profile" })]
 					}),
 					profileOpen && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+						id: "sidebar-profile-menu",
+						ref: profileMenuRef,
 						className: "sidebar-profile-menu",
-						role: "menu",
+						role: "group",
+						"aria-label": "Profile actions",
 						children: [
 							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 								type: "button",
-								role: "menuitem",
 								onClick: () => {
 									showJobs();
 									setProfileOpen(false);
@@ -16870,7 +16924,6 @@ function ChatsSidebar({ model, refs }) {
 							}),
 							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 								type: "button",
-								role: "menuitem",
 								onClick: () => {
 									setSettingsOpen(true);
 									setProfileOpen(false);
@@ -16879,7 +16932,6 @@ function ChatsSidebar({ model, refs }) {
 							}),
 							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 								type: "button",
-								role: "menuitem",
 								disabled: markingAllRead.value,
 								onClick: () => {
 									markAllRead();
@@ -16906,6 +16958,7 @@ function ChatsSidebar({ model, refs }) {
 							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { children: "Settings" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 								type: "button",
 								"aria-label": "Close settings",
+								ref: settingsCloseRef,
 								onClick: () => setSettingsOpen(false),
 								children: "×"
 							})]
@@ -16948,6 +17001,7 @@ function ChatsSidebar({ model, refs }) {
 								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
 									type: "checkbox",
 									checked: approval,
+									ref: settingsApprovalRef,
 									onChange: (event) => setApproval(event.target.checked)
 								}),
 								" ",
@@ -16961,6 +17015,7 @@ function ChatsSidebar({ model, refs }) {
 						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 							type: "button",
 							className: "settings-save",
+							ref: settingsSaveRef,
 							disabled: saving || concurrency.enabled && (!Number.isInteger(concurrency.max_workers) || concurrency.max_workers < 1 || concurrency.max_workers > 128),
 							onClick: () => void saveSettings(),
 							children: saving ? "Saving…" : "Save settings"

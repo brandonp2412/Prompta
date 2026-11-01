@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useSignals } from "@preact/signals-react/runtime";
 import type { createChatsPageController } from "./ChatsPageController";
 import ChatRow from "./ChatRow";
@@ -48,10 +48,66 @@ export default function ChatsSidebar({
 
   const [profileOpen, setProfileOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const profileTriggerRef = useRef<HTMLButtonElement>(null);
+  const profileMenuRef = useRef<HTMLDivElement>(null);
+  const settingsCloseRef = useRef<HTMLButtonElement>(null);
+  const settingsSaveRef = useRef<HTMLButtonElement>(null);
+  const settingsApprovalRef = useRef<HTMLInputElement>(null);
   const [concurrency, setConcurrency] = useState({ enabled: true, max_workers: 3 });
   const [approval, setApproval] = useState(false);
   const [settingsError, setSettingsError] = useState("");
   const [saving, setSaving] = useState(false);
+  useEffect(() => {
+    if (!profileOpen) return;
+    const dismissOutside = (event: PointerEvent) => {
+      if (!(event.target instanceof Node)) return;
+      if (
+        profileTriggerRef.current?.contains(event.target) ||
+        profileMenuRef.current?.contains(event.target)
+      )
+        return;
+      setProfileOpen(false);
+    };
+    const dismissOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      setProfileOpen(false);
+      profileTriggerRef.current?.focus();
+    };
+    document.addEventListener("pointerdown", dismissOutside);
+    document.addEventListener("keydown", dismissOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", dismissOutside);
+      document.removeEventListener("keydown", dismissOnEscape);
+    };
+  }, [profileOpen]);
+  useEffect(() => {
+    if (!settingsOpen) return;
+    settingsCloseRef.current?.focus();
+    const handleKeys = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setSettingsOpen(false);
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const lastControl = settingsSaveRef.current?.disabled
+        ? settingsApprovalRef.current
+        : settingsSaveRef.current;
+      if (event.shiftKey && document.activeElement === settingsCloseRef.current) {
+        event.preventDefault();
+        lastControl?.focus();
+      } else if (!event.shiftKey && document.activeElement === lastControl) {
+        event.preventDefault();
+        settingsCloseRef.current?.focus();
+      }
+    };
+    document.addEventListener("keydown", handleKeys);
+    return () => {
+      document.removeEventListener("keydown", handleKeys);
+      profileTriggerRef.current?.focus();
+    };
+  }, [settingsOpen]);
   useEffect(() => {
     if (!settingsOpen) return;
     void fetch("./api/settings")
@@ -276,6 +332,8 @@ export default function ChatsSidebar({
           type="button"
           aria-label="Profile"
           aria-expanded={profileOpen}
+          aria-controls="sidebar-profile-menu"
+          ref={profileTriggerRef}
           onClick={() => setProfileOpen(!profileOpen)}
           className="sidebar-profile"
         >
@@ -292,10 +350,15 @@ export default function ChatsSidebar({
           <span>Profile</span>
         </button>
         {profileOpen && (
-          <div className="sidebar-profile-menu" role="menu">
+          <div
+            id="sidebar-profile-menu"
+            ref={profileMenuRef}
+            className="sidebar-profile-menu"
+            role="group"
+            aria-label="Profile actions"
+          >
             <button
               type="button"
-              role="menuitem"
               onClick={() => {
                 showJobs();
                 setProfileOpen(false);
@@ -305,7 +368,6 @@ export default function ChatsSidebar({
             </button>
             <button
               type="button"
-              role="menuitem"
               onClick={() => {
                 setSettingsOpen(true);
                 setProfileOpen(false);
@@ -315,7 +377,6 @@ export default function ChatsSidebar({
             </button>
             <button
               type="button"
-              role="menuitem"
               disabled={markingAllRead.value}
               onClick={() => {
                 void markAllRead();
@@ -341,6 +402,7 @@ export default function ChatsSidebar({
               <button
                 type="button"
                 aria-label="Close settings"
+                ref={settingsCloseRef}
                 onClick={() => setSettingsOpen(false)}
               >
                 ×
@@ -379,6 +441,7 @@ export default function ChatsSidebar({
               <input
                 type="checkbox"
                 checked={approval}
+                ref={settingsApprovalRef}
                 onChange={(event) => setApproval(event.target.checked)}
               />{" "}
               Automatically approve trusted connector prompts
@@ -387,6 +450,7 @@ export default function ChatsSidebar({
             <button
               type="button"
               className="settings-save"
+              ref={settingsSaveRef}
               disabled={
                 saving ||
                 (concurrency.enabled &&

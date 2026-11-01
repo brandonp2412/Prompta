@@ -841,13 +841,13 @@
 .sidebar-topbar .sidebar-actions button { width:44px; height:44px; min-height:44px; padding:10px; border-radius:12px; }
 .sidebar-topbar .sidebar-actions svg { width:22px; height:22px; }
 .sidebar-footer { position:relative; flex:none; display:flex; gap:8px; padding:10px 12px max(10px, env(safe-area-inset-bottom)); border-top:1px solid #303030; background:#202020; }
-.sidebar-footer > button { display:flex; align-items:center; justify-content:center; gap:9px; min-height:44px; padding:8px 12px; color:#e4e4e4; background:transparent; border:0; border-radius:12px; cursor:pointer; font:inherit; }
+.sidebar-footer > button { display:flex; align-items:center; justify-content:center; gap:7px; min-width:0; min-height:44px; padding:8px; color:#e4e4e4; background:transparent; border:0; border-radius:12px; cursor:pointer; font:inherit; white-space:nowrap; }
 .sidebar-footer > button:hover,.sidebar-profile-menu button:hover { background:#343434; }
-.sidebar-footer-new { flex:1; }
-.sidebar-profile { flex:1; }
+.sidebar-footer-new, .sidebar-profile { flex:1 1 0; }
 .sidebar-footer svg { width:21px; height:21px; flex:none; }
 .sidebar-profile-menu { position:absolute; bottom:calc(100% + 6px); left:10px; right:10px; z-index:20; padding:7px; border:1px solid #424242; border-radius:14px; background:#282828; box-shadow:0 12px 35px #0008; }
 .sidebar-profile-menu button { display:block; width:100%; min-height:44px; padding:10px 14px; border:0; border-radius:9px; color:#eee; background:transparent; text-align:left; font:inherit; cursor:pointer; }
+.sidebar-footer > button:focus-visible, .sidebar-profile-menu button:focus-visible, .settings-dialog button:focus-visible, .settings-dialog input:focus-visible { outline:2px solid #a9c4ff; outline-offset:-2px; }
 .settings-backdrop { position:fixed; inset:0; z-index:100; display:flex; align-items:center; justify-content:center; padding:16px; background:#000a; }
 .settings-dialog { width:min(100%,440px); max-height:90dvh; overflow:auto; padding:22px; border:1px solid #484848; border-radius:18px; background:#242424; color:#eee; box-shadow:0 20px 65px #0009; }
 .settings-heading { display:flex; justify-content:space-between; align-items:center; }
