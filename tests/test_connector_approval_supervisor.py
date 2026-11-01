@@ -10,6 +10,7 @@ from urllib.error import URLError
 from urllib.request import urlopen
 
 import pytest
+from patchright.async_api import Route
 from patchright.async_api import async_playwright as async_patchright
 
 from prompta.browser_ownership import new_owned_window_marker
@@ -169,20 +170,24 @@ async def test_fresh_approval_attachment_verifies_exact_target_and_owner(
         async with async_patchright() as patchright:
             browser = await patchright.chromium.connect_over_cdp(f"http://{address}")
             context = browser.contexts[0]
-            await context.route(
-                "https://chatgpt.com/c/**",
-                lambda route: route.fulfill(
+            page = await context.new_page()
+            intercepted: list[str] = []
+
+            async def serve_fixture(route: Route) -> None:
+                intercepted.append(route.request.url)
+                await route.fulfill(
                     status=200, content_type="text/html",
                     body='<main><div role="dialog" id="permission">'
                     '<button id="grant">Always allow</button>'
                     '<button>Allow once</button><button>Deny</button></div></main>',
-                ),
-            )
-            page = await context.new_page()
+                )
+
+            await page.route("**/*", serve_fixture)
             await page.goto(
                 "https://chatgpt.com/c/12345678-1234-4123-8123-123456789abc",
-                wait_until="domcontentloaded", timeout=10000,
+                wait_until="commit", timeout=7000,
             )
+            assert intercepted == ["https://chatgpt.com/c/12345678-1234-4123-8123-123456789abc"]
             await page.locator("#permission").wait_for(timeout=3000)
             await page.evaluate("""() => {
                 window.__grants = 0;

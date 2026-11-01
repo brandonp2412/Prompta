@@ -453,7 +453,7 @@ async def test_same_tab_recovery_runs_during_history_read_cooldown(
         async def observed_assistant_response(self) -> CaptureResult:
             self.dom_reads += 1
             return CaptureResult(
-                "dom", "complete", "Answer captured from the owned tab", None,
+                "dom", "complete", "Answer captured from the owned tab", _RECOVERED_CHAT,
                 "11111111-1111-4111-8111-111111111111", None,
                 observer_id="owned-answer",
             )
