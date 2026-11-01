@@ -7,12 +7,13 @@ import socket
 import subprocess
 from pathlib import Path
 from urllib.error import URLError
+from urllib.parse import urlsplit
 from urllib.request import urlopen
 
 import pytest
-from patchright.async_api import Route
 from patchright.async_api import async_playwright as async_patchright
 
+from prompta import patchright_driver
 from prompta.browser_ownership import new_owned_window_marker
 from prompta.browser_script_loader import load_browser_script
 from prompta.connector_approval_supervisor import (
@@ -171,24 +172,11 @@ async def test_fresh_approval_attachment_verifies_exact_target_and_owner(
             browser = await patchright.chromium.connect_over_cdp(f"http://{address}")
             context = browser.contexts[0]
             page = await context.new_page()
-            intercepted: list[str] = []
-
-            async def serve_fixture(route: Route) -> None:
-                intercepted.append(route.request.url)
-                await route.fulfill(
-                    status=200, content_type="text/html",
-                    body='<main><div role="dialog" id="permission">'
-                    '<button id="grant">Always allow</button>'
-                    '<button>Allow once</button><button>Deny</button></div></main>',
-                )
-
-            await page.route("**/*", serve_fixture)
-            await page.goto(
-                "https://chatgpt.com/c/12345678-1234-4123-8123-123456789abc",
-                wait_until="commit", timeout=7000,
+            await page.set_content(
+                '<main><div role="dialog" id="permission">'
+                '<button id="grant">Always allow</button>'
+                '<button>Allow once</button><button>Deny</button></div></main>'
             )
-            assert intercepted == ["https://chatgpt.com/c/12345678-1234-4123-8123-123456789abc"]
-            await page.locator("#permission").wait_for(timeout=3000)
             await page.evaluate("""() => {
                 window.__grants = 0;
                 document.getElementById('grant').addEventListener('click', event => {
@@ -219,6 +207,15 @@ async def test_fresh_approval_attachment_verifies_exact_target_and_owner(
                 prefix="prompta-delivery:", owner_id=driver.page_owner_id,
             )
             await page.evaluate("(value) => { window.name = value; }", marker)
+            # The isolated browser has no network route to ChatGPT. First
+            # prove that a non-ChatGPT URL fails closed, then simulate only the
+            # validated URL parse; the live CDP target and owner checks remain real.
+            assert await driver.retry_connector_approval_from_owned_tab() is False
+            synthetic_url = "https://chatgpt.com/c/12345678-1234-4123-8123-123456789abc"
+            monkeypatch.setattr(
+                patchright_driver, "urlsplit",
+                lambda value: urlsplit(synthetic_url if value == page.url else value),
+            )
             assert await driver.retry_connector_approval_from_owned_tab() is True
             assert await page.evaluate("window.__grants") == 1
 
@@ -231,7 +228,7 @@ async def test_fresh_approval_attachment_verifies_exact_target_and_owner(
                         text: 'Recovered through fresh CDP',
                         complete: true,
                         ambiguous: false,
-                        pathname: location.pathname,
+                        pathname: '/c/12345678-1234-4123-8123-123456789abc',
                     }),
                 };
             }""")
@@ -244,6 +241,10 @@ async def test_fresh_approval_attachment_verifies_exact_target_and_owner(
             assert snapshot.status == "complete"
             assert snapshot.text == "Recovered through fresh CDP"
             assert snapshot.conversation_id == "12345678-1234-4123-8123-123456789abc"
+
+            driver._owned_target_ids["captured"] = "different-tab-target-id"
+            assert await driver.retry_connector_approval_from_owned_tab() is False
+            driver._owned_target_ids["captured"] = target_id
 
             # A re-used page with a different ownership marker must be inert.
             await page.evaluate("""() => {
