@@ -60,7 +60,10 @@ def test_interrupted_chat_omits_backlog_without_reopening_chatgpt(
         summary = page.locator(".chat-recovery-guidance p")
         expect(summary).to_have_count(0)
         expect(page.get_by_text("Recovery backlog:")).to_have_count(0)
-        expect(page.get_by_role("link", name="Open exact chat in ChatGPT")).to_be_visible()
+        expect(page.get_by_role("link", name="Open in ChatGPT", exact=True)).to_have_count(1)
+        expect(page.get_by_role("link", name="Open in ChatGPT", exact=True)).to_have_attribute(
+            "href", "https://chatgpt.com/c/12345678-1234-4123-8123-123456789abc",
+        )
         assert remote == []
         assert posts == []
         browser.close()

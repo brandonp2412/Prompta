@@ -134,7 +134,7 @@ def test_exact_reply_committed_receipt_survives_http_conflict(
             page.route(f"**/api/results/{send_id}/reply-send", conflict_after_commit)
             page.route(f"**/api/results/{send_id}/turns", durable_receipt)
             page.goto(f"http://127.0.0.1:{port}/?view=chats&run={send_id}")
-            expect(page.get_by_role("link", name="Open exact chat in ChatGPT")).to_have_attribute(
+            expect(page.get_by_role("link", name="Open in ChatGPT")).to_have_attribute(
                 "href",
                 "https://chatgpt.com/c/" + CONVERSATION,
             )
