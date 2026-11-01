@@ -27,6 +27,12 @@ from .response_tables import results as response_records
 from .strict_types import float_value, int_value
 
 logger = logging.getLogger(__name__)
+# Shared by actual claims and queue projections; never preempts active captures.
+_DISPATCH_PRIORITY = case(
+    (job_deliveries.c.client_id.like("manual:%"), 0),
+    (job_deliveries.c.one_time.is_(True), 1),
+    else_=2,
+)
 _EXPIRED_LEASE_ERROR = (
     "Worker lease expired before a durable send receipt; acceptance is unknown. "
     "Automatic resubmission is disabled."
@@ -168,6 +174,7 @@ class DeliveryQueueStore:
             "message": str(row["message"]),
             "images": image_refs(json.loads(str(row["images_json"] or "[]"))),
             "client_id": str(row["client_id"] or ""),
+            "one_time": bool(row["one_time"]),
             "pin_chat": bool(row["pin_chat"]),
             "status": str(row["status"] or "queued"),
             "error": str(row["error"] or ""),
@@ -205,7 +212,7 @@ class DeliveryQueueStore:
         return {str(send_id) for send_id in rows}
 
     def pending_scheduled_deliveries(self) -> list[str]:
-        """Names of queued scheduled jobs in durable FIFO order (no prompt content)."""
+        """Queued scheduled job names in dispatch priority (no prompt content)."""
         with self.engine.connect() as connection:
             clients = connection.execute(
                 select(job_deliveries.c.client_id)
@@ -213,13 +220,12 @@ class DeliveryQueueStore:
                     job_deliveries.c.client_id.like("scheduled:%"),
                     job_deliveries.c.status.in_(("queued", "retrying", "rate_limited")),
                 )
-                .order_by(job_deliveries.c.sequence)
+                .order_by(job_deliveries.c.one_time.desc(), job_deliveries.c.sequence)
             ).scalars().all()
         return [str(client).rsplit(":", 1)[-1] for client in clients]
 
     def pending_dispatch_metadata(self) -> list[dict[str, object]]:
         """Queued fresh-chat IDs in claim priority, without stored prompt bodies."""
-        manual = job_deliveries.c.client_id.like("manual:%")
         with self.engine.connect() as connection:
             rows = connection.execute(
                 select(
@@ -228,7 +234,7 @@ class DeliveryQueueStore:
                     job_deliveries.c.retry_at,
                 )
                 .where(job_deliveries.c.status.in_(("queued", "retrying", "rate_limited")))
-                .order_by(case((manual, 0), else_=1), job_deliveries.c.sequence)
+                .order_by(_DISPATCH_PRIORITY, job_deliveries.c.sequence)
             ).mappings().all()
         return [
             {
@@ -319,6 +325,7 @@ class DeliveryQueueStore:
                 "message": message,
                 "images_json": json.dumps(image_refs(record.get("images", ()))),
                 "client_id": client_id,
+                "one_time": record.get("one_time") is True,
                 "pin_chat": record.get("pin_chat") is True,
                 "status": "queued",
                 "error": "",
@@ -404,6 +411,20 @@ class DeliveryQueueStore:
             self.results.set_local_pin(str(receipt["send_id"]), pinned=True)
         return receipt
 
+    def promote_one_time(self, send_id: str) -> bool:
+        """Restore priority for one-shot deliveries queued by an older release."""
+        with self.engine.begin() as connection:
+            changed = connection.execute(
+                update(job_deliveries)
+                .where(
+                    job_deliveries.c.send_id == send_id,
+                    job_deliveries.c.one_time.is_(False),
+                    job_deliveries.c.status.in_(("queued", "retrying", "rate_limited")),
+                )
+                .values(one_time=True)
+            )
+            return changed.rowcount == 1
+
     def cancel_pending(
         self, send_id: str, *, error: str = "scheduled job cancelled", now: float | None = None
     ) -> bool:
@@ -443,6 +464,7 @@ class DeliveryQueueStore:
             "send_id": send_id,
             "message": message,
             "client_id": str(record.get("client_id") or ""),
+            "one_time": record.get("one_time") is True,
             "status": str(record.get("status") or "queued"),
             "error": str(record.get("error") or ""),
             "last_error": str(record.get("last_error") or ""),
@@ -507,11 +529,10 @@ class DeliveryQueueStore:
                     job_deliveries.c.status.in_(RETRY_DELIVERY_STATUSES)
                     & (job_deliveries.c.retry_at <= at),
                 )
-                manual = job_deliveries.c.client_id.like("manual:%")
                 sequence = (
                     select(job_deliveries.c.sequence)
                     .where(claimable)
-                    .order_by(case((manual, 0), else_=1), job_deliveries.c.sequence)
+                    .order_by(_DISPATCH_PRIORITY, job_deliveries.c.sequence)
                     .limit(1)
                     .scalar_subquery()
                 )

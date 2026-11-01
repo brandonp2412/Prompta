@@ -191,6 +191,7 @@ class DurableSchedulerProducer:
                 "message": job.prompt,
                 "images": job.images,
                 "client_id": f"scheduled:{idempotency_key}:{job.name}",
+                "one_time": job.run_at_epoch is not None,
                 "pin_chat": job.pin_chat,
                 "status": "queued",
                 "created_at": now,
@@ -251,6 +252,21 @@ class DurableSchedulerProducer:
         if updates is not None:
             self.runtime.update_job_state(job_name, updates)
 
+    def restore_pending_once_priorities(self) -> int:
+        """Promote pre-migration one-shot deliveries after their definitions were removed."""
+        states = string_object_dict(self.runtime.load_state().get("jobs")) or {}
+        restored = 0
+        for state in states.values():
+            data = string_object_dict(state)
+            if not data or not data.get("pending_delivery_one_time"):
+                continue
+            send_id = str(data.get("last_delivery_send_id") or "")
+            if send_id == str(data.get("last_completed_delivery_send_id") or ""):
+                continue
+            if send_id and self.queue.promote_one_time(send_id):
+                restored += 1
+        return restored
+
     def reconcile_terminal_receipts(self) -> int:
         payload = self.runtime.load_state()
         states = string_object_dict(payload.get("jobs"))
@@ -279,6 +295,7 @@ class DurableSchedulerProducer:
 
     def tick(self, *, now: float | None = None) -> int:
         current = time.time() if now is None else float(now)
+        self.restore_pending_once_priorities()
         work = self.reconcile_terminal_receipts()
 
         jobs = list(self.runtime.read_jobs().values())

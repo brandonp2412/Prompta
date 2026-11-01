@@ -61,6 +61,7 @@ job_deliveries = Table(
     Column("images_json", Text, nullable=False, default="[]"),
     Column("pin_chat", Boolean, nullable=False, default=False),
     Column("client_id", String, nullable=False, default=""),
+    Column("one_time", Boolean, nullable=False, default=False),
     Column("status", String, nullable=False, default="queued"),
     Column("error", Text, nullable=False, default=""),
     Column("last_error", Text, nullable=False, default=""),

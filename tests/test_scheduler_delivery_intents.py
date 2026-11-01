@@ -4,10 +4,12 @@ import fcntl
 from pathlib import Path
 
 import pytest
+from sqlalchemy import update
 
 from prompta.config import StageConcurrencySettings
 from prompta.jobs import add_job, load_jobs
 from prompta.manual_fire import fire_job_now
+from prompta.persistence import job_deliveries
 from prompta.scheduler_service import DurableSchedulerProducer
 from prompta.strict_types import string_object_dict
 
@@ -295,6 +297,52 @@ def test_once_and_recurring_jobs_enter_same_durable_queue(tmp_path: Path) -> Non
     assert fresh.concurrency_queue_snapshot(now=due + 1)["waiting"] == (
         producer.concurrency_queue_snapshot(now=due + 1)["waiting"]
     )
+
+
+def test_later_queued_once_job_preempts_repeating_in_dispatch_and_eta(tmp_path: Path) -> None:
+    state = tmp_path / "runtime.sqlite3"
+    add_job(state, "aaa-repeating", "Repeating", 60, exact_interval=True)
+    add_job(state, "zzz-once", "Once", 0, run_at_epoch=1000.0)
+    producer = DurableSchedulerProducer(
+        state, state, concurrency_config_path=_stage_config(tmp_path, max_workers=1),
+    )
+    producer.runtime.update_job_state("aaa-repeating", {"initial_due_at_epoch": 1000.0})
+    assert producer.tick(now=1000.0) == 2
+    assert [str(row["client_id"]).rsplit(":", 1)[-1] for row in producer.queue.records()] == [
+        "aaa-repeating", "zzz-once",
+    ]
+    assert producer.queue.pending_scheduled_deliveries() == ["zzz-once", "aaa-repeating"]
+    waiting = producer.concurrency_queue_snapshot(now=1001)["waiting"]
+    assert isinstance(waiting, list)
+    rows = [string_object_dict(row) for row in waiting]
+    assert [row["name"] for row in rows if row is not None] == [
+        "zzz-once", "aaa-repeating",
+    ]
+    restarted = DurableSchedulerProducer(
+        producer.state_path, producer.jobs_path, producer.queue.path,
+        producer.concurrency_config_path,
+    )
+    claimed = restarted.queue.claim_next("worker", now=1001, lease_seconds=30)
+    assert claimed is not None and str(claimed["client_id"]).endswith(":zzz-once")
+
+
+def test_legacy_queued_once_is_promoted_even_after_schedule_definition_removal(tmp_path: Path) -> None:
+    state = tmp_path / "runtime.sqlite3"
+    add_job(state, "zzz-once", "Once", 0, run_at_epoch=1000.0)
+    producer = DurableSchedulerProducer(state, state)
+    assert producer.tick(now=1000.0) == 1
+    assert "zzz-once" not in load_jobs(state)
+    send_id = str(producer.queue.records()[0]["send_id"])
+    with producer.queue.engine.begin() as connection:
+        connection.execute(
+            update(job_deliveries).where(job_deliveries.c.send_id == send_id).values(one_time=False)
+        )
+    legacy = producer.queue.get(send_id)
+    assert legacy is not None and legacy["one_time"] is False
+    restarted = DurableSchedulerProducer(state, state, producer.queue.path)
+    assert restarted.tick(now=1001.0) == 0
+    restored = restarted.queue.get(send_id)
+    assert restored is not None and restored["one_time"] is True
 
 
 def test_global_cap_counts_running_and_capturing_once_and_recurring_jobs(

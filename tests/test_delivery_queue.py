@@ -305,6 +305,32 @@ def test_manual_claim_has_priority_over_old_scheduled_backlog(tmp_path: Path) ->
     assert claimed is not None and claimed["send_id"] == manual["send_id"]
 
 
+def test_scheduled_once_priority_precedes_older_repeats_and_preserves_fifo(tmp_path: Path) -> None:
+    queue = DeliveryQueueStore(tmp_path / "delivery.sqlite3")
+    for send_id, is_one_time in (
+        ("repeat-old", False),
+        ("once-old", True),
+        ("repeat-new", False),
+        ("once-new", True),
+    ):
+        record = _queued_record(send_id, client_id=f"scheduled:key:{send_id}")
+        record["one_time"] = is_one_time
+        queue.upsert(record)
+    manual = queue.enqueue_manual("User-initiated", now=12.0)
+    assert [row["send_id"] for row in queue.pending_dispatch_metadata()] == [
+        manual["send_id"], "once-old", "once-new", "repeat-old", "repeat-new",
+    ]
+    assert queue.pending_scheduled_deliveries() == [
+        "once-old", "once-new", "repeat-old", "repeat-new",
+    ]
+    claimed_ids = []
+    for index in range(5):
+        claimed = queue.claim_next(f"worker-{index}", now=20.0, lease_seconds=30)
+        assert claimed is not None
+        claimed_ids.append(claimed["send_id"])
+    assert claimed_ids == [manual["send_id"], "once-old", "once-new", "repeat-old", "repeat-new"]
+
+
 def test_non_ui_manual_queue_does_not_pin_local_sidebar_by_default(tmp_path: Path) -> None:
     queue = DeliveryQueueStore(tmp_path / "delivery.sqlite3")
     receipt = queue.enqueue_manual("Manual CLI or job run", now=12.0)
