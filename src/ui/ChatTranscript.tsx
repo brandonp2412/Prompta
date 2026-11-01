@@ -1,10 +1,10 @@
 import React, { useLayoutEffect } from "react";
 import { useSignals } from "@preact/signals-react/runtime";
 import type { createChatsPageController } from "./ChatsPageController";
-import ResultMarkdown from "./ResultMarkdown";
+import TurnActivity from "./TurnActivity";
 import CopyIcon from "./CopyIcon";
 import { ContinueChatIcon, RecoverChatIcon } from "./ChatActionIcons";
-import ToolCalls from "./ToolCalls";
+
 import { isVideoAttachment } from "./mediaAttachments";
 import {
   chatMessageTime,
@@ -218,22 +218,15 @@ export default function ChatTranscript({
                         </span>
                       </div>
                     )}
-                    {turn.tool_calls?.length ? (
+                    {turn.assistant_text ||
+                    turn.tool_calls?.length ||
+                    turn.display_blocks?.some((block) => block.kind === "text") ? (
                       <>
-                        <ToolCalls
-                          calls={turn.tool_calls}
-                          turnTimestamp={turn.created_at || detail.value!.created_at}
-                        ></ToolCalls>
-                      </>
-                    ) : (
-                      <></>
-                    )}
-                    {turn.assistant_text ? (
-                      <>
-                        <ResultMarkdown
-                          source={turn.assistant_text}
+                        <TurnActivity
+                          turn={turn}
                           captureSource={index === 0 ? detail.value!.source : ""}
-                        ></ResultMarkdown>
+                          turnTimestamp={turn.created_at || detail.value!.created_at}
+                        />
                         {turn.status !== "completed" && turn.status !== "generating" ? (
                           <p className="partial-note">{partialResponseLabel(turn.status)}</p>
                         ) : null}

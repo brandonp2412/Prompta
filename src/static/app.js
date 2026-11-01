@@ -21,7 +21,7 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 	enumerable: true
 }) : target, mod));
 //#endregion
-//#region ../../prompta/node_modules/scheduler/cjs/scheduler.production.js
+//#region ../../home/brandon/prompta/node_modules/scheduler/cjs/scheduler.production.js
 /**
 * @license React
 * scheduler.production.js
@@ -276,12 +276,12 @@ var require_scheduler_production = /* @__PURE__ */ __commonJSMin(((exports) => {
 	};
 }));
 //#endregion
-//#region ../../prompta/node_modules/scheduler/index.js
+//#region ../../home/brandon/prompta/node_modules/scheduler/index.js
 var require_scheduler = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_scheduler_production();
 }));
 //#endregion
-//#region ../../prompta/node_modules/react/cjs/react.production.js
+//#region ../../home/brandon/prompta/node_modules/react/cjs/react.production.js
 /**
 * @license React
 * react.production.js
@@ -668,12 +668,12 @@ var require_react_production = /* @__PURE__ */ __commonJSMin(((exports) => {
 	exports.version = "19.3.1";
 }));
 //#endregion
-//#region ../../prompta/node_modules/react/index.js
+//#region ../../home/brandon/prompta/node_modules/react/index.js
 var require_react = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_react_production();
 }));
 //#endregion
-//#region ../../prompta/node_modules/react-dom/cjs/react-dom.production.js
+//#region ../../home/brandon/prompta/node_modules/react-dom/cjs/react-dom.production.js
 /**
 * @license React
 * react-dom.production.js
@@ -826,7 +826,7 @@ var require_react_dom_production = /* @__PURE__ */ __commonJSMin(((exports) => {
 	exports.version = "19.3.1";
 }));
 //#endregion
-//#region ../../prompta/node_modules/react-dom/index.js
+//#region ../../home/brandon/prompta/node_modules/react-dom/index.js
 var require_react_dom = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	function checkDCE() {
 		if (typeof __REACT_DEVTOOLS_GLOBAL_HOOK__ === "undefined" || typeof __REACT_DEVTOOLS_GLOBAL_HOOK__.checkDCE !== "function") return;
@@ -840,7 +840,7 @@ var require_react_dom = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_react_dom_production();
 }));
 //#endregion
-//#region ../../prompta/node_modules/react-dom/cjs/react-dom-client.production.js
+//#region ../../home/brandon/prompta/node_modules/react-dom/cjs/react-dom-client.production.js
 /**
 * @license React
 * react-dom-client.production.js
@@ -11415,7 +11415,7 @@ var require_react_dom_client_production = /* @__PURE__ */ __commonJSMin(((export
 	};
 }));
 //#endregion
-//#region ../../prompta/node_modules/react-dom/client.js
+//#region ../../home/brandon/prompta/node_modules/react-dom/client.js
 var require_client = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	function checkDCE() {
 		if (typeof __REACT_DEVTOOLS_GLOBAL_HOOK__ === "undefined" || typeof __REACT_DEVTOOLS_GLOBAL_HOOK__.checkDCE !== "function") return;
@@ -11429,7 +11429,7 @@ var require_client = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_react_dom_client_production();
 }));
 //#endregion
-//#region ../../prompta/node_modules/@preact/signals-core/dist/signals-core.module.js
+//#region ../../home/brandon/prompta/node_modules/@preact/signals-core/dist/signals-core.module.js
 var import_react = /* @__PURE__ */ __toESM(require_react());
 var import_client = require_client();
 var i$1 = Symbol.for("preact-signals");
@@ -11841,7 +11841,7 @@ function x$2(i, t) {
 	return n;
 }
 //#endregion
-//#region ../../prompta/node_modules/use-sync-external-store/cjs/use-sync-external-store-shim.production.js
+//#region ../../home/brandon/prompta/node_modules/use-sync-external-store/cjs/use-sync-external-store-shim.production.js
 /**
 * @license React
 * use-sync-external-store-shim.production.js
@@ -11901,7 +11901,7 @@ var require_use_sync_external_store_shim_production = /* @__PURE__ */ __commonJS
 	exports.useSyncExternalStore = void 0 !== React.useSyncExternalStore ? React.useSyncExternalStore : shim;
 }));
 //#endregion
-//#region ../../prompta/node_modules/@preact/signals-react/runtime/dist/runtime.module.js
+//#region ../../home/brandon/prompta/node_modules/@preact/signals-react/runtime/dist/runtime.module.js
 var import_shim = (/* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_use_sync_external_store_shim_production();
 })))();
@@ -15054,7 +15054,7 @@ function createJobsPageController(initialProps) {
 	};
 }
 //#endregion
-//#region ../../prompta/node_modules/react/cjs/react-jsx-runtime.production.js
+//#region ../../home/brandon/prompta/node_modules/react/cjs/react-jsx-runtime.production.js
 /**
 * @license React
 * react-jsx-runtime.production.js
@@ -17122,7 +17122,7 @@ function ChatsSidebar({ model, refs }) {
 	});
 }
 //#endregion
-//#region ../../prompta/node_modules/marked/lib/marked.esm.js
+//#region ../../home/brandon/prompta/node_modules/marked/lib/marked.esm.js
 /**
 * marked v16.4.2 - a markdown parser
 * Copyright (c) 2018-2025, MarkedJS. (MIT License)
@@ -18663,7 +18663,7 @@ x.lex;
 * @public
 */
 //#endregion
-//#region ../../prompta/node_modules/prismjs/components/prism-typescript.js
+//#region ../../home/brandon/prompta/node_modules/prismjs/components/prism-typescript.js
 var import_prism = /* @__PURE__ */ __toESM((/* @__PURE__ */ __commonJSMin(((exports, module) => {
 	var Prism = function(_self) {
 		var lang = /(?:^|\s)lang(?:uage)?-([\w-]+)(?=\s|$)/i;
@@ -20126,7 +20126,7 @@ highlight: function highlight(container) {
 	Prism.languages.ts = Prism.languages.typescript;
 })(Prism);
 //#endregion
-//#region ../../prompta/node_modules/prismjs/components/prism-python.js
+//#region ../../home/brandon/prompta/node_modules/prismjs/components/prism-python.js
 Prism.languages.python = {
 	"comment": {
 		pattern: /(^|[^\\])#.*/,
@@ -20188,7 +20188,7 @@ Prism.languages.python = {
 Prism.languages.python["string-interpolation"].inside["interpolation"].inside.rest = Prism.languages.python;
 Prism.languages.py = Prism.languages.python;
 //#endregion
-//#region ../../prompta/node_modules/prismjs/components/prism-bash.js
+//#region ../../home/brandon/prompta/node_modules/prismjs/components/prism-bash.js
 (function(Prism) {
 	var envVars = "\\b(?:BASH|BASHOPTS|BASH_ALIASES|BASH_ARGC|BASH_ARGV|BASH_CMDS|BASH_COMPLETION_COMPAT_DIR|BASH_LINENO|BASH_REMATCH|BASH_SOURCE|BASH_VERSINFO|BASH_VERSION|COLORTERM|COLUMNS|COMP_WORDBREAKS|DBUS_SESSION_BUS_ADDRESS|DEFAULTS_PATH|DESKTOP_SESSION|DIRSTACK|DISPLAY|EUID|GDMSESSION|GDM_LANG|GNOME_KEYRING_CONTROL|GNOME_KEYRING_PID|GPG_AGENT_INFO|GROUPS|HISTCONTROL|HISTFILE|HISTFILESIZE|HISTSIZE|HOME|HOSTNAME|HOSTTYPE|IFS|INSTANCE|JOB|LANG|LANGUAGE|LC_ADDRESS|LC_ALL|LC_IDENTIFICATION|LC_MEASUREMENT|LC_MONETARY|LC_NAME|LC_NUMERIC|LC_PAPER|LC_TELEPHONE|LC_TIME|LESSCLOSE|LESSOPEN|LINES|LOGNAME|LS_COLORS|MACHTYPE|MAILCHECK|MANDATORY_PATH|NO_AT_BRIDGE|OLDPWD|OPTERR|OPTIND|ORBIT_SOCKETDIR|OSTYPE|PAPERSIZE|PATH|PIPESTATUS|PPID|PS1|PS2|PS3|PS4|PWD|RANDOM|REPLY|SECONDS|SELINUX_INIT|SESSION|SESSIONTYPE|SESSION_MANAGER|SHELL|SHELLOPTS|SHLVL|SSH_AUTH_SOCK|TERM|UID|UPSTART_EVENTS|UPSTART_INSTANCE|UPSTART_JOB|UPSTART_SESSION|USER|WINDOWID|XAUTHORITY|XDG_CONFIG_DIRS|XDG_CURRENT_DESKTOP|XDG_DATA_DIRS|XDG_GREETER_DATA_DIR|XDG_MENU_PREFIX|XDG_RUNTIME_DIR|XDG_SEAT|XDG_SEAT_PATH|XDG_SESSION_DESKTOP|XDG_SESSION_ID|XDG_SESSION_PATH|XDG_SESSION_TYPE|XDG_VTNR|XMODIFIERS)\\b";
 	var commandAfterHeredoc = {
@@ -20369,7 +20369,7 @@ Prism.languages.py = Prism.languages.python;
 	Prism.languages.shell = Prism.languages.bash;
 })(Prism);
 //#endregion
-//#region ../../prompta/node_modules/prismjs/components/prism-json.js
+//#region ../../home/brandon/prompta/node_modules/prismjs/components/prism-json.js
 Prism.languages.json = {
 	"property": {
 		pattern: /(^|[^\\])"(?:\\.|[^\\"\r\n])*"(?=\s*:)/,
@@ -20883,6 +20883,88 @@ function ToolCalls({ calls, turnTimestamp }) {
 	});
 }
 //#endregion
+//#region src/ui/TurnActivity.tsx
+/** Preserve the visible assistant/tool chronology, including commentary before calls. */
+function orderedActivity(turn) {
+	const calls = turn.tool_calls ?? [];
+	const blocks = turn.display_blocks ?? [];
+	if (!blocks.some((block) => block.kind === "text")) return [...calls.length ? [{
+		kind: "tools",
+		id: "tools",
+		calls
+	}] : [], ...turn.assistant_text ? [{
+		kind: "text",
+		id: "answer",
+		text: turn.assistant_text
+	}] : []];
+	const claimed = /* @__PURE__ */ new Set();
+	const activity = [];
+	for (const block of blocks) {
+		if (block.kind === "text") {
+			activity.push({
+				kind: "text",
+				id: block.id,
+				text: block.text
+			});
+			continue;
+		}
+		const index = Number(block.id.replace(/^dom-tool-/, ""));
+		const call = calls.find((candidate) => candidate.id === block.id) ?? calls[index];
+		if (!call || claimed.has(call.id)) continue;
+		claimed.add(call.id);
+		const last = activity.at(-1);
+		if (last?.kind === "tools") last.calls.push(call);
+		else activity.push({
+			kind: "tools",
+			id: block.id,
+			calls: [call]
+		});
+	}
+	const remaining = calls.filter((call) => !claimed.has(call.id));
+	if (remaining.length) {
+		const lastText = activity.findLastIndex((item) => item.kind === "text");
+		const insertAt = lastText > 0 ? lastText : activity.length;
+		activity.splice(insertAt, 0, {
+			kind: "tools",
+			id: "unplaced-tools",
+			calls: remaining
+		});
+	}
+	const rendered = blocks.filter((block) => block.kind === "text").map((block) => block.text).join("\n\n").trim();
+	const answer = turn.assistant_text.trim();
+	if (answer && !rendered.includes(answer)) {
+		if (answer.startsWith(rendered)) {
+			const tail = answer.slice(rendered.length).trim();
+			if (tail) activity.push({
+				kind: "text",
+				id: "answer-tail",
+				text: tail
+			});
+		} else if (answer.endsWith(rendered)) {
+			const head = answer.slice(0, -rendered.length).trim();
+			if (head) activity.unshift({
+				kind: "text",
+				id: "answer-head",
+				text: head
+			});
+		} else activity.push({
+			kind: "text",
+			id: "answer-fallback",
+			text: answer
+		});
+	}
+	return activity;
+}
+function TurnActivity({ turn, captureSource, turnTimestamp }) {
+	return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: orderedActivity(turn).map((item) => item.kind === "text" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ResultMarkdown, {
+		source: item.text,
+		captureSource
+	}, item.id) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ToolCalls, {
+		calls: item.calls,
+		turnTimestamp
+	}, item.id)) });
+}
+//#endregion
 //#region src/ui/ChatTranscript.tsx
 function ChatTranscript({ model, refs, conversationUrl }) {
 	N$1();
@@ -21002,14 +21084,11 @@ function ChatTranscript({ model, refs, conversationUrl }) {
 									children: responseBadge(turn.status)
 								})
 							}),
-							turn.tool_calls?.length ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ToolCalls, {
-								calls: turn.tool_calls,
-								turnTimestamp: turn.created_at || detail.value.created_at
-							}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {}),
-							turn.assistant_text ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
-								/* @__PURE__ */ (0, import_jsx_runtime.jsx)(ResultMarkdown, {
-									source: turn.assistant_text,
-									captureSource: index === 0 ? detail.value.source : ""
+							turn.assistant_text || turn.tool_calls?.length || turn.display_blocks?.some((block) => block.kind === "text") ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)(TurnActivity, {
+									turn,
+									captureSource: index === 0 ? detail.value.source : "",
+									turnTimestamp: turn.created_at || detail.value.created_at
 								}),
 								turn.status !== "completed" && turn.status !== "generating" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
 									className: "partial-note",
