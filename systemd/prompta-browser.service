@@ -14,7 +14,7 @@ Slice=prompta.slice
 OOMPolicy=stop
 KillMode=control-group
 TimeoutStopSec=20
-MemoryHigh=3G
+MemoryHigh=5G
 MemoryMax=6G
 TasksMax=768
 
