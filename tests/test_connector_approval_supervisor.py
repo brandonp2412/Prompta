@@ -78,6 +78,50 @@ async def test_shared_supervisor_does_not_retry_stuck_dialog_tightly() -> None:
 
 
 @pytest.mark.asyncio
+async def test_broken_live_channel_uses_independent_owned_tab_retry() -> None:
+    primary_calls = 0
+    fallback_calls = 0
+
+    async def broken_channel(_script: str) -> object:
+        nonlocal primary_calls
+        primary_calls += 1
+        raise RuntimeError("original page channel is stale")
+
+    async def fresh_owned_tab() -> object:
+        nonlocal fallback_calls
+        fallback_calls += 1
+        return True
+
+    grants = await supervise_connector_approvals(
+        broken_channel,
+        deadline=asyncio.get_running_loop().time() + 1.65,
+        source="test",
+        poll_interval_seconds=0.01,
+        active=lambda: True,
+        fresh_retry=fresh_owned_tab,
+    )
+    assert grants == 1
+    assert fallback_calls == 1
+    assert 3 <= primary_calls <= 6
+
+
+@pytest.mark.asyncio
+async def test_failed_fresh_retry_never_claims_an_approval() -> None:
+    async def broken_channel(_script: str) -> object:
+        raise RuntimeError("original page channel is stale")
+
+    grants = await supervise_connector_approvals(
+        broken_channel,
+        deadline=asyncio.get_running_loop().time() + 1.65,
+        source="test",
+        poll_interval_seconds=0.01,
+        active=lambda: True,
+        fresh_retry=lambda: asyncio.sleep(0, result=False),
+    )
+    assert grants == 0
+
+
+@pytest.mark.asyncio
 async def test_trusted_retry_handles_unhydrated_permission_controls() -> None:
     chromium = os.environ.get("PROMPTA_TEST_CHROMIUM") or shutil.which("chromium")
     if chromium is None:

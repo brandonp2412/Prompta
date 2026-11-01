@@ -40,6 +40,7 @@ from .browser_ownership import (
     OWNED_WINDOW_PREFIX,
     new_owned_window_marker,
     new_page_owner_id,
+    owned_window_owner_id,
     record_owned_tab,
     touch_owned_tab,
 )
@@ -1004,6 +1005,60 @@ class PatchrightDriver(ModelPickerMixin):
 
     async def click_stuck_connector_approval(self) -> object:
         return await trusted_approval_retry(self._page())
+
+    async def retry_connector_approval_from_owned_tab(self) -> object:
+        """Use a separate CDP connection when this capture's page handle is stale.
+
+        Do not navigate or send. Require the same target, ChatGPT conversation,
+        and Prompta window owner before touching any permission control.
+        """
+        if not self._attached or not self.debugger_address or self._send_capture is None:
+            return False
+        target_id = self._owned_target_ids.get(self.context)
+        old_page = self._pages.get(self.context)
+        if not target_id or old_page is None:
+            return False
+        url = old_page.url
+        parsed = urlsplit(url)
+        if (
+            parsed.scheme != "https" or parsed.netloc != "chatgpt.com"
+            or parsed.query or parsed.fragment or not parsed.path.startswith("/c/")
+        ):
+            return False
+        conversation_id = parsed.path.removeprefix("/c/")
+        try:
+            if str(uuid.UUID(conversation_id)) != conversation_id:
+                return False
+        except ValueError:
+            return False
+
+        async with async_patchright() as patchright:
+            browser = await patchright.chromium.connect_over_cdp(
+                f"http://{self.debugger_address}", timeout=7000,
+            )
+            matches = [
+                page for context in browser.contexts for page in context.pages
+                if page.url == url
+            ]
+            if len(matches) != 1:
+                return False
+            page = matches[0]
+            session = await page.context.new_cdp_session(page)
+            try:
+                target_info = await session.send("Target.getTargetInfo")
+            finally:
+                await session.detach()
+            info = target_info.get("targetInfo")
+            actual_id = info.get("targetId") if isinstance(info, dict) else None
+            if actual_id != target_id:
+                return False
+            marker = await page.evaluate("window.name", isolated_context=True)
+            if owned_window_owner_id(marker, prefix=self.ownership_prefix) != self.page_owner_id:
+                return False
+            result = await page.evaluate(
+                load_browser_script("approve_connector.js"), isolated_context=True,
+            )
+            return await trusted_approval_retry(page) if result == "stuck" else result
 
     @staticmethod
     def _navigation_response_is_security_challenge(response: Response | None) -> bool:

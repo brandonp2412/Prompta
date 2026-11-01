@@ -53,38 +53,68 @@ async def supervise_connector_approvals(
     poll_interval_seconds: float,
     active: Callable[[], bool],
     trusted_retry: Callable[[], Awaitable[object]] | None = None,
+    fresh_retry: Callable[[], Awaitable[object]] | None = None,
 ) -> int:
-    """Click scoped permissions until expiry or loss of ownership.
+    """Keep scoped permissions moving even if the original CDP page handle goes stale.
 
-    A confirmed grant is followed by an immediate scan because another tool
-    permission can appear without a new response/capture event.
+    A fresh retry is allowed only through the caller's independently verified
+    Prompta-owned target. Repeated failures are paced so they cannot flood logs
+    or create a tight reconnect loop.
     """
     loop = asyncio.get_running_loop()
     grants = 0
+    failures = 0
+    next_fresh_retry_at = 0.0
     while (remaining := deadline - loop.time()) > 0:
         if not active():
             break
+        result: object = False
         try:
             result = await asyncio.wait_for(evaluate(_APPROVAL_SCRIPT), timeout=min(5.0, remaining))
             if result == "stuck" and trusted_retry is not None:
                 result = await asyncio.wait_for(
                     trusted_retry(), timeout=min(4.0, max(0.1, deadline - loop.time()))
                 )
-            if result == "progress":
-                continue  # A persistent-grant checkbox was selected; click Allow next.
-            if result is True:
-                grants += 1
-                logger.info("ChatGPT connector grant dismissed source=%s count=%d", source, grants)
-                continue
-            if result == "stuck":
-                logger.warning("ChatGPT connector grant did not dismiss source=%s", source)
         except asyncio.CancelledError:
             raise
         except Exception as exc:
-            logger.info(
-                "ChatGPT connector permission check unavailable source=%s error_type=%s",
-                source,
-                type(exc).__name__,
-            )
-        await asyncio.sleep(min(poll_interval_seconds, max(0.0, deadline - loop.time())))
+            failures += 1
+            if failures == 1:
+                logger.warning(
+                    "ChatGPT connector permission channel unavailable source=%s error_type=%s",
+                    source, type(exc).__name__,
+                )
+            result = "stuck"
+        else:
+            failures = failures + 1 if result == "stuck" else 0
+
+        if failures >= 3 and fresh_retry is not None and loop.time() >= next_fresh_retry_at:
+            next_fresh_retry_at = loop.time() + 10.0
+            try:
+                result = await asyncio.wait_for(
+                    fresh_retry(), timeout=min(12.0, max(0.1, deadline - loop.time()))
+                )
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                logger.warning(
+                    "ChatGPT connector fresh owned-tab check failed source=%s error_type=%s",
+                    source, type(exc).__name__,
+                )
+            else:
+                if result in (True, "progress"):
+                    failures = 0
+
+        if result == "progress":
+            continue
+        if result is True:
+            grants += 1
+            logger.info("ChatGPT connector grant dismissed source=%s count=%d", source, grants)
+            continue
+        if result == "stuck" and failures == 1:
+            logger.warning("ChatGPT connector grant did not dismiss source=%s", source)
+        await asyncio.sleep(min(
+            max(poll_interval_seconds, 0.5 if failures else 0.0),
+            max(0.0, deadline - loop.time()),
+        ))
     return grants

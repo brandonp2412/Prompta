@@ -101,6 +101,11 @@ class TrustedApprovalDriver(Protocol):
 
 
 @runtime_checkable
+class FreshApprovalDriver(Protocol):
+    async def retry_connector_approval_from_owned_tab(self) -> object: ...
+
+
+@runtime_checkable
 class VerifiedActivityDriver(Protocol):
     def record_verified_activity(self) -> bool: ...
 
@@ -399,6 +404,10 @@ class BrowserDeliverySender:
             trusted_retry=(
                 driver.click_stuck_connector_approval
                 if isinstance(driver, TrustedApprovalDriver) else None
+            ),
+            fresh_retry=(
+                driver.retry_connector_approval_from_owned_tab
+                if isinstance(driver, FreshApprovalDriver) else None
             ),
         )
 

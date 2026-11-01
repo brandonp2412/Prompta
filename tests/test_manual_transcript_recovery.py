@@ -120,19 +120,18 @@ def test_explicit_requests_get_slots_amid_permanently_eligible_pinned_backlog(
     runtime = SchedulerRuntime(tmp_path / "runtime.sqlite3", tmp_path / "jobs.json")
     worker = HistoryRecovery(store, runtime, FakeHistoryDriver)
 
-    # The backlog stays eligible even after a failed read. A manual request
-    # still gets its next fair slot, and pins retain the other two slots.
+    # New manual requests each get a first attempt before repeated pinned probes;
+    # one of every three slots remains available to automatic recovery.
     assert worker.recover_once(now=150)
     assert _status(store, "requested-first") == "completed"
     assert store.manual_recovery_pending("requested-first") == 0
     assert worker.recover_once(now=240)
-    assert worker.recover_once(now=330)
-    assert _status(store, "pinned-old") == "completed"
     assert _status(store, "pinned-new") == "completed"
-    assert _status(store, "requested-second") == "interrupted"
-    assert worker.recover_once(now=420)
+    assert worker.recover_once(now=330)
     assert _status(store, "requested-second") == "completed"
     assert store.manual_recovery_pending("requested-second") == 0
+    assert worker.recover_once(now=420)
+    assert _status(store, "pinned-old") == "completed"
     assert store.history_recovery_global_attempt_count() == 4
 
 
@@ -236,6 +235,22 @@ def test_failed_requested_probe_moves_behind_other_manual_requests(
     assert store.pending_manual_recovery_requests() == ["first"]
     assert _status(store, "first") == "interrupted"
     assert _status(store, "second") == "completed"
+
+
+def test_new_manual_request_precedes_repeated_older_failure(tmp_path: Path) -> None:
+    store = ResponseStore(tmp_path / "chat-results.sqlite3")
+    _expired(store, "older-failure")
+    _expired(store, "fresh-request")
+    store.queue_manual_recovery("older-failure", ["older-failure"], now=100)
+    store.schedule_history_recovery("older-failure", now=101)
+    store.queue_manual_recovery("fresh-request", ["fresh-request"], now=102)
+    runtime = SchedulerRuntime(tmp_path / "runtime.sqlite3", tmp_path / "jobs.json")
+    worker = HistoryRecovery(store, runtime, FakeHistoryDriver)
+
+    assert worker.recover_once(now=150)
+    assert _status(store, "fresh-request") == "completed"
+    assert _status(store, "older-failure") == "interrupted"
+    assert store.pending_manual_recovery_requests() == ["older-failure"]
 
 
 @pytest.mark.parametrize("width,height", [(360, 800), (390, 844), (412, 915), (1440, 900)])
