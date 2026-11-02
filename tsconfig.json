@@ -10,6 +10,7 @@
     ],
     "types": [
       "bun-types",
+      "bun",
       "vite/client"
     ],
     "strict": true,

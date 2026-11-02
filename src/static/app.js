@@ -20797,6 +20797,22 @@ function status(call) {
 	if (call.status === "observed") return "Observed";
 	return "Completed";
 }
+function groupObservedTimes(calls, turnTimestamp) {
+	const timestamps = calls.map((call) => call.observed_at || turnTimestamp || 0).filter((value) => Number.isFinite(value) && value > 0);
+	if (!timestamps.length) return null;
+	return {
+		first: Math.min(...timestamps),
+		last: Math.max(...timestamps)
+	};
+}
+function clockTime(epoch) {
+	return new Intl.DateTimeFormat("en-NZ", {
+		timeZone: "Pacific/Auckland",
+		hour: "numeric",
+		minute: "2-digit",
+		hour12: true
+	}).format(epoch * 1e3);
+}
 function ToolCalls({ calls, turnTimestamp }) {
 	if (!calls.length) return null;
 	const groups = /* @__PURE__ */ new Map();
@@ -20869,70 +20885,88 @@ function ToolCalls({ calls, turnTimestamp }) {
 			]
 		}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 			className: "tool-call-list",
-			children: Array.from(groups, ([key, group]) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("details", {
-				className: "tool-type-group",
-				children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("summary", { children: [
-					title(group[0]),
-					" · ",
-					group.length,
-					" ",
-					group.length === 1 ? "call" : "calls",
-					group.some((call) => status(call) === "Running") && " · Running",
-					group.some((call) => status(call) === "Failed") && " · Failed"
-				] }), group.map((call, index) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("details", {
-					className: "tool-call" + (status(call) === "Failed" ? " failed" : "") + (status(call) === "Running" ? " running" : ""),
-					children: [
-						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("summary", {
-							className: "tool-call-summary",
-							children: [
-								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-									className: "tool-call-mark",
-									"aria-hidden": "true",
-									children: statusMark[status(call)]
-								}),
-								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-									className: "tool-call-name",
-									children: title(call)
-								}),
-								call.observed_at || turnTimestamp ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("time", {
-									className: "tool-call-time",
-									dateTime: (/* @__PURE__ */ new Date((call.observed_at || turnTimestamp || 0) * 1e3)).toISOString(),
-									title: (call.observed_at ? "First observed: " : "Conversation turn: ") + nzTime(call.observed_at || turnTimestamp || 0),
-									children: chatMessageTime(call.observed_at || turnTimestamp || 0)
-								}) : null,
-								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-									className: "tool-call-status",
-									children: status(call)
-								})
-							]
-						}),
-						(call.arguments || call.result || call.error) && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-							className: "tool-call-body",
-							children: [
-								call.arguments && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h4", { children: "Input / code" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ToolContent, {
-									value: call.arguments,
-									call,
-									input: true
-								})] }),
-								call.result && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h4", { children: "Output" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ToolContent, {
-									value: call.result,
-									call,
-									input: false
-								})] }),
-								call.error && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h4", { children: "Error" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ToolContent, {
-									value: call.error,
-									call,
-									input: false
-								})] })
-							]
-						}),
-						!call.arguments && !call.result && !call.error && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-							className: "tool-call-body",
-							children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { children: "Only the tool label was available for this call." })
-						})
-					]
-				}, call.id || index))]
-			}, key))
+			children: Array.from(groups, ([key, group]) => {
+				const times = groupObservedTimes(group, turnTimestamp);
+				const firstLabel = times ? chatMessageTime(times.first) : "";
+				const lastLabel = times ? chatMessageTime(times.last) : "";
+				return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("details", {
+					className: "tool-type-group",
+					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("summary", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+						className: "tool-type-label",
+						children: [
+							title(group[0]),
+							" · ",
+							group.length,
+							" ",
+							group.length === 1 ? "call" : "calls",
+							group.some((call) => status(call) === "Running") && " · Running",
+							group.some((call) => status(call) === "Failed") && " · Failed"
+						]
+					}), times && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+						className: "tool-type-time",
+						title: `First observed: ${nzTime(times.first)}${firstLabel !== lastLabel ? `; last observed: ${nzTime(times.last)}` : ""}`,
+						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("time", {
+							dateTime: (/* @__PURE__ */ new Date(times.first * 1e3)).toISOString(),
+							children: firstLabel
+						}), firstLabel !== lastLabel && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [" – ", /* @__PURE__ */ (0, import_jsx_runtime.jsx)("time", {
+							dateTime: (/* @__PURE__ */ new Date(times.last * 1e3)).toISOString(),
+							children: dateGroup(times.first) === dateGroup(times.last) ? clockTime(times.last) : lastLabel
+						})] })]
+					})] }), group.map((call, index) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("details", {
+						className: "tool-call" + (status(call) === "Failed" ? " failed" : "") + (status(call) === "Running" ? " running" : ""),
+						children: [
+							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("summary", {
+								className: "tool-call-summary",
+								children: [
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+										className: "tool-call-mark",
+										"aria-hidden": "true",
+										children: statusMark[status(call)]
+									}),
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+										className: "tool-call-name",
+										children: title(call)
+									}),
+									call.observed_at || turnTimestamp ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("time", {
+										className: "tool-call-time",
+										dateTime: (/* @__PURE__ */ new Date((call.observed_at || turnTimestamp || 0) * 1e3)).toISOString(),
+										title: (call.observed_at ? "First observed: " : "Conversation turn: ") + nzTime(call.observed_at || turnTimestamp || 0),
+										children: chatMessageTime(call.observed_at || turnTimestamp || 0)
+									}) : null,
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+										className: "tool-call-status",
+										children: status(call)
+									})
+								]
+							}),
+							(call.arguments || call.result || call.error) && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								className: "tool-call-body",
+								children: [
+									call.arguments && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h4", { children: "Input / code" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ToolContent, {
+										value: call.arguments,
+										call,
+										input: true
+									})] }),
+									call.result && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h4", { children: "Output" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ToolContent, {
+										value: call.result,
+										call,
+										input: false
+									})] }),
+									call.error && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h4", { children: "Error" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ToolContent, {
+										value: call.error,
+										call,
+										input: false
+									})] })
+								]
+							}),
+							!call.arguments && !call.result && !call.error && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+								className: "tool-call-body",
+								children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { children: "Only the tool label was available for this call." })
+							})
+						]
+					}, call.id || index))]
+				}, key);
+			})
 		})]
 	});
 }

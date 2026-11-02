@@ -1,4 +1,4 @@
-import { chatMessageTime, nzTime } from "./resultFormatting";
+import { chatMessageTime, dateGroup, nzTime } from "./resultFormatting";
 import type { CapturedToolCall } from "./resultFormatting";
 import { highlightedCode } from "./CodeHighlight";
 import { toolPayload } from "./ToolCallFormatting";
@@ -46,6 +46,23 @@ function status(call: CapturedToolCall): string {
   return "Completed";
 }
 
+function groupObservedTimes(calls: CapturedToolCall[], turnTimestamp?: number) {
+  const timestamps = calls
+    .map((call) => call.observed_at || turnTimestamp || 0)
+    .filter((value) => Number.isFinite(value) && value > 0);
+  if (!timestamps.length) return null;
+  return { first: Math.min(...timestamps), last: Math.max(...timestamps) };
+}
+
+function clockTime(epoch: number): string {
+  return new Intl.DateTimeFormat("en-NZ", {
+    timeZone: "Pacific/Auckland",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  }).format(epoch * 1000);
+}
+
 export default function ToolCalls({
   calls,
   turnTimestamp,
@@ -88,74 +105,99 @@ export default function ToolCalls({
         {failures > 0 && <span className="tool-failure-count">{failures} failed</span>}
       </div>
       <div className="tool-call-list">
-        {Array.from(groups, ([key, group]) => (
-          <details className="tool-type-group" key={key}>
-            <summary>
-              {title(group[0])} · {group.length} {group.length === 1 ? "call" : "calls"}
-              {group.some((call) => status(call) === "Running") && " · Running"}
-              {group.some((call) => status(call) === "Failed") && " · Failed"}
-            </summary>
-            {group.map((call, index) => (
-              <details
-                key={call.id || index}
-                className={
-                  "tool-call" +
-                  (status(call) === "Failed" ? " failed" : "") +
-                  (status(call) === "Running" ? " running" : "")
-                }
-              >
-                <summary className="tool-call-summary">
-                  <span className="tool-call-mark" aria-hidden="true">
-                    {statusMark[status(call)]}
+        {Array.from(groups, ([key, group]) => {
+          const times = groupObservedTimes(group, turnTimestamp);
+          const firstLabel = times ? chatMessageTime(times.first) : "";
+          const lastLabel = times ? chatMessageTime(times.last) : "";
+          return (
+            <details className="tool-type-group" key={key}>
+              <summary>
+                <span className="tool-type-label">
+                  {title(group[0])} · {group.length} {group.length === 1 ? "call" : "calls"}
+                  {group.some((call) => status(call) === "Running") && " · Running"}
+                  {group.some((call) => status(call) === "Failed") && " · Failed"}
+                </span>
+                {times && (
+                  <span
+                    className="tool-type-time"
+                    title={`First observed: ${nzTime(times.first)}${firstLabel !== lastLabel ? `; last observed: ${nzTime(times.last)}` : ""}`}
+                  >
+                    <time dateTime={new Date(times.first * 1000).toISOString()}>{firstLabel}</time>
+                    {firstLabel !== lastLabel && (
+                      <>
+                        {" – "}
+                        <time dateTime={new Date(times.last * 1000).toISOString()}>
+                          {dateGroup(times.first) === dateGroup(times.last)
+                            ? clockTime(times.last)
+                            : lastLabel}
+                        </time>
+                      </>
+                    )}
                   </span>
-                  <span className="tool-call-name">{title(call)}</span>
-                  {call.observed_at || turnTimestamp ? (
-                    <time
-                      className="tool-call-time"
-                      dateTime={new Date(
-                        (call.observed_at || turnTimestamp || 0) * 1000,
-                      ).toISOString()}
-                      title={
-                        (call.observed_at ? "First observed: " : "Conversation turn: ") +
-                        nzTime(call.observed_at || turnTimestamp || 0)
-                      }
-                    >
-                      {chatMessageTime(call.observed_at || turnTimestamp || 0)}
-                    </time>
-                  ) : null}
-                  <span className="tool-call-status">{status(call)}</span>
-                </summary>
-                {(call.arguments || call.result || call.error) && (
-                  <div className="tool-call-body">
-                    {call.arguments && (
-                      <section>
-                        <h4>Input / code</h4>
-                        <ToolContent value={call.arguments} call={call} input={true} />
-                      </section>
-                    )}
-                    {call.result && (
-                      <section>
-                        <h4>Output</h4>
-                        <ToolContent value={call.result} call={call} input={false} />
-                      </section>
-                    )}
-                    {call.error && (
-                      <section>
-                        <h4>Error</h4>
-                        <ToolContent value={call.error} call={call} input={false} />
-                      </section>
-                    )}
-                  </div>
                 )}
-                {!call.arguments && !call.result && !call.error && (
-                  <div className="tool-call-body">
-                    <p>Only the tool label was available for this call.</p>
-                  </div>
-                )}
-              </details>
-            ))}
-          </details>
-        ))}
+              </summary>
+              {group.map((call, index) => (
+                <details
+                  key={call.id || index}
+                  className={
+                    "tool-call" +
+                    (status(call) === "Failed" ? " failed" : "") +
+                    (status(call) === "Running" ? " running" : "")
+                  }
+                >
+                  <summary className="tool-call-summary">
+                    <span className="tool-call-mark" aria-hidden="true">
+                      {statusMark[status(call)]}
+                    </span>
+                    <span className="tool-call-name">{title(call)}</span>
+                    {call.observed_at || turnTimestamp ? (
+                      <time
+                        className="tool-call-time"
+                        dateTime={new Date(
+                          (call.observed_at || turnTimestamp || 0) * 1000,
+                        ).toISOString()}
+                        title={
+                          (call.observed_at ? "First observed: " : "Conversation turn: ") +
+                          nzTime(call.observed_at || turnTimestamp || 0)
+                        }
+                      >
+                        {chatMessageTime(call.observed_at || turnTimestamp || 0)}
+                      </time>
+                    ) : null}
+                    <span className="tool-call-status">{status(call)}</span>
+                  </summary>
+                  {(call.arguments || call.result || call.error) && (
+                    <div className="tool-call-body">
+                      {call.arguments && (
+                        <section>
+                          <h4>Input / code</h4>
+                          <ToolContent value={call.arguments} call={call} input={true} />
+                        </section>
+                      )}
+                      {call.result && (
+                        <section>
+                          <h4>Output</h4>
+                          <ToolContent value={call.result} call={call} input={false} />
+                        </section>
+                      )}
+                      {call.error && (
+                        <section>
+                          <h4>Error</h4>
+                          <ToolContent value={call.error} call={call} input={false} />
+                        </section>
+                      )}
+                    </div>
+                  )}
+                  {!call.arguments && !call.result && !call.error && (
+                    <div className="tool-call-body">
+                      <p>Only the tool label was available for this call.</p>
+                    </div>
+                  )}
+                </details>
+              ))}
+            </details>
+          );
+        })}
       </div>
     </section>
   );

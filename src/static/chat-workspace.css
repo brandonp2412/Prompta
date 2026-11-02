@@ -718,6 +718,16 @@
   font-weight: 590;
   line-height: 1.45;
 }
+.assistant-group .tool-type-label { flex: 1 1 auto; min-width: 0; }
+.assistant-group .tool-type-time {
+  flex: none;
+  margin-left: auto;
+  color: #a2aec0;
+  font-size: .72rem;
+  font-weight: 450;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
 .assistant-group .tool-type-group > summary::before {
   display: block;
   flex: 0 0 7px;
@@ -823,7 +833,17 @@
 @media (max-width: 680px) {
   .assistant-group .tool-timeline { padding: 10px; border-radius: 14px; }
   .assistant-group .tool-timeline-summary { padding-bottom: 9px; }
-  .assistant-group .tool-type-group > summary { padding: 11px; }
+  .assistant-group .tool-type-group > summary {
+    display: grid;
+    grid-template-columns: 7px minmax(0, 1fr) 7px;
+    column-gap: 10px;
+    row-gap: 3px;
+    padding: 11px;
+  }
+  .assistant-group .tool-type-group > summary::before { grid-column: 1; grid-row: 1; }
+  .assistant-group .tool-type-label { grid-column: 2; grid-row: 1; }
+  .assistant-group .tool-type-time { grid-column: 2; grid-row: 2; margin-left: 0; white-space: normal; }
+  .assistant-group .tool-type-group > summary::after { grid-column: 3; grid-row: 1; margin-left: 0; }
   .assistant-group .tool-call-summary { padding: 10px; }
   .assistant-group .tool-call-body { padding: 10px; }
   .assistant-group .tool-call-status { font-size: .66rem; padding: 3px 6px; }
