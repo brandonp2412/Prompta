@@ -413,3 +413,35 @@ def test_terminal_receipt_survives_result_projection_failure(
     committed = queue.get("send-1")
     assert committed is not None and committed["status"] == status
     assert queue.claim_next("another", now=50.0, lease_seconds=30.0) is None
+
+
+def test_bump_to_front_persists_and_overrides_default_priority(tmp_path: Path) -> None:
+    path = tmp_path / "queue.sqlite3"
+    queue = DeliveryQueueStore(path)
+    for send_id, client in (("manual", "manual:first"), ("scheduled", "scheduled:key:job"), ("last", "manual:last")):
+        queue.upsert(_queued_record(send_id, client_id=client))
+    assert queue.bump_to_front("scheduled")
+    assert queue.bump_to_front("last")
+    reopened = DeliveryQueueStore(path)
+    assert [row["send_id"] for row in reopened.pending_dispatch_metadata()] == ["last", "scheduled", "manual"]
+    for send_id in ("last", "scheduled", "manual"):
+        claimed = reopened.claim_next("worker", now=100, lease_seconds=30)
+        assert claimed is not None and claimed["send_id"] == send_id
+        assert not reopened.bump_to_front(send_id)
+    assert not reopened.bump_to_front("missing")
+
+
+def test_bump_preserves_retry_delay_and_other_items_fifo(tmp_path: Path) -> None:
+    queue = DeliveryQueueStore(tmp_path / "queue.sqlite3")
+    for send_id in ("first", "retry", "last"):
+        record = _queued_record(send_id, client_id="manual:" + send_id)
+        if send_id == "retry":
+            record.update(status="rate_limited", retry_at=200)
+        queue.upsert(record)
+    assert queue.bump_to_front("retry")
+    first = queue.claim_next("worker", now=100, lease_seconds=300)
+    assert first is not None and first["send_id"] == "first"
+    retry = queue.claim_next("worker", now=200, lease_seconds=30)
+    assert retry is not None and retry["send_id"] == "retry"
+    last = queue.claim_next("worker", now=200, lease_seconds=30)
+    assert last is not None and last["send_id"] == "last"

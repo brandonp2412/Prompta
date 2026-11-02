@@ -128,3 +128,42 @@ def test_checkout_stays_unchanged_while_original_owner_drains(tmp_path, monkeypa
     monkeypatch.setattr(rolling_deploy, "run", command)
     assert not rolling_deploy.sync_checkout(tmp_path)
     assert not any("merge" in command for command in commands)
+
+
+def test_schema_change_records_and_stops_owners_before_migration(rollout, monkeypatch):
+    repo, gate, commands = rollout
+    (repo / "src/migrations/old.py").write_text("old migration")
+    events = []
+    record = deploy_guarded.record_interrupted_work
+
+    def inventory(gate):
+        assert gate.is_paused()
+        events.append("record")
+        record(gate)
+
+    def stop():
+        assert gate.is_paused()
+        events.append("stop")
+
+    def migrate(*args, **kwargs):
+        assert events == ["record", "stop"]
+        events.append("migrate")
+
+    monkeypatch.setattr(deploy_guarded, "record_interrupted_work", inventory)
+    monkeypatch.setattr(deploy_guarded, "stop_workers", stop)
+    monkeypatch.setattr(rolling_deploy.subprocess, "run", migrate)
+    assert rolling_deploy.deploy(repo, gate)
+    assert events == ["record", "stop", "migrate"]
+    assert not gate.is_paused()
+    assert (gate.pause_path.parent / "deployment-verification.json").exists()
+    assert not any("prompta-browser.service" in command for command in commands)
+
+
+def test_schema_startup_failure_keeps_admission_paused(rollout, monkeypatch):
+    repo, gate, _commands = rollout
+    (repo / "src/migrations/old.py").write_text("old migration")
+    monkeypatch.setattr(deploy_guarded, "stop_workers", lambda: None)
+    monkeypatch.setattr(deploy_guarded, "verify_services", lambda **kwargs: False)
+    with pytest.raises(RuntimeError, match="failed startup"):
+        rolling_deploy.deploy(repo, gate)
+    assert gate.is_paused()

@@ -325,6 +325,20 @@ def create_app(
     def queue_status() -> dict[str, object]:
         return dict(local.queue_view.concurrency_queue_snapshot())
 
+    @app.post("/api/queue/{send_id}/front")
+    def bump_queue(send_id: str) -> dict[str, bool]:
+        if not local.queue.bump_to_front(send_id):
+            raise HTTPException(409, "This item is no longer waiting in the queue.")
+        return {"ok": True}
+
+    @app.post("/api/queue-jobs/{name:path}/front")
+    def bump_queued_job(name: str) -> dict[str, bool]:
+        for receipt in local.queue.pending_dispatch_metadata():
+            client = str(receipt["client_id"])
+            if client.startswith("scheduled:") and client.rsplit(":", 1)[-1] == name:
+                return bump_queue(str(receipt["send_id"]))
+        raise HTTPException(409, "This job is no longer waiting in the queue.")
+
     @app.get("/api/settings")
     def get_settings() -> dict[str, object]:
         return {

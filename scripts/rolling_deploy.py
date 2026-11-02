@@ -128,7 +128,13 @@ def schedule_checkout_sync(repo: Path, release: Path, config: Path) -> None:
 
 
 def deploy(repo: Path, gate: DeploymentGate) -> bool:
-    from scripts.deploy_guarded import request_pause, verify_services
+    from scripts.deploy_guarded import (
+        record_interrupted_work,
+        request_pause,
+        stop_workers,
+        verify_recorded_work,
+        verify_services,
+    )
 
     state_dir = gate.pause_path.parent
     config = Path.home() / ".config/systemd/user"
@@ -148,15 +154,15 @@ def deploy(repo: Path, gate: DeploymentGate) -> bool:
             Path(json.loads(previous_manifest.read_text())["release"])
             if previous_manifest.exists() else repo
         )
-        for path in (previous / "src/migrations").rglob("*.py"):
-            relative = path.relative_to(previous)
-            replacement = release / relative
-            if not replacement.exists() or path.read_bytes() != replacement.read_bytes():
-                raise RuntimeError("Schema changes require all previous workers to finish first")
-        if {p.relative_to(release) for p in (release / "src/migrations").rglob("*.py")} != {
-            p.relative_to(previous) for p in (previous / "src/migrations").rglob("*.py")
-        }:
-            raise RuntimeError("Schema changes require all previous workers to finish first")
+        previous_migrations = {
+            path.relative_to(previous): path.read_bytes()
+            for path in (previous / "src/migrations").rglob("*.py")
+        }
+        next_migrations = {
+            path.relative_to(release): path.read_bytes()
+            for path in (release / "src/migrations").rglob("*.py")
+        }
+        schema_changed = previous_migrations != next_migrations
         new_units = tuple(f"{worker}-{generation}.service" for worker in WORKERS)
         for worker, module, unit in zip(WORKERS, MODULES, new_units, strict=True):
             (config / unit).write_text(unit_definition(release, worker, module))
@@ -173,6 +179,11 @@ def deploy(repo: Path, gate: DeploymentGate) -> bool:
         request_pause(gate)
         retired = False
         try:
+            if schema_changed:
+                record_interrupted_work(gate)
+                stop_workers()
+                # After stopping owners, failures must leave admission paused.
+                retired = True
             # Existing code initializes schemas repeatedly. Its migration head
             # must still match while it owns live work; never migrate underneath
             # an older owner that cannot recognize the new revision.
@@ -219,6 +230,8 @@ def deploy(repo: Path, gate: DeploymentGate) -> bool:
             run("systemctl", "--user", "restart", *FRONTENDS)
             if not verify_services(units=(*FRONTENDS, *new_units)):
                 raise RuntimeError("New generation health verification failed; admission stays paused")
+            if schema_changed and not verify_recorded_work(gate):
+                raise RuntimeError("Interrupted work verification failed; admission stays paused")
             schedule_checkout_sync(repo, release, config)
             atomic_json(state_dir / "worker-handover.json", {
                 "completed_at": time.time(), "revision": revision,

@@ -1,3 +1,4 @@
+import QueueFrontButton from "./QueueFrontButton";
 import { useSignals } from "@preact/signals-react/runtime";
 import type { createJobsPageController } from "./JobsPageController";
 import { queueEtaExplanation, queueEtaText } from "./queueStatus";
@@ -101,6 +102,13 @@ export default function JobsTable({ model }: { model: Controller }) {
               </div>
 
               <div role="cell" className="job-actions">
+                {waiting && (
+                  <QueueFrontButton
+                    endpoint={"./api/queue-jobs/" + encodeURIComponent(job.name) + "/front"}
+                    label={job.name}
+                    onMoved={model.loadQueue}
+                  />
+                )}
                 <button
                   type="button"
                   disabled={saving.value}

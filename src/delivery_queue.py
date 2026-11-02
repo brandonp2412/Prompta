@@ -198,6 +198,20 @@ class DeliveryQueueStore:
             )
         return [self.record_from_row(row) for row in rows]
 
+    def bump_to_front(self, send_id: str) -> bool:
+        """Prioritize a waiting delivery without changing retry or active leases."""
+        priority = select(func.coalesce(func.min(job_deliveries.c.queue_priority), 0) - 1).scalar_subquery()
+        with self.engine.begin() as connection:
+            changed = connection.execute(
+                update(job_deliveries)
+                .where(
+                    job_deliveries.c.send_id == send_id,
+                    job_deliveries.c.status.in_(("queued", "retrying", "rate_limited")),
+                )
+                .values(queue_priority=priority)
+            )
+        return bool(changed.rowcount)
+
     def pending_scheduled_send_ids(self) -> set[str]:
         """Unfinished scheduled delivery IDs, including removed one-shot definitions."""
         with self.engine.connect() as connection:
@@ -220,7 +234,7 @@ class DeliveryQueueStore:
                     job_deliveries.c.client_id.like("scheduled:%"),
                     job_deliveries.c.status.in_(("queued", "retrying", "rate_limited")),
                 )
-                .order_by(job_deliveries.c.one_time.desc(), job_deliveries.c.sequence)
+                .order_by(job_deliveries.c.queue_priority, job_deliveries.c.one_time.desc(), job_deliveries.c.sequence)
             ).scalars().all()
         return [str(client).rsplit(":", 1)[-1] for client in clients]
 
@@ -234,7 +248,7 @@ class DeliveryQueueStore:
                     job_deliveries.c.retry_at,
                 )
                 .where(job_deliveries.c.status.in_(("queued", "retrying", "rate_limited")))
-                .order_by(_DISPATCH_PRIORITY, job_deliveries.c.sequence)
+                .order_by(job_deliveries.c.queue_priority, _DISPATCH_PRIORITY, job_deliveries.c.sequence)
             ).mappings().all()
         return [
             {
@@ -532,7 +546,7 @@ class DeliveryQueueStore:
                 sequence = (
                     select(job_deliveries.c.sequence)
                     .where(claimable)
-                    .order_by(_DISPATCH_PRIORITY, job_deliveries.c.sequence)
+                    .order_by(job_deliveries.c.queue_priority, _DISPATCH_PRIORITY, job_deliveries.c.sequence)
                     .limit(1)
                     .scalar_subquery()
                 )

@@ -62,6 +62,7 @@ job_deliveries = Table(
     Column("pin_chat", Boolean, nullable=False, default=False),
     Column("client_id", String, nullable=False, default=""),
     Column("one_time", Boolean, nullable=False, default=False),
+    Column("queue_priority", Integer, nullable=False, default=0),
     Column("status", String, nullable=False, default="queued"),
     Column("error", Text, nullable=False, default=""),
     Column("last_error", Text, nullable=False, default=""),
