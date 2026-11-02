@@ -44,6 +44,10 @@ def test_watchdog_recovers_after_sustained_unresponsiveness(monkeypatch, tmp_pat
         return SimpleNamespace(returncode=0)
 
     monkeypatch.setattr(watchdog.subprocess, "run", capture)
+    monkeypatch.setattr(
+        watchdog, "recover_crashed_browser",
+        lambda gate, service: watchdog.subprocess.run(["systemctl", "--user", "restart", service]),
+    )
     watchdog.main()
     assert commands == []
     watchdog.main()
@@ -103,6 +107,10 @@ def test_watchdog_uses_flaresolverr_browser_configuration(monkeypatch, tmp_path)
     monkeypatch.setattr(watchdog, "delivery_in_flight", lambda database, now: False)
     monkeypatch.setattr(watchdog.subprocess, "run", capture)
     monkeypatch.setattr(watchdog.time, "time", lambda: 2000.0)
+    monkeypatch.setattr(
+        watchdog, "recover_crashed_browser",
+        lambda gate, service: watchdog.subprocess.run(["systemctl", "--user", "restart", service]),
+    )
     watchdog.main()
     watchdog.main()
     assert addresses == ["127.0.0.1:9223", "127.0.0.1:9223"]
@@ -360,29 +368,32 @@ def test_renderer_failure_restarts_browser_despite_healthy_http(monkeypatch, tmp
         return SimpleNamespace(returncode=0)
 
     monkeypatch.setattr(watchdog.subprocess, "run", run)
+    monkeypatch.setattr(
+        watchdog, "recover_crashed_browser",
+        lambda gate, service: watchdog.subprocess.run(["systemctl", "--user", "restart", service]),
+    )
     watchdog.main()
     assert commands == []
     watchdog.main()
     assert commands[-1] == ["systemctl", "--user", "restart", "prompta-browser.service"]
 
 
-def test_watchdog_skips_checks_while_browser_operation_holds_gate(monkeypatch, tmp_path):
+def test_watchdog_checks_during_admitted_browser_work(monkeypatch, tmp_path):
     import prompta.browser_watchdog as watchdog
     from prompta.deployment_gate import DeploymentGate
 
     monkeypatch.setattr(watchdog, "STATE_DIR", tmp_path)
+    monkeypatch.setattr(watchdog, "delivery_in_flight", lambda database, now: False)
     gate = DeploymentGate(tmp_path / "runtime.sqlite3")
-
-    def unexpected_check():
-        raise AssertionError("Watchdog must not probe or restart during browser operations")
-
-    monkeypatch.setattr(watchdog, "check_browser", unexpected_check)
-    monkeypatch.setattr(watchdog, "check_busy_browser", lambda: None)
+    checks = []
+    monkeypatch.setattr(watchdog, "check_browser", lambda: checks.append(True))
     with gate.admission() as admitted:
         assert admitted
         watchdog.main()
+    assert checks == [True]
     gate.pause_path.touch()
     watchdog.main()
+    assert checks == [True]
 
 
 async def test_renderer_probe_closes_tab_after_evaluation_failure(monkeypatch):
@@ -428,6 +439,7 @@ def test_busy_crashed_renderer_triggers_coordinated_recovery(monkeypatch, tmp_pa
     monkeypatch.setattr(watchdog, "STATE_DIR", tmp_path)
     monkeypatch.setattr(watchdog, "STATE_FILE", tmp_path / "watchdog.json")
     monkeypatch.setattr(watchdog, "debugger_responding", lambda address: True)
+    monkeypatch.setattr(watchdog, "delivery_in_flight", lambda database, now: True)
     monkeypatch.setattr(watchdog.time, "time", lambda: 2000.0)
 
     async def crashed_renderer(address):
@@ -555,18 +567,26 @@ def test_recovery_never_takes_over_deployment_pause(monkeypatch, tmp_path):
     assert gate.pause_path.read_text() == "pid=123 time=2000\n"
 
 
-def test_recovery_lock_timeout_is_bounded(tmp_path):
+def test_obsolete_exclusive_browser_lock_cannot_block_admission_or_recovery(monkeypatch, tmp_path):
     import fcntl
 
-    import pytest
-
     import prompta.browser_watchdog as watchdog
+    import scripts.deploy_guarded as deploy
+    from prompta.deployment_gate import DeploymentGate
 
-    path = tmp_path / "gate.lock"
-    with path.open("a+b") as owner, path.open("a+b") as recovery:
-        fcntl.flock(owner.fileno(), fcntl.LOCK_SH)
-        with pytest.raises(TimeoutError, match="still held"):
-            watchdog.acquire_recovery_lock(recovery.fileno(), timeout=0)
-        fcntl.flock(owner.fileno(), fcntl.LOCK_UN)
-        watchdog.acquire_recovery_lock(recovery.fileno(), timeout=0)
-        fcntl.flock(recovery.fileno(), fcntl.LOCK_UN)
+    gate = DeploymentGate(tmp_path / "runtime.sqlite3")
+    monkeypatch.setattr(watchdog, "STATE_FILE", tmp_path / "watchdog.json")
+    monkeypatch.setattr(deploy, "record_interrupted_work", lambda gate: None)
+    monkeypatch.setattr(deploy, "stop_workers", lambda: None)
+    monkeypatch.setattr(deploy, "verify_services", lambda: True)
+    monkeypatch.setattr(watchdog, "wait_for_browser", lambda address: True)
+    commands = []
+    monkeypatch.setattr(watchdog.subprocess, "run", lambda args, **kwargs: commands.append(args))
+    with (tmp_path / "deployment.lock").open("a+b") as obsolete:
+        fcntl.flock(obsolete.fileno(), fcntl.LOCK_EX)
+        with gate.admission() as admitted:
+            assert admitted
+            watchdog.recover_crashed_browser(gate, "prompta-browser.service")
+        fcntl.flock(obsolete.fileno(), fcntl.LOCK_UN)
+    assert [args[2] for args in commands] == ["restart", "start"]
+    assert not gate.is_paused()

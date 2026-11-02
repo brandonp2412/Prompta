@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import fcntl
 import json
 import logging
 import os
@@ -295,18 +294,7 @@ def main() -> None:
     if gate.is_paused():
         resume_pending_recovery(gate)
         return
-    # Serialize probes and restarts against every worker browser operation.
-    with gate.lock_path.open("a+b") as handle:
-        try:
-            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            check_busy_browser()
-            return
-        try:
-            if not gate.is_paused():
-                check_browser()
-        finally:
-            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+    check_browser()
     if not gate.is_paused() and delivery_in_flight(STATE_DIR / "runtime.sqlite3", time.time()):
         check_busy_browser()
 
@@ -318,18 +306,6 @@ def wait_for_browser(address: str, *, timeout: float = 30.0) -> bool:
             return True
         time.sleep(1.0)
     return False
-
-
-def acquire_recovery_lock(handle: int, *, timeout: float = 10.0) -> None:
-    deadline = time.monotonic() + timeout
-    while True:
-        try:
-            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            return
-        except BlockingIOError:
-            if time.monotonic() >= deadline:
-                raise TimeoutError("Browser recovery lock still held after stopping owners") from None
-            time.sleep(0.1)
 
 
 def resume_pending_recovery(gate: DeploymentGate) -> None:
@@ -364,18 +340,15 @@ def recover_crashed_browser(gate: DeploymentGate, browser_service: str) -> None:
     save_state(STATE_FILE, state)
     record_interrupted_work(gate)
     stop_workers()
-    with gate.lock_path.open("a+b") as handle:
-        acquire_recovery_lock(handle.fileno())
-        try:
-            subprocess.run(
-                ["systemctl", "--user", "restart", browser_service],
-                check=True, timeout=60,
-            )
-            address = os.environ.get("PROMPTA_CHROME_DEBUGGER_ADDRESS", "127.0.0.1:9222")
-            if not wait_for_browser(address):
-                raise RuntimeError("Browser renderer failed recovery; admission stays paused")
-        finally:
-            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+    # stop_workers verifies every application owner is stopped. A separate
+    # browser-wide lock adds no protection and could strand recovery indefinitely.
+    subprocess.run(
+        ["systemctl", "--user", "restart", browser_service],
+        check=True, timeout=60,
+    )
+    address = os.environ.get("PROMPTA_CHROME_DEBUGGER_ADDRESS", "127.0.0.1:9222")
+    if not wait_for_browser(address):
+        raise RuntimeError("Browser renderer failed recovery; admission stays paused")
     subprocess.run(["systemctl", "--user", "start", *SERVICES], check=True, timeout=30)
     if not verify_services():
         raise RuntimeError("Browser recovery failed service verification; admission stays paused")
@@ -459,11 +432,7 @@ def check_browser() -> None:
             save_state(STATE_FILE, state)
             return
         logger.warning("Browser endpoint or renderer unavailable; restarting %s", browser_service)
-        subprocess.run(
-            ["systemctl", "--user", "restart", browser_service],
-            check=True,
-            timeout=60,
-        )
+        recover_crashed_browser(DeploymentGate(STATE_DIR / "runtime.sqlite3"), browser_service)
         state.consecutive_failures = 0
         state.last_restart_at = time.time()
         logger.info("Browser restarted; next watchdog check will verify debugger health")
