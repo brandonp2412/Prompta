@@ -259,23 +259,27 @@ def test_watchdog_crash_reaper_closes_only_expired_ledger_tabs(monkeypatch, tmp_
     assert owned_tab_records(path) == {"recent": 2900}
 
 
-def test_healthy_watchdog_never_reaps_during_live_capture(monkeypatch, tmp_path) -> None:
+def test_healthy_watchdog_reaps_expired_tabs_during_live_capture(monkeypatch, tmp_path) -> None:
     import prompta.browser_watchdog as watchdog
 
     monkeypatch.setattr(watchdog, "STATE_DIR", tmp_path)
     monkeypatch.setattr(watchdog, "STATE_FILE", tmp_path / "watchdog.json")
     monkeypatch.setattr(watchdog, "debugger_responding", lambda address: True)
     monkeypatch.setattr(watchdog, "delivery_in_flight", lambda database, now: True)
-    monkeypatch.setattr(
-        watchdog, "reap_expired_owned_tabs",
-        lambda **kwargs: (_ for _ in ()).throw(AssertionError("live lease must prevent expiry")),
-    )
+    reaped: list[str] = []
+
+    async def reap(*, address: str, now: float) -> int:
+        reaped.append(address)
+        return 0
+
+    monkeypatch.setattr(watchdog, "reap_expired_owned_tabs", reap)
 
     async def healthy_renderer(address):
         return True
 
     monkeypatch.setattr(watchdog, "bounded_renderer_probe", healthy_renderer)
     watchdog.main()
+    assert len(reaped) == 1
 
 
 def test_failed_browser_close_leaves_expiry_claim_recoverable(tmp_path) -> None:

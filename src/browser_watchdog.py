@@ -398,11 +398,11 @@ def check_browser() -> None:
         logger.warning("Manual reply lease recovery failed error_type=%s", type(exc).__name__)
     healthy = debugger_responding(address)
     busy = delivery_in_flight(STATE_DIR / "runtime.sqlite3", now)
-    if busy:
-        return
-    if healthy:
-        healthy = asyncio.run(bounded_renderer_probe(address))
     if healthy and not busy:
+        healthy = asyncio.run(bounded_renderer_probe(address))
+    # Continuous captures must not keep expired tabs polling ChatGPT forever.
+    # The reaper atomically checks each tab's own activity lease before closing.
+    if healthy:
         try:
             asyncio.run(reap_expired_owned_tabs(address=address, now=now))
         except Exception as exc:
@@ -415,6 +415,8 @@ def check_browser() -> None:
                 logger.error(
                     "Prompta HTTP tab reaper failed error_type=%s", type(fallback_exc).__name__
                 )
+    if busy:
+        return
     restart = decide_restart(state, healthy=healthy, busy=busy, now=now)
     if restart:
         active = (
