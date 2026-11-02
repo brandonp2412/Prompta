@@ -364,7 +364,7 @@ export default function ChatTranscript({
                   </button>
                   <span>
                     {(detail.value.manual_recovery_pending ?? 0) > 0
-                      ? "Waiting for a permitted read-only check."
+                      ? "Waiting to check the saved chat and resume configured permissions."
                       : "Last resort: check the saved ChatGPT transcript without resending messages."}
                   </span>
                 </div>

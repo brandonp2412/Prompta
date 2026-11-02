@@ -26,6 +26,57 @@ def _status(store: ResponseStore, send_id: str) -> object:
     return row["status"]
 
 
+@pytest.mark.parametrize("approval_enabled", [True, False])
+@pytest.mark.parametrize("followup", [True, False])
+@pytest.mark.parametrize("preferred", [True, False])
+def test_manual_recovery_resumes_configured_permissions_outside_deploy_inventory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture,
+    approval_enabled: bool, followup: bool, preferred: bool,
+) -> None:
+    store = ResponseStore(tmp_path / "chat-results.sqlite3")
+    parent = "11111111-1111-4111-8111-111111111111"
+    target = "interrupted-chat"
+    runtime = SchedulerRuntime(tmp_path / "runtime.sqlite3", tmp_path / "jobs.json")
+    worker = HistoryRecovery(store, runtime, FakeHistoryDriver, approval_enabled=approval_enabled)
+    if followup:
+        store.ensure_queued(target, "Original prompt", now=10)
+        assert store.accept(target, "123:owner", deadline=100, now=11)
+        assert store.write(target, "123:owner", CaptureResult(
+            "sse", "complete", "Original answer", CONVERSATION, parent, None,
+        ), now=12)
+        intent = ReplyIntent("reply-pending", CONVERSATION, parent, "Follow up")
+        worker.replies.prepare(target, intent, now=13)
+        assert worker.replies.claim(intent.reply_id, "123:reply", deadline=100, now=14)
+        assert worker.replies.finish(intent.reply_id, "123:reply", uncertain=True, now=15)
+        target = "reply:" + intent.reply_id
+    else:
+        _expired(store, target)
+    store.queue_manual_recovery("interrupted-chat", [target], now=110)
+    observed: list[bool] = []
+
+    async def read(
+        conversation: str, prompt: str, *args: str, resume_approvals: bool = False,
+    ) -> CaptureResult:
+        observed.append(resume_approvals)
+        return CaptureResult(
+            "dom", "complete" if resume_approvals else "partial", "Recovered answer",
+            conversation, "22222222-2222-4222-8222-222222222222",
+            parent if followup else None, "exact-turn",
+        )
+
+    monkeypatch.setattr(worker, "_read_original_response", read)
+    monkeypatch.setattr(worker, "_read_reply_response", read)
+    with caplog.at_level("INFO"):
+        assert worker.recover_once(
+            now=150, preferred_send_id=target if preferred else None,
+        ) is approval_enabled
+    assert observed == [approval_enabled]
+    assert store.manual_recovery_pending("interrupted-chat") == (0 if approval_enabled else 1)
+    assert "event=history_recovery_started" in caplog.text
+    assert "event=history_recovery_observed" in caplog.text
+    assert "Recovered answer" not in caplog.text
+
+
 def test_manual_recovery_endpoint_persists_one_request_without_resending(tmp_path: Path) -> None:
     with server(tmp_path) as (app, port):
         store = app.results

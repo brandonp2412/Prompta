@@ -21244,7 +21244,7 @@ function ChatTranscript({ model, refs, conversationUrl }) {
 							"aria-busy": requestingManualRecovery.value,
 							onClick: () => void requestManualRecovery(detail.value.send_id),
 							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(RecoverChatIcon, {}), manualRecoveryLabel()]
-						}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: (detail.value.manual_recovery_pending ?? 0) > 0 ? "Waiting for a permitted read-only check." : "Last resort: check the saved ChatGPT transcript without resending messages." })]
+						}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: (detail.value.manual_recovery_pending ?? 0) > 0 ? "Waiting to check the saved chat and resume configured permissions." : "Last resort: check the saved ChatGPT transcript without resending messages." })]
 					}),
 					conversationUrl && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("a", {
 						className: "chat-open-chatgpt chat-open-chatgpt-footer",

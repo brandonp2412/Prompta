@@ -255,6 +255,11 @@ class HistoryRecovery:
                                         type(exc).__name__,
                                     )
                                     grant = "pending"  # Never finalize on an uncertain permission check.
+                                if grant is True or grant in ("progress", "pending", "stuck"):
+                                    logger.info(
+                                        "event=history_recovery_permission conversation_id=%s outcome=%s",
+                                        conversation_id, grant,
+                                    )
                             awaiting_permission = grant is True or grant in (
                                 "progress", "pending", "stuck"
                             )
@@ -429,23 +434,25 @@ class HistoryRecovery:
             manual_target = send_id
         conversation_id = str(candidate["conversation_id"])
         prompt = str(candidate["user_text"])
+        allow_resume = self.approval_enabled and bool(
+            manual_target or owned_tab_recovery
+            or (reply_id in priority_replies if reply_id else send_id in priority_sends)
+        )
+        logger.info(
+            "event=history_recovery_started send_id=%s manual=%s owned_tab=%s resume_approvals=%s",
+            send_id, bool(manual_target), owned_tab_recovery, allow_resume,
+        )
         try:
             if str(UUID(conversation_id)) != conversation_id.lower():
                 logger.warning("Historical recovery skipped invalid conversation identity send_id=%s", send_id)
             else:
                 if reply_id:
-                    allow_resume = self.approval_enabled and (
-                        reply_id in priority_replies or owned_tab_recovery
-                    )
                     probe = self._read_reply_response(
                         conversation_id, str(candidate["original_prompt"]),
                         prompt, str(candidate["parent_id"]),
                         **({"resume_approvals": True} if allow_resume else {}),
                     )
                 else:
-                    allow_resume = self.approval_enabled and (
-                        send_id in priority_sends or owned_tab_recovery
-                    )
                     probe = self._read_original_response(
                         conversation_id, prompt,
                         **({"resume_approvals": True} if allow_resume else {}),
@@ -455,11 +462,20 @@ class HistoryRecovery:
                     self.replies.recover_historical_reply(reply_id, result, now=at)
                     if reply_id else self.results.recover_historical_response(send_id, result, now=at)
                 )
+                stored = self.replies.get(reply_id) if reply_id else self.results.get(send_id)
+                logger.info(
+                    "event=history_recovery_observed send_id=%s result=%s text_chars=%s "
+                    "stored_status=%s stored_text_chars=%s merged=%s",
+                    send_id, result.status if result is not None else "unverified",
+                    len(result.text) if result is not None else 0,
+                    stored["status"] if stored is not None else "missing",
+                    len(str(stored["assistant_text"])) if stored is not None else 0,
+                    recovered,
+                )
                 if recovered and result is not None and result.status == "complete":
                     # A complete-looking DOM snapshot may only merge tool
                     # metadata while preserving a longer interrupted answer.
                     # Report success only after durable storage is terminal.
-                    stored = self.replies.get(reply_id) if reply_id else self.results.get(send_id)
                     if stored is not None and stored["status"] == "completed":
                         # A local surviving-tab DOM check does not prove that
                         # account-wide HTTP history reads have recovered from 429.

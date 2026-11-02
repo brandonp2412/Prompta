@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, Annotated
 from uuid import UUID
 
@@ -25,6 +26,8 @@ from .web_models import (
 
 if TYPE_CHECKING:
     from .web import WebServices
+
+logger = logging.getLogger(__name__)
 
 
 def register_chat_routes(app: FastAPI, local: WebServices) -> None:
@@ -154,6 +157,10 @@ def register_chat_routes(app: FastAPI, local: WebServices) -> None:
                 409, "No unfinished turn with a verified, inactive branch is ready for recovery",
             )
         pending = local.results.queue_manual_recovery(send_id, targets)
+        logger.info(
+            "event=manual_recovery_queued send_id=%s targets=%s pending=%s",
+            send_id, len(targets), pending,
+        )
         return {"ok": True, "pending": pending}
 
     @app.post("/api/results/{send_id}/reply-recover")
