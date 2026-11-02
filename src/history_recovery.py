@@ -263,7 +263,7 @@ class HistoryRecovery:
                             awaiting_permission = grant is True or grant in (
                                 "progress", "pending", "stuck"
                             )
-                            if result.text or result.tool_calls:
+                            if result.text or result.tool_calls or result.verified_generating:
                                 last_partial = (
                                     replace(result, status="partial")
                                     if awaiting_permission and result.status == "complete"
@@ -458,6 +458,9 @@ class HistoryRecovery:
                         **({"resume_approvals": True} if allow_resume else {}),
                     )
                 result = asyncio.run(asyncio.wait_for(probe, timeout=_LOOKUP_TIMEOUT_SECONDS))
+                if (result is not None and result.verified_generating and not reply_id
+                        and result.conversation_id == conversation_id):
+                    self.results.observe_history_generating(send_id, conversation_id, now=at)
                 recovered = result is not None and (
                     self.replies.recover_historical_reply(reply_id, result, now=at)
                     if reply_id else self.results.recover_historical_response(send_id, result, now=at)

@@ -349,6 +349,33 @@ class FakeHistoryDriver:
         self.closed = True
 
 
+def test_verified_live_probe_survives_without_answer_text(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A verified generating DOM is a usable live-state signal, not a completed answer."""
+    class LiveDriver(FakeHistoryDriver):
+        async def eval(self, expression: str, *, main_world: bool = False) -> object:
+            assert CONVERSATION in expression
+            return {
+                "verified": True, "ambiguous": False,
+                "message_id": "fallback-turn-0:activity:assistant",
+                "pathname": "/c/" + CONVERSATION,
+                "text": "", "complete": False, "generating": True,
+            }
+
+    async def no_delay(_seconds: float) -> None:
+        return None
+
+    monkeypatch.setattr(history_recovery, "_READ_PROBE_SECONDS", 0.02)
+    monkeypatch.setattr(history_recovery.asyncio, "sleep", no_delay)
+    store = ResponseStore(tmp_path / "chat-results.sqlite3")
+    runtime = SchedulerRuntime(tmp_path / "runtime.sqlite3", tmp_path / "jobs.json")
+    worker = HistoryRecovery(store, runtime, LiveDriver, approval_enabled=False)
+    result = asyncio.run(worker._read_original_response(CONVERSATION, "Original prompt"))
+    assert result is not None and result.status == "unknown"
+    assert result.verified_generating and result.conversation_id == CONVERSATION
+
+
 def test_transient_ambiguous_dom_does_not_discard_same_tab_recovery(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

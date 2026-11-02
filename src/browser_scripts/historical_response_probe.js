@@ -4,7 +4,7 @@
   // No account-wide listing, internal API request, or prompt submission.
   const conversation = __CONVERSATION__;
   const originalPrompt = __ORIGINAL_PROMPT__;
-  const empty = { verified: false, ambiguous: false, message_id: "", branch_message_id: "", pathname: "", text: "", complete: false, rate_limited: false };
+  const empty = { verified: false, ambiguous: false, message_id: "", branch_message_id: "", pathname: "", text: "", complete: false, generating: false, rate_limited: false };
   if (location.origin !== "https://chatgpt.com" || location.pathname !== "/c/" + conversation) return empty;
   const visible = (node) => node.isConnected && node.getClientRects().length > 0 &&
     getComputedStyle(node).visibility !== "hidden";
@@ -76,9 +76,12 @@
     'button[data-testid="copy-turn-action-button"], button[aria-label="Copy"]'
   )].some(visible));
   const streaming = turns.some((turn) => !!turn.querySelector('[data-is-streaming="true"], .result-streaming'));
-  const generating = users.length === 1 && [...document.querySelectorAll(
-    'button[data-testid="stop-button"], button[aria-label="Stop generating"], button[aria-label="Stop streaming"], button[aria-label="Stop"]'
-  )].some(visible) || (users.length === 1 && turns.some(turn => !!turn.querySelector('[data-talvt-turn-state="in_progress"]')));
+  const generating = users.length === 1 && (
+    turns.some((turn) => !!turn.querySelector('[data-talvt-turn-state="in_progress"]')) ||
+    [...document.querySelectorAll(
+      'button[data-testid="stop-button"], button[aria-label="Stop"], button[aria-label="Stop generating"], button[aria-label="Stop streaming"]'
+    )].some(visible)
+  );
   const lastTextIndex = segments.findLastIndex(Boolean);
   const finalAnswer = lastTextIndex < 0 ? assistant : answerUnits[lastTextIndex];
   const finalIds = assistantMessageIdsFromDom(finalAnswer);
@@ -88,8 +91,7 @@
     branch_message_id: branch, pathname: location.pathname, text,
     turn_message_ids: [...new Set(answerUnits.flatMap(assistantMessageIdsFromDom))],
     complete: !!text && copyReady && !streaming && !generating,
-    generating,
-    rate_limited: false, tool_calls,
+    generating, rate_limited: false, tool_calls,
     display_blocks: displayBlocksFromUnits(answerUnits, visible, markdownSelector),
   };
 })()

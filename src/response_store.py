@@ -26,6 +26,7 @@ from .response_tables import (
     results,
 )
 from .schema_migrations import upgrade_database
+from .strict_types import float_value
 from .tool_call_store import deserialize_tool_calls, merge_tool_calls
 
 
@@ -76,7 +77,16 @@ _SUMMARY_COLUMNS = (
     results.c.created_at,
     results.c.updated_at,
     results.c.finished_at,
+    results.c.live_observed_at,
 )
+
+
+def _visible_original_status(status: str, live_at: float, *, now: float | None = None) -> str:
+    """Present an exact, recently observed original stream as generating."""
+    at = time.time() if now is None else now
+    if status in ("interrupted", "unavailable") and 0 < live_at <= at < live_at + 600:
+        return "generating"
+    return status
 
 
 def _summary(row: RowMapping) -> dict[str, object]:
@@ -85,7 +95,8 @@ def _summary(row: RowMapping) -> dict[str, object]:
     title = str(row["job_name"]) or (prompt.splitlines()[0][:100] if prompt else "")
     return {
         "send_id": row["send_id"], "job_name": row["job_name"], "title": title,
-        "status": row["status"], "preview": (answer or prompt)[:180],
+        "status": _visible_original_status(str(row["status"]), float(row["live_observed_at"])),
+        "preview": (answer or prompt)[:180],
         "has_response": bool(answer), "created_at": row["created_at"],
         "activity_at": row["activity_at"], "updated_at": row["updated_at"],
         "finished_at": row["finished_at"],
@@ -792,6 +803,26 @@ class ResponseStore:
                 },
             ))
 
+    def observe_history_generating(
+        self, send_id: str, conversation_id: str, *, now: float | None = None,
+    ) -> bool:
+        """Only an exact verified read can suppress attention during live generation.
+
+        The durable status remains interrupted and stays eligible for completion
+        recovery; this observation expires automatically if the tab stops.
+        """
+        if not conversation_id:
+            return False
+        at = time.time() if now is None else now
+        with self.engine.begin() as connection:
+            changed = connection.execute(update(results).where(
+                results.c.send_id == send_id,
+                results.c.conversation_id == conversation_id,
+                results.c.capture_owner == "",
+                results.c.status.in_(("interrupted", "unavailable")),
+            ).values(live_observed_at=at))
+            return changed.rowcount == 1
+
     def recover_historical_response(
         self, send_id: str, capture: CaptureResult, *, now: float | None = None,
     ) -> bool:
@@ -903,6 +934,9 @@ class ResponseStore:
             "send_id", "job_name", "user_text", "assistant_text", "status", "source",
             "created_at", "accepted_at", "updated_at", "finished_at",
         )}
+        detail["status"] = _visible_original_status(
+            str(row["status"]), float_value(row["live_observed_at"]),
+        )
         detail["tool_calls"] = deserialize_tool_calls(row["tool_calls_json"])
         detail["display_blocks"] = deserialize_display_blocks(row["display_blocks_json"])
         detail["manual_recovery_pending"] = self.manual_recovery_pending(send_id)
