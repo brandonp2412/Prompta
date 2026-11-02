@@ -45,6 +45,9 @@ test("sidebar groups actual runs without global history", () => {
     has_response: false,
     updated_at: created_at,
     finished_at: 0,
+    last_reply_revision: "",
+    last_read_revision: "",
+    last_reply_at: 0,
   });
   const groups = groupRuns([run("1", 100), run("2", 120), run("3", 100_000)]);
   expect(groups.map((group) => group.items.map((item) => item.send_id))).toEqual([

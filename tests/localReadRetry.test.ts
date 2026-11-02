@@ -5,10 +5,10 @@ test("transient local gateway GET failures get exactly one retry", async () => {
   const original = globalThis.fetch;
   const calls: Array<{ url: string; init?: RequestInit }> = [];
   const outcomes = [503, 200];
-  globalThis.fetch = (async (url: RequestInfo | URL, init?: RequestInit) => {
+  globalThis.fetch = Object.assign(async (url: RequestInfo | URL, init?: RequestInit) => {
     calls.push({ url: String(url), init });
     return new Response("", { status: outcomes.shift() ?? 500 });
-  }) as typeof fetch;
+  }, { preconnect: original.preconnect });
   try {
     const response = await localGet("./api/results?offset=0");
     expect(response.status).toBe(200);
@@ -26,11 +26,11 @@ test("transient local gateway GET failures get exactly one retry", async () => {
 test("a rejected transport GET retries once without replaying mutations", async () => {
   const original = globalThis.fetch;
   let calls = 0;
-  globalThis.fetch = (async () => {
+  globalThis.fetch = Object.assign(async () => {
     calls += 1;
     if (calls === 1) throw new TypeError("Network connection closed");
     return new Response("recovered", { status: 200 });
-  }) as typeof fetch;
+  }, { preconnect: original.preconnect });
   try {
     const response = await localGet("./api/results");
     expect(response.status).toBe(200);
@@ -46,11 +46,11 @@ test("a transport failure near the total deadline is not retried", async () => {
   let now = 100;
   let calls = 0;
   Date.now = () => now;
-  globalThis.fetch = (async () => {
+  globalThis.fetch = Object.assign(async () => {
     calls += 1;
     now += localReadTimeoutMs - 100;
     throw new TypeError("Offline");
-  }) as typeof fetch;
+  }, { preconnect: original.preconnect });
   try {
     await expect(localGet("./api/results")).rejects.toThrow("Offline");
     expect(calls).toBe(1);
@@ -63,10 +63,10 @@ test("a transport failure near the total deadline is not retried", async () => {
 test("client errors and application errors are never replayed", async () => {
   const original = globalThis.fetch;
   let calls = 0;
-  globalThis.fetch = (async () => {
+  globalThis.fetch = Object.assign(async () => {
     calls += 1;
     return new Response("", { status: 500 });
-  }) as typeof fetch;
+  }, { preconnect: original.preconnect });
   try {
     expect((await localGet("./api/results/missing")).status).toBe(500);
     expect(calls).toBe(1);
@@ -81,11 +81,11 @@ test("a nearly exhausted read deadline does not start a second GET", async () =>
   let now = 10;
   let calls = 0;
   Date.now = () => now;
-  globalThis.fetch = (async () => {
+  globalThis.fetch = Object.assign(async () => {
     calls += 1;
     now += localReadTimeoutMs - 100;
     return new Response("", { status: 504 });
-  }) as typeof fetch;
+  }, { preconnect: original.preconnect });
   try {
     expect((await localGet("./api/health")).status).toBe(504);
     expect(calls).toBe(1);
