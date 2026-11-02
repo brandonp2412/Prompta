@@ -34,12 +34,19 @@ from .strict_types import string_object_dict
 logger = logging.getLogger(__name__)
 
 
+_RECOVERY_READ_BACKOFF_CAP_SECONDS = 15 * 60
+_RECOVERY_READ_BACKOFF_RESET_SECONDS = 30 * 60
+
+
 class SchedulerRuntime:
     def __init__(self, state_path: Path, jobs_file: Path) -> None:
         self.state_path = state_path
         self.jobs_file = jobs_file
         self.backoffs: dict[str, RateLimitBackoff] = {}
-        self.read_backoff = RateLimitBackoff(cap_seconds=2 * 3600, reset_seconds=24 * 3600)
+        self.read_backoff = RateLimitBackoff(
+            cap_seconds=_RECOVERY_READ_BACKOFF_CAP_SECONDS,
+            reset_seconds=_RECOVERY_READ_BACKOFF_RESET_SECONDS,
+        )
         self.failure_retry_until: dict[str, float] = {}
         self.restore_backoffs()
 
@@ -259,7 +266,10 @@ class SchedulerRuntime:
             engine.dispose()
 
     def _durable_read_backoff(self) -> RateLimitBackoff:
-        backoff = RateLimitBackoff(cap_seconds=2 * 3600, reset_seconds=24 * 3600)
+        backoff = RateLimitBackoff(
+            cap_seconds=_RECOVERY_READ_BACKOFF_CAP_SECONDS,
+            reset_seconds=_RECOVERY_READ_BACKOFF_RESET_SECONDS,
+        )
         snapshot = string_object_dict(
             self.account_state(strict=True).get("read_rate_limit_backoff")
         )
@@ -374,7 +384,10 @@ class SchedulerRuntime:
                         account_state.c.key == "read_rate_limit_backoff"
                     )
                 ).scalar_one_or_none()
-                backoff = RateLimitBackoff(cap_seconds=2 * 3600, reset_seconds=24 * 3600)
+                backoff = RateLimitBackoff(
+                    cap_seconds=_RECOVERY_READ_BACKOFF_CAP_SECONDS,
+                    reset_seconds=_RECOVERY_READ_BACKOFF_RESET_SECONDS,
+                )
                 if value_json is not None:
                     try:
                         decoded: object = json.loads(str(value_json))
@@ -384,7 +397,8 @@ class SchedulerRuntime:
                     backoff.restore(snapshot, wall_time=wall_time)
                 if extend_only and backoff.remaining() > 0:
                     backoff.blocked_until = max(
-                        backoff.blocked_until, time.monotonic() + float(exc.retry_after),
+                        backoff.blocked_until,
+                        time.monotonic() + float(exc.retry_after),
                     )
                     remaining = backoff.remaining()
                 else:

@@ -126,7 +126,9 @@ def test_fresh_chat_sender_ignores_read_cooldown(tmp_path: Path, monkeypatch) ->
     assert accepted == ["New chat"]
 
 
-def test_read_backoff_keeps_escalating_after_thirty_minute_cooldowns(tmp_path: Path, monkeypatch) -> None:
+def test_read_backoff_caps_at_fifteen_minutes_and_resets_after_idle(
+    tmp_path: Path, monkeypatch
+) -> None:
     import time
 
     epoch = [1_800_000_000.0]
@@ -141,8 +143,16 @@ def test_read_backoff_keeps_escalating_after_thirty_minute_cooldowns(tmp_path: P
         delays.append(delay)
         epoch[0] += delay + 1
         monotonic[0] += delay + 1
-    assert delays[4] >= 4800
-    assert 7200 <= delays[5] <= 7260
-    assert 7200 <= delays[7] <= 7260
+    assert 900 <= delays[2] <= 960
+    assert all(900 <= delay <= 960 for delay in delays[3:])
     assert SchedulerRuntime(path, path).read_admission_status()["attempts"] == 8
     assert runtime.record_read_rate_limit(RateLimitError(retry_after=10800)) >= 10800
+    # An explicit server delay still wins. After a quiet period, retries restart
+    # from five minutes instead of inheriting days of old failed attempts.
+    epoch[0] += 10810
+    monotonic[0] += 10810
+    assert (
+        300
+        <= SchedulerRuntime(path, path).record_read_rate_limit(RateLimitError(retry_after=0))
+        <= 330
+    )
