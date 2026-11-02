@@ -29,7 +29,27 @@
   }
   const assistantSelector = '[data-message-author-role="assistant"][data-message-id], [data-chatgpt-search-unit-key$=":assistant"][data-chatgpt-search-message-ids], [data-content-search-unit-key$=":assistant"]';
   const assistants = topLevelResponseNodes(main, assistantSelector).filter(visible);
-  if (!assistants.length) return { ...empty, verified: true };
+  if (!assistants.length) {
+    // Agent activity can render before its assistant answer placeholder becomes
+    // visible. Bind public progress markdown to this exact verified user turn;
+    // never treat activity (or a hidden answer) as a completed response.
+    const turn = users[0].closest('[data-content-search-turn-key]');
+    const key = turn?.getAttribute('data-content-search-turn-key') || "";
+    const placeholder = turn?.querySelector('[data-content-search-unit-key$=":assistant"]');
+    const identity = placeholder?.getAttribute('data-content-search-unit-key') || "";
+    if (!/^fallback-turn-\d+$/.test(key) || !identity.startsWith(key + ":") ||
+        !turn.querySelector('[data-talvt-turn-state="in_progress"]') ||
+        (users[1] && turn.contains(users[1]))) return { ...empty, verified: true };
+    const excluded = '[data-testid*="reasoning"], [data-testid*="thought"], [data-testid*="thinking"], [data-testid*="tool-call"], [data-testid*="tool-result"]';
+    const roots = [...turn.querySelectorAll('[data-markdown-text-style="assistant-message"][data-markdown-text-tone="primary"]')]
+      .filter(node => visible(node) && !node.closest(excluded));
+    const text = roots.map(markdownFromRoot).filter(Boolean).join("\n\n").trim().slice(0, 2 * 1024 * 1024);
+    return { ...empty, verified: true, message_id: identity,
+      pathname: location.pathname, text,
+      tool_calls: toolCallsFromTurns([turn], visible, '.markdown, [data-markdown-text-style="assistant-message"]'),
+      display_blocks: roots.map((node, index) => ({ kind: 'text', id: `text-${index}`, text: markdownFromRoot(node) })),
+    };
+  }
   const assistant = assistants[0];
   const beforeNextUser = (node) => !users[1] || Boolean(
     node.compareDocumentPosition(users[1]) & Node.DOCUMENT_POSITION_FOLLOWING);

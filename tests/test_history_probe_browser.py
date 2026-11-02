@@ -238,3 +238,45 @@ async def test_patchright_passive_observer_uses_main_world_for_exposed_callbacks
             )
         finally:
             await browser.close()
+
+
+@pytest.mark.parametrize("state,expected", [("in_progress", "Public progress"), ("complete", "")])
+def test_agent_activity_before_visible_answer_stays_partial(state: str, expected: str) -> None:
+    chromium = Path(os.environ.get("PROMPTA_TEST_CHROMIUM", "/usr/bin/chromium"))
+    if not chromium.exists():
+        pytest.skip("Chromium test browser is not installed")
+    script = load_browser_script("historical_response_probe.js").replace(
+        "__CONVERSATION__", json.dumps(CONVERSATION),
+    ).replace("__ORIGINAL_PROMPT__", json.dumps(PROMPT))
+    html = f'''<main><div data-content-search-turn-key="fallback-turn-0">
+      <div data-talvt-turn-state="{state}">
+        <div data-content-search-unit-key="fallback-turn-0:0:user">Original prompt</div>
+        <div data-markdown-text-style="assistant-message" data-markdown-text-tone="primary">Public progress</div>
+        <div data-testid="reasoning"><div data-markdown-text-style="assistant-message" data-markdown-text-tone="primary">Private thoughts</div></div>
+        <div hidden data-content-search-unit-key="fallback-turn-0:2:assistant">Hidden answer</div>
+        <button aria-label="Copy">Copy</button>
+      </div></div>
+      <div data-content-search-turn-key="fallback-turn-1">
+        <div data-content-search-unit-key="fallback-turn-1:0:user">Later prompt</div>
+        <div data-markdown-text-style="assistant-message" data-markdown-text-tone="primary">Unrelated progress</div>
+      </div></main>'''
+
+    async def fixture() -> None:
+        async with async_patchright() as patchright:
+            browser = await patchright.chromium.launch(executable_path=str(chromium), headless=True)
+            try:
+                page = await browser.new_page()
+                await page.route(
+                    "https://chatgpt.com/c/**",
+                    lambda route: route.fulfill(status=200, content_type="text/html", body=html),
+                )
+                await page.goto("https://chatgpt.com/c/" + CONVERSATION)
+                result = await page.evaluate(script, isolated_context=False)
+                assert result["verified"] is True
+                assert result["text"] == expected
+                assert result["complete"] is False
+                assert result["branch_message_id"] == ""
+            finally:
+                await browser.close()
+
+    asyncio.run(fixture())
