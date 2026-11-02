@@ -468,6 +468,8 @@ def test_crash_recovery_records_and_stops_before_restart(monkeypatch, tmp_path):
     monkeypatch.setattr(deploy, "record_interrupted_work", lambda gate: events.append("record"))
     monkeypatch.setattr(deploy, "stop_workers", lambda: events.append("stop"))
     monkeypatch.setattr(deploy, "verify_services", lambda: True)
+    monkeypatch.setattr(watchdog, "wait_for_browser", lambda address: True)
+    monkeypatch.setattr(watchdog, "STATE_FILE", tmp_path / "watchdog.json")
 
     def command(args, **kwargs):
         assert gate.is_paused()
@@ -490,7 +492,81 @@ def test_failed_crash_recovery_keeps_admission_paused(monkeypatch, tmp_path):
     monkeypatch.setattr(deploy, "record_interrupted_work", lambda gate: None)
     monkeypatch.setattr(deploy, "stop_workers", lambda: None)
     monkeypatch.setattr(deploy, "verify_services", lambda: False)
+    monkeypatch.setattr(watchdog, "wait_for_browser", lambda address: True)
+    monkeypatch.setattr(watchdog, "STATE_FILE", tmp_path / "watchdog.json")
     monkeypatch.setattr(watchdog.subprocess, "run", lambda *args, **kwargs: None)
     with pytest.raises(RuntimeError, match="admission stays paused"):
         watchdog.recover_crashed_browser(gate, "prompta-browser.service")
     assert gate.is_paused()
+
+
+def test_renderer_failure_retains_recovery_for_next_tick(monkeypatch, tmp_path):
+    import pytest
+
+    import prompta.browser_watchdog as watchdog
+    import scripts.deploy_guarded as deploy
+    from prompta.deployment_gate import DeploymentGate
+
+    gate = DeploymentGate(tmp_path / "runtime.sqlite3")
+    monkeypatch.setattr(watchdog, "STATE_FILE", tmp_path / "watchdog.json")
+    monkeypatch.setattr(deploy, "record_interrupted_work", lambda gate: None)
+    monkeypatch.setattr(deploy, "stop_workers", lambda: None)
+    monkeypatch.setattr(watchdog, "wait_for_browser", lambda address: False)
+    commands = []
+    monkeypatch.setattr(watchdog.subprocess, "run", lambda args, **kwargs: commands.append(args))
+    with pytest.raises(RuntimeError, match="renderer failed"):
+        watchdog.recover_crashed_browser(gate, "prompta-browser.service")
+    assert gate.pause_path.read_text() == watchdog.RECOVERY_PAUSE_MARKER
+    assert len(commands) == 1  # Workers cannot start against a broken renderer.
+    retried = []
+    monkeypatch.setattr(watchdog, "recover_crashed_browser", lambda gate, service: retried.append(service))
+    watchdog.resume_pending_recovery(gate)
+    assert retried == []  # Backoff prevents a restart loop.
+    monkeypatch.setattr(watchdog.time, "time", lambda: watchdog.load_state(watchdog.STATE_FILE).last_restart_at + 301)
+    watchdog.resume_pending_recovery(gate)
+    assert retried == ["prompta-browser.service"]
+
+
+def test_watchdog_resumes_own_pause_before_trying_browser_lock(monkeypatch, tmp_path):
+    import prompta.browser_watchdog as watchdog
+    from prompta.deployment_gate import DeploymentGate
+
+    monkeypatch.setattr(watchdog, "STATE_DIR", tmp_path)
+    gate = DeploymentGate(tmp_path / "runtime.sqlite3")
+    gate.pause_path.write_text(watchdog.RECOVERY_PAUSE_MARKER)
+    resumed = []
+    monkeypatch.setattr(watchdog, "resume_pending_recovery", lambda gate: resumed.append(True))
+    with gate.admission():
+        watchdog.main()
+    assert resumed == [True]
+
+
+def test_recovery_never_takes_over_deployment_pause(monkeypatch, tmp_path):
+    import pytest
+
+    import prompta.browser_watchdog as watchdog
+    from prompta.deployment_gate import DeploymentGate
+
+    gate = DeploymentGate(tmp_path / "runtime.sqlite3")
+    gate.pause_path.write_text("pid=123 time=2000\n")
+    watchdog.resume_pending_recovery(gate)
+    with pytest.raises(RuntimeError, match="operator owns"):
+        watchdog.recover_crashed_browser(gate, "prompta-browser.service")
+    assert gate.pause_path.read_text() == "pid=123 time=2000\n"
+
+
+def test_recovery_lock_timeout_is_bounded(tmp_path):
+    import fcntl
+
+    import pytest
+
+    import prompta.browser_watchdog as watchdog
+
+    path = tmp_path / "gate.lock"
+    with path.open("a+b") as owner, path.open("a+b") as recovery:
+        fcntl.flock(owner.fileno(), fcntl.LOCK_SH)
+        with pytest.raises(TimeoutError, match="still held"):
+            watchdog.acquire_recovery_lock(recovery.fileno(), timeout=0)
+        fcntl.flock(owner.fileno(), fcntl.LOCK_UN)
+        watchdog.acquire_recovery_lock(recovery.fileno(), timeout=0)
+        fcntl.flock(recovery.fileno(), fcntl.LOCK_UN)
