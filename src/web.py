@@ -114,7 +114,11 @@ class WebServices:
             self.jobs_path,
             self.state_path,
             self.host_name,
-            start_scheduler=_start_scheduler_service,
+            start_scheduler=(
+                (lambda: False)
+                if os.environ.get("PROMPTA_DEV_MODE") == "1"
+                else _start_scheduler_service
+            ),
         )
         self._last_health_beat = 0.0
         self.health.beat("ui")
@@ -127,7 +131,8 @@ class WebServices:
         self.replies.recover_orphans(now=now)
         # The separate manual-reply worker owns every explicit send and its
         # long-running capture; UI restarts must not terminate those threads.
-        notify_watchdog()
+        if os.environ.get("PROMPTA_DEV_MODE") != "1":
+            notify_watchdog()
         self._last_health_beat = now
 
     def health_payload(self) -> dict[str, object]:

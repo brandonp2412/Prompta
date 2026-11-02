@@ -5,7 +5,7 @@ window.addEventListener("beforeinstallprompt", (event) => {
   event.preventDefault();
 });
 
-if ("serviceWorker" in navigator && window.isSecureContext) {
+if (import.meta.env.PROD && "serviceWorker" in navigator && window.isSecureContext) {
   window.addEventListener("load", () => {
     void navigator.serviceWorker.register("./sw.js", { scope: "./" }).catch((error: unknown) => {
       console.warn("Prompta service worker registration failed", error);

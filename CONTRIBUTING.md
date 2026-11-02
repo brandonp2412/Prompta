@@ -18,6 +18,26 @@ UI behavior tests use React Testing Library and user-event with Happy DOM. `bun 
 
 React components own markup; signal-backed controllers preserve view state. Use stable keyed lists and preserve component identity during navigation and refresh. Render Markdown through structured tokens. Keep browser effects in typed helpers. `bun run lint:dom` and the browser continuity tests check these boundaries.
 
+## UI hot reload
+
+```bash
+bun install --frozen-lockfile
+bun run dev
+```
+
+Open <http://127.0.0.1:5173>. Vite provides React Fast Refresh and CSS hot updates
+for changes in `src/ui/` and `src/static/*.css`; Ctrl+C stops both servers.
+The command also starts a local FastAPI instance on port 18765. Its SQLite
+databases and settings live in the ignored `.prompta-dev/` directory, separate
+from normal Prompta state. No delivery or scheduler worker is started.
+The development page does not register the production service worker.
+
+If you already have an API server, set `PROMPTA_DEV_API_TARGET` to its full URL to
+proxy to that server without starting a local backend. Be careful: actions in
+the development UI can mutate whatever API you point it at. You may override
+the local backend port with `PROMPTA_DEV_API_PORT` or its state directory with
+`PROMPTA_DEV_STATE_DIR`.
+
 ## API and schema changes
 
 The API factory is `prompta.web:create_app`; `prompta-ui` runs it with Uvicorn.

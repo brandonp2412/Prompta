@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import os
 import tomllib
 from pathlib import Path
 from typing import Annotated, ClassVar, Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-DEFAULT_CONFIG_PATH = Path.home() / ".config" / "prompta" / "config.toml"
+DEFAULT_CONFIG_PATH = Path(
+    os.environ.get("PROMPTA_CONFIG_PATH") or Path.home() / ".config" / "prompta" / "config.toml"
+)
 
 
 PositiveInt = Annotated[int, Field(gt=0)]

@@ -9,7 +9,8 @@
       "DOM.Iterable"
     ],
     "types": [
-      "bun-types"
+      "bun-types",
+      "vite/client"
     ],
     "strict": true,
     "strictNullChecks": true,
