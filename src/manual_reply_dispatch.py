@@ -162,7 +162,8 @@ class ManualReplyDispatcher:
         intent that was never claimed can be resumed; failed preflights and
         ambiguous submissions are never automatically retried.
         """
-        if DeploymentGate(self.state_path).is_paused():
+        if (DeploymentGate(self.state_path).is_paused()
+                or self.runtime.read_backoff_remaining() > 0):
             return
         self._schedule_queued_parent_recovery()
         selected: set[str] = set()
@@ -366,6 +367,9 @@ class ManualReplyDispatcher:
                 self._active.discard(str(turn["reply_id"]))
 
     async def _dispatch(self, turn: dict[str, object]) -> None:
+        # Keep the explicit intent prepared until opening its branch is admitted.
+        if self.runtime.read_backoff_remaining() > 0:
+            return
         reply_id = str(turn["reply_id"])
         conversation_id = str(turn["conversation_id"])
         parent_id = str(turn["parent_id"])
@@ -722,10 +726,20 @@ class ManualReplyDispatcher:
                         await approval_task
                     except asyncio.CancelledError:
                         pass
+        except (PatchrightError, RuntimeError, TimeoutError):
+            if claimed or not driver.history_rate_limited():
+                raise
         finally:
             if not claimed:
-                self.store.mark_preflight_failed(reply_id)
-                logger.warning("Explicit reply preflight left unsent stage=%s", preflight_stage)
+                if driver.history_rate_limited():
+                    sender.runtime.record_read_rate_limit(
+                        RateLimitError("ChatGPT exact conversation read returned HTTP 429"),
+                        extend_only=True,
+                    )
+                    logger.info("Explicit reply deferred for conversation read cooldown")
+                else:
+                    self.store.mark_preflight_failed(reply_id)
+                    logger.warning("Explicit reply preflight left unsent stage=%s", preflight_stage)
             if claimed and not completed:
                 self.store.finish(reply_id, owner, uncertain=True)
             if capture is not None:

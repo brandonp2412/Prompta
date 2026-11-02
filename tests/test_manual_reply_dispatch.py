@@ -54,6 +54,9 @@ class FakeDriver:
         self.capture: dict[str, object] = {}
         self.sent = threading.Event()
 
+    def history_rate_limited(self) -> bool:
+        return False
+
     async def connect(self) -> None:
         self.is_connected = True
 
@@ -638,3 +641,59 @@ def test_exact_owned_route_binds_sse_result_missing_conversation_field(
     turns = store.turns("send-1")
     assert turns is not None and turns[-1]["status"] == "completed"
     assert turns[-1]["assistant_text"] == "SSE final without conversation field"
+
+
+@pytest.mark.parametrize("already_blocked", [False, True])
+@pytest.mark.parametrize("composer_fails", [False, True])
+def test_unsent_reply_waits_for_read_cooldown_then_sends_once(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, already_blocked: bool,
+    composer_fails: bool,
+) -> None:
+    store, state = completed_store(tmp_path)
+
+    class LimitedDriver(FakeDriver):
+        limited = not already_blocked
+        opened = 0
+
+        async def new_tab(self, _url: str) -> str:
+            self.opened += 1
+            return await super().new_tab(_url)
+
+        async def wait_for_composer(self) -> None:
+            if self.limited and composer_fails:
+                raise TimeoutError("Conversation read rejected")
+
+        def history_rate_limited(self) -> bool:
+            return self.limited
+
+        async def eval(self, script: str, *, main_world: bool = False) -> object:
+            if "const parent =" in script and self.limited:
+                return False
+            return await super().eval(script, main_world=main_world)
+
+    fake = LimitedDriver()
+    monkeypatch.setattr(dispatch, "PatchrightDriver", lambda **_kwargs: fake)
+    monkeypatch.setattr(dispatch, "BrowserDeliverySender", FakeSender)
+    service = dispatch.ManualReplyDispatcher(store, state)
+    intent = ReplyIntent(REPLY_ID, CONVERSATION, PARENT, "Saved explicit question")
+    turn = store.queue_explicit_send("send-1", intent)
+    if already_blocked:
+        service.runtime.record_read_rate_limit(dispatch.RateLimitError())
+    asyncio.run(service._dispatch(turn))
+    saved = store.get(REPLY_ID)
+    assert saved is not None and saved["status"] == "prepared"
+    assert fake.calls == fake.type_calls == 0
+    assert fake.opened == (0 if already_blocked else 1)
+    assert service.runtime.read_backoff_remaining() > 0
+    service.pump_queued()
+    assert not service._active
+
+    # Expire the durable cooldown without waiting or changing the intent.
+    service.runtime.update_account_state({"read_rate_limit_backoff": {}})
+    service.runtime.update_scheduler_state({"read_rate_limit_backoff": {}})
+    fake.limited = False
+    asyncio.run(service._dispatch(saved))
+    saved = store.get(REPLY_ID)
+    assert saved is not None and saved["status"] == "completed"
+    assert fake.calls == 1
+    assert fake.type_calls == 1
