@@ -780,7 +780,7 @@ class ManualReplyStore(ReplyReadState):
             captured_text = capture.text[:2 * 1024 * 1024]
             text = captured_text
             if len(text) < len(str(row["assistant_text"])):
-                if not capture.tool_calls:
+                if not capture.tool_calls and not capture.verified_generating:
                     return False
                 text = str(row["assistant_text"])
             complete = (

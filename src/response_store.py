@@ -859,7 +859,7 @@ class ResponseStore:
                 and len(text) >= len(saved_text)
             )
             if len(text) < len(saved_text):
-                if not capture.tool_calls:
+                if not capture.tool_calls and not capture.verified_generating:
                     return False
                 text = saved_text
             changed = connection.execute(update(results).where(

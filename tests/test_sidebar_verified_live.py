@@ -136,6 +136,15 @@ def test_recovered_original_is_generating_until_observation_expires(tmp_path: Pa
     turns = replies.turns("original-live")
     assert turns is not None and turns[0]["status"] == "generating"
     assert responses.page(status="needs_attention")["total"] == 0
+    # A virtualized snapshot can be shorter without making a verified active
+    # capture fail or truncating the saved progress.
+    assert responses.recover_historical_response(
+        "original-live",
+        CaptureResult("dom", "partial", "Short live update", CONVERSATION, None, None,
+                      observer_id="fallback-turn-0:activity:assistant", verified_generating=True),
+    )
+    saved = responses.get("original-live")
+    assert saved is not None and saved["assistant_text"] == "Implementing the patch"
     # Keep recovery eligible while the visible status reflects live capture.
     assert responses.next_history_recovery(priority_ids=("original-live",)) is not None
     with responses.engine.begin() as connection:
