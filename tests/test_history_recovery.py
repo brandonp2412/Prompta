@@ -12,6 +12,7 @@ import prompta.history_recovery as history_recovery
 from prompta.delivery_worker import DeliveryAdmission
 from prompta.history_recovery import (
     HistoryRecovery,
+    _network_recovery_turn,
     _read_backoff_remaining,
     _record_read_rate_limit,
 )
@@ -639,3 +640,32 @@ def test_pinned_recovery_ignores_legacy_per_chat_deadline(tmp_path: Path) -> Non
     waiting = store.get("manual-unpinned")
     assert recovered is not None and recovered["status"] == "completed"
     assert waiting is not None and waiting["status"] == "interrupted"
+
+
+@pytest.mark.parametrize("slot_number,expected", [(0, True), (1, False), (2, True)])
+def test_unresponsive_owned_tab_leaves_network_history_slots(
+    slot_number: int, expected: bool,
+) -> None:
+    assert _network_recovery_turn(
+        network_read_allowed=True, manual_slot=False, pinned_target="",
+        owned_target="old-orphan", slot_number=slot_number,
+    ) is expected
+    assert not _network_recovery_turn(
+        network_read_allowed=False, manual_slot=False, pinned_target="",
+        owned_target="old-orphan", slot_number=slot_number,
+    )
+
+
+def test_pinned_and_manual_recovery_precede_unpinned_owned_tab() -> None:
+    assert _network_recovery_turn(
+        network_read_allowed=True, manual_slot=False, pinned_target="new-pinned",
+        owned_target="old-orphan", slot_number=1,
+    )
+    assert _network_recovery_turn(
+        network_read_allowed=True, manual_slot=True, pinned_target="",
+        owned_target="old-orphan", slot_number=1,
+    )
+    assert not _network_recovery_turn(
+        network_read_allowed=True, manual_slot=False, pinned_target="pinned-owned",
+        owned_target="pinned-owned", slot_number=0,
+    )

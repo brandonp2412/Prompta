@@ -469,6 +469,23 @@ class HistoryRecovery:
         return False
 
 
+def _network_recovery_turn(
+    *,
+    network_read_allowed: bool,
+    manual_slot: bool,
+    pinned_target: str,
+    owned_target: str,
+    slot_number: int,
+) -> bool:
+    """Reserve network slots so an unresponsive old owned tab cannot starve history."""
+    return network_read_allowed and (
+        manual_slot
+        or not owned_target
+        or bool(pinned_target and pinned_target != owned_target)
+        or (not pinned_target and slot_number != 1)
+    )
+
+
 def run_history_recovery(
     results: ResponseStore,
     runtime: SchedulerRuntime,
@@ -531,17 +548,16 @@ def run_history_recovery(
                                         )
                                     )
                                 )
-                                if (
-                                    network_read_allowed
-                                    and (manual_slot or pinned is not None)
-                                    and (
-                                        manual_slot
-                                        or owned_candidate is None
-                                        or (pinned is not None and owned_target != pinned_target)
-                                    )
+                                if _network_recovery_turn(
+                                    network_read_allowed=network_read_allowed,
+                                    manual_slot=manual_slot,
+                                    pinned_target=pinned_target,
+                                    owned_target=owned_target,
+                                    slot_number=slot_number,
                                 ):
-                                    # A newer pinned chat without a live tab
-                                    # outranks an older or unpinned owned tab.
+                                    # Pinned/history reads take priority, while
+                                    # old owned tabs use at most one in three
+                                    # slots whenever network reads are healthy.
                                     recovery.recover_once()
                                 elif owned_candidate is not None:
                                     tab = owned_candidate.tab
