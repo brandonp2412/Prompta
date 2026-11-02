@@ -36,7 +36,7 @@
     const turn = users[0].closest('[data-content-search-turn-key]');
     const key = turn?.getAttribute('data-content-search-turn-key') || "";
     const placeholder = turn?.querySelector('[data-content-search-unit-key$=":assistant"]');
-    const identity = placeholder?.getAttribute('data-content-search-unit-key') || "";
+    const identity = placeholder?.getAttribute('data-content-search-unit-key') || key + ":activity:assistant";
     if (!/^fallback-turn-\d+$/.test(key) || !identity.startsWith(key + ":") ||
         !turn.querySelector('[data-talvt-turn-state="in_progress"]') ||
         (users[1] && turn.contains(users[1]))) return { ...empty, verified: true };

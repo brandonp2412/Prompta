@@ -240,20 +240,24 @@ async def test_patchright_passive_observer_uses_main_world_for_exposed_callbacks
             await browser.close()
 
 
+@pytest.mark.parametrize("placeholder", [True, False])
 @pytest.mark.parametrize("state,expected", [("in_progress", "Public progress"), ("complete", "")])
-def test_agent_activity_before_visible_answer_stays_partial(state: str, expected: str) -> None:
+def test_agent_activity_before_visible_answer_stays_partial(
+    state: str, expected: str, placeholder: bool,
+) -> None:
     chromium = Path(os.environ.get("PROMPTA_TEST_CHROMIUM", "/usr/bin/chromium"))
     if not chromium.exists():
         pytest.skip("Chromium test browser is not installed")
     script = load_browser_script("historical_response_probe.js").replace(
         "__CONVERSATION__", json.dumps(CONVERSATION),
     ).replace("__ORIGINAL_PROMPT__", json.dumps(PROMPT))
+    hidden = '<div hidden data-content-search-unit-key="fallback-turn-0:2:assistant">Hidden answer</div>' if placeholder else ""
     html = f'''<main><div data-content-search-turn-key="fallback-turn-0">
       <div data-talvt-turn-state="{state}">
         <div data-content-search-unit-key="fallback-turn-0:0:user">Original prompt</div>
         <div data-markdown-text-style="assistant-message" data-markdown-text-tone="primary">Public progress</div>
         <div data-testid="reasoning"><div data-markdown-text-style="assistant-message" data-markdown-text-tone="primary">Private thoughts</div></div>
-        <div hidden data-content-search-unit-key="fallback-turn-0:2:assistant">Hidden answer</div>
+        {hidden}
         <button aria-label="Copy">Copy</button>
       </div></div>
       <div data-content-search-turn-key="fallback-turn-1">
