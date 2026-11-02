@@ -46,6 +46,7 @@ test("autocomplete chooses connector with Enter, then Enter sends the draft", as
   await user.keyboard("{Enter}");
   expect(sent).toEqual([]);
   expect((input as HTMLTextAreaElement).value).toBe("Ask @Glass ");
+  expect(screen.queryByRole("listbox")).toBeNull();
   await user.type(input, "to check logs{Enter}");
   expect(sent).toEqual(["Ask @Glass to check logs"]);
 });

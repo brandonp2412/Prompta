@@ -16596,7 +16596,7 @@ function ChatComposer(props) {
 		const next = insertMention(model.draft.peek(), match, option.name);
 		model.setDraft(next.value);
 		setMentionMatch(null);
-		setMentionDismissed(false);
+		setMentionDismissed(true);
 		requestAnimationFrame(() => {
 			const element = model.textarea.peek();
 			element?.focus();

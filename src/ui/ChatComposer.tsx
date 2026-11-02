@@ -95,7 +95,9 @@ export default function ChatComposer(props: Props) {
     const next = insertMention(model.draft.peek(), match, option.name);
     model.setDraft(next.value);
     setMentionMatch(null);
-    setMentionDismissed(false);
+    // Programmatic cursor placement fires onSelect; keep the menu closed until
+    // the next user edit instead of reopening for the inserted trailing space.
+    setMentionDismissed(true);
     requestAnimationFrame(() => {
       const element = model.textarea.peek();
       element?.focus();
