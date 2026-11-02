@@ -165,14 +165,13 @@ class ManualReplyDispatcher:
         if (DeploymentGate(self.state_path).is_paused()
                 or self.runtime.read_backoff_remaining() > 0):
             return
-        self._schedule_queued_parent_recovery()
         selected: set[str] = set()
         for _ in range(_MAX_QUEUED_REPLY_DISPATCHES):
             if self.active_count() >= _MAX_QUEUED_REPLY_DISPATCHES:
                 return
             ready = self.store.next_queued_intent(exclude=selected)
             if ready is None:
-                return
+                break
             send_id, intent = ready
             selected.add(intent.reply_id)
             try:
@@ -180,6 +179,10 @@ class ManualReplyDispatcher:
             except ReplyConflict:
                 # A concurrent explicit request may already own this turn.
                 continue
+        # Let verified replies use the next read slot before another missing
+        # parent consumes it; otherwise one stuck parent can starve every send.
+        if not selected:
+            self._schedule_queued_parent_recovery()
 
     def _schedule_queued_parent_recovery(self) -> None:
         # A queued reply is explicit consent to reopen its exact branch.
@@ -369,6 +372,15 @@ class ManualReplyDispatcher:
     async def _dispatch(self, turn: dict[str, object]) -> None:
         # Keep the explicit intent prepared until opening its branch is admitted.
         if self.runtime.read_backoff_remaining() > 0:
+            return
+        if self.runtime.account_state(strict=True).get("resource_blocked") is True:
+            self.store.mark_preflight_failed(str(turn["reply_id"]))
+            return
+        # Opening a saved conversation reads history even with a known parent.
+        # Defer before preflight so pacing preserves the explicit queued intent.
+        if not self.store.responses.reserve_history_recovery_global_slot(
+            now=time.time(), interval=HISTORY_READ_INTERVAL_SECONDS,
+        ):
             return
         reply_id = str(turn["reply_id"])
         conversation_id = str(turn["conversation_id"])

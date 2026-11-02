@@ -9,11 +9,13 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
+from sqlalchemy import update
 
 from prompta import manual_reply_dispatch as dispatch
 from prompta.deployment_gate import DeploymentGate
 from prompta.reply_contracts import ManualReplyStore, ReplyConflict, ReplyIntent
 from prompta.response_capture import CaptureResult
+from prompta.response_tables import history_recovery_attempts
 from prompta.scheduler_runtime import SchedulerRuntime
 
 CONVERSATION = "c" * 32
@@ -194,6 +196,60 @@ def completed_store(tmp_path: Path) -> tuple[ManualReplyStore, Path]:
     return store, tmp_path / "scheduler.sqlite3"
 
 
+def expire_read_pacing(store: ManualReplyStore) -> None:
+    with store.responses.engine.begin() as connection:
+        connection.execute(update(history_recovery_attempts).where(
+            history_recovery_attempts.c.send_id == "__global_pacing__",
+        ).values(next_attempt_at=0))
+
+
+def test_ready_reply_precedes_missing_parent_recovery(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    store, state = completed_store(tmp_path)
+    service = dispatch.ManualReplyDispatcher(store, state)
+    turn = store.queue_explicit_send(
+        "send-1", ReplyIntent(REPLY_ID, CONVERSATION, PARENT, "Saved explicit question"),
+    )
+    submitted: list[str] = []
+
+    def submit(send_id: str, intent: ReplyIntent) -> dict[str, object]:
+        submitted.append(intent.reply_id)
+        return turn
+
+    def recover() -> None:
+        pytest.fail("Parent recovery must not take a ready reply's read slot")
+
+    monkeypatch.setattr(service, "submit", submit)
+    monkeypatch.setattr(service, "_schedule_queued_parent_recovery", recover)
+    service.pump_queued()
+    assert submitted == [REPLY_ID]
+
+
+def test_ready_reply_shares_history_read_budget(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    store, state = completed_store(tmp_path)
+    fake = FakeDriver()
+    monkeypatch.setattr(dispatch, "PatchrightDriver", lambda **_kwargs: fake)
+    monkeypatch.setattr(dispatch, "BrowserDeliverySender", FakeSender)
+    service = dispatch.ManualReplyDispatcher(store, state)
+    turn = store.queue_explicit_send(
+        "send-1", ReplyIntent(REPLY_ID, CONVERSATION, PARENT, "Saved explicit question"),
+    )
+    # A read reserved by another worker must also block a known-parent reply.
+    assert store.responses.reserve_history_recovery_global_slot(
+        now=time.time(), interval=dispatch.HISTORY_READ_INTERVAL_SECONDS,
+    )
+    asyncio.run(service._dispatch(turn))
+    saved = store.get(REPLY_ID)
+    assert saved is not None and saved["status"] == "prepared"
+    assert fake.calls == fake.type_calls == 0
+    assert fake.is_connected
+    expire_read_pacing(store)
+    asyncio.run(service._dispatch(saved))
+    saved = store.get(REPLY_ID)
+    assert saved is not None and saved["status"] == "completed"
+    assert fake.calls == 1
+    assert store.responses.history_recovery_global_pace_remaining() > 0
+
+
 @pytest.mark.parametrize("correct", [True, False])
 def test_explicit_reply_requires_exact_last_assistant_and_single_claim(
     tmp_path: Path,
@@ -228,6 +284,7 @@ def test_explicit_reply_requires_exact_last_assistant_and_single_claim(
         # The first attempt never claimed a send. A second explicit click with
         # the same immutable intent may verify again, but never auto-retries.
         fake.correct_branch = True
+        expire_read_pacing(store)
         assert service.submit("send-1", intent)["status"] == "prepared"
         until = time.monotonic() + 3.0
         while time.monotonic() < until and REPLY_ID in service._active:
@@ -691,6 +748,7 @@ def test_unsent_reply_waits_for_read_cooldown_then_sends_once(
     # Expire the durable cooldown without waiting or changing the intent.
     service.runtime.update_account_state({"read_rate_limit_backoff": {}})
     service.runtime.update_scheduler_state({"read_rate_limit_backoff": {}})
+    expire_read_pacing(store)
     fake.limited = False
     asyncio.run(service._dispatch(saved))
     saved = store.get(REPLY_ID)
