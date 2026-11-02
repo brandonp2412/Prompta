@@ -451,6 +451,7 @@ def test_delivery_deadline_during_dispatch_fails_closed_without_resend(tmp_path:
         ("/", False),
         ("/?model=gpt", False),
         ("/c/example", True),
+        ("/c/local-chatgpt%3A25dba182-78b4-4e27-996b-d63d8f05089d", True),
         ("/g/g-p-example/c/example", True),
     ],
 )

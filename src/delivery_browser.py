@@ -49,9 +49,15 @@ _HANDOFF_GRACE_SECONDS = 60.0
 
 
 def _is_conversation_path(path: str) -> bool:
-    """Detect a permanent ChatGPT conversation route without reading its identifier."""
+    """Block dispatch into any chat-like route, including local optimistic drafts."""
 
     return "/c/" in path
+
+
+def _is_provisional_conversation_path(path: str) -> bool:
+    """A ChatGPT local-chatgpt route is not server acceptance."""
+    route = path.lower()
+    return "/c/local-chatgpt:" in route or "/c/local-chatgpt%3a" in route
 
 
 async def _timed_stage(
@@ -796,6 +802,7 @@ class BrowserDeliverySender:
                 last_state: dict[str, object] = {}
                 last_path = baseline_path
                 last_transport_confirmed = False
+                provisional_route_seen = False
                 deadline = asyncio.get_running_loop().time() + self.send_timeout_seconds
 
                 while asyncio.get_running_loop().time() < deadline:
@@ -840,6 +847,7 @@ class BrowserDeliverySender:
                             )
                             or ""
                         )
+                        provisional_route_seen |= _is_provisional_conversation_path(path)
                         if _is_conversation_path(path) and path != baseline_path:
                             # The route can change before the conversation POST is
                             # acknowledged. Keep probing; navigation alone does not
@@ -897,7 +905,8 @@ class BrowserDeliverySender:
                     if status < 500 and is_rate_limited_text(rate_limit_text):
                         raise RateLimitError.from_text(rate_limit_text)
 
-                    route_confirmed = _is_conversation_path(path) and path != baseline_path
+                    # A local-chatgpt route is an optimistic draft, not a server ID.
+                    route_confirmed = conversation_id_from_path(path) is not None
                     composer_now = _normalise_composer_text(str(state.get("composer_text") or ""))
                     if status >= 500 and capture is not None:
                         # An original-tab assistant mutation and exact route are
@@ -926,6 +935,7 @@ class BrowserDeliverySender:
                         and not baseline_send_in_progress
                         and bool(state.get("send_in_progress"))
                         and not composer_now
+                        and (not provisional_route_seen or route_confirmed)
                     )
 
                     if generation_confirmed:
@@ -948,8 +958,19 @@ class BrowserDeliverySender:
                         retry_after=captured_retry_after(capture or {}) or DEFAULT_RETRY_AFTER,
                     )
                 if final_status >= 500:
+                    # Keep non-sensitive evidence in the durable failure receipt.
+                    # Neither a provisional route nor a 500 permits a blind resend.
+                    persisted_route_seen = conversation_id_from_path(last_path) is not None
+                    logger.warning(
+                        "ChatGPT send confirmation failed status=%d "
+                        "provisional_route_seen=%s persisted_route_seen=%s",
+                        final_status, provisional_route_seen, persisted_route_seen,
+                    )
                     raise SendOutcomeUnknownError(
-                        f"prompta send returned HTTP {final_status} after dispatch",
+                        f"prompta send returned HTTP {final_status} after dispatch "
+                        f"(provisional_chat={provisional_route_seen}, "
+                        f"persistent_chat={persisted_route_seen}); "
+                        "acceptance unverified, no automatic resend",
                         stage="send_response",
                     )
                 if final_status >= 400:

@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 from _browser_fakes import FakeDriver
 
+import prompta.delivery_browser as delivery_browser
 from prompta.delivery_browser import BrowserDeliverySender
 from prompta.delivery_queue import DeliveryQueueStore
 from prompta.response_capture import CaptureResult
@@ -17,6 +18,7 @@ from prompta.send_outcome import SendOutcomeUnknownError
 CHAT = "10101010-1010-4010-8010-101010101010"
 OTHER_CHAT = "20202020-2020-4020-8020-202020202020"
 ASSISTANT = "30303030-3030-4030-8030-303030303030"
+LOCAL_CHAT = "/c/local-chatgpt%3A25dba182-78b4-4e27-996b-d63d8f05089d"
 
 
 class Http500Driver(FakeDriver):
@@ -51,6 +53,96 @@ class Http500Driver(FakeDriver):
             )
         await asyncio.sleep(min(timeout, 0.01))
         return None
+
+
+@pytest.mark.asyncio
+async def test_provisional_chat_generation_cannot_confirm_eventual_http500(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A local optimistic chat and Stop control can precede HTTP 500."""
+    class ProvisionalFailureDriver(FakeDriver):
+        def __init__(self) -> None:
+            super().__init__()
+            self.sent = False
+            self.clicks = 0
+            self.probes = 0
+
+        async def eval(self, _script: str, *, main_world: bool = False) -> str:
+            return LOCAL_CHAT if self.sent else "/"
+
+        async def click_send(self, expected_message: str) -> None:
+            await super().click_send(expected_message)
+            self.sent = True
+            self.clicks += 1
+            self.composer = ""
+
+        async def send_confirmation_state(self) -> dict[str, object]:
+            self.probes += 1
+            if self.probes >= 2:
+                self.capture["status"] = 500
+            return {"composer_text": "", "send_in_progress": True}
+
+        def captured_send_response(self, _capture: dict[str, object]) -> None:
+            return None
+
+    monkeypatch.setattr(delivery_browser, "_SEND_CONFIRM_POLL_SECONDS", 0.001)
+    driver = ProvisionalFailureDriver()
+    sender = BrowserDeliverySender(
+        tmp_path / "runtime.sqlite3", driver_factory=lambda: driver,
+        send_timeout_seconds=1,
+    )
+    with pytest.raises(SendOutcomeUnknownError) as caught:
+        await sender._send_browser("Synthetic scheduled request")
+    assert caught.value.stage == "send_response"
+    assert "provisional_chat=True" in str(caught.value)
+    assert "persistent_chat=False" in str(caught.value)
+    assert driver.probes >= 2
+    assert driver.clicks == 1
+    assert driver.closed_contexts == ["fresh-tab"]
+
+
+@pytest.mark.asyncio
+async def test_provisional_chat_can_be_confirmed_after_persistent_route(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A real server route may replace the optimistic local route."""
+    class LaterPersistentDriver(FakeDriver):
+        def __init__(self) -> None:
+            super().__init__()
+            self.sent = False
+            self.path = "/"
+            self.probes = 0
+            self.clicks = 0
+
+        async def eval(self, _script: str, *, main_world: bool = False) -> str:
+            return self.path
+
+        async def click_send(self, expected_message: str) -> None:
+            await super().click_send(expected_message)
+            self.sent = True
+            self.clicks += 1
+            self.composer = ""
+            self.path = LOCAL_CHAT
+
+        async def send_confirmation_state(self) -> dict[str, object]:
+            self.probes += 1
+            if self.probes >= 2:
+                self.path = "/c/" + CHAT
+            return {"composer_text": "", "send_in_progress": True}
+
+        def captured_send_response(self, _capture: dict[str, object]) -> None:
+            return None
+
+    monkeypatch.setattr(delivery_browser, "_SEND_CONFIRM_POLL_SECONDS", 0.001)
+    driver = LaterPersistentDriver()
+    sender = BrowserDeliverySender(
+        tmp_path / "runtime.sqlite3", driver_factory=lambda: driver,
+        send_timeout_seconds=1,
+    )
+    await sender._send_browser("Synthetic scheduled request")
+    assert driver.probes >= 2
+    assert driver.clicks == 1
+    assert driver.closed_contexts == ["fresh-tab"]
 
 
 def queue_send(queue: DeliveryQueueStore, request_id: str) -> str:

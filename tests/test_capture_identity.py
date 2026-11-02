@@ -17,7 +17,7 @@ def test_exact_owned_chat_route_extracts_uuid(route: str) -> None:
 
 
 @pytest.mark.parametrize(
-    "route", ["/", "/c/not-a-uuid", f"/c/{CHAT}/edit", f"/other/c/{CHAT}", f"/c/{CHAT}?x=1", None]
+    "route", ["/", "/c/not-a-uuid", "/c/local-chatgpt:25dba182-78b4-4e27-996b-d63d8f05089d", "/c/local-chatgpt%3A25dba182-78b4-4e27-996b-d63d8f05089d", f"/c/{CHAT}/edit", f"/other/c/{CHAT}", f"/c/{CHAT}?x=1", None]
 )
 def test_noncanonical_route_never_becomes_identity(route: object) -> None:
     assert conversation_id_from_path(route) is None
