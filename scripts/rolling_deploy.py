@@ -75,6 +75,7 @@ def unit_definition(release: Path, worker: str, module: str) -> str:
     )
     # A retired generation must never return on reboot or be restarted by its
     # target. Retirement is a queued systemd stop with an infinite drain budget.
+    definition = definition.replace("Type=simple", "Type=simple\nKillMode=mixed\nSendSIGKILL=no")
     definition = definition.replace(
         "Environment=PYTHONUNBUFFERED=1",
         f"Environment=PYTHONUNBUFFERED=1\nEnvironment=PROMPTA_WORKER_GENERATION={release.name}",
@@ -184,6 +185,14 @@ def deploy(repo: Path, gate: DeploymentGate) -> bool:
             # SIGTERM is handled cooperatively by both workers. systemd queues
             # the stop and suppresses Restart=always; TimeoutStopSec=infinity
             # preserves all live captures for however long they take.
+            for unit in old_units:
+                retirement = config / f"{unit}.d"
+                retirement.mkdir(parents=True, exist_ok=True)
+                (retirement / "draining.conf").write_text(
+                    "[Service]\nKillMode=mixed\nTimeoutStopSec=infinity\n"
+                    "SendSIGKILL=no\nWatchdogSec=0\n"
+                )
+            run("systemctl", "--user", "daemon-reload")
             run("systemctl", "--user", "disable", *old_units)
             run("systemctl", "--user", "stop", "--no-block", *old_units)
             retired = True

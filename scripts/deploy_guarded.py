@@ -239,10 +239,15 @@ def verify_services(
             for unit in units
         )
         if units_active and ready_dir is not None:
-            units_active = all(
-                (ready_dir / ("ready-" + unit.split("-worker-", 1)[0])).exists()
-                for unit in units
-            )
+            for unit in units:
+                ready = ready_dir / ("ready-" + unit.split("-worker-", 1)[0])
+                pid = subprocess.run(
+                    ["systemctl", "--user", "show", "-p", "MainPID", "--value", unit],
+                    check=True, capture_output=True, text=True,
+                ).stdout.strip()
+                if not ready.exists() or ready.read_text().strip() != pid or pid == "0":
+                    units_active = False
+                    break
         if units_active:
             if not check_http:
                 return True
