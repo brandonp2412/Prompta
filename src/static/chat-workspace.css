@@ -941,5 +941,3 @@
 .settings-number input { width:88px; min-height:42px; padding:8px; border:1px solid #555; border-radius:9px; background:#191919; color:#fff; }
 .settings-save { width:100%; min-height:44px; margin-top:20px; border:0; border-radius:11px; background:#e4e4e4; color:#181818; font-weight:650; cursor:pointer; }
 .settings-save:disabled { opacity:.5; }
-
-.chat-entry .queue-front { align-self: center; flex-shrink: 0; font-size: .7rem; padding: 6px; }

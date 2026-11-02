@@ -3,6 +3,7 @@ import { useSignals } from "@preact/signals-react/runtime";
 import type { createChatsPageController } from "./ChatsPageController";
 import TurnActivity from "./TurnActivity";
 import CopyIcon from "./CopyIcon";
+import QueueFrontButton from "./QueueFrontButton";
 import { ContinueChatIcon, RecoverChatIcon } from "./ChatActionIcons";
 
 import { isVideoAttachment } from "./mediaAttachments";
@@ -259,6 +260,21 @@ export default function ChatTranscript({
                               : turnStatus(turn.status)}
                           </p>
                         )}
+                        {index === 0 &&
+                          turn.status === "queued" &&
+                          model.queueSnapshot.value.waiting_runs?.some(
+                            (run) => run.send_id === detail.value?.send_id,
+                          ) && (
+                            <QueueFrontButton
+                              endpoint={
+                                "./api/queue/" +
+                                encodeURIComponent(detail.value!.send_id) +
+                                "/front"
+                              }
+                              label={detail.value!.title || "chat"}
+                              onMoved={model.loadQueue}
+                            />
+                          )}
                         {turn.status === "preflight_failed" &&
                         turn.reply_id &&
                         turn.conversation_id &&

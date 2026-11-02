@@ -1,4 +1,3 @@
-import QueueFrontButton from "./QueueFrontButton";
 import React, { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { useSignals } from "@preact/signals-react/runtime";
@@ -288,11 +287,6 @@ export default function ChatsSidebar({
                       .join(" · ")}
                   </span>
                 </button>
-                <QueueFrontButton
-                  endpoint={"./api/queue-jobs/" + encodeURIComponent(waiting.name) + "/front"}
-                  label={waiting.name}
-                  onMoved={model.loadQueue}
-                />
               </div>
             ))}
           </>

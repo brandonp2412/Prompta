@@ -16916,76 +16916,68 @@ function ChatRow({ item, model }) {
 		onAnimationEnd: (event) => {
 			if (event.target === event.currentTarget && model.enteringNewChatId.peek() === item.send_id) model.enteringNewChatId.value = null;
 		},
-		children: [
-			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("a", {
-				href: chatUrl(item.send_id),
-				onClick: (event) => {
-					if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-					event.preventDefault();
-					model.selectRun(item);
-				},
-				onPointerEnter: () => model.hintRun(item.send_id),
-				onPointerLeave: () => model.cancelHintRun(item.send_id),
-				onFocus: () => void model.prefetchRun(item.send_id),
-				onPointerDown: () => void model.prefetchRun(item.send_id),
-				"aria-current": selected ? "true" : void 0,
-				className: "chat-row",
-				children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
-					className: "chat-row-top",
-					children: [
-						unread && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-							title: "Unread reply",
-							className: "unread-indicator",
-							children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-								className: "sr-only",
-								children: "Unread reply"
-							})
-						}),
-						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("strong", { children: item.title || "Untitled run" }),
-						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-							title: rowStatus,
-							className: "result-dot status-" + (item.needs_attention ? "interrupted" : item.status),
-							children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-								className: "sr-only",
-								children: rowStatus
-							})
+		children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("a", {
+			href: chatUrl(item.send_id),
+			onClick: (event) => {
+				if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+				event.preventDefault();
+				model.selectRun(item);
+			},
+			onPointerEnter: () => model.hintRun(item.send_id),
+			onPointerLeave: () => model.cancelHintRun(item.send_id),
+			onFocus: () => void model.prefetchRun(item.send_id),
+			onPointerDown: () => void model.prefetchRun(item.send_id),
+			"aria-current": selected ? "true" : void 0,
+			className: "chat-row",
+			children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+				className: "chat-row-top",
+				children: [
+					unread && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+						title: "Unread reply",
+						className: "unread-indicator",
+						children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+							className: "sr-only",
+							children: "Unread reply"
 						})
-					]
-				}), showPreview ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
-					className: "chat-preview",
-					title: preview,
-					children: [item.needs_attention ? "Needs attention · " : "", preview]
-				}) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-					className: "chat-row-meta",
-					title: queued ? queueEtaExplanation(model.queueSnapshot.value) : rowStatus,
-					children: subtitle
-				})]
-			}),
-			queued && model.queueSnapshot.value.waiting_runs?.some((run) => run.send_id === item.send_id) && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(QueueFrontButton, {
-				endpoint: "./api/queue/" + encodeURIComponent(item.send_id) + "/front",
-				label: item.title || "chat",
-				onMoved: model.loadQueue
-			}),
-			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-				type: "button",
-				disabled: !model.pinsReady.value,
-				title: pinned ? "Unpin local chat" : "Pin local chat",
-				"aria-label": (pinned ? "Unpin " : "Pin ") + item.title,
-				"aria-pressed": pinned,
-				onClick: () => model.togglePin(item),
-				className: ["chat-pin", pinned ? "active" : ""].filter(Boolean).join(" "),
-				children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("svg", {
-					viewBox: "0 0 24 24",
-					fill: "none",
-					stroke: "currentColor",
-					strokeWidth: "1.8",
-					strokeLinecap: "round",
-					strokeLinejoin: "round",
-					"aria-hidden": "true",
-					children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: "M9 3h6l-1 6 3 3v2H7v-2l3-3-1-6ZM12 14v7" })
-				})
+					}),
+					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("strong", { children: item.title || "Untitled run" }),
+					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+						title: rowStatus,
+						className: "result-dot status-" + (item.needs_attention ? "interrupted" : item.status),
+						children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+							className: "sr-only",
+							children: rowStatus
+						})
+					})
+				]
+			}), showPreview ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+				className: "chat-preview",
+				title: preview,
+				children: [item.needs_attention ? "Needs attention · " : "", preview]
+			}) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+				className: "chat-row-meta",
+				title: queued ? queueEtaExplanation(model.queueSnapshot.value) : rowStatus,
+				children: subtitle
+			})]
+		}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+			type: "button",
+			disabled: !model.pinsReady.value,
+			title: pinned ? "Unpin local chat" : "Pin local chat",
+			"aria-label": (pinned ? "Unpin " : "Pin ") + item.title,
+			"aria-pressed": pinned,
+			onClick: () => model.togglePin(item),
+			className: ["chat-pin", pinned ? "active" : ""].filter(Boolean).join(" "),
+			children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("svg", {
+				viewBox: "0 0 24 24",
+				fill: "none",
+				stroke: "currentColor",
+				strokeWidth: "1.8",
+				strokeLinecap: "round",
+				strokeLinejoin: "round",
+				"aria-hidden": "true",
+				children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: "M9 3h6l-1 6 3 3v2H7v-2l3-3-1-6ZM12 14v7" })
 			})
-		]
+		})]
 	});
 }
 //#endregion
@@ -17196,9 +17188,9 @@ function ChatsSidebar({ model, refs }) {
 				className: "chats-list",
 				onScroll: onListScroll,
 				children: [
-					visibleWaiting.value.length ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: visibleWaiting.value.map((waiting) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+					visibleWaiting.value.length ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: visibleWaiting.value.map((waiting) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 						className: "chat-entry queue-waiting",
-						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+						children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
 							type: "button",
 							onClick: showJobs,
 							title: "Open Jobs for " + waiting.name,
@@ -17219,11 +17211,7 @@ function ChatsSidebar({ model, refs }) {
 								title: queueEtaText(waiting) ? queueEtaExplanation(queueSnapshot.value) : void 0,
 								children: [queueEtaText(waiting), `${waiting.reason === "stage" ? "stage" : "global"} limit (${waiting.occupied}/${waiting.limit})`].filter(Boolean).join(" · ")
 							})]
-						}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)(QueueFrontButton, {
-							endpoint: "./api/queue-jobs/" + encodeURIComponent(waiting.name) + "/front",
-							label: waiting.name,
-							onMoved: model.loadQueue
-						})]
+						})
 					}, waiting.name)) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {}),
 					pinned.value.length ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: pinned.value.map((item) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ChatRow, {
 						item,
@@ -21472,15 +21460,23 @@ function ChatTranscript({ model, refs, conversationUrl }) {
 										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(CopyIcon, {}), copyLabel(turn.reply_id || detail.value.send_id)]
 									})
 								})
-							] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [turn.status !== "generating" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
-								className: "no-response",
-								children: index > 0 && turn.status === "queued" ? queuedFollowupLabel(index) : turnStatus(turn.status)
-							}), turn.status === "preflight_failed" && turn.reply_id && turn.conversation_id && turn.parent_id ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-								type: "button",
-								onClick: () => void retryFailedTurn(turn),
-								className: "row-action",
-								children: "Retry unsent reply"
-							}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {})] }),
+							] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
+								turn.status !== "generating" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+									className: "no-response",
+									children: index > 0 && turn.status === "queued" ? queuedFollowupLabel(index) : turnStatus(turn.status)
+								}),
+								index === 0 && turn.status === "queued" && model.queueSnapshot.value.waiting_runs?.some((run) => run.send_id === detail.value?.send_id) && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(QueueFrontButton, {
+									endpoint: "./api/queue/" + encodeURIComponent(detail.value.send_id) + "/front",
+									label: detail.value.title || "chat",
+									onMoved: model.loadQueue
+								}),
+								turn.status === "preflight_failed" && turn.reply_id && turn.conversation_id && turn.parent_id ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+									type: "button",
+									onClick: () => void retryFailedTurn(turn),
+									className: "row-action",
+									children: "Retry unsent reply"
+								}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {})
+							] }),
 							index === turns.value.length - 1 && turns.value.some((saved) => saved.assistant_text.trim()) && [
 								"preflight_failed",
 								"interrupted",

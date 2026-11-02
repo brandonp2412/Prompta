@@ -1,4 +1,3 @@
-import QueueFrontButton from "./QueueFrontButton";
 import { chatUrl } from "./chatUrl";
 import { useSignals } from "@preact/signals-react/runtime";
 import type { createChatsPageController } from "./ChatsPageController";
@@ -94,14 +93,6 @@ export default function ChatRow({ item, model }: Props) {
           </span>
         )}
       </a>
-      {queued &&
-        model.queueSnapshot.value.waiting_runs?.some((run) => run.send_id === item.send_id) && (
-          <QueueFrontButton
-            endpoint={"./api/queue/" + encodeURIComponent(item.send_id) + "/front"}
-            label={item.title || "chat"}
-            onMoved={model.loadQueue}
-          />
-        )}
       <button
         type="button"
         disabled={!model.pinsReady.value}
