@@ -160,6 +160,16 @@ def deploy(repo: Path, gate: DeploymentGate) -> bool:
         new_units = tuple(f"{worker}-{generation}.service" for worker in WORKERS)
         for worker, module, unit in zip(WORKERS, MODULES, new_units, strict=True):
             (config / unit).write_text(unit_definition(release, worker, module))
+            # Keep host settings (browser endpoint, watchdog budget, startup
+            # conditions) without inheriting the old generation's retirement.
+            overrides = config / f"{unit}.d"
+            for source in sorted((config / f"{worker}.service.d").glob("*.conf")):
+                if source.name in {"draining.conf", "release.conf"}:
+                    continue
+                overrides.mkdir(parents=True, exist_ok=True)
+                (overrides / source.name).write_text(
+                    source.read_text().replace("%h/prompta", str(release))
+                )
         request_pause(gate)
         retired = False
         try:
@@ -188,7 +198,11 @@ def deploy(repo: Path, gate: DeploymentGate) -> bool:
             for unit in old_units:
                 retirement = config / f"{unit}.d"
                 retirement.mkdir(parents=True, exist_ok=True)
+                retired_marker = state_dir / "retired-workers" / unit
+                retired_marker.parent.mkdir(exist_ok=True)
+                retired_marker.touch()
                 (retirement / "draining.conf").write_text(
+                    f"[Unit]\nConditionPathExists=!{retired_marker}\n"
                     "[Service]\nKillMode=mixed\nTimeoutStopSec=infinity\n"
                     "SendSIGKILL=no\nWatchdogSec=0\n"
                 )
