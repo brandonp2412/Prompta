@@ -1,0 +1,3 @@
+[install]
+dev = true
+production = false
