@@ -39,6 +39,7 @@ results = Table(
     Column("finished_at", Float, nullable=False, default=0),
     Column("capture_owner", String, nullable=False, default=""),
     Column("capture_deadline", Float, nullable=False, default=0),
+    Column("live_observed_at", Float, nullable=False, server_default="0"),
 )
 Index("job_responses_active", results.c.status, results.c.capture_deadline)
 _reply_attention = table(
@@ -58,7 +59,8 @@ _latest_live_at = (select(_reply_attention.c.live_observed_at)
 _live_cutoff = cast(func.strftime("%s", "now"), Float) - 10 * 60
 _attention_filter = or_(
     and_(_latest_reply.is_(None),
-         results.c.status.in_(("interrupted", "unavailable", "outcome_unknown"))),
+         results.c.status.in_(("interrupted", "unavailable", "outcome_unknown")),
+         results.c.live_observed_at <= _live_cutoff),
     _latest_reply.in_(("preflight_failed", "unavailable")),
     and_(_latest_reply.in_(("outcome_unknown", "interrupted")),
          _latest_live_at <= _live_cutoff),

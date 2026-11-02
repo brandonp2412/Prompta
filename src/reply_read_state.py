@@ -21,7 +21,7 @@ _LIVE_OBSERVATION_SECONDS = 10 * 60.0
 
 def visible_reply_status(status: str, observed_at: float, *, now: float) -> str:
     """A detached capture is live only briefly after exact ChatGPT verification."""
-    if (status in ("interrupted", "outcome_unknown") and observed_at > 0
+    if (status in ("interrupted", "outcome_unknown", "unavailable") and observed_at > 0
             and observed_at <= now < observed_at + _LIVE_OBSERVATION_SECONDS):
         return "generating"
     return status
@@ -43,9 +43,12 @@ class ReplyReadState:
                     results.c.assistant_text,
                     results.c.status,
                     results.c.finished_at,
+                    results.c.live_observed_at,
                 ).where(results.c.send_id.in_(send_ids))
             ).all()
-            for send_id, answer, status, finished_at in originals:
+            original_live = {}
+            for send_id, answer, status, finished_at, observed_at in originals:
+                original_live[str(send_id)] = (str(status), float(observed_at))
                 if status == "completed" and answer:
                     marker = _answer_revision("initial", str(send_id), str(answer))
                     markers[str(send_id)] = (marker, float(finished_at))
@@ -97,6 +100,7 @@ class ReplyReadState:
                     "preflight_failed", "outcome_unknown", "interrupted", "unavailable",
                 )
             else:
+                item["status"] = visible_reply_status(*original_live[send_id], now=time.time())
                 item["needs_attention"] = item["status"] in (
                     "interrupted", "unavailable", "outcome_unknown",
                 )

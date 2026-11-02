@@ -108,3 +108,50 @@ def test_dom_live_signal_requires_explicit_generating_state() -> None:
     assert normalize_dom_snapshot(payload).verified_generating is False
     assert normalize_dom_snapshot({**payload, "generating": True}).verified_generating is True
     assert normalize_dom_snapshot({**payload, "generating": True, "complete": True}).verified_generating is False
+
+
+def test_recovered_original_is_generating_until_observation_expires(tmp_path: Path) -> None:
+    responses = ResponseStore(tmp_path / "results.sqlite3")
+    replies = ManualReplyStore(responses.path)
+    responses.ensure_queued("original-live", "Original prompt", now=10)
+    assert responses.accept("original-live", "123:original", deadline=200, now=11)
+    with responses.engine.begin() as connection:
+        connection.execute(update(result_table).where(
+            result_table.c.send_id == "original-live",
+        ).values(status="interrupted", conversation_id=CONVERSATION, capture_owner=""))
+    now = time.time()
+    capture = CaptureResult(
+        "dom", "partial", "Implementing the patch", CONVERSATION, None, None,
+        observer_id="fallback-turn-0:activity:assistant", verified_generating=True,
+    )
+    assert responses.recover_historical_response("original-live", capture, now=now)
+    items = responses.page()["items"]
+    replies.annotate_response_markers(items)
+    assert items[0]["status"] == "generating"
+    assert items[0]["needs_attention"] is False
+    detail = responses.detail("original-live")
+    assert detail is not None
+    replies.annotate_response_markers([detail])
+    assert detail["status"] == "generating"
+    turns = replies.turns("original-live")
+    assert turns is not None and turns[0]["status"] == "generating"
+    assert responses.page(status="needs_attention")["total"] == 0
+    # Keep recovery eligible while the visible status reflects live capture.
+    assert responses.next_history_recovery(priority_ids=("original-live",)) is not None
+    with responses.engine.begin() as connection:
+        connection.execute(update(result_table).where(
+            result_table.c.send_id == "original-live",
+        ).values(live_observed_at=now - 601))
+    items = responses.page()["items"]
+    replies.annotate_response_markers(items)
+    assert items[0]["status"] == "interrupted"
+    assert responses.page(status="needs_attention")["total"] == 1
+    # Reading old partial text without active generation cannot restore live status.
+    assert responses.recover_historical_response(
+        "original-live",
+        CaptureResult("dom", "partial", "Implementing the patch", CONVERSATION, None, None,
+                      observer_id="fallback-turn-0:activity:assistant"),
+    )
+    items = responses.page()["items"]
+    replies.annotate_response_markers(items)
+    assert items[0]["status"] == "interrupted"

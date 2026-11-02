@@ -843,6 +843,7 @@ class ResponseStore:
                 message_id=capture.message_id or row["message_id"],
                 parent_id=capture.parent_id or row["parent_id"],
                 status="completed" if complete else row["status"],
+                live_observed_at=at if capture.verified_generating and not complete else 0,
                 updated_at=at,
                 finished_at=at if complete else row["finished_at"],
             ))

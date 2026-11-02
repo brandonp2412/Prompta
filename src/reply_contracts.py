@@ -810,6 +810,12 @@ class ManualReplyStore(ReplyReadState):
             rows = connection.execute(select(replies).where(
                 replies.c.send_id == send_id
             ).order_by(replies.c.created_at, replies.c.reply_id)).mappings().all()
+        observed_at = original["live_observed_at"]
+        original_status = visible_reply_status(
+            str(original["status"]),
+            float(observed_at) if isinstance(observed_at, (int, float)) else 0.0,
+            now=time.time(),
+        )
         return [
             {"reply_id": "", "send_id": send_id,
              "conversation_id": original["conversation_id"], "parent_id": original["parent_id"],
@@ -817,7 +823,7 @@ class ManualReplyStore(ReplyReadState):
              "assistant_text": original["assistant_text"],
               "tool_calls": deserialize_tool_calls(original["tool_calls_json"]),
                "display_blocks": deserialize_display_blocks(original["display_blocks_json"]),
-              "status": original["status"],
+              "status": original_status,
              "created_at": original["created_at"], "updated_at": original["updated_at"]},
             *(self._public(dict(row)) for row in rows),
         ]

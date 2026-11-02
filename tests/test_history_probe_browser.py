@@ -280,6 +280,11 @@ def test_agent_activity_before_visible_answer_stays_partial(
                 assert result["text"] == expected
                 assert result["complete"] is False
                 assert result["branch_message_id"] == ""
+                if expected:
+                    assert result["generating"] is False  # A later user turn is present.
+                    await page.locator('[data-content-search-turn-key="fallback-turn-1"]').evaluate("node => node.remove()")
+                    active = await page.evaluate(script, isolated_context=False)
+                    assert active["generating"] is True
             finally:
                 await browser.close()
 

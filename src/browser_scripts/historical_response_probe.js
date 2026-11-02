@@ -45,7 +45,7 @@
       .filter(node => visible(node) && !node.closest(excluded));
     const text = roots.map(markdownFromRoot).filter(Boolean).join("\n\n").trim().slice(0, 2 * 1024 * 1024);
     return { ...empty, verified: true, message_id: identity,
-      pathname: location.pathname, text,
+      pathname: location.pathname, text, generating: users.length === 1,
       tool_calls: toolCallsFromTurns([turn], visible, '.markdown, [data-markdown-text-style="assistant-message"]'),
       display_blocks: roots.map((node, index) => ({ kind: 'text', id: `text-${index}`, text: markdownFromRoot(node) })),
     };
@@ -77,8 +77,8 @@
   )].some(visible));
   const streaming = turns.some((turn) => !!turn.querySelector('[data-is-streaming="true"], .result-streaming'));
   const generating = users.length === 1 && [...document.querySelectorAll(
-    'button[data-testid="stop-button"], button[aria-label="Stop generating"], button[aria-label="Stop streaming"]'
-  )].some(visible);
+    'button[data-testid="stop-button"], button[aria-label="Stop generating"], button[aria-label="Stop streaming"], button[aria-label="Stop"]'
+  )].some(visible) || (users.length === 1 && turns.some(turn => !!turn.querySelector('[data-talvt-turn-state="in_progress"]')));
   const lastTextIndex = segments.findLastIndex(Boolean);
   const finalAnswer = lastTextIndex < 0 ? assistant : answerUnits[lastTextIndex];
   const finalIds = assistantMessageIdsFromDom(finalAnswer);
@@ -88,6 +88,7 @@
     branch_message_id: branch, pathname: location.pathname, text,
     turn_message_ids: [...new Set(answerUnits.flatMap(assistantMessageIdsFromDom))],
     complete: !!text && copyReady && !streaming && !generating,
+    generating,
     rate_limited: false, tool_calls,
     display_blocks: displayBlocksFromUnits(answerUnits, visible, markdownSelector),
   };
