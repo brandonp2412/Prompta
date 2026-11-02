@@ -67,7 +67,7 @@ def test_deployed_capture_is_recovered_before_older_backlog_without_resending(
     pending = store.get("ordinary-newer")
     assert recovered is not None and recovered["status"] == "completed"
     assert pending is not None and pending["status"] == "interrupted"
-    assert not worker.recover_once(now=151)  # account-wide 90-second slot
+    assert not worker.recover_once(now=151)  # account-wide five-minute slot
 
 
 def test_recent_interruption_is_not_starved_by_previous_deploy_inventory(
@@ -226,9 +226,9 @@ def test_repeated_failed_reads_wait_only_for_global_slot_without_resending(
     candidate = store.next_history_recovery(now=151)
     assert candidate is not None and candidate["send_id"] == "manual-1"
     assert candidate["attempt_count"] == attempts + 1
-    assert not worker.recover_once(now=239)  # The account's 90-second slot is locked.
+    assert not worker.recover_once(now=449)  # The account's five-minute slot is locked.
     assert len(reads) == 1
-    assert not worker.recover_once(now=240)
+    assert not worker.recover_once(now=450)
     assert len(reads) == 2
 
 
@@ -546,7 +546,13 @@ def test_read_only_recovery_restores_uncertain_explicit_reply_without_resending(
 
     driver = ReplyDriver()
     runtime = SchedulerRuntime(tmp_path / "runtime.sqlite3", tmp_path / "jobs.json")
-    assert HistoryRecovery(responses, runtime, lambda: driver).recover_once(now=20)
+    worker = HistoryRecovery(responses, runtime, lambda: driver)
+    assert not worker.recover_once(now=20, background=True)
+    assert driver.visited == []
+    responses.queue_manual_recovery(
+        "manual-original", ["reply:" + intent.reply_id], now=20,
+    )
+    assert worker.recover_once(now=20, background=True)
     assert driver.visited == ["connect", "https://chatgpt.com/c/" + CONVERSATION]
     turn = replies.get(intent.reply_id)
     assert turn is not None
@@ -599,7 +605,7 @@ def test_global_pacing_survives_worker_restart(tmp_path: Path) -> None:
     first_driver = FakeHistoryDriver()
     first_worker = HistoryRecovery(store, runtime, lambda: first_driver)
     assert first_worker.recover_once(now=150)
-    assert store.history_recovery_global_pace_remaining(now=151) == 89
+    assert store.history_recovery_global_pace_remaining(now=151) == 299
     second_driver = FakeHistoryDriver()
     restarted_worker = HistoryRecovery(
         ResponseStore(tmp_path / "chat-results.sqlite3"),
@@ -608,7 +614,7 @@ def test_global_pacing_survives_worker_restart(tmp_path: Path) -> None:
     )
     assert not restarted_worker.recover_once(now=151)
     assert second_driver.visited == []
-    assert restarted_worker.recover_once(now=240)
+    assert restarted_worker.recover_once(now=450)
     assert second_driver.visited.count("connect") == 1
 
 
@@ -732,3 +738,38 @@ def test_pinned_and_manual_recovery_precede_unpinned_owned_tab() -> None:
         network_read_allowed=True, manual_slot=False, pinned_target="pinned-owned",
         owned_target="pinned-owned", slot_number=0,
     )
+
+
+@pytest.mark.parametrize("pinned", [False, True])
+def test_background_network_recovery_requires_demand_even_for_pins(tmp_path: Path, pinned: bool) -> None:
+    store = ResponseStore(tmp_path / "chat-results.sqlite3")
+    _expired(store)
+    if pinned:
+        assert store.set_local_pin("manual-1", pinned=True)
+    runtime = SchedulerRuntime(tmp_path / "runtime.sqlite3", tmp_path / "jobs.json")
+    driver = FakeHistoryDriver()
+    worker = HistoryRecovery(store, runtime, lambda: driver)
+    assert not worker.recover_once(now=150, background=True)
+    assert driver.visited == []
+    assert store.history_recovery_global_pace_remaining(now=150) == 0
+    store.queue_manual_recovery("manual-1", ["manual-1"], now=151)
+    assert worker.recover_once(now=151, background=True)
+    assert driver.visited.count("connect") == 1
+    assert store.pending_manual_recovery_requests() == []
+
+
+def test_background_recovers_deployment_inventory_without_sweeping_backlog(tmp_path: Path) -> None:
+    store = ResponseStore(tmp_path / "chat-results.sqlite3")
+    _expired(store, "deployed")
+    _expired(store, "backlog")
+    (tmp_path / "deployment-interrupted.json").write_text(json.dumps({
+        "priority": {"job_responses": ["deployed"], "manual_reply_turns": []},
+    }))
+    runtime = SchedulerRuntime(tmp_path / "runtime.sqlite3", tmp_path / "jobs.json")
+    driver = FakeHistoryDriver()
+    worker = HistoryRecovery(store, runtime, lambda: driver)
+    assert worker.recover_once(now=150, background=True)
+    assert not worker.recover_once(now=450, background=True)
+    assert driver.visited.count("connect") == 1
+    row = store.get("backlog")
+    assert row is not None and row["status"] == "interrupted"

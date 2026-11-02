@@ -37,7 +37,7 @@ class ResultsPage(TypedDict):
     offset: int
 
 
-HISTORY_READ_INTERVAL_SECONDS = 90.0
+HISTORY_READ_INTERVAL_SECONDS = 5 * 60.0
 _MAX_TEXT = 2 * 1024 * 1024
 
 
@@ -752,7 +752,7 @@ class ResponseStore:
         return int(row.attempt_count)
 
     def history_recovery_global_pace_remaining(self, *, now: float | None = None) -> float:
-        """Across worker restarts, limit browser history reads to one per 90 seconds."""
+        """Across worker restarts, limit browser history reads to one per five minutes."""
         at = time.time() if now is None else now
         with self.engine.connect() as connection:
             next_allowed = connection.execute(

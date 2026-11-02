@@ -39,7 +39,7 @@ class SchedulerRuntime:
         self.state_path = state_path
         self.jobs_file = jobs_file
         self.backoffs: dict[str, RateLimitBackoff] = {}
-        self.read_backoff = RateLimitBackoff()
+        self.read_backoff = RateLimitBackoff(cap_seconds=2 * 3600, reset_seconds=24 * 3600)
         self.failure_retry_until: dict[str, float] = {}
         self.restore_backoffs()
 
@@ -259,7 +259,7 @@ class SchedulerRuntime:
             engine.dispose()
 
     def _durable_read_backoff(self) -> RateLimitBackoff:
-        backoff = RateLimitBackoff()
+        backoff = RateLimitBackoff(cap_seconds=2 * 3600, reset_seconds=24 * 3600)
         snapshot = string_object_dict(
             self.account_state(strict=True).get("read_rate_limit_backoff")
         )
@@ -374,7 +374,7 @@ class SchedulerRuntime:
                         account_state.c.key == "read_rate_limit_backoff"
                     )
                 ).scalar_one_or_none()
-                backoff = RateLimitBackoff()
+                backoff = RateLimitBackoff(cap_seconds=2 * 3600, reset_seconds=24 * 3600)
                 if value_json is not None:
                     try:
                         decoded: object = json.loads(str(value_json))

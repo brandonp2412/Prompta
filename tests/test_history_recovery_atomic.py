@@ -18,6 +18,7 @@ def test_concurrent_workers_cannot_reuse_the_same_history_read_slot(tmp_path: Pa
     initial = ResponseStore(path)
     _expired(initial, "manual-first")
     _expired(initial, "manual-second")
+    initial.queue_manual_recovery("manual-first", ["manual-first", "manual-second"], now=140)
     runtime = SchedulerRuntime(tmp_path / "runtime.sqlite3", tmp_path / "jobs.json")
     barrier = Barrier(2)
 
@@ -33,10 +34,10 @@ def test_concurrent_workers_cannot_reuse_the_same_history_read_slot(tmp_path: Pa
         for driver in drivers
     ]
     with ThreadPoolExecutor(max_workers=2) as pool:
-        results = list(pool.map(lambda worker: worker.recover_once(now=150), workers))
+        results = list(pool.map(lambda worker: worker.recover_once(now=150, background=True), workers))
 
     assert results.count(True) == 1
     assert sum(driver.visited.count("connect") for driver in drivers) == 1
-    assert initial.history_recovery_global_pace_remaining(now=151) == 89
+    assert initial.history_recovery_global_pace_remaining(now=151) == 299
     saved = [initial.get(send_id) for send_id in ("manual-first", "manual-second")]
     assert sum(record is not None and record["status"] == "completed" for record in saved) == 1

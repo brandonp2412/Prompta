@@ -95,13 +95,13 @@ def test_fault_injected_partial_then_final_is_read_only_and_reconciled(tmp_path:
     }
     assert not worker.recover_once(now=239)
     assert len(used) == 1
-    assert worker.recover_once(now=240)
+    assert worker.recover_once(now=450)
     completed = store.detail("run")
     assert completed is not None
     assert completed["status"] == "completed"
     assert completed["assistant_text"] == "Saved partial plus more and final"
     assert "recovery" not in completed
-    metrics = store.recovery_metrics(now=241)
+    metrics = store.recovery_metrics(now=451)
     assert metrics["recovered_completed"] == 1
     assert metrics["partial_text_saved"] == 0
     assert metrics["recoverable"] == 0

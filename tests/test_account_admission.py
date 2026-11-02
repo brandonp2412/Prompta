@@ -124,3 +124,25 @@ def test_fresh_chat_sender_ignores_read_cooldown(tmp_path: Path, monkeypatch) ->
     monkeypatch.setattr(sender, "_send_browser", fake_send)
     sender("New chat")
     assert accepted == ["New chat"]
+
+
+def test_read_backoff_keeps_escalating_after_thirty_minute_cooldowns(tmp_path: Path, monkeypatch) -> None:
+    import time
+
+    epoch = [1_800_000_000.0]
+    monotonic = [1000.0]
+    monkeypatch.setattr(time, "time", lambda: epoch[0])
+    monkeypatch.setattr(time, "monotonic", lambda: monotonic[0])
+    path = tmp_path / "runtime.sqlite3"
+    delays = []
+    for _ in range(8):
+        runtime = SchedulerRuntime(path, path)
+        delay = runtime.record_read_rate_limit(RateLimitError(retry_after=0))
+        delays.append(delay)
+        epoch[0] += delay + 1
+        monotonic[0] += delay + 1
+    assert delays[4] >= 4800
+    assert 7200 <= delays[5] <= 7260
+    assert 7200 <= delays[7] <= 7260
+    assert SchedulerRuntime(path, path).read_admission_status()["attempts"] == 8
+    assert runtime.record_read_rate_limit(RateLimitError(retry_after=10800)) >= 10800

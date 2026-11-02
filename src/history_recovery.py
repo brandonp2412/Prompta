@@ -316,13 +316,12 @@ class HistoryRecovery:
 
     def _next_automatic_candidate(
         self, *, now: float, priority_sends: tuple[str, ...],
-        priority_replies: tuple[str, ...],
+        priority_replies: tuple[str, ...], deployment_only: bool = False,
     ) -> dict[str, object] | None:
-        """Recover the freshest least-tried chat, even after an older deploy.
+        """Choose a deployment capture, or any incomplete chat for an explicit probe.
 
-        Deployment inventory breaks ties, but cannot permanently suppress
-        newer interrupted turns outside an old inventory. Replies and original
-        sends share the same fair recovery budget.
+        Background network recovery is restricted to deployment inventory.
+        Replies and original sends share the same persisted recovery budget.
         """
         options = (
             (True, self.replies.next_history_reply_recovery(
@@ -331,8 +330,10 @@ class HistoryRecovery:
             (True, self.results.next_history_recovery(
                 now=now, priority_ids=priority_sends,
             ) if priority_sends else None),
-            (False, self.replies.next_history_reply_recovery(now=now)),
-            (False, self.results.next_history_recovery(now=now)),
+            (False, self.replies.next_history_reply_recovery(now=now)
+             if not deployment_only else None),
+            (False, self.results.next_history_recovery(now=now)
+             if not deployment_only else None),
         )
 
         def priority(item: tuple[bool, dict[str, object]]) -> tuple[int, float, bool]:
@@ -372,9 +373,13 @@ class HistoryRecovery:
 
     def recover_once(
         self, *, now: float | None = None, preferred_send_id: str | None = None,
-        owned_tab_recovery: bool = False,
+        owned_tab_recovery: bool = False, background: bool = False,
     ) -> bool:
-        """Attempt at most one due chat; all retries are read-only and persisted."""
+        """Probe one chat; background network reads require demand or deploy inventory.
+
+        Explicit calls and surviving owned-tab probes may inspect older chats.
+        Pinning alone never authorizes background network recovery.
+        """
         at = time.time() if now is None else now
         if (
             (not owned_tab_recovery and _read_backoff_remaining(self.runtime) > 0)
@@ -395,6 +400,7 @@ class HistoryRecovery:
         requested, requested_target = self._next_requested_candidate(manual_requests, now=at)
         slot_number = self.results.history_recovery_global_attempt_count() % 3
         manual_slot = requested is not None and (
+            background or
             slot_number == 0 or (
                 slot_number == 2 and int_value(requested.get("attempt_count")) == 0
             )
@@ -409,11 +415,14 @@ class HistoryRecovery:
                 if preferred_send_id is not None and preferred_send_id.startswith("reply:")
                 else self.results.next_history_recovery(
                     now=at, priority_ids=(preferred_send_id,),
-                ) if preferred_send_id is not None else self._newest_pinned_due(now=at)
+                ) if preferred_send_id is not None else (
+                    None if background else self._newest_pinned_due(now=at)
+                )
             )
         if candidate is None and preferred_send_id is None:
             candidate = self._next_automatic_candidate(
                 now=at, priority_sends=priority_sends, priority_replies=priority_replies,
+                deployment_only=background,
             )
         if candidate is None and preferred_send_id is None:
             candidate, manual_target = self._next_requested_candidate(manual_requests, now=at)
@@ -542,7 +551,7 @@ def run_history_recovery(
     stop: threading.Event | None = None,
     debugger_address: str | None = None,
 ) -> None:
-    """Background loop with one shared 90-second recovery budget."""
+    """Recover demanded/deployment chats with a shared five-minute budget."""
     shutdown = stop or threading.Event()
     recovery = HistoryRecovery(results, runtime, driver_factory)
     last_checked_at = 0.0
@@ -570,43 +579,24 @@ def run_history_recovery(
                                     owned_candidate = best_owned_recovery_candidate(
                                         results, debugger_address,
                                     )
-                                pinned = recovery._newest_pinned_due(now=time.time())
-                                pinned_target = (
-                                    "reply:" + str(pinned["reply_id"])
-                                    if pinned is not None and "reply_id" in pinned else
-                                    str(pinned["send_id"]) if pinned is not None else ""
-                                )
                                 owned_target = (
                                     ("reply:" + owned_candidate.reply_id)
                                     if owned_candidate is not None and owned_candidate.reply_id
                                     else owned_candidate.send_id if owned_candidate is not None else ""
                                 )
-                                network_read_allowed = _read_backoff_remaining(runtime) <= 0
+                                priority_sends, priority_replies = deployment_recovery_priority(
+                                    results.path.parent,
+                                )
                                 requested, _ = recovery._next_requested_candidate(
                                     results.pending_manual_recovery_requests(), now=time.time(),
                                 )
-                                slot_number = results.history_recovery_global_attempt_count() % 3
-                                manual_slot = (
-                                    network_read_allowed
-                                    and requested is not None
-                                    and (
-                                        slot_number == 0 or (
-                                            slot_number == 2
-                                            and int_value(requested.get("attempt_count")) == 0
-                                        )
-                                    )
+                                deployed = recovery._next_automatic_candidate(
+                                    now=time.time(), priority_sends=priority_sends,
+                                    priority_replies=priority_replies, deployment_only=True,
                                 )
-                                if _network_recovery_turn(
-                                    network_read_allowed=network_read_allowed,
-                                    manual_slot=manual_slot,
-                                    pinned_target=pinned_target,
-                                    owned_target=owned_target,
-                                    slot_number=slot_number,
-                                ):
-                                    # Pinned/history reads take priority, while
-                                    # old owned tabs use at most one in three
-                                    # slots whenever network reads are healthy.
-                                    recovery.recover_once()
+                                network_read_allowed = _read_backoff_remaining(runtime) <= 0
+                                if network_read_allowed and (requested is not None or deployed is not None):
+                                    recovery.recover_once(background=True)
                                 elif owned_candidate is not None:
                                     tab = owned_candidate.tab
                                     owned_recovery = HistoryRecovery(
@@ -620,8 +610,6 @@ def run_history_recovery(
                                         preferred_send_id=owned_target,
                                         owned_tab_recovery=True,
                                     )
-                                elif network_read_allowed:
-                                    recovery.recover_once()
         except Exception as exc:
             last_checked_at = time.monotonic()
             logger.warning("Historical recovery loop will retry error_type=%s", type(exc).__name__)

@@ -28,6 +28,21 @@ There are no time windows, timezone rules, or job-prefix filters. If different
 limits are wanted at different times, use your own cron jobs to update the
 configuration.
 
+## Conversation recovery
+
+Background network recovery checks explicit recovery requests and chats interrupted
+by deployment. Older incomplete chats, including pinned chats, require the Chats
+recovery action; pinning alone does not schedule network reads. Recovery never
+resends the original prompt. Capture from already-open owned tabs continues.
+
+All recovery workers and generations share one durable five-minute recovery slot.
+A read HTTP 429 pauses network recovery, with exponential delays from five minutes
+up to two hours, plus jitter. Longer server retry instructions take precedence.
+Escalation survives restarts and expires after 24 hours without another 429, or
+clears after a successful network recovery once the cooldown has elapsed. Only one
+worker can acquire the next recovery slot when a cooldown expires. Fresh-chat
+concurrency and read cooldowns are separate; a read cooldown does not block sends.
+
 ## Connector approvals
 
 ```toml
