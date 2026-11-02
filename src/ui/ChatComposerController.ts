@@ -138,24 +138,23 @@ export function createChatComposerController(initialProps: Props) {
     }
   }
 
-  function draftChanged(event: React.FormEvent<HTMLTextAreaElement>) {
+  function setDraft(value: string) {
+    draft.value = value;
     hasLocalDraft.value = true;
     fallbackAvailable.value = false;
     if (draftStorageKey.value) {
-      rememberComposerDraft(
-        draftStorageKey.value,
-        (event.currentTarget as HTMLTextAreaElement).value,
-      );
+      rememberComposerDraft(draftStorageKey.value, value);
       try {
-        localStorage.setItem(
-          draftStorageKey.value,
-          (event.currentTarget as HTMLTextAreaElement).value,
-        );
+        localStorage.setItem(draftStorageKey.value, value);
       } catch {
         /* In-memory editing still works. */
       }
     }
     resizeTextarea();
+  }
+
+  function draftChanged(event: React.FormEvent<HTMLTextAreaElement>) {
+    setDraft(event.currentTarget.value);
   }
 
   async function addFiles(files: File[]) {
@@ -508,6 +507,7 @@ export function createChatComposerController(initialProps: Props) {
     hasDraft,
     canSend,
     canFallback,
+    setDraft,
     draftChanged,
     addFiles,
     stop,

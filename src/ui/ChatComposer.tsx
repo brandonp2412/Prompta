@@ -1,14 +1,23 @@
-import React, { useEffect, useLayoutEffect, useMemo } from "react";
+import React, { useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { useSignals } from "@preact/signals-react/runtime";
 import { createChatComposerController, type Props } from "./ChatComposerController";
 import { rememberComposerImages } from "./composerDraftMemory";
 import { attachmentAccept, isVideoAttachment } from "./mediaAttachments";
 import { feedbackTone, useToastSignal } from "./toast";
 import { ContinueChatIcon } from "./ChatActionIcons";
+import {
+  activeMention,
+  insertMention,
+  suggestedMentions,
+  type MentionMatch,
+} from "./composerMentions";
 export default function ChatComposer(props: Props) {
   const model = useMemo(() => createChatComposerController(props), []);
   useSignals();
   useToastSignal(model.feedback, { tone: feedbackTone, immediate: true });
+  const [mentionMatch, setMentionMatch] = useState<MentionMatch | null>(null);
+  const [mentionIndex, setMentionIndex] = useState(0);
+  const [mentionDismissed, setMentionDismissed] = useState(false);
   const {
     mode,
     onFallbackSend,
@@ -59,6 +68,41 @@ export default function ChatComposer(props: Props) {
       model.textarea.peek()?.focus();
   }, [model, props.mode, props.chatId]);
 
+  useEffect(() => {
+    setMentionMatch(null);
+    setMentionDismissed(false);
+  }, [props.chatId, props.mode]);
+
+  const mentionOptions =
+    mentionMatch && !mentionDismissed && !model.sending.value && !model.disabled.value
+      ? suggestedMentions(mentionMatch.query)
+      : [];
+
+  function updateMention(element: HTMLTextAreaElement, edited = false) {
+    if (edited) setMentionDismissed(false);
+    if (element.selectionStart !== element.selectionEnd) {
+      setMentionMatch(null);
+      return;
+    }
+    setMentionMatch(activeMention(element.value, element.selectionStart));
+    setMentionIndex(0);
+  }
+
+  function chooseMention(index: number) {
+    const match = mentionMatch;
+    const option = mentionOptions[index];
+    if (!match || !option) return;
+    const next = insertMention(model.draft.peek(), match, option.name);
+    model.setDraft(next.value);
+    setMentionMatch(null);
+    setMentionDismissed(false);
+    requestAnimationFrame(() => {
+      const element = model.textarea.peek();
+      element?.focus();
+      element?.setSelectionRange(next.cursor, next.cursor);
+    });
+  }
+
   function sendLabel() {
     if (sending.value) return "Sending";
     return mode.value === "fresh" ? "Send fresh chat" : "Send reply";
@@ -89,6 +133,35 @@ export default function ChatComposer(props: Props) {
           .filter(Boolean)
           .join(" ")}
       >
+        {mentionOptions.length > 0 && (
+          <div
+            className="composer-mentions"
+            role="listbox"
+            id="composer-mention-options"
+            aria-label="Tools and connectors"
+          >
+            <div className="composer-mentions-heading">Tools and connectors</div>
+            {mentionOptions.map((option, index) => (
+              <button
+                type="button"
+                role="option"
+                id={`composer-mention-option-${index}`}
+                aria-selected={index === mentionIndex}
+                className={index === mentionIndex ? "selected" : ""}
+                key={option.name}
+                onPointerDown={(event) => event.preventDefault()}
+                onClick={() => chooseMention(index)}
+              >
+                <span className="composer-mention-icon">{option.kind === "tool" ? "✦" : "@"}</span>
+                <span className="composer-mention-label">
+                  <strong>{option.name}</strong>
+                  <small>{option.description}</small>
+                </span>
+                <span className="composer-mention-kind">{option.kind}</span>
+              </button>
+            ))}
+          </div>
+        )}
         <div className="chat-composer">
           {images.value.length ? (
             <>
@@ -130,8 +203,53 @@ export default function ChatComposer(props: Props) {
           )}
           <textarea
             ref={refs.textarea}
-            onInput={draftChanged}
-            onKeyDown={keydown}
+            onInput={(event) => {
+              draftChanged(event);
+              updateMention(event.currentTarget, true);
+            }}
+            onKeyDown={(event) => {
+              if (mentionOptions.length) {
+                if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+                  event.preventDefault();
+                  setMentionIndex(
+                    (previous) =>
+                      (previous + (event.key === "ArrowDown" ? 1 : -1) + mentionOptions.length) %
+                      mentionOptions.length,
+                  );
+                  return;
+                }
+                if (event.key === "Enter" || event.key === "Tab") {
+                  if (!event.nativeEvent.isComposing) {
+                    event.preventDefault();
+                    chooseMention(mentionIndex);
+                  }
+                  return;
+                }
+              }
+              if (event.key === "Escape" && mentionMatch) {
+                event.preventDefault();
+                setMentionDismissed(true);
+                return;
+              }
+              keydown(event);
+            }}
+            onSelect={(event) => {
+              if (!mentionDismissed) updateMention(event.currentTarget);
+            }}
+            onKeyUp={(event) => {
+              if (
+                !["Escape", "ArrowDown", "ArrowUp", "Enter", "Tab"].includes(event.key) &&
+                !mentionDismissed
+              )
+                updateMention(event.currentTarget);
+            }}
+            onBlur={() => setMentionMatch(null)}
+            aria-autocomplete="list"
+            aria-expanded={mentionOptions.length > 0}
+            aria-controls={mentionOptions.length ? "composer-mention-options" : undefined}
+            aria-activedescendant={
+              mentionOptions.length ? `composer-mention-option-${mentionIndex}` : undefined
+            }
             onPaste={pasted}
             rows={1}
             maxLength={32000}

@@ -45,6 +45,7 @@ from .browser_ownership import (
     touch_owned_tab,
 )
 from .browser_script_loader import load_browser_script
+from .composer_mentions import NativeMention, expected_native_text, split_native_mentions
 from .connector_approval_supervisor import trusted_approval_retry
 from .flaresolverr_client import solve_cloudflare
 from .model_picker import (
@@ -1413,7 +1414,69 @@ class PatchrightDriver(ModelPickerMixin):
         except PatchrightError as exc:
             raise RuntimeError("ChatGPT composer could not accept text") from exc
 
+    async def _type_message_with_mentions(
+        self, parts: list[str | NativeMention]
+    ) -> None:
+        """Use ChatGPT's picker so @mentions become real tool/app chips."""
+        expected_mentions = [part.name for part in parts if isinstance(part, NativeMention)]
+        expected_text = _normalise_composer_text(expected_native_text(parts))
+        page = self._page()
+        for attempt in range(2):
+            composer = await self._focus_composer()
+            await self._replace_composer_text(composer, "")
+            for part in parts:
+                await composer.focus()
+                if isinstance(part, str):
+                    if part:
+                        await page.keyboard.insert_text(part)
+                    continue
+
+                # The suggestions appear only for real keystrokes, not for
+                # insert_text()/fill(), which leave a plain, non-routable @word.
+                await composer.press_sequentially("@" + part.name, delay=12)
+                item = page.get_by_role("button").filter(
+                    has=page.get_by_text(part.name, exact=True)
+                ).first
+                try:
+                    await item.click(timeout=2500)
+                except PatchrightError as exc:
+                    raise RuntimeError(
+                        f"ChatGPT did not offer the @{part.name} tool/connector"
+                    ) from exc
+
+            # A matching plain-text editor is not sufficient: the downstream
+            # ChatGPT request needs native chip metadata to route the plugin.
+            deadline = asyncio.get_running_loop().time() + 2.0
+            while asyncio.get_running_loop().time() < deadline:
+                current = await self._composer(page)
+                if current is not None:
+                    rendered = _normalise_composer_text(await self._composer_text(current))
+                    chips = await current.locator(
+                        "[app-mention-name], [data-system-hint-type]"
+                    ).all_inner_texts()
+                    if rendered == expected_text and [
+                        chip.strip() for chip in chips
+                    ] == expected_mentions:
+                        await asyncio.sleep(0.35)
+                        # Re-check after hydration before trusting the send.
+                        current = await self._composer(page)
+                        if current is not None and [
+                            chip.strip()
+                            for chip in await current.locator(
+                                "[app-mention-name], [data-system-hint-type]"
+                            ).all_inner_texts()
+                        ] == expected_mentions:
+                            return
+                await asyncio.sleep(0.05)
+            if attempt:
+                break
+        raise RuntimeError("ChatGPT did not retain the requested native @mentions")
+
     async def type_message(self, text: str) -> None:
+        parts = split_native_mentions(text)
+        if any(isinstance(part, NativeMention) for part in parts):
+            await self._type_message_with_mentions(parts)
+            return
         composer = await self._focus_composer()
         await self._replace_composer_text(composer, text)
 

@@ -16091,16 +16091,20 @@ function createChatComposerController(initialProps) {
 			easing: "ease-out"
 		});
 	}
-	function draftChanged(event) {
+	function setDraft(value) {
+		draft.value = value;
 		hasLocalDraft.value = true;
 		fallbackAvailable.value = false;
 		if (draftStorageKey.value) {
-			rememberComposerDraft(draftStorageKey.value, event.currentTarget.value);
+			rememberComposerDraft(draftStorageKey.value, value);
 			try {
-				localStorage.setItem(draftStorageKey.value, event.currentTarget.value);
+				localStorage.setItem(draftStorageKey.value, value);
 			} catch {}
 		}
 		resizeTextarea();
+	}
+	function draftChanged(event) {
+		setDraft(event.currentTarget.value);
 	}
 	async function addFiles(files) {
 		if (!files.length) return;
@@ -16378,6 +16382,7 @@ function createChatComposerController(initialProps) {
 		hasDraft,
 		canSend,
 		canFallback,
+		setDraft,
 		draftChanged,
 		addFiles,
 		stop,
@@ -16416,6 +16421,129 @@ function RecoverChatIcon() {
 	});
 }
 //#endregion
+//#region src/ui/composerMentions.ts
+var mentionCatalog = [
+	{
+		"name": "Web search",
+		"kind": "tool",
+		"description": "Search the web for current information"
+	},
+	{
+		"name": "Create image",
+		"kind": "tool",
+		"description": "Generate or edit an image"
+	},
+	{
+		"name": "Deep research",
+		"kind": "tool",
+		"description": "Research a topic in depth"
+	},
+	{
+		"name": "Sketch",
+		"kind": "tool",
+		"description": "Draw and attach a sketch"
+	},
+	{
+		"name": "Glass",
+		"kind": "connector",
+		"description": "Develop and run commands on Glass"
+	},
+	{
+		"name": "Matrix",
+		"kind": "connector",
+		"description": "Read and send Matrix messages"
+	},
+	{
+		"name": "Akahu",
+		"kind": "connector",
+		"description": "Banking accounts and transactions"
+	},
+	{
+		"name": "Email",
+		"kind": "connector",
+		"description": "Search and send email"
+	},
+	{
+		"name": "Google Calendar",
+		"kind": "connector",
+		"description": "Manage calendar events"
+	},
+	{
+		"name": "Pi Python MCP",
+		"kind": "connector",
+		"description": "Run Python on the Raspberry Pi"
+	},
+	{
+		"name": "Nox Python MCP",
+		"kind": "connector",
+		"description": "Run Python on Nox"
+	},
+	{
+		"name": "Patchright Brave",
+		"kind": "connector",
+		"description": "Control Brave browser on Glass"
+	},
+	{
+		"name": "GitHub",
+		"kind": "connector",
+		"description": "Repositories, issues and pull requests"
+	},
+	{
+		"name": "Glass Serena",
+		"kind": "connector",
+		"description": "Code navigation and edits on Glass"
+	},
+	{
+		"name": "Nox Serena",
+		"kind": "connector",
+		"description": "Code navigation and edits on Nox"
+	},
+	{
+		"name": "rbw",
+		"kind": "connector",
+		"description": "Bitwarden vault on Glass"
+	},
+	{
+		"name": "Sites",
+		"kind": "connector",
+		"description": "Build and manage websites"
+	},
+	{
+		"name": "Library",
+		"kind": "connector",
+		"description": "Browse and manage Library files"
+	},
+	{
+		"name": "Automations",
+		"kind": "connector",
+		"description": "Schedule recurring tasks"
+	}
+];
+function activeMention(text, cursor) {
+	if (cursor < 0 || cursor > text.length) return null;
+	const before = text.slice(0, cursor);
+	const match = /(?:^|[\s([{])@([\p{L}\p{N} _-]{0,48})$/u.exec(before);
+	if (!match) return null;
+	return {
+		start: cursor - match[1].length - 1,
+		end: cursor,
+		query: match[1]
+	};
+}
+function suggestedMentions(query) {
+	const normalized = query.toLocaleLowerCase().replace(/[-_]/g, " ").trim();
+	return mentionCatalog.filter(({ name }) => name.toLocaleLowerCase().includes(normalized)).sort((a, b) => {
+		return (a.name.toLocaleLowerCase().startsWith(normalized) ? 0 : 1) - (b.name.toLocaleLowerCase().startsWith(normalized) ? 0 : 1);
+	}).slice(0, 7);
+}
+function insertMention(text, match, name) {
+	const replacement = `@${name} `;
+	return {
+		value: text.slice(0, match.start) + replacement + text.slice(match.end),
+		cursor: match.start + replacement.length
+	};
+}
+//#endregion
 //#region src/ui/ChatComposer.tsx
 function ChatComposer(props) {
 	const model = (0, import_react.useMemo)(() => createChatComposerController(props), []);
@@ -16424,6 +16552,9 @@ function ChatComposer(props) {
 		tone: feedbackTone,
 		immediate: true
 	});
+	const [mentionMatch, setMentionMatch] = (0, import_react.useState)(null);
+	const [mentionIndex, setMentionIndex] = (0, import_react.useState)(0);
+	const [mentionDismissed, setMentionDismissed] = (0, import_react.useState)(false);
 	const { mode, onFallbackSend, onNewChat, disabled, draft, images, uploading, sending, fallbackAvailable, offerFreshContinuation, dragging, fileInput, draftStorageKey, canAttach, hasDraft, canSend, canFallback, draftChanged, addFiles, showStop, stopping, stop, submit, keydown, pasted, dropped } = model;
 	const refs = (0, import_react.useMemo)(() => ({
 		textarea: (element) => {
@@ -16444,6 +16575,34 @@ function ChatComposer(props) {
 		props.mode,
 		props.chatId
 	]);
+	(0, import_react.useEffect)(() => {
+		setMentionMatch(null);
+		setMentionDismissed(false);
+	}, [props.chatId, props.mode]);
+	const mentionOptions = mentionMatch && !mentionDismissed && !model.sending.value && !model.disabled.value ? suggestedMentions(mentionMatch.query) : [];
+	function updateMention(element, edited = false) {
+		if (edited) setMentionDismissed(false);
+		if (element.selectionStart !== element.selectionEnd) {
+			setMentionMatch(null);
+			return;
+		}
+		setMentionMatch(activeMention(element.value, element.selectionStart));
+		setMentionIndex(0);
+	}
+	function chooseMention(index) {
+		const match = mentionMatch;
+		const option = mentionOptions[index];
+		if (!match || !option) return;
+		const next = insertMention(model.draft.peek(), match, option.name);
+		model.setDraft(next.value);
+		setMentionMatch(null);
+		setMentionDismissed(false);
+		requestAnimationFrame(() => {
+			const element = model.textarea.peek();
+			element?.focus();
+			element?.setSelectionRange(next.cursor, next.cursor);
+		});
+	}
 	function sendLabel() {
 		if (sending.value) return "Sending";
 		return mode.value === "fresh" ? "Send fresh chat" : "Send reply";
@@ -16463,67 +16622,194 @@ function ChatComposer(props) {
 		onDragLeave: () => dragging.value = false,
 		onDrop: dropped,
 		className: ["chat-composer-wrap", dragging.value ? "dragging" : ""].filter(Boolean).join(" "),
-		children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-			className: "chat-composer",
-			children: [
-				images.value.length ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-					"aria-label": "Attachments to send",
-					className: "composer-previews",
-					children: images.value.map((image, __index) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_react.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-						className: "composer-preview",
-						children: [isVideoAttachment(image.name) ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-							className: "composer-video",
-							title: image.name,
-							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("video", {
-								src: image.url,
-								muted: true,
-								playsInline: true,
-								preload: "metadata"
-							}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Video" })]
-						}) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("img", {
-							src: image.url,
-							alt: image.name
-						}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-							type: "button",
-							"aria-label": "Remove " + image.name,
-							disabled: !canAttach.value,
-							onClick: () => {
-								images.value = images.value.filter((item) => item.ref !== image.ref);
-								rememberComposerImages(draftStorageKey.value, images.value);
-							},
-							children: "×"
-						})]
-					}) }, image.ref))
-				}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {}),
-				/* @__PURE__ */ (0, import_jsx_runtime.jsx)("textarea", {
-					ref: refs.textarea,
-					onInput: draftChanged,
-					onKeyDown: keydown,
-					onPaste: pasted,
-					rows: 1,
-					maxLength: 32e3,
-					disabled: disabled.value,
-					readOnly: sending.value,
-					"aria-busy": sending.value,
-					"aria-label": mode.value === "fresh" ? "Message for new chat" : "Message for current chat",
-					placeholder: "Message Prompta…",
-					value: draft.value,
-					onChange: (event) => {
-						draft.value = event.currentTarget.value;
-					}
-				}),
-				/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-					className: "composer-actions",
+		children: [
+			mentionOptions.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+				className: "composer-mentions",
+				role: "listbox",
+				id: "composer-mention-options",
+				"aria-label": "Tools and connectors",
+				children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+					className: "composer-mentions-heading",
+					children: "Tools and connectors"
+				}), mentionOptions.map((option, index) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+					type: "button",
+					role: "option",
+					id: `composer-mention-option-${index}`,
+					"aria-selected": index === mentionIndex,
+					className: index === mentionIndex ? "selected" : "",
+					onPointerDown: (event) => event.preventDefault(),
+					onClick: () => chooseMention(index),
 					children: [
-						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-							className: "composer-attach",
-							children: [mode.value === "fresh" ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+							className: "composer-mention-icon",
+							children: option.kind === "tool" ? "✦" : "@"
+						}),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+							className: "composer-mention-label",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("strong", { children: option.name }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("small", { children: option.description })]
+						}),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+							className: "composer-mention-kind",
+							children: option.kind
+						})
+					]
+				}, option.name))]
+			}),
+			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+				className: "chat-composer",
+				children: [
+					images.value.length ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+						"aria-label": "Attachments to send",
+						className: "composer-previews",
+						children: images.value.map((image, __index) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_react.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+							className: "composer-preview",
+							children: [isVideoAttachment(image.name) ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								className: "composer-video",
+								title: image.name,
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("video", {
+									src: image.url,
+									muted: true,
+									playsInline: true,
+									preload: "metadata"
+								}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Video" })]
+							}) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("img", {
+								src: image.url,
+								alt: image.name
+							}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 								type: "button",
-								"aria-label": "Attach photos or videos",
-								title: "Attach photos or videos",
+								"aria-label": "Remove " + image.name,
 								disabled: !canAttach.value,
-								onClick: () => fileInput.value?.click(),
-								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("svg", {
+								onClick: () => {
+									images.value = images.value.filter((item) => item.ref !== image.ref);
+									rememberComposerImages(draftStorageKey.value, images.value);
+								},
+								children: "×"
+							})]
+						}) }, image.ref))
+					}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {}),
+					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("textarea", {
+						ref: refs.textarea,
+						onInput: (event) => {
+							draftChanged(event);
+							updateMention(event.currentTarget, true);
+						},
+						onKeyDown: (event) => {
+							if (mentionOptions.length) {
+								if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+									event.preventDefault();
+									setMentionIndex((previous) => (previous + (event.key === "ArrowDown" ? 1 : -1) + mentionOptions.length) % mentionOptions.length);
+									return;
+								}
+								if (event.key === "Enter" || event.key === "Tab") {
+									if (!event.nativeEvent.isComposing) {
+										event.preventDefault();
+										chooseMention(mentionIndex);
+									}
+									return;
+								}
+							}
+							if (event.key === "Escape" && mentionMatch) {
+								event.preventDefault();
+								setMentionDismissed(true);
+								return;
+							}
+							keydown(event);
+						},
+						onSelect: (event) => {
+							if (!mentionDismissed) updateMention(event.currentTarget);
+						},
+						onKeyUp: (event) => {
+							if (![
+								"Escape",
+								"ArrowDown",
+								"ArrowUp",
+								"Enter",
+								"Tab"
+							].includes(event.key) && !mentionDismissed) updateMention(event.currentTarget);
+						},
+						onBlur: () => setMentionMatch(null),
+						"aria-autocomplete": "list",
+						"aria-expanded": mentionOptions.length > 0,
+						"aria-controls": mentionOptions.length ? "composer-mention-options" : void 0,
+						"aria-activedescendant": mentionOptions.length ? `composer-mention-option-${mentionIndex}` : void 0,
+						onPaste: pasted,
+						rows: 1,
+						maxLength: 32e3,
+						disabled: disabled.value,
+						readOnly: sending.value,
+						"aria-busy": sending.value,
+						"aria-label": mode.value === "fresh" ? "Message for new chat" : "Message for current chat",
+						placeholder: "Message Prompta…",
+						value: draft.value,
+						onChange: (event) => {
+							draft.value = event.currentTarget.value;
+						}
+					}),
+					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+						className: "composer-actions",
+						children: [
+							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								className: "composer-attach",
+								children: [mode.value === "fresh" ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+									type: "button",
+									"aria-label": "Attach photos or videos",
+									title: "Attach photos or videos",
+									disabled: !canAttach.value,
+									onClick: () => fileInput.value?.click(),
+									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("svg", {
+										viewBox: "0 0 24 24",
+										fill: "none",
+										stroke: "currentColor",
+										strokeWidth: "1.8",
+										strokeLinecap: "round",
+										strokeLinejoin: "round",
+										"aria-hidden": "true",
+										children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: "m20.5 11.5-8.7 8.7a5.5 5.5 0 0 1-7.8-7.8l9.4-9.4a3.7 3.7 0 0 1 5.2 5.2l-9.4 9.4a1.9 1.9 0 0 1-2.7-2.7l8.6-8.6" })
+									}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: images.value.length ? `Add attachments (${images.value.length}/4)` : "Attach photos or videos" })]
+								}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+									ref: refs.fileInput,
+									type: "file",
+									accept: attachmentAccept,
+									multiple: true,
+									"aria-label": "Choose photos or videos",
+									disabled: !canAttach.value,
+									onChange: (event) => {
+										addFiles(Array.from(event.currentTarget.files || []));
+										event.currentTarget.value = "";
+									}
+								})] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {}), uploading.value ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("small", {
+									role: "status",
+									children: "Uploading attachments…"
+								}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {})]
+							}),
+							showStop.value && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+								type: "button",
+								disabled: stopping.value || disabled.value,
+								"aria-label": stopping.value ? "Stopping chat" : "Stop generating",
+								title: stopping.value ? "Stopping chat…" : "Stop generating",
+								className: "composer-send composer-stop",
+								onClick: () => void stop(),
+								children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("svg", {
+									viewBox: "0 0 24 24",
+									fill: "currentColor",
+									"aria-hidden": "true",
+									children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("rect", {
+										x: "7",
+										y: "7",
+										width: "10",
+										height: "10",
+										rx: "2"
+									})
+								})
+							}),
+							showNewChat && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+								type: "button",
+								disabled: disabled.value || uploading.value,
+								onClick: onNewChat.value,
+								"aria-label": "New chat",
+								title: "New chat",
+								className: "composer-send composer-new-chat",
+								children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("svg", {
 									viewBox: "0 0 24 24",
 									fill: "none",
 									stroke: "currentColor",
@@ -16531,97 +16817,46 @@ function ChatComposer(props) {
 									strokeLinecap: "round",
 									strokeLinejoin: "round",
 									"aria-hidden": "true",
-									children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: "m20.5 11.5-8.7 8.7a5.5 5.5 0 0 1-7.8-7.8l9.4-9.4a3.7 3.7 0 0 1 5.2 5.2l-9.4 9.4a1.9 1.9 0 0 1-2.7-2.7l8.6-8.6" })
-								}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: images.value.length ? `Add attachments (${images.value.length}/4)` : "Attach photos or videos" })]
-							}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
-								ref: refs.fileInput,
-								type: "file",
-								accept: attachmentAccept,
-								multiple: true,
-								"aria-label": "Choose photos or videos",
-								disabled: !canAttach.value,
-								onChange: (event) => {
-									addFiles(Array.from(event.currentTarget.files || []));
-									event.currentTarget.value = "";
-								}
-							})] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {}), uploading.value ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("small", {
-								role: "status",
-								children: "Uploading attachments…"
-							}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {})]
-						}),
-						showStop.value && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-							type: "button",
-							disabled: stopping.value || disabled.value,
-							"aria-label": stopping.value ? "Stopping chat" : "Stop generating",
-							title: stopping.value ? "Stopping chat…" : "Stop generating",
-							className: "composer-send composer-stop",
-							onClick: () => void stop(),
-							children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("svg", {
-								viewBox: "0 0 24 24",
-								fill: "currentColor",
-								"aria-hidden": "true",
-								children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("rect", {
-									x: "7",
-									y: "7",
-									width: "10",
-									height: "10",
-									rx: "2"
+									children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: "M12 5H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7M16 4l4 4M9 15l3.5-.7L21 5.8a2.1 2.1 0 0 0-3-3l-8.5 8.5L9 15Z" })
 								})
-							})
-						}),
-						showNewChat && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-							type: "button",
-							disabled: disabled.value || uploading.value,
-							onClick: onNewChat.value,
-							"aria-label": "New chat",
-							title: "New chat",
-							className: "composer-send composer-new-chat",
-							children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("svg", {
-								viewBox: "0 0 24 24",
-								fill: "none",
-								stroke: "currentColor",
-								strokeWidth: "1.8",
-								strokeLinecap: "round",
-								strokeLinejoin: "round",
-								"aria-hidden": "true",
-								children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: "M12 5H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7M16 4l4 4M9 15l3.5-.7L21 5.8a2.1 2.1 0 0 0-3-3l-8.5 8.5L9 15Z" })
-							})
-						}) }),
-						!showStop.value && !showNewChat && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-							type: "submit",
-							disabled: !canSend.value,
-							"aria-label": sendLabel(),
-							className: "composer-send",
-							children: sending.value ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("svg", {
-								viewBox: "0 0 24 24",
-								fill: "none",
-								stroke: "currentColor",
-								strokeWidth: "2.4",
-								strokeLinecap: "round",
-								"aria-hidden": "true",
-								className: "composer-send-spinner",
-								children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: "M12 3a9 9 0 1 1-9 9" })
-							}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("svg", {
-								viewBox: "0 0 24 24",
-								fill: "none",
-								stroke: "currentColor",
-								strokeWidth: "2.7",
-								strokeLinecap: "round",
-								strokeLinejoin: "round",
-								"aria-hidden": "true",
-								children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: "M12 19V5m-6 6 6-6 6 6" })
+							}) }),
+							!showStop.value && !showNewChat && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+								type: "submit",
+								disabled: !canSend.value,
+								"aria-label": sendLabel(),
+								className: "composer-send",
+								children: sending.value ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("svg", {
+									viewBox: "0 0 24 24",
+									fill: "none",
+									stroke: "currentColor",
+									strokeWidth: "2.4",
+									strokeLinecap: "round",
+									"aria-hidden": "true",
+									className: "composer-send-spinner",
+									children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: "M12 3a9 9 0 1 1-9 9" })
+								}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("svg", {
+									viewBox: "0 0 24 24",
+									fill: "none",
+									stroke: "currentColor",
+									strokeWidth: "2.7",
+									strokeLinecap: "round",
+									strokeLinejoin: "round",
+									"aria-hidden": "true",
+									children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: "M12 19V5m-6 6 6-6 6 6" })
+								}) })
 							}) })
-						}) })
-					]
-				})
-			]
-		}), mode.value === "reply" && (fallbackAvailable.value || offerFreshContinuation.value) && onFallbackSend.value && hasDraft.value ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
-			type: "button",
-			disabled: !canFallback.value,
-			onClick: () => void submit(true),
-			className: "composer-fallback chat-action-button",
-			children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(ContinueChatIcon, {}), "Continue in new chat"]
-		}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {})]
+						]
+					})
+				]
+			}),
+			mode.value === "reply" && (fallbackAvailable.value || offerFreshContinuation.value) && onFallbackSend.value && hasDraft.value ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+				type: "button",
+				disabled: !canFallback.value,
+				onClick: () => void submit(true),
+				className: "composer-fallback chat-action-button",
+				children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(ContinueChatIcon, {}), "Continue in new chat"]
+			}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {})
+		]
 	}) });
 }
 //#endregion

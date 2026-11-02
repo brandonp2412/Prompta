@@ -37,6 +37,57 @@
 .prompt-bubble .prompt-expand { display: inline-flex; align-items: center; justify-content: flex-end; gap: 5px; margin: -4px 10px 8px auto; min-height: 32px; padding: 6px 8px; color: #b8caff; background: #414141; border-radius: 8px; font-size: .79rem; }
 .prompt-expand svg { width: 15px; height: 15px; transition: transform .15s ease; }
 .prompt-expand svg.rotated { transform: rotate(180deg); }
+.chat-composer-wrap { position: relative; }
+.composer-mentions {
+  position: absolute;
+  z-index: 40;
+  bottom: calc(100% + 6px);
+  left: 30px;
+  right: 30px;
+  max-width: 530px;
+  max-height: min(370px, 48vh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 6px;
+  border: 1px solid #505050;
+  border-radius: 17px;
+  background: #292929;
+  box-shadow: 0 12px 35px #0008;
+}
+.composer-mentions-heading { padding: 8px 11px 6px; color: #a5a5a5; font-size: .75rem; }
+.composer-mentions [role="option"] {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 51px;
+  padding: 7px 10px;
+  color: #eee;
+  background: transparent;
+  border: 0;
+  border-radius: 11px;
+  text-align: left;
+  cursor: pointer;
+}
+.composer-mentions [role="option"]:is(:hover, .selected) { background: #404040; }
+.composer-mention-icon {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 34px;
+  height: 34px;
+  border-radius: 11px;
+  background: #454545;
+  color: #ccc;
+  font-size: 1rem;
+}
+.composer-mention-label { display: flex; flex: 1; flex-direction: column; min-width: 0; gap: 2px; }
+.composer-mention-label strong { font-size: .91rem; font-weight: 550; }
+.composer-mention-label small { color: #b1b1b1; font-size: .74rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.composer-mention-kind { color: #999; font-size: .72rem; }
+@media (max-width: 680px) {
+  .composer-mentions { left: 10px; right: 10px; max-width: none; max-height: min(320px, 46vh); }
+}
 .chat-composer-wrap { width: min(100%, 920px); padding-bottom: max(15px, env(safe-area-inset-bottom)); }
 .chat-composer { display: grid; grid-template-columns: minmax(0, 1fr) 44px; grid-template-areas: "text text" "attach send"; align-items: center; gap: 4px 8px; border-radius: 23px; padding: 14px 16px 11px; }
 .chat-composer:has(.composer-previews) { grid-template-areas: "previews previews" "text text" "attach send"; }

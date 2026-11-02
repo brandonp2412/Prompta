@@ -1,0 +1,97 @@
+[
+  {
+    "name": "Web search",
+    "kind": "tool",
+    "description": "Search the web for current information"
+  },
+  {
+    "name": "Create image",
+    "kind": "tool",
+    "description": "Generate or edit an image"
+  },
+  {
+    "name": "Deep research",
+    "kind": "tool",
+    "description": "Research a topic in depth"
+  },
+  {
+    "name": "Sketch",
+    "kind": "tool",
+    "description": "Draw and attach a sketch"
+  },
+  {
+    "name": "Glass",
+    "kind": "connector",
+    "description": "Develop and run commands on Glass"
+  },
+  {
+    "name": "Matrix",
+    "kind": "connector",
+    "description": "Read and send Matrix messages"
+  },
+  {
+    "name": "Akahu",
+    "kind": "connector",
+    "description": "Banking accounts and transactions"
+  },
+  {
+    "name": "Email",
+    "kind": "connector",
+    "description": "Search and send email"
+  },
+  {
+    "name": "Google Calendar",
+    "kind": "connector",
+    "description": "Manage calendar events"
+  },
+  {
+    "name": "Pi Python MCP",
+    "kind": "connector",
+    "description": "Run Python on the Raspberry Pi"
+  },
+  {
+    "name": "Nox Python MCP",
+    "kind": "connector",
+    "description": "Run Python on Nox"
+  },
+  {
+    "name": "Patchright Brave",
+    "kind": "connector",
+    "description": "Control Brave browser on Glass"
+  },
+  {
+    "name": "GitHub",
+    "kind": "connector",
+    "description": "Repositories, issues and pull requests"
+  },
+  {
+    "name": "Glass Serena",
+    "kind": "connector",
+    "description": "Code navigation and edits on Glass"
+  },
+  {
+    "name": "Nox Serena",
+    "kind": "connector",
+    "description": "Code navigation and edits on Nox"
+  },
+  {
+    "name": "rbw",
+    "kind": "connector",
+    "description": "Bitwarden vault on Glass"
+  },
+  {
+    "name": "Sites",
+    "kind": "connector",
+    "description": "Build and manage websites"
+  },
+  {
+    "name": "Library",
+    "kind": "connector",
+    "description": "Browse and manage Library files"
+  },
+  {
+    "name": "Automations",
+    "kind": "connector",
+    "description": "Schedule recurring tasks"
+  }
+]
