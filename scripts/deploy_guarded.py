@@ -1,4 +1,4 @@
-"""Deploy Prompta promptly and recover interrupted captures from browser history.
+"""Deploy a new worker generation while live chats retain their original workers.
 
 Run from the installed Prompta checkout: python scripts/deploy_guarded.py
 Queued submissions stay durable. The browser service is deliberately untouched.
@@ -7,7 +7,6 @@ Queued submissions stay durable. The browser service is deliberately untouched.
 from __future__ import annotations
 
 import argparse
-import fcntl
 import json
 import logging
 import os
@@ -83,12 +82,15 @@ def wait_for_recoverable_handoff(
 
 
 def stop_workers(*, timeout: float = 60.0) -> None:
-    """Interrupt application owners promptly, preserving the external browser."""
-    subprocess.run(["systemctl", "--user", "stop", "--no-block", *SERVICES], check=True)
+    """Emergency browser-crash recovery only; routine deployment never calls this."""
+    from scripts.rolling_deploy import FRONTENDS, all_worker_units
+
+    services = (*FRONTENDS, *all_worker_units())
+    subprocess.run(["systemctl", "--user", "stop", "--no-block", *services], check=True)
     # Queue stop first so Restart=always cannot relaunch a killed owner.
     # A unit may already be inactive; the state check below confirms shutdown.
     subprocess.run(
-        ["systemctl", "--user", "kill", "--signal=SIGKILL", "--kill-whom=all", *SERVICES],
+        ["systemctl", "--user", "kill", "--signal=SIGKILL", "--kill-whom=all", *services],
         check=False,
     )
     deadline = time.monotonic() + timeout
@@ -102,7 +104,7 @@ def stop_workers(*, timeout: float = 60.0) -> None:
                 timeout=3,
             ).stdout.strip()
             in {"inactive", "failed"}
-            for unit in SERVICES
+            for unit in services
         ):
             return
         time.sleep(0.25)
@@ -218,7 +220,14 @@ def verify_recorded_work(gate: DeploymentGate) -> bool:
     return not missing
 
 
-def verify_services(*, timeout: float = 45.0) -> bool:
+def verify_services(
+    *, timeout: float = 45.0, units: tuple[str, ...] | None = None, check_http: bool = True,
+    ready_dir: Path | None = None,
+) -> bool:
+    if units is None:
+        from scripts.rolling_deploy import FRONTENDS, current_workers
+
+        units = (*FRONTENDS, *current_workers(DEFAULT_STATE.parent))
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         units_active = all(
@@ -227,9 +236,16 @@ def verify_services(*, timeout: float = 45.0) -> bool:
                 check=False,
             ).returncode
             == 0
-            for unit in SERVICES
+            for unit in units
         )
+        if units_active and ready_dir is not None:
+            units_active = all(
+                (ready_dir / ("ready-" + unit.split("-worker-", 1)[0])).exists()
+                for unit in units
+            )
         if units_active:
+            if not check_http:
+                return True
             try:
                 with urlopen("http://127.0.0.1:8765/api/health", timeout=3) as response:
                     payload = json.load(response)
@@ -242,54 +258,10 @@ def verify_services(*, timeout: float = 45.0) -> bool:
 
 
 def deploy(repo: Path, gate: DeploymentGate) -> bool:
-    """Stop owners before updating; startup recovery reconciles durable captures."""
-    merge_lock = repo / ".git/prompta-main-merge.lock"
-    with merge_lock.open("a+b") as merge_handle:
-        fcntl.flock(merge_handle.fileno(), fcntl.LOCK_EX)
-        # Fetch is safe before pausing browser operations; checkout is not.
-        subprocess.run(["git", "fetch", "origin", "main"], cwd=repo, check=True)
-        if subprocess.run(["git", "diff", "--quiet"], cwd=repo, check=False).returncode != 0:
-            raise RuntimeError("Installed checkout has local modifications")
-        request_pause(gate)
-        changed = False
-        success = False
-        try:
-            wait_for_recoverable_handoff(gate)
-            record_interrupted_work(gate)
-            changed = True
-            stop_workers()
-            # Every browser-owning process is stopped. Expire all of its
-            # capture leases so the new workers mark them interrupted on boot,
-            # even if an old PID is unexpectedly reused. Nothing is resent.
-            with sqlite3.connect(gate.pause_path.parent / "chat-results.sqlite3") as db:
-                db.execute(
-                    "UPDATE job_responses SET capture_deadline=0 "
-                    "WHERE status IN ('accepted', 'generating')"
-                )
-                db.execute(
-                    "UPDATE manual_reply_turns SET lease_deadline=0 "
-                    "WHERE status IN ('dispatching', 'accepted', 'generating')"
-                )
-            # Unconfirmed deliveries are also quarantined without retry.
-            with sqlite3.connect(gate.pause_path.parent / "ui-send-jobs.sqlite3") as db:
-                db.execute("UPDATE job_deliveries SET lease_expires_at=0 WHERE status='running'")
-            subprocess.run(["git", "merge", "--ff-only", "origin/main"], cwd=repo, check=True)
-            subprocess.run([str(repo / ".venv/bin/prompta-migrate")], cwd=repo, check=True)
-            # The browser process, its tabs and profile are never restarted here.
-            for unit in SERVICES:
-                subprocess.run(["systemctl", "--user", "restart", unit], check=True)
-            if not verify_services():
-                raise RuntimeError("Deployment health verification failed; admission stays paused")
-            if not verify_recorded_work(gate):
-                raise RuntimeError("Deployment lost recorded work; admission stays paused")
-            logger.info("event=deployment_health_verified recovery_may_be_pending=true")
-            success = True
-            return True
-        finally:
-            if not changed or success:
-                gate.pause_path.unlink()
-            else:
-                logger.error("Deployment incomplete; pause marker retained until operator recovery")
+    """Start an immutable generation while previous owners drain in place."""
+    from scripts.rolling_deploy import deploy as rolling_deploy
+
+    return rolling_deploy(repo, gate)
 
 
 def main() -> None:
@@ -301,8 +273,20 @@ def main() -> None:
         action="store_true",
         help="Remove a leftover pause only after separately verifying services are healthy",
     )
+    parser.add_argument("--sync-checkout", action="store_true")
     args = parser.parse_args()
     configure_logging("deploy_guarded")
+    if args.sync_checkout:
+        from scripts.rolling_deploy import sync_checkout
+
+        with (args.repo / ".git/prompta-main-merge.lock").open("a+b") as lock:
+            import fcntl
+
+            fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+            if sync_checkout(args.repo):
+                subprocess.run(["systemctl", "--user", "disable", "--now",
+                                "prompta-checkout-sync.timer"], check=True)
+        return
     gate = DeploymentGate(args.state)
     if args.resume:
         if not verify_services():
