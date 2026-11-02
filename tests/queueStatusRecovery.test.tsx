@@ -41,6 +41,7 @@ const snapshot = (position: number) => ({
   waiting: [
     {
       name: "scheduled",
+      one_time: true,
       position,
       reason: "global",
       occupied: 1,

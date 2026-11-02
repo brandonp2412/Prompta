@@ -9,6 +9,7 @@ const valid = () => ({
   waiting: [
     {
       name: "scheduled-job",
+      one_time: true,
       position: 1,
       reason: "global",
       occupied: 2,
@@ -61,6 +62,7 @@ test("malformed waiting rows cannot produce nonsensical positions or ETAs", () =
     { eta_seconds: Infinity },
     { eta_seconds: NaN },
     { name: "" },
+    { one_time: "yes" },
   ]) {
     const original = valid();
     expect(

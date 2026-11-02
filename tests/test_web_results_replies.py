@@ -373,6 +373,7 @@ def test_queue_status_api_is_private_read_only_and_exposes_worker_wait_order(
             "waiting": [
                 {
                     "name": name,
+                    "one_time": False,
                     "position": index,
                     "reason": "global",
                     "occupied": 0,
@@ -417,7 +418,7 @@ def test_queued_chat_sidebar_subtitle_uses_its_dispatch_eta(tmp_path: Path) -> N
                 browser.close()
 
 
-def test_waiting_chats_render_and_advance_on_desktop_and_mobile(tmp_path: Path) -> None:
+def test_only_due_once_jobs_render_in_sidebar_on_desktop_and_mobile(tmp_path: Path) -> None:
     chromium_path = os.environ.get("PROMPTA_TEST_CHROMIUM")
     if not chromium_path or not Path(chromium_path).is_file():
         pytest.skip("Visual Chromium binary unavailable")
@@ -429,9 +430,14 @@ def test_waiting_chats_render_and_advance_on_desktop_and_mobile(tmp_path: Path) 
         app.queue_view.concurrency_config_path = config_path
         at = time.time()
         for name in ("alpha", "beta", "gamma"):
-            add_job(app.jobs_path, name, f"Synthetic prompt for {name}", 60, exact_interval=True)
-            app.queue_view.runtime.update_job_state(name, {"initial_due_at_epoch": at})
-        assert app.queue_view.tick(now=at) == 3
+            add_job(app.jobs_path, name, f"Synthetic prompt for {name}", 0,
+                    run_at_epoch=at)
+        add_job(app.jobs_path, "recurring", "Repeating prompt", 60,
+                exact_interval=True)
+        app.queue_view.runtime.update_job_state("recurring", {"initial_due_at_epoch": at})
+        add_job(app.jobs_path, "future-once", "Tomorrow prompt", 0,
+                run_at_epoch=at + 3600)
+        assert app.queue_view.tick(now=at) == 4
         with sync_patchright() as patchright:
             browser = patchright.chromium.launch(
                 executable_path=chromium_path, headless=True, args=["--no-sandbox"]
@@ -447,15 +453,16 @@ def test_waiting_chats_render_and_advance_on_desktop_and_mobile(tmp_path: Path) 
                     page.goto(
                         f"http://127.0.0.1:{port}/?view=chats", wait_until="domcontentloaded"
                     )
-                    expect(page.locator(".queue-heading")).to_contain_text("0/1 global slots")
                     rows = page.locator(".queue-waiting")
                     expect(rows).to_have_count(3)
                     expect(page.locator(".chat-entry:not(.queue-waiting)")).to_have_count(0)
                     for position, name in enumerate(("alpha", "beta", "gamma"), start=1):
                         expect(rows.nth(position - 1)).to_contain_text(name)
                         expect(rows.nth(position - 1)).to_contain_text(
-                            f"#{position} of 3"
+                            f"#{position} of 4"
                         )
+                    expect(page.get_by_text("recurring", exact=True)).to_have_count(0)
+                    expect(page.get_by_text("future-once", exact=True)).to_have_count(0)
                     assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
                     page.screenshot(path=str(tmp_path / f"queued-{width}x{height}.png"))
                     assert all(method == "GET" for method, _ in requests)
@@ -468,9 +475,9 @@ def test_waiting_chats_render_and_advance_on_desktop_and_mobile(tmp_path: Path) 
                         expect(page.locator(".jobs-workspace")).to_be_visible()
                         expect(
                             page.locator(".jobs-workspace .job-row")
-                            .filter(has_text="alpha")
+                            .filter(has_text="recurring")
                             .locator(".job-queue-eta")
-                        ).to_contain_text("Queue #1 of 3")
+                        ).to_contain_text("Queue #4 of 4")
                     context.close()
 
                 context = browser.new_context(viewport={"width": 1440, "height": 900})
@@ -486,6 +493,10 @@ def test_waiting_chats_render_and_advance_on_desktop_and_mobile(tmp_path: Path) 
                 # SSE updates the persistent queue without a page refresh.
                 expect(rows).to_have_count(2)
                 expect(rows.first).to_contain_text("beta")
+                expect(page.get_by_text("recurring", exact=True)).to_have_count(0)
+                assert app.queue_view.tick(now=at + 3600) == 2
+                expect(rows).to_have_count(3)
+                expect(page.get_by_text("future-once", exact=True)).to_be_visible()
                 context.close()
             finally:
                 browser.close()

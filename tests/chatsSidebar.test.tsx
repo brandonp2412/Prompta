@@ -262,6 +262,50 @@ test("queued follow-ups show their ETA instead of a stale answer preview", async
   expect(screen.getByText("New completed answer")).toBeTruthy();
 });
 
+test("sidebar shows queued once jobs but hides repeating scheduled deliveries", async () => {
+  const { model } = sidebar();
+  await act(async () => {
+    model.queueSnapshot.value = {
+      max_workers: 1,
+      occupied_slots: 1,
+      estimated_run_seconds: 120,
+      estimate_samples: 5,
+      waiting: [
+        {
+          name: "recurring",
+          one_time: false,
+          position: 1,
+          reason: "global",
+          occupied: 1,
+          limit: 1,
+          eta_seconds: 120,
+        },
+        {
+          name: "due-once",
+          one_time: true,
+          position: 2,
+          reason: "global",
+          occupied: 1,
+          limit: 1,
+          eta_seconds: 240,
+        },
+      ],
+    };
+    model.items.value = [
+      { ...run(1), title: "Repeating job", job_name: "recurring", status: "queued" },
+      { ...run(2), title: "Due once chat", job_name: "due-once", status: "queued" },
+      { ...run(3), title: "Manual once chat", status: "queued" },
+    ];
+  });
+  expect(model.visibleWaiting.value.map((job) => job.name)).toEqual(["due-once"]);
+  expect(screen.getByText("due-once")).toBeTruthy();
+  expect(screen.getByText("#2 of 2")).toBeTruthy();
+  expect(screen.getByText("Manual once chat")).toBeTruthy();
+  expect(screen.queryByText("Repeating job")).toBeNull();
+  expect(screen.queryByText("recurring")).toBeNull();
+  expect(screen.queryByText("Due once chat")).toBeNull();
+});
+
 test("settings cannot be saved before a successful load", async () => {
   let resolveSettings: ((response: Response) => void) | undefined;
   const saves: unknown[] = [];

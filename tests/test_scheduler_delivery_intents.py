@@ -318,6 +318,7 @@ def test_later_queued_once_job_preempts_repeating_in_dispatch_and_eta(tmp_path: 
     assert [row["name"] for row in rows if row is not None] == [
         "zzz-once", "aaa-repeating",
     ]
+    assert [row["one_time"] for row in rows if row is not None] == [True, False]
     restarted = DurableSchedulerProducer(
         producer.state_path, producer.jobs_path, producer.queue.path,
         producer.concurrency_config_path,
@@ -478,6 +479,7 @@ def test_concurrency_queue_snapshot_includes_all_due_job_types(tmp_path: Path) -
         "waiting": [
             {
                 "name": name,
+                "one_time": name.startswith("once-"),
                 "position": position,
                 "reason": "global",
                 "occupied": 0,
@@ -501,6 +503,7 @@ def test_concurrency_queue_snapshot_includes_all_due_job_types(tmp_path: Path) -
     assert snap["waiting"] == [
         {
             "name": "recurring-1",
+            "one_time": False,
             "position": 1,
             "reason": "global",
             "occupied": 2,

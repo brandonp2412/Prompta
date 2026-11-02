@@ -1,5 +1,6 @@
 export type WaitingJob = {
   name: string;
+  one_time: boolean;
   position: number;
   reason: "global" | "stage";
   occupied: number;
@@ -76,6 +77,8 @@ export function isQueueSnapshot(value: unknown): value is QueueSnapshot {
       "name" in job &&
       typeof job.name === "string" &&
       job.name.length > 0 &&
+      "one_time" in job &&
+      typeof job.one_time === "boolean" &&
       "position" in job &&
       positiveInteger(job.position) &&
       "reason" in job &&

@@ -272,6 +272,7 @@ class DeliveryQueueStore:
                     job_deliveries.c.send_id,
                     job_deliveries.c.client_id,
                     job_deliveries.c.retry_at,
+                    job_deliveries.c.one_time,
                 )
                 .where(job_deliveries.c.status.in_(("queued", "retrying", "rate_limited")))
                 .order_by(job_deliveries.c.queue_priority, _DISPATCH_PRIORITY, job_deliveries.c.sequence)
@@ -281,6 +282,7 @@ class DeliveryQueueStore:
                 "send_id": str(row["send_id"]),
                 "client_id": str(row["client_id"]),
                 "retry_at": float_value(row["retry_at"]),
+                "one_time": bool(row["one_time"]),
             }
             for row in rows
         ]

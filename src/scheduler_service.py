@@ -120,6 +120,7 @@ class DurableSchedulerProducer:
             waiting.append(
                 {
                     "name": client_id.rsplit(":", 1)[-1],
+                    "one_time": bool(receipt["one_time"]),
                     "position": len(waiting) + 1,
                     "reason": "global",
                     "occupied": len(active),

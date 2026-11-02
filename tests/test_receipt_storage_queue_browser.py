@@ -95,7 +95,8 @@ def test_queue_outage_retains_last_confirmed_positions(
         "max_workers": 3, "occupied_slots": 2,
         "estimated_run_seconds": 180, "estimate_samples": 4,
         "waiting": [{
-            "name": "Scheduled queue probe", "position": 1, "reason": "global",
+            "name": "Scheduled queue probe", "one_time": True,
+            "position": 1, "reason": "global",
             "occupied": 2, "limit": 3, "eta_seconds": 180,
         }],
     }

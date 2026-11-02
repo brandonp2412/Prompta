@@ -8,6 +8,7 @@ import {
 
 const waiting: WaitingJob = {
   name: "Prompta",
+  one_time: true,
   position: 2,
   reason: "global",
   occupied: 1,

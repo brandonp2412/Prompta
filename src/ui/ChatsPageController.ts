@@ -266,11 +266,14 @@ export function createChatsPageController(initialProps: Props) {
   const visibleWaiting = computed(() =>
     queueSnapshot.value.waiting.filter(
       (job) =>
-        !appliedSearch.value || job.name.toLowerCase().includes(appliedSearch.value.toLowerCase()),
+        job.one_time &&
+        (!appliedSearch.value ||
+          job.name.toLowerCase().includes(appliedSearch.value.toLowerCase())),
     ),
   );
   const queuedWaitingChat = (item: RunSummary) =>
-    item.status === "queued" && visibleWaiting.value.some((job) => job.name === item.job_name);
+    item.status === "queued" &&
+    queueSnapshot.value.waiting.some((job) => job.name === item.job_name);
   const pinned = computed(() => {
     const byId = new Map(
       [...pinnedItems.value, ...items.value].map((item) => [item.send_id, item]),
