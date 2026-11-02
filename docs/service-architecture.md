@@ -13,30 +13,39 @@
 
 ## Guarded production deployments
 
-On Nox, update production using `./.venv/bin/python -m scripts.deploy_guarded` from
-`~/prompta`. This is the standard release path; avoid direct `git pull` plus
-`systemctl restart` for application services. The command fetches GitHub main,
-creates a private deployment pause marker and records active fresh captures,
-explicit replies, and deliveries in `deployment-interrupted.json` in the state
-directory. Deployment does not wait for active chats or browser reads. It queues
-application service stops and immediately kills their processes; interrupted
-chats recover after restart. Only after workers stop does it fast-forward and migrate the
-checkout, restart the scheduler/UI/delivery/manual workers, and verify health.
-The persistent browser service and its tabs stay running.
+On Nox, run `./.venv/bin/python -m scripts.deploy_guarded` from `~/prompta`.
+Each deployment archives the fetched main revision into a unique directory under
+`~/.local/state/prompta/releases/` and installs its own Python environment through
+`buildq`. Workers execute modules from that fixed directory, so later checkout
+and dependency changes cannot change the code of a running capture.
 
-After workers stop, the deployer immediately expires the stopped owners' leases.
-Startup orphan recovery marks these captures interrupted even if a PID has been
-reused. The deploy inventory carries durable priority IDs across subsequent
-rollouts; it is consumed by the history worker so newly interrupted captures
-are tried before the ordinary unresolved backlog. These remain read-only exact
-conversation probes, globally limited to one per 90 seconds and subject to
-per-chat, account-read, and security backoffs. A capture without a verified
-conversation/parent identity remains unresolved rather than being resent. Uncertain sends are quarantined rather than
-resubmitted; recovery never authorizes duplicate prompts. Scheduler and UI
-submissions remain durable while admission is paused. A failed deployment retains
-the pause; investigate and verify services before running
-`python -m scripts.deploy_guarded --resume`. The interruption inventory remains
-available after deployment for diagnosis.
+The deployer briefly pauses new admissions, initializes the new delivery and
+manual reply workers, and verifies readiness against their actual PIDs. It then
+queues graceful retirement of the previous pair. Retiring workers accept no new
+work and finish their existing sends and captures without a deadline. Their
+browser transport children stay alive: systemd signals only the main process
+(`KillMode=mixed`, `SendSIGKILL=no`, `TimeoutStopSec=infinity`). Persistent retirement
+conditions prevent an old target dependency from resurrecting retired workers.
+Only the newest pair is enabled for startup. Multiple older generations may drain
+at once.
+
+The UI and scheduler restart on the new release and admissions resume after
+health verification. The browser service is untouched. Capture leases are never
+expired by routine deployment. `worker-generation.json` records the serving
+workers, and `worker-handover.json` records the retiring workers and deployed
+revision. Failures before retirement leave the original workers serving; failures
+after retirement retain the admission pause for operator recovery using
+`python -m scripts.deploy_guarded --resume` after checking service health.
+
+During the first rollout, the original workers still load from `~/prompta`.
+Only the deployment scripts may be upgraded there before their retirement; loaded
+application source remains pinned until they finish. A persistent checkout sync
+timer advances the checkout after both original workers exit. Subsequent workers
+all use release snapshots. Host overrides, including browser endpoints and watchdog
+budgets, carry into each new generation. Schema revision changes are rejected
+before handover because old workers cannot recognize a new migration head.
+Browser-crash recovery remains a separate emergency operation that inventories
+and interrupts all worker generations before restarting a crashed browser.
 
 ## Browser watchdog
 

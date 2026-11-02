@@ -88,31 +88,6 @@ def test_handoff_guard_refuses_unconfirmed_reply(tmp_path: Path) -> None:
         deploy_guarded.wait_for_recoverable_handoff(gate, timeout=0)
 
 
-def test_deploy_aborts_without_killing_owners_when_handoff_is_unsafe(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    gate = DeploymentGate(tmp_path / "state/runtime.sqlite3")
-    make_databases(tmp_path / "state", active=True)
-    repo = tmp_path / "repo"
-    (repo / ".git").mkdir(parents=True)
-    commands: list[tuple[str, ...]] = []
-
-    def fake_run(args: list[str], **_kwargs: object) -> object:
-        commands.append(tuple(args))
-        return type("Result", (), {"returncode": 0})()
-
-    safe_guard = deploy_guarded.wait_for_recoverable_handoff
-    monkeypatch.setattr(deploy_guarded.subprocess, "run", fake_run)
-    monkeypatch.setattr(
-        deploy_guarded, "wait_for_recoverable_handoff",
-        lambda current_gate: safe_guard(current_gate, timeout=0),
-    )
-    with pytest.raises(TimeoutError, match="Deployment deferred"):
-        deploy_guarded.deploy(repo, gate)
-    assert not gate.is_paused()
-    assert not any("systemctl" in command for command in commands)
-
-
 def test_deploy_verification_reports_pending_recovery_without_claiming_completion(
     tmp_path: Path,
 ) -> None:
@@ -149,6 +124,9 @@ def test_next_deploy_keeps_unfinished_recovery_priority(tmp_path: Path) -> None:
 
 
 def test_shutdown_interrupts_application_owners(monkeypatch: pytest.MonkeyPatch) -> None:
+    from scripts import rolling_deploy
+
+    monkeypatch.setattr(rolling_deploy, "all_worker_units", lambda: rolling_deploy.LEGACY_WORKERS)
     commands: list[tuple[str, ...]] = []
 
     def fake_run(args: list[str], **_kwargs: object) -> object:
@@ -157,15 +135,18 @@ def test_shutdown_interrupts_application_owners(monkeypatch: pytest.MonkeyPatch)
 
     monkeypatch.setattr(deploy_guarded.subprocess, "run", fake_run)
     deploy_guarded.stop_workers()
-    assert commands[0] == ("systemctl", "--user", "stop", "--no-block", *deploy_guarded.SERVICES)
+    assert commands[0] == ("systemctl", "--user", "stop", "--no-block", *rolling_deploy.FRONTENDS, *rolling_deploy.LEGACY_WORKERS)
     assert commands[1] == (
         "systemctl", "--user", "kill", "--signal=SIGKILL", "--kill-whom=all",
-        *deploy_guarded.SERVICES,
+        *rolling_deploy.FRONTENDS, *rolling_deploy.LEGACY_WORKERS,
     )
     assert all("prompta-browser.service" not in command for command in commands)
 
 
 def test_shutdown_failure_prevents_checkout_update(monkeypatch: pytest.MonkeyPatch) -> None:
+    from scripts import rolling_deploy
+
+    monkeypatch.setattr(rolling_deploy, "all_worker_units", lambda: rolling_deploy.LEGACY_WORKERS)
     monkeypatch.setattr(
         deploy_guarded.subprocess, "run",
         lambda *_args, **_kwargs: type("Result", (), {"returncode": 0})(),
@@ -179,63 +160,6 @@ def test_refuses_to_take_over_existing_pause(tmp_path: Path) -> None:
     deploy_guarded.request_pause(gate)
     with pytest.raises(FileExistsError):
         deploy_guarded.request_pause(gate)
-    assert gate.is_paused()
-
-
-def test_successful_deploy_restarts_apps_but_not_browser(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    gate = DeploymentGate(tmp_path / "state/runtime.sqlite3")
-    make_databases(tmp_path / "state", active=True)
-    # Exercise restart bookkeeping independently of the handoff guard tests.
-    with sqlite3.connect(tmp_path / "state/chat-results.sqlite3") as db:
-        db.execute("UPDATE job_responses SET capture_deadline=9999999999")
-        db.execute("UPDATE manual_reply_turns SET lease_deadline=9999999999")
-    repo = tmp_path / "repo"
-    (repo / ".git").mkdir(parents=True)
-    (repo / ".venv/bin").mkdir(parents=True)
-    commands: list[tuple[str, ...]] = []
-
-    def fake_run(args: list[str], **_kwargs: object) -> object:
-        commands.append(tuple(args))
-        return type("Result", (), {"returncode": 0})()
-
-    monkeypatch.setattr(deploy_guarded.subprocess, "run", fake_run)
-    monkeypatch.setattr(deploy_guarded, "verify_services", lambda: True)
-    monkeypatch.setattr(deploy_guarded, "stop_workers", lambda: None)
-    monkeypatch.setattr(deploy_guarded, "wait_for_recoverable_handoff", lambda _gate: None)
-    with gate.admission() as admitted:
-        assert admitted
-        assert deploy_guarded.deploy(repo, gate)
-    assert not gate.is_paused()
-    with sqlite3.connect(tmp_path / "state/ui-send-jobs.sqlite3") as db:
-        assert db.execute("SELECT lease_expires_at FROM job_deliveries").fetchone() == (0,)
-    with sqlite3.connect(tmp_path / "state/chat-results.sqlite3") as db:
-        assert db.execute("SELECT capture_deadline FROM job_responses").fetchone() == (0,)
-        assert db.execute("SELECT lease_deadline FROM manual_reply_turns").fetchone() == (0,)
-    assert sum(command[:3] == ("systemctl", "--user", "restart") for command in commands) == 4
-    assert all("prompta-browser.service" not in command for command in commands)
-
-
-def test_post_update_failure_keeps_admission_paused(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    gate = DeploymentGate(tmp_path / "state/runtime.sqlite3")
-    make_databases(tmp_path / "state", active=True)
-    repo = tmp_path / "repo"
-    (repo / ".git").mkdir(parents=True)
-    (repo / ".venv/bin").mkdir(parents=True)
-
-    def fake_run(args: list[str], **_kwargs: object) -> object:
-        if args[0].endswith("prompta-migrate"):
-            raise RuntimeError("migrations did not complete")
-        return type("Result", (), {"returncode": 0})()
-
-    monkeypatch.setattr(deploy_guarded.subprocess, "run", fake_run)
-    monkeypatch.setattr(deploy_guarded, "stop_workers", lambda: None)
-    monkeypatch.setattr(deploy_guarded, "wait_for_recoverable_handoff", lambda _gate: None)
-    with pytest.raises(RuntimeError, match="migrations did not complete"):
-        deploy_guarded.deploy(repo, gate)
     assert gate.is_paused()
 
 

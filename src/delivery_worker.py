@@ -24,7 +24,7 @@ from .delivery_browser import (
     SendNotAcceptedError,
 )
 from .delivery_queue import DeliveryQueueStore
-from .deployment_gate import DeploymentGate
+from .deployment_gate import DeploymentGate, mark_worker_ready
 from .history_recovery import run_history_recovery
 from .logging_config import configure_logging
 from .persistence import DEFAULT_RUNTIME_PATH
@@ -418,6 +418,7 @@ def run(
         daemon=True,
     )
     recovery_thread.start()
+    mark_worker_ready(state_path, "prompta-delivery")
     last_lease_sweep = float("-inf")
 
     try:
@@ -469,7 +470,10 @@ def run(
         pass
     finally:
         recovery_stop.set()
-        recovery_thread.join(timeout=2.0)
+        while recovery_thread.is_alive():
+            health.beat("delivery_worker")
+            notify_watchdog()
+            recovery_thread.join(timeout=1.0)
         _drain_background_captures(health)
 
 

@@ -8,6 +8,7 @@ Admission never waits for a browser-wide lock; interrupted reads recover from hi
 from __future__ import annotations
 
 import json
+import os
 from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
@@ -51,3 +52,11 @@ class DeploymentGate:
     def admission(self) -> Generator[bool, None, None]:
         """Check admission without blocking; deployments stop owners explicitly."""
         yield not self.is_paused()
+
+
+def mark_worker_ready(state_path: Path, worker: str) -> None:
+    """Publish readiness only after this generation has initialized its stores."""
+    generation = os.environ.get("PROMPTA_WORKER_GENERATION")
+    if generation:
+        target = state_path.expanduser().parent / "releases" / generation / f"ready-{worker}"
+        target.write_text(str(os.getpid()))

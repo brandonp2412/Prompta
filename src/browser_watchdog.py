@@ -323,12 +323,13 @@ def resume_pending_recovery(gate: DeploymentGate) -> None:
 def recover_crashed_browser(gate: DeploymentGate, browser_service: str) -> None:
     """Persist recovery ownership, quiesce workers, and verify before admitting work."""
     from scripts.deploy_guarded import (
-        SERVICES,
         record_interrupted_work,
         stop_workers,
         verify_services,
     )
+    from scripts.rolling_deploy import FRONTENDS, current_workers
 
+    services = (*FRONTENDS, *current_workers(gate.pause_path.parent))
     try:
         with gate.pause_path.open("x") as marker:
             marker.write(RECOVERY_PAUSE_MARKER)
@@ -349,7 +350,7 @@ def recover_crashed_browser(gate: DeploymentGate, browser_service: str) -> None:
     address = os.environ.get("PROMPTA_CHROME_DEBUGGER_ADDRESS", "127.0.0.1:9222")
     if not wait_for_browser(address):
         raise RuntimeError("Browser renderer failed recovery; admission stays paused")
-    subprocess.run(["systemctl", "--user", "start", *SERVICES], check=True, timeout=30)
+    subprocess.run(["systemctl", "--user", "start", *services], check=True, timeout=30)
     if not verify_services():
         raise RuntimeError("Browser recovery failed service verification; admission stays paused")
     state.consecutive_failures = 0

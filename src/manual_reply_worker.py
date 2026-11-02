@@ -13,6 +13,7 @@ import time
 from pathlib import Path
 from types import FrameType
 
+from .deployment_gate import mark_worker_ready
 from .logging_config import configure_logging
 from .manual_reply_dispatch import ManualReplyDispatcher
 from .persistence import DEFAULT_RUNTIME_PATH
@@ -29,6 +30,7 @@ def run(state_path: Path = DEFAULT_RUNTIME_PATH, *, stop: threading.Event | None
     dispatcher = ManualReplyDispatcher(store, state_path)
     health = ServiceHealthStore(state_path)
     store.recover_orphans()
+    mark_worker_ready(state_path, "prompta-manual-reply")
     logger.info("Prompta manual reply worker ready")
     while not shutdown.is_set():
         try:
