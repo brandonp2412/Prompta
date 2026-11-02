@@ -815,6 +815,7 @@ class ResponseStore:
             if row is None or (
                 row["message_id"] and capture.message_id
                 and row["message_id"] != capture.message_id
+                and row["message_id"] not in capture.turn_message_ids
             ):
                 return False
             # A later historical DOM snapshot can be truncated while the saved

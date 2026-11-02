@@ -15,7 +15,10 @@ FIXTURES = Path(__file__).parent / "fixtures" / "passive_response"
 CONVERSATION_ID = "d5c86e83-1f55-4ab5-ae50-7e2eed27c33e"
 
 
-def test_legacy_snapshots_are_replacements_and_filter_private_content() -> None:
+def test_legacy_snapshots_are_replacements_and_filter_private_content(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("prompta.tool_events.time.time", lambda: 123.0)
     result = parse_sse_body((FIXTURES / "legacy.sse").read_text())
     assert result == CaptureResult(
         source="sse",
@@ -25,10 +28,23 @@ def test_legacy_snapshots_are_replacements_and_filter_private_content() -> None:
         message_id="final-1",
         parent_id=None,
         tool_calls=({
+            "observed_at": 123.0,
             "id": "tool-1", "connector": "python", "action": "python",
             "status": "running", "arguments": "private tool code", "result": "", "error": "",
         },),
     )
+
+
+@pytest.mark.parametrize("identities", [["not-an-id"], [123], [CONVERSATION_ID] * 257])
+def test_dom_turn_message_id_proof_rejects_malformed_or_unbounded_lists(
+    identities: list[object],
+) -> None:
+    capture = normalize_dom_snapshot({
+        "message_id": "unit", "text": "Answer", "complete": True,
+        "branch_message_id": CONVERSATION_ID, "turn_message_ids": identities,
+        "pathname": "/c/" + CONVERSATION_ID,
+    })
+    assert capture.turn_message_ids == ()
 
 
 def test_delta_append_and_patch_with_arbitrary_chunk_boundaries() -> None:

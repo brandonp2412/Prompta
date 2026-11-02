@@ -465,12 +465,16 @@ class HistoryRecovery:
                 stored = self.replies.get(reply_id) if reply_id else self.results.get(send_id)
                 logger.info(
                     "event=history_recovery_observed send_id=%s result=%s text_chars=%s "
-                    "stored_status=%s stored_text_chars=%s merged=%s",
+                    "stored_status=%s stored_text_chars=%s merged=%s message_id=%s "
+                    "stored_message_id=%s turn_message_ids=%s",
                     send_id, result.status if result is not None else "unverified",
                     len(result.text) if result is not None else 0,
                     stored["status"] if stored is not None else "missing",
                     len(str(stored["assistant_text"])) if stored is not None else 0,
                     recovered,
+                    result.message_id if result is not None else None,
+                    stored["message_id"] if stored is not None else None,
+                    result.turn_message_ids if result is not None else (),
                 )
                 if recovered and result is not None and result.status == "complete":
                     # A complete-looking DOM snapshot may only merge tool

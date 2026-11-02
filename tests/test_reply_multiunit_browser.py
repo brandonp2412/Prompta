@@ -4,17 +4,100 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 from pathlib import Path
 
 import pytest
 from patchright.async_api import async_playwright as async_patchright
 
 from prompta.browser_script_loader import load_browser_script
+from prompta.reply_contracts import ManualReplyStore, ReplyIntent
+from prompta.response_capture import CaptureResult, normalize_dom_snapshot
+from prompta.response_store import ResponseStore
 
 CONVERSATION = "12345678-1234-4123-8123-123456789abc"
 PARENT = "87654321-4321-4321-8321-123456789abc"
 PART_A = "11111111-1111-4111-8111-111111111111"
 PART_B = "22222222-2222-4222-8222-222222222222"
+TEST_CHROMIUM = Path(os.environ.get("PROMPTA_TEST_CHROMIUM", "/usr/bin/chromium"))
+
+
+@pytest.mark.skipif(not TEST_CHROMIUM.exists(), reason="Chromium unavailable")
+@pytest.mark.parametrize("followup", [False, True])
+def test_recovery_accepts_new_final_id_only_with_saved_message_in_verified_turn(
+    tmp_path: Path, followup: bool,
+) -> None:
+    store = ResponseStore(tmp_path / "results.sqlite3")
+    replies = ManualReplyStore(store.path)
+    store.ensure_queued("run", "Original prompt", now=10)
+    assert store.accept("run", "123:owner", deadline=100, now=11)
+    first = CaptureResult("sse", "partial", "First response", CONVERSATION, PART_A, None)
+    if followup:
+        assert store.write("run", "123:owner", CaptureResult(
+            "sse", "complete", "Original answer", CONVERSATION, PARENT, None,
+        ), now=12)
+        intent = ReplyIntent("reply", CONVERSATION, PARENT, "Follow up")
+        replies.prepare("run", intent, now=13)
+        assert replies.claim("reply", "123:reply", deadline=100, now=14)
+        assert replies.accepted(
+            "reply", "123:reply", conversation_id=CONVERSATION, parent_id=PARENT,
+            message_id=PART_A, now=14,
+        )
+        assert replies.observe("reply", "123:reply", CaptureResult(
+            "sse", "partial", "First response", CONVERSATION, PART_A, PARENT,
+        ), now=15)
+        assert replies.finish("reply", "123:reply", uncertain=True, now=16)
+    else:
+        assert store.write("run", "123:owner", first, now=12)
+        assert store.finish("run", "123:owner", "interrupted", now=13)
+
+    async def check() -> None:
+        async with async_patchright() as patchright:
+            browser = await patchright.chromium.launch(executable_path=str(TEST_CHROMIUM), headless=True)
+            try:
+                page = await browser.new_page()
+                html = _html() if followup else _html().split(
+                    '<div data-chatgpt-search-unit-key="fallback-turn-1:0:user">'
+                )[0].replace(
+                    f'data-chatgpt-search-message-ids="{PARENT} {PARENT} {PART_A}"',
+                    f'data-chatgpt-search-message-ids="{PART_A}"',
+                ).replace('Original answer', 'First response') + f'''
+                    <article><div data-chatgpt-search-unit-key="fallback-turn-0:3:assistant"
+                        data-chatgpt-search-message-ids="{PART_B}">
+                      <div class="markdown"><p>Second response</p></div></div>
+                      <button data-testid="copy-turn-action-button">Copy</button>
+                    </article></main></body></html>'''
+                await page.route("https://chatgpt.com/c/**", lambda route: route.fulfill(
+                    status=200, content_type="text/html", body=html,
+                ))
+                await page.goto("https://chatgpt.com/c/" + CONVERSATION)
+                script = _historical_script() if followup else load_browser_script(
+                    "historical_response_probe.js",
+                ).replace("__CONVERSATION__", json.dumps(CONVERSATION)).replace(
+                    "__ORIGINAL_PROMPT__", json.dumps("Original prompt"),
+                )
+                payload = await page.evaluate(script)
+                assert payload["turn_message_ids"] == [PART_A, PART_B]
+                assert payload["branch_message_id"] == PART_B
+                capture = normalize_dom_snapshot(payload)
+                assert capture.status == "complete"
+                payload["turn_message_ids"] = [PART_B]
+                unrelated = normalize_dom_snapshot(payload)
+                if followup:
+                    assert not replies.recover_historical_reply("reply", unrelated, now=20)
+                    assert replies.recover_historical_reply("reply", capture, now=21)
+                    row = replies.get("reply")
+                else:
+                    assert not store.recover_historical_response("run", unrelated, now=20)
+                    assert store.recover_historical_response("run", capture, now=21)
+                    row = store.get("run")
+                assert row is not None and row["status"] == "completed"
+                assert row["message_id"] == PART_B
+                assert row["assistant_text"] == "First response\n\nSecond response"
+            finally:
+                await browser.close()
+
+    asyncio.run(check())
 
 
 def _html(*, complete: bool = True, second_group: str = "fallback-turn-1") -> str:

@@ -39,6 +39,7 @@ class CaptureResult:
     ended_without_answer: bool = False
     verified_generating: bool = False
     display_blocks: tuple[dict[str, str], ...] = ()
+    turn_message_ids: tuple[str, ...] = ()
 
 
 def conversation_id_from_path(path: object) -> str | None:
@@ -347,6 +348,25 @@ def parse_sse_body(body: str, *, stop_reason: StopReason | None = None) -> Captu
     return accumulator.snapshot(stop_reason=stop_reason)
 
 
+def _turn_message_ids(value: object) -> tuple[str, ...]:
+    """Retain only bounded, unambiguous backend identities from a verified DOM turn."""
+    if not isinstance(value, list) or len(value) > 256:
+        return ()
+    identities: list[str] = []
+    for item in value:
+        if not isinstance(item, str):
+            return ()
+        try:
+            canonical = str(UUID(item))
+        except ValueError:
+            return ()
+        if canonical != item.lower():
+            return ()
+        if canonical not in identities:
+            identities.append(canonical)
+    return tuple(identities)
+
+
 def normalize_dom_snapshot(
     payload: object, *, stop_reason: StopReason | None = None
 ) -> CaptureResult:
@@ -384,4 +404,5 @@ def normalize_dom_snapshot(
         tool_calls=normalize_dom_tool_calls(record.get("tool_calls")),
         verified_generating=record.get("generating") is True and record.get("complete") is not True,
         display_blocks=normalize_display_blocks(record.get("display_blocks")),
+        turn_message_ids=_turn_message_ids(record.get("turn_message_ids")),
     )

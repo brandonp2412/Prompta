@@ -98,6 +98,7 @@ const scanExactReplyTurn = (conversation, originalPrompt, replyText, parent, all
     branch_message_id: complete ? finalIds[0] : "",
     latest_branch_message_id: finalIds.length === 1 ? finalIds[0] : "",
     verified_parent_id: parent, pathname: location.pathname,
+    turn_message_ids: [...new Set(later.flatMap(({ node }) => ids(node)))],
     text, complete, generating, tool_calls,
     display_blocks: displayBlocksFromUnits(later.map(({ node }) => node), visible, markdownSelector) };
 };

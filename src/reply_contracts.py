@@ -757,7 +757,8 @@ class ManualReplyStore(ReplyReadState):
                 row["conversation_id"] != capture.conversation_id
                 or row["parent_id"] != capture.parent_id
                 or (row["message_id"] and capture.message_id
-                    and row["message_id"] != capture.message_id)
+                    and row["message_id"] != capture.message_id
+                    and row["message_id"] not in capture.turn_message_ids)
             ):
                 return False
             original = connection.execute(select(results.c.status, results.c.message_id).where(
