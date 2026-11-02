@@ -70,6 +70,42 @@ def test_deployed_capture_is_recovered_before_older_backlog_without_resending(
     assert not worker.recover_once(now=151)  # account-wide 90-second slot
 
 
+def test_recent_interruption_is_not_starved_by_previous_deploy_inventory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store = ResponseStore(tmp_path / "chat-results.sqlite3")
+    conversations = {
+        "previous-deploy": "12345678-1234-4123-8123-123456789abd",
+        "recent-interruption": "12345678-1234-4123-8123-123456789abe",
+    }
+    for stamp, (send_id, conversation) in zip((10.0, 40.0), conversations.items()):
+        store.ensure_queued(send_id, send_id + " prompt", now=stamp)
+        assert store.accept(send_id, "123:owner", deadline=100, now=stamp + 1)
+        assert store.bind_conversation_route(
+            send_id, "123:owner", "/c/" + conversation, now=stamp + 2,
+        )
+        assert store.finish(send_id, "123:owner", "interrupted", now=100)
+    (tmp_path / "deployment-interrupted.json").write_text(json.dumps({
+        "priority": {"job_responses": ["previous-deploy"], "manual_reply_turns": []},
+    }))
+    runtime = SchedulerRuntime(tmp_path / "runtime.sqlite3", tmp_path / "jobs.json")
+    worker = HistoryRecovery(store, runtime, FakeHistoryDriver, approval_enabled=False)
+
+    async def read(conversation_id: str, original_prompt: str) -> CaptureResult:
+        return CaptureResult(
+            "dom", "complete", "Verified answer", conversation_id, None, None, "turn",
+        )
+
+    monkeypatch.setattr(worker, "_read_original_response", read)
+    assert worker.recover_once(now=150)
+    recent = store.get("recent-interruption")
+    old = store.get("previous-deploy")
+    assert recent is not None and recent["status"] == "completed"
+    assert recent["assistant_text"] == "Verified answer"
+    assert old is not None and old["status"] == "interrupted"
+    assert not worker.recover_once(now=151)  # Neither chat can monopolize the slot.
+
+
 def test_newest_pinned_chat_beats_older_pinned_retry_and_newer_deploy_priority(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

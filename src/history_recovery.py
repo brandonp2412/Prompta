@@ -309,6 +309,36 @@ class HistoryRecovery:
 
         return max(choices, key=priority, default=None)
 
+    def _next_automatic_candidate(
+        self, *, now: float, priority_sends: tuple[str, ...],
+        priority_replies: tuple[str, ...],
+    ) -> dict[str, object] | None:
+        """Recover the freshest least-tried chat, even after an older deploy.
+
+        Deployment inventory breaks ties, but cannot permanently suppress
+        newer interrupted turns outside an old inventory. Replies and original
+        sends share the same fair recovery budget.
+        """
+        options = (
+            (True, self.replies.next_history_reply_recovery(
+                now=now, priority_ids=priority_replies,
+            ) if priority_replies else None),
+            (True, self.results.next_history_recovery(
+                now=now, priority_ids=priority_sends,
+            ) if priority_sends else None),
+            (False, self.replies.next_history_reply_recovery(now=now)),
+            (False, self.results.next_history_recovery(now=now)),
+        )
+
+        def priority(item: tuple[bool, dict[str, object]]) -> tuple[int, float, bool]:
+            in_deployment, candidate = item
+            activity = candidate.get("activity_at")
+            recency = float(activity) if isinstance(activity, (float, int)) else float("-inf")
+            return (-int_value(candidate.get("attempt_count")), recency, in_deployment)
+
+        available = [(deployed, row) for deployed, row in options if row is not None]
+        return max(available, key=priority)[1] if available else None
+
     def _next_requested_candidate(
         self, requests: list[str], *, now: float,
     ) -> tuple[dict[str, object] | None, str]:
@@ -376,17 +406,12 @@ class HistoryRecovery:
                     now=at, priority_ids=(preferred_send_id,),
                 ) if preferred_send_id is not None else self._newest_pinned_due(now=at)
             )
-        if candidate is None and preferred_send_id is None and priority_replies:
-            candidate = self.replies.next_history_reply_recovery(
-                now=at, priority_ids=priority_replies,
+        if candidate is None and preferred_send_id is None:
+            candidate = self._next_automatic_candidate(
+                now=at, priority_sends=priority_sends, priority_replies=priority_replies,
             )
-        if candidate is None and preferred_send_id is None and priority_sends:
-            candidate = self.results.next_history_recovery(now=at, priority_ids=priority_sends)
         if candidate is None and preferred_send_id is None:
             candidate, manual_target = self._next_requested_candidate(manual_requests, now=at)
-        if candidate is None and preferred_send_id is None:
-            candidate = (self.replies.next_history_reply_recovery(now=at)
-                         or self.results.next_history_recovery(now=at))
         if candidate is None:
             return False
         if not self.results.reserve_history_recovery_global_slot(
