@@ -566,10 +566,28 @@ class BrowserDeliverySender:
                 elif update is None and sse is not None and sse.text:
                     update = sse
                 if update is not None and (update.text or update.tool_calls):
+                    # Tools and final text can advance the backend message ID
+                    # inside one modern assistant reply. The stable DOM reply
+                    # unit and exact owned route prove it is not a new turn.
+                    trusted_dom_continuation = bool(
+                        update.source == "dom"
+                        and update.observer_id
+                        and (not seen_observer or seen_observer == update.observer_id)
+                        and update.conversation_id
+                        and current is not None
+                        and current["conversation_id"] == update.conversation_id
+                    )
                     if seen_message and update.message_id and seen_message != update.message_id:
-                        final_status = "unavailable"
-                        break
+                        if not trusted_dom_continuation:
+                            logger.warning(
+                                "Owned response branch changed without stable reply identity "
+                                "send_id=%s", send_id,
+                            )
+                            final_status = "unavailable"
+                            break
+                        logger.info("Owned reply backend message advanced send_id=%s", send_id)
                     if seen_observer and update.observer_id and seen_observer != update.observer_id:
+                        logger.warning("Owned response observer changed send_id=%s", send_id)
                         final_status = "unavailable"
                         break
                     if update.message_id:
@@ -596,7 +614,20 @@ class BrowserDeliverySender:
                 if pending is not None and (
                     pending.status == "complete" or now - last_saved_at >= 5.0
                 ):
-                    if not self.results.write(send_id, owner, pending):
+                    # A changing backend parent is safe only within a
+                    # conversation-bound DOM reply unit of this owned tab.
+                    allow_dom_parent_update = bool(
+                        pending.source == "dom"
+                        and pending.observer_id
+                        and pending.observer_id == seen_observer
+                        and pending.conversation_id
+                        and current is not None
+                        and current["conversation_id"] == pending.conversation_id
+                    )
+                    if not self.results.write(
+                        send_id, owner, pending,
+                        allow_owned_dom_message_update=allow_dom_parent_update,
+                    ):
                         final_status = "unavailable"
                         break
                     last_saved_at = now

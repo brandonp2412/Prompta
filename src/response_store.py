@@ -240,7 +240,8 @@ class ResponseStore:
         return changed.rowcount == 1
 
     def write(
-        self, send_id: str, owner: str, capture: CaptureResult, *, now: float | None = None
+        self, send_id: str, owner: str, capture: CaptureResult, *,
+        allow_owned_dom_message_update: bool = False, now: float | None = None,
     ) -> bool:
         at = time.time() if now is None else now
         with self.engine.begin() as connection:
@@ -260,8 +261,18 @@ class ResponseStore:
                 ("parent_id", capture.parent_id),
             ):
                 if row[name] and candidate and row[name] != candidate:
-                    # A branch changed. Never join text from different answers.
-                    return False
+                    # The live caller must independently verify the stable DOM
+                    # reply unit and exact owned route before advancing a
+                    # backend message ID within a multi-message assistant turn.
+                    if not (
+                        name == "message_id"
+                        and allow_owned_dom_message_update
+                        and capture.source == "dom"
+                        and capture.observer_id
+                        and capture.conversation_id == row["conversation_id"]
+                    ):
+                        # Different replies and conversations never get spliced.
+                        return False
             text = capture.text[:_MAX_TEXT]
             complete = capture.status == "complete" and bool(
                 text and (capture.message_id or capture.observer_id)
