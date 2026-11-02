@@ -14,17 +14,18 @@ def make_databases(state_dir: Path, *, active: bool = False) -> None:
     with sqlite3.connect(state_dir / "chat-results.sqlite3") as db:
         db.execute(
             "CREATE TABLE job_responses "
-            "(status TEXT, capture_deadline REAL, capture_owner TEXT, send_id TEXT)"
+            "(status TEXT, capture_deadline REAL, capture_owner TEXT, send_id TEXT, "
+            "conversation_id TEXT)"
         )
+        db.execute("CREATE TABLE manual_reply_turns "
+                   "(status TEXT, lease_deadline REAL, reply_id TEXT, "
+                   "conversation_id TEXT, parent_id TEXT)")
         db.execute(
-            "CREATE TABLE manual_reply_turns (status TEXT, lease_deadline REAL, reply_id TEXT)"
-        )
-        db.execute(
-            "INSERT INTO job_responses VALUES (?, 200, 'capture-owner', 'fresh-one')",
+            "INSERT INTO job_responses VALUES (?, 200, 'capture-owner', 'fresh-one', '')",
             ("generating" if active else "completed",),
         )
         db.execute(
-            "INSERT INTO manual_reply_turns VALUES (?, 200, 'reply-one')",
+            "INSERT INTO manual_reply_turns VALUES (?, 200, 'reply-one', '', '')",
             ("accepted" if active else "completed",),
         )
     with sqlite3.connect(state_dir / "ui-send-jobs.sqlite3") as db:
@@ -56,6 +57,60 @@ def test_records_active_work_without_waiting(tmp_path: Path) -> None:
         "job_responses": ["fresh-one"],
         "manual_reply_turns": ["reply-one"],
     }
+
+
+def test_handoff_guard_refuses_unknown_dispatches(tmp_path: Path) -> None:
+    gate = DeploymentGate(tmp_path / "runtime.sqlite3")
+    make_databases(tmp_path, active=True)
+    with pytest.raises(TimeoutError, match="running_deliveries=1, unidentified_captures=1"):
+        deploy_guarded.wait_for_recoverable_handoff(gate, timeout=0)
+
+
+def test_handoff_guard_allows_verified_generation_without_wait(tmp_path: Path) -> None:
+    gate = DeploymentGate(tmp_path / "runtime.sqlite3")
+    make_databases(tmp_path, active=True)
+    with sqlite3.connect(tmp_path / "ui-send-jobs.sqlite3") as db:
+        db.execute("UPDATE job_deliveries SET status='succeeded'")
+    with sqlite3.connect(tmp_path / "chat-results.sqlite3") as db:
+        db.execute("UPDATE job_responses SET conversation_id='verified-chat'")
+        db.execute("UPDATE manual_reply_turns SET conversation_id='verified-chat', "
+                   "parent_id='verified-parent'")
+    deploy_guarded.wait_for_recoverable_handoff(gate, timeout=0)
+
+
+def test_handoff_guard_refuses_unconfirmed_reply(tmp_path: Path) -> None:
+    gate = DeploymentGate(tmp_path / "runtime.sqlite3")
+    make_databases(tmp_path)
+    with sqlite3.connect(tmp_path / "chat-results.sqlite3") as db:
+        db.execute("UPDATE manual_reply_turns SET status='dispatching', "
+                   "conversation_id='verified-chat', parent_id='verified-parent'")
+    with pytest.raises(TimeoutError, match="unverified_replies=1"):
+        deploy_guarded.wait_for_recoverable_handoff(gate, timeout=0)
+
+
+def test_deploy_aborts_without_killing_owners_when_handoff_is_unsafe(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    gate = DeploymentGate(tmp_path / "state/runtime.sqlite3")
+    make_databases(tmp_path / "state", active=True)
+    repo = tmp_path / "repo"
+    (repo / ".git").mkdir(parents=True)
+    commands: list[tuple[str, ...]] = []
+
+    def fake_run(args: list[str], **_kwargs: object) -> object:
+        commands.append(tuple(args))
+        return type("Result", (), {"returncode": 0})()
+
+    safe_guard = deploy_guarded.wait_for_recoverable_handoff
+    monkeypatch.setattr(deploy_guarded.subprocess, "run", fake_run)
+    monkeypatch.setattr(
+        deploy_guarded, "wait_for_recoverable_handoff",
+        lambda current_gate: safe_guard(current_gate, timeout=0),
+    )
+    with pytest.raises(TimeoutError, match="Deployment deferred"):
+        deploy_guarded.deploy(repo, gate)
+    assert not gate.is_paused()
+    assert not any("systemctl" in command for command in commands)
 
 
 def test_deploy_verification_reports_pending_recovery_without_claiming_completion(
@@ -132,7 +187,7 @@ def test_successful_deploy_restarts_apps_but_not_browser(
 ) -> None:
     gate = DeploymentGate(tmp_path / "state/runtime.sqlite3")
     make_databases(tmp_path / "state", active=True)
-    # Live leases and an admitted browser operation must not delay deployment.
+    # Exercise restart bookkeeping independently of the handoff guard tests.
     with sqlite3.connect(tmp_path / "state/chat-results.sqlite3") as db:
         db.execute("UPDATE job_responses SET capture_deadline=9999999999")
         db.execute("UPDATE manual_reply_turns SET lease_deadline=9999999999")
@@ -148,6 +203,7 @@ def test_successful_deploy_restarts_apps_but_not_browser(
     monkeypatch.setattr(deploy_guarded.subprocess, "run", fake_run)
     monkeypatch.setattr(deploy_guarded, "verify_services", lambda: True)
     monkeypatch.setattr(deploy_guarded, "stop_workers", lambda: None)
+    monkeypatch.setattr(deploy_guarded, "wait_for_recoverable_handoff", lambda _gate: None)
     with gate.admission() as admitted:
         assert admitted
         assert deploy_guarded.deploy(repo, gate)
@@ -177,6 +233,7 @@ def test_post_update_failure_keeps_admission_paused(
 
     monkeypatch.setattr(deploy_guarded.subprocess, "run", fake_run)
     monkeypatch.setattr(deploy_guarded, "stop_workers", lambda: None)
+    monkeypatch.setattr(deploy_guarded, "wait_for_recoverable_handoff", lambda _gate: None)
     with pytest.raises(RuntimeError, match="migrations did not complete"):
         deploy_guarded.deploy(repo, gate)
     assert gate.is_paused()

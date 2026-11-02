@@ -29,12 +29,57 @@ SERVICES = (
     "prompta-manual-reply-worker.service",
 )
 DEFAULT_STATE = Path.home() / ".local/state/prompta/runtime.sqlite3"
+HANDOFF_WAIT_SECONDS = 180.0
 
 
 def request_pause(gate: DeploymentGate) -> None:
     descriptor = os.open(gate.pause_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
     with os.fdopen(descriptor, "w", encoding="utf-8") as marker:
         marker.write(f"pid={os.getpid()} time={time.time():.0f}\n")
+
+
+def wait_for_recoverable_handoff(
+    gate: DeploymentGate, *, timeout: float = HANDOFF_WAIT_SECONDS,
+) -> None:
+    """Do not kill a dispatch whose accepted conversation cannot yet be recovered.
+
+    The deployment pause prevents new admissions. Existing generations can
+    continue for hours, but a bounded wait for their *send handoff* protects
+    against permanently ambiguous sends and identity-less interrupted reads.
+    """
+    state_dir = gate.pause_path.parent
+    deadline = time.monotonic() + max(0.0, timeout)
+    while True:
+        with sqlite3.connect(
+            f"file:{state_dir / 'ui-send-jobs.sqlite3'}?mode=ro", uri=True, timeout=3
+        ) as db:
+            running = db.execute(
+                "SELECT COUNT(*) FROM job_deliveries WHERE status='running'"
+            ).fetchone()[0]
+        with sqlite3.connect(
+            f"file:{state_dir / 'chat-results.sqlite3'}?mode=ro", uri=True, timeout=3
+        ) as db:
+            unidentified = db.execute(
+                "SELECT COUNT(*) FROM job_responses "
+                "WHERE status IN ('accepted', 'generating') "
+                "AND COALESCE(conversation_id, '')=''"
+            ).fetchone()[0]
+            replies = db.execute(
+                "SELECT COUNT(*) FROM manual_reply_turns "
+                "WHERE status='dispatching' OR "
+                "(status IN ('accepted', 'generating') AND "
+                "(COALESCE(conversation_id, '')='' OR COALESCE(parent_id, '')=''))"
+            ).fetchone()[0]
+        if not (running or unidentified or replies):
+            return
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError(
+                "Deployment deferred: unverified handoffs remain "
+                f"(running_deliveries={running}, unidentified_captures={unidentified}, "
+                f"unverified_replies={replies}); workers and browser were not stopped"
+            )
+        time.sleep(min(1.0, remaining))
 
 
 def stop_workers(*, timeout: float = 60.0) -> None:
@@ -209,6 +254,7 @@ def deploy(repo: Path, gate: DeploymentGate) -> bool:
         changed = False
         success = False
         try:
+            wait_for_recoverable_handoff(gate)
             record_interrupted_work(gate)
             changed = True
             stop_workers()
