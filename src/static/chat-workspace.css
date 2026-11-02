@@ -33,7 +33,7 @@
 .chat-composer-wrap { width: min(100%, 920px); padding-bottom: max(15px, env(safe-area-inset-bottom)); }
 .chat-composer { display: grid; grid-template-columns: minmax(0, 1fr) 44px; grid-template-areas: "text text" "attach send"; align-items: center; gap: 4px 8px; border-radius: 23px; padding: 14px 16px 11px; }
 .chat-composer:has(.composer-previews) { grid-template-areas: "previews previews" "text text" "attach send"; }
-.chat-composer textarea { grid-area: text; width: 100%; min-width: 0; min-height: 0; max-height: 110px; resize: none; font-size: 1rem; line-height: 1.55; padding: 3px 2px; }
+.chat-composer textarea { grid-area: text; width: 100%; min-width: 0; min-height: 0; max-height: 110px; resize: none; font-size: 1rem; line-height: 1.55; padding: 3px 6px; }
 /* Text owns the full first row; attachment and send share the bottom row. */
 .composer-actions { display: contents; }
 .composer-attach { grid-area: attach; display: flex; align-items: center; min-width: 0; }
@@ -147,7 +147,7 @@
 
   .chat-composer-wrap { padding: 5px 10px max(6px, env(safe-area-inset-bottom)); }
   .chat-composer { gap: 0 6px; padding: 6px 9px; border-radius: 20px; }
-  .chat-composer textarea { line-height: 1.4; padding: 2px 0; }
+  .chat-composer textarea { line-height: 1.4; padding: 2px 4px; }
   .composer-previews { padding-bottom: 5px; }
   .composer-feedback, .composer-disclaimer, .composer-hint { margin-top: 3px; }
 
@@ -286,6 +286,10 @@
 .chat-manual-recovery { display: flex; flex-wrap: wrap; align-items: center; gap: 9px 12px; margin: 6px 0 28px; padding: 15px 0 4px; border-top: 1px solid #333; color: #999; font-size: .82rem; line-height: 1.5; }
 .chat-manual-recovery .row-action { min-height: 40px; padding: 8px 14px; border-radius: 11px; }
 .chat-manual-recovery .row-action:disabled { opacity: .6; cursor: default; }
+
+.chat-action-button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; }
+.composer-fallback.chat-action-button { display: flex; width: fit-content; }
+.chat-action-button svg { width: 16px; height: 16px; flex: none; }
 
 .chat-recovery-guidance { display: flex; flex-wrap: wrap; align-items: center; gap: 5px 14px; margin-top: 12px; font-size: .83rem; line-height: 1.45; color: #aaa; }
 .chat-recovery-guidance p { margin: 0; }
@@ -560,6 +564,11 @@
 .workspace-header .chat-open-chatgpt-label { margin: 0; color: inherit; font-size: inherit; }
 .chat-open-chatgpt:hover { background: #303030; color: #d4dfff; }
 .chat-open-chatgpt:focus-visible { outline: 2px solid #b8caff; outline-offset: -3px; }
+.chat-open-chatgpt-footer { display: none; }
+@media (max-width: 680px) {
+  .workspace-header .chat-open-chatgpt-header { display: none; }
+  .chat-open-chatgpt-footer { display: inline-flex; margin-top: 16px; }
+}
 .tool-type-group { min-width: 0; }
 .tool-type-group > summary { padding: 9px 8px; cursor: pointer; overflow-wrap: anywhere; font-size: .84rem; color: #ccc; }
 .tool-call > summary { cursor: pointer; }
@@ -824,3 +833,31 @@
 
 .job-stop { flex: none; align-self: center; min-height: 36px; padding: 6px 9px; border: 1px solid #684047; border-radius: 8px; background: #39262b; color: #ffc0c2; font-size: .75rem; cursor: pointer; }
 .job-stop:disabled { opacity: .55; cursor: wait; }
+
+/* Compact navigation: brand/search, scrolling chats, pinned footer/profile. */
+.sidebar-topbar { display:flex; align-items:center; padding:6px 10px; }
+.sidebar-topbar .sidebar-brand { flex:1; padding:8px 6px; }
+.sidebar-topbar .sidebar-actions { display:flex; padding:0; }
+.sidebar-topbar .sidebar-actions button { width:44px; height:44px; min-height:44px; padding:10px; border-radius:12px; }
+.sidebar-topbar .sidebar-actions svg { width:22px; height:22px; }
+.sidebar-footer { position:relative; flex:none; display:flex; gap:8px; padding:10px 12px max(10px, env(safe-area-inset-bottom)); border-top:1px solid #303030; background:#202020; }
+.sidebar-footer > button { display:flex; align-items:center; justify-content:center; gap:9px; min-height:44px; padding:8px 12px; color:#e4e4e4; background:transparent; border:0; border-radius:12px; cursor:pointer; font:inherit; }
+.sidebar-footer > button:hover,.sidebar-profile-menu button:hover { background:#343434; }
+.sidebar-footer-new { flex:1; }
+.sidebar-profile { flex:1; }
+.sidebar-footer svg { width:21px; height:21px; flex:none; }
+.sidebar-profile-menu { position:absolute; bottom:calc(100% + 6px); left:10px; right:10px; z-index:20; padding:7px; border:1px solid #424242; border-radius:14px; background:#282828; box-shadow:0 12px 35px #0008; }
+.sidebar-profile-menu button { display:block; width:100%; min-height:44px; padding:10px 14px; border:0; border-radius:9px; color:#eee; background:transparent; text-align:left; font:inherit; cursor:pointer; }
+.settings-backdrop { position:fixed; inset:0; z-index:100; display:flex; align-items:center; justify-content:center; padding:16px; background:#000a; }
+.settings-dialog { width:min(100%,440px); max-height:90dvh; overflow:auto; padding:22px; border:1px solid #484848; border-radius:18px; background:#242424; color:#eee; box-shadow:0 20px 65px #0009; }
+.settings-heading { display:flex; justify-content:space-between; align-items:center; }
+.settings-heading h2 { margin:0; font-size:1.3rem; }
+.settings-heading button { min-width:44px; min-height:44px; background:transparent; color:inherit; border:0; font-size:1.6rem; cursor:pointer; }
+.settings-dialog h3 { margin:22px 0 12px; font-size:1rem; }
+.settings-dialog p { font-size:.83rem; color:#b7b7b7; line-height:1.5; }
+.settings-check,.settings-number { display:flex; align-items:center; gap:10px; min-height:44px; font-size:.9rem; }
+.settings-check input { width:19px; height:19px; }
+.settings-number { justify-content:space-between; }
+.settings-number input { width:88px; min-height:42px; padding:8px; border:1px solid #555; border-radius:9px; background:#191919; color:#fff; }
+.settings-save { width:100%; min-height:44px; margin-top:20px; border:0; border-radius:11px; background:#e4e4e4; color:#181818; font-weight:650; cursor:pointer; }
+.settings-save:disabled { opacity:.5; }

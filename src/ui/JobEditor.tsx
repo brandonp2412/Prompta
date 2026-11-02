@@ -1,4 +1,4 @@
-import React, { useEffect } from "react";
+import React from "react";
 import { useSignals } from "@preact/signals-react/runtime";
 import type { createJobsPageController } from "./JobsPageController";
 import { attachmentAccept, isVideoAttachment } from "./mediaAttachments";
@@ -44,10 +44,6 @@ export default function JobEditor({ model, refs }: { model: Controller; refs: Ed
     addImages,
     submit,
   } = model;
-  useEffect(() => {
-    if (duplicateName.value) notify("This job already exists. Choose another name.", "error");
-  }, [duplicateName.value]);
-
   function editorFeedback(): { text: string; error: boolean } {
     if (editorError.value || duplicateName.value) return { text: "", error: false };
     if (dirty.value) return { text: "Unsaved changes", error: false };
@@ -130,8 +126,11 @@ export default function JobEditor({ model, refs }: { model: Controller; refs: Ed
                     readOnly={Boolean(editing.value)}
                     required={true}
                     value={name.value}
+                    aria-invalid={duplicateName.value}
                     onChange={(event) => {
                       name.value = event.currentTarget.value;
+                      if (duplicateName.value)
+                        notify("This job already exists. Choose another name.", "error");
                     }}
                   />
                 </label>

@@ -4,6 +4,7 @@ import { createChatComposerController, type Props } from "./ChatComposerControll
 import { rememberComposerImages } from "./composerDraftMemory";
 import { attachmentAccept, isVideoAttachment } from "./mediaAttachments";
 import { feedbackTone, useToastSignal } from "./toast";
+import { ContinueChatIcon } from "./ChatActionIcons";
 export default function ChatComposer(props: Props) {
   const model = useMemo(() => createChatComposerController(props), []);
   useSignals();
@@ -287,8 +288,9 @@ export default function ChatComposer(props: Props) {
               type="button"
               disabled={!canFallback.value}
               onClick={() => void submit(true)}
-              className="composer-fallback"
+              className="composer-fallback chat-action-button"
             >
+              <ContinueChatIcon />
               Continue in new chat
             </button>
           </>

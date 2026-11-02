@@ -31,6 +31,7 @@ export type RunDetail = RunSummary & {
   user_text: string;
   assistant_text: string;
   tool_calls?: CapturedToolCall[];
+  display_blocks?: DisplayBlock[];
   source: string;
   conversation_id?: string;
   accepted_at: number;
@@ -64,6 +65,10 @@ export type CapturedToolCall = {
   error: string;
 };
 
+export type DisplayBlock =
+  | { kind: "text"; id: string; text: string }
+  | { kind: "tool"; id: string };
+
 export type LocalTurn = {
   reply_id: string;
   conversation_id?: string;
@@ -72,6 +77,7 @@ export type LocalTurn = {
   user_text: string;
   assistant_text: string;
   tool_calls?: CapturedToolCall[];
+  display_blocks?: DisplayBlock[];
   status:
     | ResultStatus
     | "cancelled"

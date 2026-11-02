@@ -34,11 +34,12 @@ test("queued chat subtitle shows its own ETA, not another chat's", () => {
     ],
   };
   expect(queuedChatEtaText("manual-second", snapshot)).toBe("Queued · ETA ~4 min");
-  expect(queuedChatEtaText("not-in-queue", snapshot)).toBe("Queued · ETA unavailable");
+  expect(queuedChatEtaText("not-in-queue", snapshot)).toBe("Queued");
+  expect(queuedChatEtaText("manual-second", { ...snapshot, waiting_runs: undefined })).toBe("Queued");
 });
 
 test("invalid queue estimates never render NaN or Infinity", () => {
   for (const eta_seconds of [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, -20]) {
-    expect(queueEtaText({ ...waiting, eta_seconds })).toBe("ETA unavailable");
+    expect(queueEtaText({ ...waiting, eta_seconds })).toBe("");
   }
 });

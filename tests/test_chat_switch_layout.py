@@ -295,3 +295,43 @@ def test_chat_links_and_share_use_the_selected_chat_url(
             expect(page.locator(".workspace-header strong")).to_have_text("Share Beta")
         finally:
             browser.close()
+
+
+def test_hover_preload_makes_chat_switch_instant_even_when_refresh_is_slow(tmp_path: Path) -> None:
+    chromium = Path(os.environ.get("PROMPTA_TEST_CHROMIUM", "/usr/bin/chromium"))
+    if not chromium.is_file():
+        pytest.skip("Chromium unavailable")
+    with server(tmp_path) as (app, port), sync_patchright() as patchright:
+        completed_run(app, "warm-alpha", "Warm Alpha", 100)
+        completed_run(app, "warm-beta", "Warm Beta", 200)
+        browser = patchright.chromium.launch(
+            executable_path=str(chromium), headless=True, args=["--no-sandbox"],
+        )
+        try:
+            page = browser.new_page(viewport={"width": 1440, "height": 900})
+            page.route("**/api/events", lambda route: route.abort())
+            page.goto(f"http://127.0.0.1:{port}/?view=chats&run=warm-alpha")
+            expect(page.locator(".chat-detail-content")).to_contain_text("Warm Alpha")
+            beta = page.locator("a.chat-row").filter(has_text="Warm Beta")
+            # Desktop hover warms the local cache without changing the selection.
+            with page.expect_response(lambda response: response.url.endswith("/api/results/warm-beta")):
+                beta.hover()
+            page.wait_for_timeout(100)
+            # The navigation read is deliberately delayed; cached content must
+            # paint without waiting for it.
+            page.evaluate("""() => {
+                const original = window.fetch.bind(window);
+                window.fetch = (resource, options) => {
+                    if (String(resource).includes("/api/results/warm-beta")) {
+                        return new Promise((resolve) => setTimeout(
+                            () => resolve(original(resource, options)), 950
+                        ));
+                    }
+                    return original(resource, options);
+                };
+            }""", isolated_context=False)
+            beta.click()
+            expect(page.locator(".chat-detail-content")).to_contain_text("Warm Beta", timeout=250)
+            expect(page.locator(".chat-switch-cover")).to_have_count(0, timeout=250)
+        finally:
+            browser.close()

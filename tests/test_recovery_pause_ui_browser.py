@@ -61,9 +61,18 @@ def test_interrupted_chat_omits_backlog_without_reopening_chatgpt(
         expect(summary).to_have_count(0)
         expect(page.get_by_text("Recovery backlog:")).to_have_count(0)
         expect(page.get_by_role("link", name="Open in ChatGPT", exact=True)).to_have_count(1)
-        header_link = page.locator(".workspace-header").get_by_role("link", name="Open in ChatGPT")
-        expect(header_link).to_be_visible()
-        bounds = header_link.bounding_box()
+        header_link = page.locator(".workspace-header a.chat-open-chatgpt")
+        footer_link = page.locator(".chat-detail-content a.chat-open-chatgpt-footer")
+        if width <= 680:
+            expect(header_link).to_be_hidden()
+            expect(footer_link).to_be_visible()
+            assert footer_link.evaluate("(link) => link.parentElement?.lastElementChild === link")
+            active_link = footer_link
+        else:
+            expect(header_link).to_be_visible()
+            expect(footer_link).to_be_hidden()
+            active_link = header_link
+        bounds = active_link.bounding_box()
         assert bounds is not None and 0 <= bounds["x"]
         assert bounds["x"] + bounds["width"] <= width
         expect(page.get_by_role("link", name="Open in ChatGPT", exact=True)).to_have_attribute(

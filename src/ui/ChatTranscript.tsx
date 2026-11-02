@@ -1,9 +1,9 @@
 import React, { useLayoutEffect } from "react";
 import { useSignals } from "@preact/signals-react/runtime";
 import type { createChatsPageController } from "./ChatsPageController";
-import ResultMarkdown from "./ResultMarkdown";
+import TurnActivity from "./TurnActivity";
 import CopyIcon from "./CopyIcon";
-import ToolCalls from "./ToolCalls";
+import { ContinueChatIcon, RecoverChatIcon } from "./ChatActionIcons";
 import { isVideoAttachment } from "./mediaAttachments";
 import {
   chatMessageTime,
@@ -20,9 +20,11 @@ type TranscriptRefs = {
 export default function ChatTranscript({
   model,
   refs,
+  conversationUrl,
 }: {
   model: ReturnType<typeof createChatsPageController>;
   refs: TranscriptRefs;
+  conversationUrl: string | null;
 }) {
   useSignals();
   const {
@@ -47,6 +49,17 @@ export default function ChatTranscript({
     model.revealSelectedChat();
   }, [model, detail.value, turns.value]);
 
+  function canManuallyRecoverLatestTurn() {
+    const latest = turns.value.findLast((turn) => turn.status !== "cancelled");
+    if (!latest) return false;
+    // Queued, active, completed and stopped chats are working or settled.
+    // Only expose read-only recovery for a broken, verified latest branch.
+    return latest.reply_id
+      ? Boolean(conversationUrl) && ["interrupted", "outcome_unknown"].includes(latest.status)
+      : detail.value?.recovery?.eligible === true &&
+          ["interrupted", "unavailable"].includes(latest.status);
+  }
+
   function manualRecoveryLabel() {
     if (requestingManualRecovery.value) return "Requesting recovery…";
     if ((detail.value?.manual_recovery_pending ?? 0) > 0) return "Recovery queued";
@@ -63,6 +76,13 @@ export default function ChatTranscript({
     <div className="chat-transcript-shell">
       <div
         ref={refs.scrollPane}
+        onScroll={model.onTranscriptScroll}
+        onWheel={model.onTranscriptWheel}
+        onTouchStart={model.onTranscriptTouchStart}
+        onTouchMove={model.onTranscriptTouchMove}
+        onTouchEnd={model.onTranscriptTouchEnd}
+        onTouchCancel={model.onTranscriptTouchEnd}
+        onKeyDown={model.onTranscriptKeyDown}
         inert={switchingChat.value}
         aria-busy={switchingChat.value}
         className={[
@@ -190,22 +210,14 @@ export default function ChatTranscript({
                         </span>
                       </div>
                     )}
-                    {turn.tool_calls?.length ? (
+                    {turn.assistant_text ||
+                    turn.display_blocks?.some((block) => block.kind === "text") ? (
                       <>
-                        <ToolCalls
-                          calls={turn.tool_calls}
-                          turnTimestamp={turn.created_at || detail.value!.created_at}
-                        ></ToolCalls>
-                      </>
-                    ) : (
-                      <></>
-                    )}
-                    {turn.assistant_text ? (
-                      <>
-                        <ResultMarkdown
-                          source={turn.assistant_text}
+                        <TurnActivity
+                          turn={turn}
                           captureSource={index === 0 ? detail.value!.source : ""}
-                        ></ResultMarkdown>
+                          turnTimestamp={turn.created_at || detail.value!.created_at}
+                        />
                         {turn.status !== "completed" && turn.status !== "generating" ? (
                           <p className="partial-note">{partialResponseLabel(turn.status)}</p>
                         ) : null}
@@ -267,12 +279,13 @@ export default function ChatTranscript({
                       ].includes(turn.status) && (
                         <div className="chat-recovery-guidance">
                           <button
-                            className="row-action"
+                            className="row-action chat-action-button"
                             type="button"
                             disabled={startingNewChat.value}
                             aria-busy={startingNewChat.value}
                             onClick={() => void startFailedReplyInNewChat(turn)}
                           >
+                            <ContinueChatIcon />
                             Continue in new chat
                           </button>
                           {turn.status === "outcome_unknown" && (
@@ -288,12 +301,13 @@ export default function ChatTranscript({
                       Boolean(turn.user_text.trim()) && (
                         <div className="chat-recovery-guidance">
                           <button
-                            className="row-action"
+                            className="row-action chat-action-button"
                             type="button"
                             disabled={startingNewChat.value}
                             aria-busy={startingNewChat.value}
                             onClick={() => void continueUnverifiedInNewChat()}
                           >
+                            <ContinueChatIcon />
                             Continue in new chat
                           </button>
                           <p>Original send unverified; continuing starts a separate request.</p>
@@ -324,14 +338,11 @@ export default function ChatTranscript({
                   </div>
                 </React.Fragment>
               ))}
-              {(detail.value.needs_attention ||
-                turns.value.some(
-                  (turn) => !["completed", "stopped", "cancelled"].includes(turn.status),
-                )) && (
+              {canManuallyRecoverLatestTurn() && (
                 <div className="chat-manual-recovery">
                   <button
                     type="button"
-                    className="row-action"
+                    className="row-action chat-action-button"
                     disabled={
                       requestingManualRecovery.value ||
                       (detail.value.manual_recovery_pending ?? 0) > 0
@@ -339,6 +350,7 @@ export default function ChatTranscript({
                     aria-busy={requestingManualRecovery.value}
                     onClick={() => void requestManualRecovery(detail.value!.send_id)}
                   >
+                    <RecoverChatIcon />
                     {manualRecoveryLabel()}
                   </button>
                   <span>
@@ -347,6 +359,29 @@ export default function ChatTranscript({
                       : "Last resort: check the saved ChatGPT transcript without resending messages."}
                   </span>
                 </div>
+              )}
+              {conversationUrl && (
+                <a
+                  className="chat-open-chatgpt chat-open-chatgpt-footer"
+                  href={conversationUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  aria-label="Open in ChatGPT"
+                  title="Open in ChatGPT"
+                >
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.8"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                  >
+                    <path d="M14 4h6v6m0-6-9 9M20 14v4a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h4" />
+                  </svg>
+                  <span className="chat-open-chatgpt-label">ChatGPT</span>
+                </a>
               )}
             </div>
           </>

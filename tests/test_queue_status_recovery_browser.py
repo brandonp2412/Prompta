@@ -33,12 +33,12 @@ def test_queue_estimate_failure_and_manual_recovery(
                 lambda route: route.fulfill(status=500, body="Temporary gateway failure"),
             )
             page.goto(f"http://127.0.0.1:{port}/?view=jobs")
-            warning = page.get_by_text("Queue position and ETA are temporarily unavailable.")
+            warning = page.get_by_text("Queue status could not be refreshed. Retry to update positions.")
             expect(warning).to_be_visible()
             assert page.evaluate("document.documentElement.scrollWidth <= innerWidth + 1")
 
             page.unroute("**/api/queue-status")
-            page.get_by_role("button", name="Retry queue estimates").click()
+            page.get_by_role("button", name="Retry", exact=True).click()
             expect(warning).to_have_count(0)
             assert page.evaluate("document.documentElement.scrollWidth <= innerWidth + 1")
         finally:

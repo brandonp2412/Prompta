@@ -506,7 +506,7 @@ class ManualReplyDispatcher:
                             self.store.observe_tools(reply_id, owner, replace(
                                 result, conversation_id=conversation_id,
                             ))
-                    if (update is not None and update.tool_calls
+                    if (update is not None and (update.tool_calls or update.display_blocks)
                         and update.conversation_id == conversation_id
                         and (update.message_id or update.observer_id)
                         and await driver.eval("location.pathname") == "/c/" + conversation_id):

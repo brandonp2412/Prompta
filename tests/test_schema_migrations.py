@@ -27,7 +27,7 @@ def test_fresh_database_reaches_head_and_repeated_startup_is_a_noop(
     with sqlite3.connect(path) as connection:
         assert connection.execute(
             f"SELECT version_num FROM alembic_{family}_version"
-        ).fetchone() == (f"{family}_0003" if family == "runtime" else f"{family}_0002",)
+        ).fetchone() == (f"{family}_0004" if family == "results" else (f"{family}_0003" if family == "runtime" else f"{family}_0002"),)
         before = connection.iterdump()
         snapshot = list(before)
     upgrade_path(path, family)
@@ -174,7 +174,7 @@ def test_simultaneous_store_startup_serializes_alembic_contexts(tmp_path: Path) 
             "runtime_0003",
         )
         assert connection.execute("SELECT version_num FROM alembic_results_version").fetchone() == (
-            "results_0002",
+            "results_0004",
         )
 
 
@@ -219,7 +219,7 @@ def test_separate_processes_adopt_one_database_without_racing(tmp_path: Path) ->
                 worker.wait()
     with sqlite3.connect(path) as connection:
         assert connection.execute("SELECT version_num FROM alembic_results_version").fetchone() == (
-            "results_0002",
+            "results_0004",
         )
 
 
@@ -241,7 +241,7 @@ def test_migration_cli_upgrades_default_stores_in_a_private_state_directory(tmp_
         with sqlite3.connect(tmp_path / filename) as connection:
             assert connection.execute(
                 f"SELECT version_num FROM alembic_{family}_version"
-            ).fetchone() == (f"{family}_0003" if family == "runtime" else f"{family}_0002",)
+            ).fetchone() == (f"{family}_0004" if family == "results" else (f"{family}_0003" if family == "runtime" else f"{family}_0002"),)
 
 
 def test_alembic_initialization_is_quiet_without_hiding_warnings(tmp_path: Path, caplog) -> None:

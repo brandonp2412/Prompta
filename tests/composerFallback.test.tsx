@@ -37,7 +37,8 @@ test("explicit fallback remains usable while exact sending is paused", async () 
   const view = render(<ChatComposer {...props} />);
   await user.type(screen.getByRole("textbox"), "Continue with this answer");
   await user.click(screen.getByRole("button", { name: "Send reply" }));
-  await screen.findByRole("button", { name: "Continue in new chat" });
+  const continueButton = await screen.findByRole("button", { name: "Continue in new chat" });
+  expect(continueButton.querySelector("svg[aria-hidden='true']")).not.toBeNull();
   view.rerender(<ChatComposer {...props} sendDisabled />);
   await user.click(screen.getByRole("button", { name: "Continue in new chat" }));
   await waitFor(() => expect(submitted).toEqual(["Continue with this answer"]));

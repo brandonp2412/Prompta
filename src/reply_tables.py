@@ -13,6 +13,7 @@ replies = Table(
     Column("user_text", Text, nullable=False),
     Column("assistant_text", Text, nullable=False, default=""),
     Column("tool_calls_json", Text, nullable=False, default="[]"),
+    Column("display_blocks_json", Text, nullable=False, default="[]"),
     Column("message_id", String, nullable=False, default=""),
     Column("response_parent_id", String, nullable=False, default=""),
     Column("status", String, nullable=False),

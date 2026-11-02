@@ -69,7 +69,7 @@ export function createJobsPageController(initialProps: Props) {
     } catch {
       // Never display a stale queue position as current.
       queueSnapshot.value = null;
-      queueError.value = "Queue position and ETA are temporarily unavailable.";
+      queueError.value = "Queue status could not be refreshed. Retry to update positions.";
     } finally {
       queueInFlight = false;
       if (queueRefreshPending) {

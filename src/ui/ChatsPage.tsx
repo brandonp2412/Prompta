@@ -186,7 +186,7 @@ export default function ChatsPage(props: Props & { serverName: string }) {
             )}
             {view.value === "chats" && selectedRunId.value && conversationUrl && (
               <a
-                className="chat-open-chatgpt"
+                className="chat-open-chatgpt chat-open-chatgpt-header"
                 href={conversationUrl}
                 target="_blank"
                 rel="noopener noreferrer"
@@ -232,7 +232,7 @@ export default function ChatsPage(props: Props & { serverName: string }) {
                     </>
                   ) : (
                     <>
-                      <ChatTranscript model={model} refs={refs} />
+                      <ChatTranscript model={model} refs={refs} conversationUrl={conversationUrl} />
                     </>
                   )}
                 </>

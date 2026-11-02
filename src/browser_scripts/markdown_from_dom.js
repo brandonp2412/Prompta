@@ -143,7 +143,7 @@ const responseTurnRoot = (element) =>
   element.closest(".group.flex.flex-col") ||
   element;
 
-const toolCallsFromTurns = (turns, visible, markdownSelector) => {
+const visibleToolNodesFromTurns = (turns, visible, markdownSelector) => {
   const toolSelector = '[data-testid*="tool-call"], [data-testid*="tool-card"], [data-testid*="tool-result"], [data-tool-name], [aria-label^="Used "], [aria-label^="Searched "], [aria-label^="Searching "], [aria-label^="Ran "]';
   const seen = new Set();
   return turns.flatMap((turn) => [...turn.querySelectorAll(toolSelector + ', button, [role="button"]')]
@@ -154,7 +154,11 @@ const toolCallsFromTurns = (turns, visible, markdownSelector) => {
       if (!node.matches(toolSelector) && !/^(?:Used\s+\S|Searched\s+the\s+web|Searching\s+the\s+web|Ran\s+(?:code|Python))/i.test(node.textContent?.trim() || "")) return false;
       seen.add(node);
       return true;
-    }).map((node) => {
+    })).slice(0, 128);
+};
+
+const toolCallsFromTurns = (turns, visible, markdownSelector) =>
+  visibleToolNodesFromTurns(turns, visible, markdownSelector).map((node) => {
       const heading = node.getAttribute("aria-label") || node.getAttribute("data-tool-name") ||
         node.querySelector('[data-testid*="tool-name"]')?.textContent ||
         node.querySelector('summary, button, [role="button"]')?.textContent ||
@@ -165,5 +169,27 @@ const toolCallsFromTurns = (turns, visible, markdownSelector) => {
       return { action: title.slice(0, 120), status: /error|fail/i.test(state) ? "error" :
         /running|loading|pending/i.test(state) ? "running" :
         /complete|success|done/i.test(state) ? "completed" : "observed" };
-    })).slice(0, 128);
+    });
+
+// Keep rendered assistant text and tool headings in document order.
+// Reasoning disclosures and tool payloads cannot become visible text blocks.
+const displayBlocksFromUnits = (units, visible, markdownSelector) => {
+  const excluded = '[data-testid*="reasoning"], [data-testid*="thought"], [data-testid*="thinking"], [data-testid*="tool-call"], [data-testid*="tool-result"]';
+  const roots = [...new Set(units.flatMap((unit) => [...unit.querySelectorAll(markdownSelector)]
+    .filter((node) => !node.parentElement?.closest(markdownSelector) &&
+      !node.closest(excluded) && visible(node))))];
+  const tools = visibleToolNodesFromTurns(units.map(responseTurnRoot), visible, markdownSelector);
+  const entries = [
+    ...roots.map((node) => ({ node, kind: 'text' })),
+    ...tools.map((node, index) => ({ node, kind: 'tool', id: `dom-tool-${index}` })),
+  ];
+  entries.sort((a, b) => a.node === b.node ? 0 :
+    a.node.compareDocumentPosition(b.node) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1);
+  let textIndex = 0;
+  return entries.flatMap((item) => {
+    if (item.kind === 'tool') return [{ kind: 'tool', id: item.id }];
+    const value = markdownFromRoot(item.node).trim();
+    const id = `text-${textIndex++}`;
+    return value ? [{ kind: 'text', id, text: value }] : [];
+  }).slice(0, 256);
 };

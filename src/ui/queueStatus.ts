@@ -92,7 +92,7 @@ export function isQueueSnapshot(value: unknown): value is QueueSnapshot {
 }
 
 export function queueEtaText(waiting: Pick<WaitingJob, "eta_seconds">): string {
-  if (!Number.isFinite(waiting.eta_seconds) || waiting.eta_seconds < 0) return "ETA unavailable";
+  if (!Number.isFinite(waiting.eta_seconds) || waiting.eta_seconds < 0) return "";
   const minutes = Math.max(1, Math.ceil(waiting.eta_seconds / 60));
   if (minutes < 60) return "ETA ~" + minutes + " min";
   const hours = Math.floor(minutes / 60);
@@ -102,7 +102,8 @@ export function queueEtaText(waiting: Pick<WaitingJob, "eta_seconds">): string {
 
 export function queuedChatEtaText(sendId: string, snapshot: QueueSnapshot): string {
   const waiting = snapshot.waiting_runs?.find((run) => run.send_id === sendId);
-  return "Queued · " + (waiting ? queueEtaText(waiting) : "ETA unavailable");
+  const eta = waiting ? queueEtaText(waiting) : "";
+  return eta ? "Queued · " + eta : "Queued";
 }
 
 export function queueEtaExplanation(snapshot: QueueSnapshot): string {
