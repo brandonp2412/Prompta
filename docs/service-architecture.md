@@ -18,8 +18,9 @@ On Nox, update production using `./.venv/bin/python -m scripts.deploy_guarded` f
 `systemctl restart` for application services. The command fetches GitHub main,
 creates a private deployment pause marker and records active fresh captures,
 explicit replies, and deliveries in `deployment-interrupted.json` in the state
-directory. Application workers get five seconds to stop before remaining reads
-are interrupted. Only after workers stop does it fast-forward and migrate the
+directory. Deployment does not wait for active chats or browser reads. It queues
+application service stops and immediately kills their processes; interrupted
+chats recover after restart. Only after workers stop does it fast-forward and migrate the
 checkout, restart the scheduler/UI/delivery/manual workers, and verify health.
 The persistent browser service and its tabs stay running.
 

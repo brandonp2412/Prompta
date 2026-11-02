@@ -38,8 +38,14 @@ def request_pause(gate: DeploymentGate) -> None:
 
 
 def stop_workers(*, timeout: float = 60.0) -> None:
-    """Stop only after graceful drain; never kill an accepted ChatGPT capture."""
+    """Interrupt application owners promptly, preserving the external browser."""
     subprocess.run(["systemctl", "--user", "stop", "--no-block", *SERVICES], check=True)
+    # Queue stop first so Restart=always cannot relaunch a killed owner.
+    # A unit may already be inactive; the state check below confirms shutdown.
+    subprocess.run(
+        ["systemctl", "--user", "kill", "--signal=SIGKILL", "--kill-whom=all", *SERVICES],
+        check=False,
+    )
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         if all(
@@ -55,63 +61,7 @@ def stop_workers(*, timeout: float = 60.0) -> None:
         ):
             return
         time.sleep(0.25)
-    raise TimeoutError("Workers did not drain; deployment must not kill active captures")
-
-
-_DRAIN_TIMEOUT_SECONDS = 180.0
-
-
-def wait_for_idle(gate: DeploymentGate, *, timeout: float = _DRAIN_TIMEOUT_SECONDS) -> bool:
-    """Drain admitted sends/captures before stopping their owners."""
-    state_dir = gate.pause_path.parent
-    deadline = time.monotonic() + max(0.0, timeout)
-    checks = (
-        (
-            "chat-results.sqlite3",
-            "job_responses",
-            "status IN ('accepted', 'generating')",
-            "capture_deadline",
-        ),
-        (
-            "chat-results.sqlite3",
-            "manual_reply_turns",
-            "status IN ('dispatching', 'accepted', 'generating')",
-            "lease_deadline",
-        ),
-        ("ui-send-jobs.sqlite3", "job_deliveries", "status = 'running'", "lease_expires_at"),
-    )
-    while True:
-        now = time.time()
-        active = 0
-        for filename, table, condition, lease_column in checks:
-            with sqlite3.connect(
-                f"file:{state_dir / filename}?mode=ro",
-                uri=True,
-                timeout=3,
-            ) as db:
-                active += int(
-                    db.execute(
-                        f"SELECT COUNT(*) FROM {table} WHERE {condition} AND {lease_column}>?",
-                        (now,),
-                    ).fetchone()[0]
-                )
-        if active == 0:
-            # History probes and parent recovery hold a shared operation lock,
-            # but have no capture lease in either database. Do not stop their
-            # browser-owning process while one of these read-only probes runs.
-            with gate.lock_path.open("a+b") as lock_handle:
-                try:
-                    fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-                except BlockingIOError:
-                    pass
-                else:
-                    fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
-                    return True
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            logger.warning("Deployment deferred: %s active leases or browser reads remain", active)
-            return False
-        time.sleep(min(3.0, remaining))
+    raise TimeoutError("Application workers did not stop; refusing to update their loaded checkout")
 
 
 def record_interrupted_work(gate: DeploymentGate) -> None:
@@ -259,8 +209,6 @@ def deploy(repo: Path, gate: DeploymentGate) -> bool:
         changed = False
         success = False
         try:
-            if not wait_for_idle(gate):
-                return False
             record_interrupted_work(gate)
             changed = True
             stop_workers()

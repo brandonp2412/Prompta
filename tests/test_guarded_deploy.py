@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import sqlite3
-import time
 from pathlib import Path
 
 import pytest
@@ -94,18 +93,30 @@ def test_next_deploy_keeps_unfinished_recovery_priority(tmp_path: Path) -> None:
     }
 
 
-def test_busy_shutdown_never_kills_capture_owners(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_shutdown_interrupts_application_owners(monkeypatch: pytest.MonkeyPatch) -> None:
     commands: list[tuple[str, ...]] = []
 
     def fake_run(args: list[str], **_kwargs: object) -> object:
         commands.append(tuple(args))
-        return type("Result", (), {"returncode": 0})()
+        return type("Result", (), {"returncode": 0, "stdout": "inactive"})()
 
     monkeypatch.setattr(deploy_guarded.subprocess, "run", fake_run)
-    with pytest.raises(TimeoutError, match="must not kill"):
+    deploy_guarded.stop_workers()
+    assert commands[0] == ("systemctl", "--user", "stop", "--no-block", *deploy_guarded.SERVICES)
+    assert commands[1] == (
+        "systemctl", "--user", "kill", "--signal=SIGKILL", "--kill-whom=all",
+        *deploy_guarded.SERVICES,
+    )
+    assert all("prompta-browser.service" not in command for command in commands)
+
+
+def test_shutdown_failure_prevents_checkout_update(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        deploy_guarded.subprocess, "run",
+        lambda *_args, **_kwargs: type("Result", (), {"returncode": 0})(),
+    )
+    with pytest.raises(TimeoutError, match="did not stop"):
         deploy_guarded.stop_workers(timeout=0)
-    assert commands[0][2:4] == ("stop", "--no-block")
-    assert all("kill" not in command for command in commands)
 
 
 def test_refuses_to_take_over_existing_pause(tmp_path: Path) -> None:
@@ -116,62 +127,15 @@ def test_refuses_to_take_over_existing_pause(tmp_path: Path) -> None:
     assert gate.is_paused()
 
 
-def test_wait_for_idle_checks_live_leases_not_stale_statuses(tmp_path: Path) -> None:
-    gate = DeploymentGate(tmp_path / "runtime.sqlite3")
-    make_databases(tmp_path, active=True)
-    with sqlite3.connect(tmp_path / "chat-results.sqlite3") as db:
-        db.execute("UPDATE job_responses SET capture_deadline=?", (time.time() + 60,))
-        db.execute("UPDATE manual_reply_turns SET lease_deadline=?", (time.time() + 60,))
-    with sqlite3.connect(tmp_path / "ui-send-jobs.sqlite3") as db:
-        db.execute("UPDATE job_deliveries SET lease_expires_at=?", (time.time() + 60,))
-    assert not deploy_guarded.wait_for_idle(gate, timeout=0)
-    with sqlite3.connect(tmp_path / "chat-results.sqlite3") as db:
-        db.execute("UPDATE job_responses SET capture_deadline=0")
-        db.execute("UPDATE manual_reply_turns SET lease_deadline=0")
-    with sqlite3.connect(tmp_path / "ui-send-jobs.sqlite3") as db:
-        db.execute("UPDATE job_deliveries SET lease_expires_at=0")
-    assert deploy_guarded.wait_for_idle(gate, timeout=0)
-
-
-def test_wait_for_idle_drains_read_only_browser_operations(tmp_path: Path) -> None:
-    gate = DeploymentGate(tmp_path / "runtime.sqlite3")
-    make_databases(tmp_path)
-    with gate.admission() as admitted:
-        assert admitted
-        deploy_guarded.request_pause(gate)
-        # No active database leases: the in-flight read is protected by flock.
-        assert not deploy_guarded.wait_for_idle(gate, timeout=0)
-    assert deploy_guarded.wait_for_idle(gate, timeout=0)
-
-
-def test_busy_deployment_aborts_without_stopping_workers(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    state = tmp_path / "state"
-    state.mkdir()
-    gate = DeploymentGate(state / "runtime.sqlite3")
-    repo = tmp_path / "repo"
-    (repo / ".git").mkdir(parents=True)
-    commands: list[tuple[str, ...]] = []
-
-    def fake_run(args: list[str], **_kwargs: object) -> object:
-        commands.append(tuple(args))
-        return type("Result", (), {"returncode": 0})()
-
-    monkeypatch.setattr(deploy_guarded.subprocess, "run", fake_run)
-    monkeypatch.setattr(deploy_guarded, "wait_for_idle", lambda _gate: False)
-    assert not deploy_guarded.deploy(repo, gate)
-    assert not gate.is_paused()
-    assert not (state / "deployment-interrupted.json").exists()
-    assert all(command[0] == "git" for command in commands)
-
-
 def test_successful_deploy_restarts_apps_but_not_browser(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     gate = DeploymentGate(tmp_path / "state/runtime.sqlite3")
     make_databases(tmp_path / "state", active=True)
+    # Live leases and an admitted browser operation must not delay deployment.
+    with sqlite3.connect(tmp_path / "state/chat-results.sqlite3") as db:
+        db.execute("UPDATE job_responses SET capture_deadline=9999999999")
+        db.execute("UPDATE manual_reply_turns SET lease_deadline=9999999999")
     repo = tmp_path / "repo"
     (repo / ".git").mkdir(parents=True)
     (repo / ".venv/bin").mkdir(parents=True)
@@ -184,7 +148,9 @@ def test_successful_deploy_restarts_apps_but_not_browser(
     monkeypatch.setattr(deploy_guarded.subprocess, "run", fake_run)
     monkeypatch.setattr(deploy_guarded, "verify_services", lambda: True)
     monkeypatch.setattr(deploy_guarded, "stop_workers", lambda: None)
-    assert deploy_guarded.deploy(repo, gate)
+    with gate.admission() as admitted:
+        assert admitted
+        assert deploy_guarded.deploy(repo, gate)
     assert not gate.is_paused()
     with sqlite3.connect(tmp_path / "state/ui-send-jobs.sqlite3") as db:
         assert db.execute("SELECT lease_expires_at FROM job_deliveries").fetchone() == (0,)
