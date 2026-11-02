@@ -22,9 +22,13 @@ const visible = (node) => ({
   ...node, isConnected: true, getClientRects: () => [{}],
 });
 const user = visible({ innerText: prompt });
-const root = visible({ get innerText() { return responseText; }, parentElement: null });
+const root = visible({
+  get innerText() { return responseText; }, parentElement: null,
+  closest: () => null, compareDocumentPosition: () => 4,
+});
 const toolCard = visible({
   parentElement: null, closest: () => null, matches: () => true,
+  compareDocumentPosition: () => 2,
   getAttribute: (name) => ({
     'aria-label': 'Used test connector', 'data-state': 'completed',
   })[name] || '',
@@ -48,6 +52,7 @@ const main = {
   querySelectorAll: (selector) => selector.includes('role="user"') ? [user] : [assistant],
 };
 const context = {
+  Node: { DOCUMENT_POSITION_FOLLOWING: 4 },
   location: { origin: "https://chatgpt.com", get pathname() { return route; } },
   document: {
     querySelectorAll: (selector) => selector.includes('stop-button') ?

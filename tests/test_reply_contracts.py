@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import os
+import sqlite3
 import stat
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
-from sqlalchemy import inspect
+from sqlalchemy import event, inspect, update
 
 from prompta.browser_ownership import (
     MAX_OWNED_TAB_AGE_SECONDS,
@@ -96,6 +97,91 @@ def test_early_followups_wait_for_verified_parent_and_dispatch_in_order(tmp_path
     assert [turn["user_text"] for turn in restored.turns("run") or []] == [
         "Original question", "One more question", "And a second",
     ]
+
+
+def test_queued_dispatch_scans_many_blocked_chats_in_two_selects(tmp_path: Path) -> None:
+    store = seed(tmp_path)
+    for index in range(12):
+        send_id = f"missing-parent-{index}"
+        store.responses.ensure_queued(send_id, "Original question", now=100 + index)
+        assert store.responses.accept(send_id, f"{index}:initial", deadline=300, now=120 + index)
+        assert store.responses.write(
+            send_id, f"{index}:initial",
+            CaptureResult(
+                "dom", "complete", "Answer with missing identity", CONVERSATION,
+                None, None, "rendered:assistant",
+            ), now=140 + index,
+        )
+        store.queue_followup(
+            send_id, f"blocked-followup-{index:016d}", "Continue", now=200 + index,
+        )
+    ready_id = "ready-followup-111111111"
+    store.queue_followup("run", ready_id, "Ready to send", now=300)
+
+    selects: list[str] = []
+
+    def count_select(connection, cursor, statement, parameters, context, executemany) -> None:
+        if statement.lstrip().upper().startswith("SELECT"):
+            selects.append(statement)
+
+    event.listen(store.engine, "before_cursor_execute", count_select)
+    try:
+        ready = store.next_queued_intent(now=400)
+    finally:
+        event.remove(store.engine, "before_cursor_execute", count_select)
+
+    assert ready == ("run", ReplyIntent(ready_id, CONVERSATION, PARENT, "Ready to send"))
+    assert len(selects) == 2  # One read-only lineage check, then one under the writer lock.
+    for index in range(12):
+        blocked = store.get(f"blocked-followup-{index:016d}")
+        assert blocked is not None
+        assert blocked["status"] == "queued"
+
+
+def test_blocked_queued_reply_scan_does_not_wait_for_a_writer(tmp_path: Path) -> None:
+    store = ManualReplyStore(tmp_path / "private" / "chat-results.sqlite3")
+    store.responses.ensure_queued("awaiting-parent", "Question", now=100)
+    store.queue_followup("awaiting-parent", "queued-1111111111111111", "Continue", now=101)
+
+    # An unrelated delivery/database write can be in progress every time
+    # the one-second queue pump wakes up. Blocked parents are read-only.
+    writer = sqlite3.connect(store.responses.path, timeout=0.1, isolation_level=None)
+    try:
+        writer.execute("BEGIN IMMEDIATE")
+        assert store.next_queued_intent(now=102) is None
+    finally:
+        writer.rollback()
+        writer.close()
+
+    queued = store.get("queued-1111111111111111")
+    assert queued is not None and queued["status"] == "queued"
+
+
+def test_queued_reply_with_unresolved_predecessor_never_takes_writer_lock(
+    tmp_path: Path,
+) -> None:
+    store = seed(tmp_path)
+    first = "queued-first-111111111111"
+    second = "queued-second-22222222222"
+    store.queue_followup("run", first, "First follow-up", now=200)
+    store.queue_followup("run", second, "Second follow-up", now=201)
+    ready = store.next_queued_intent(now=202)
+    assert ready == ("run", ReplyIntent(first, CONVERSATION, PARENT, "First follow-up"))
+    assert store.claim(first, "active:worker", deadline=400, now=203)
+
+    # The first follow-up is in flight. An unrelated writer must never
+    # stall the one-second pump while the second waits for its answer.
+    writer = sqlite3.connect(store.responses.path, timeout=0.1, isolation_level=None)
+    try:
+        writer.execute("BEGIN IMMEDIATE")
+        assert store.next_queued_intent(now=204) is None
+        assert store.next_queued_intent(exclude={second}, now=204) is None
+    finally:
+        writer.rollback()
+        writer.close()
+
+    queued = store.get(second)
+    assert queued is not None and queued["status"] == "queued"
 
 
 def test_explicit_queue_pump_waits_for_first_answer_and_serializes_followups(
@@ -300,6 +386,44 @@ def test_ambiguous_claim_crash_and_partial_recovery_never_resend(tmp_path: Path)
     assert restored is not None and restored[1]["status"] == "outcome_unknown"
 
 
+def test_reply_orphan_probe_does_not_hold_a_sqlite_writer_lock(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store = seed(tmp_path)
+    store.prepare("run", intent(), now=200)
+    assert store.claim(REPLY_ID, "99999999:dead", deadline=400, now=201)
+
+    def dead_worker(pid: int, signal: int) -> None:
+        assert (pid, signal) == (99999999, 0)
+        # A concurrent store write must succeed during the process-liveness
+        # probe, not wait on an open orphan-recovery transaction.
+        store.responses.ensure_queued("unrelated", "Concurrent prompt", now=202)
+        raise ProcessLookupError
+
+    monkeypatch.setattr(os, "kill", dead_worker)
+    assert store.recover_orphans(now=202) == 1
+    assert store.responses.get("unrelated") is not None
+    turns = store.turns("run")
+    assert turns is not None and turns[-1]["status"] == "outcome_unknown"
+    assert not store.claim(REPLY_ID, "new:owner", deadline=500, now=203)
+
+
+def test_reply_orphan_recovery_preserves_live_accepted_leases(tmp_path: Path) -> None:
+    store = seed(tmp_path)
+    store.prepare("run", intent(), now=200)
+    owner = f"{os.getpid()}:live"
+    assert store.claim(REPLY_ID, owner, deadline=400, now=201)
+    assert store.acknowledge_submission(
+        REPLY_ID, owner, conversation_id=CONVERSATION, parent_id=PARENT, now=202,
+    )
+    assert store.recover_orphans(now=203) == 0
+    turns = store.turns("run")
+    assert turns is not None and turns[-1]["status"] == "accepted"
+    assert store.recover_orphans(now=401) == 1
+    turns = store.turns("run")
+    assert turns is not None and turns[-1]["status"] == "interrupted"
+
+
 def test_capture_deadline_extends_only_verified_live_owner(tmp_path: Path) -> None:
     from prompta.response_store import ResponseStore
 
@@ -456,3 +580,238 @@ def test_manual_tip_recovery_after_uncertain_send(tmp_path: Path) -> None:
         "run", ReplyIntent("reply-99999999999999", conversation, recovered_id, "Continue"),
         now=205,
     )["status"] == "prepared"
+
+
+def test_queued_reply_authorizes_background_original_parent_recovery(tmp_path: Path) -> None:
+    store = ManualReplyStore(tmp_path / "queued-revival.sqlite3")
+    conversation = "00000000-0000-4000-8000-000000000001"
+    parent = "00000000-0000-4000-8000-000000000002"
+    reply_id = "queued-revival-1111111111"
+    store.responses.ensure_queued("run", "Original prompt", now=10)
+    assert store.responses.accept("run", "test:owner", deadline=100, now=11)
+    assert store.responses.write(
+        "run", "test:owner",
+        CaptureResult("dom", "complete", "Original answer", conversation,
+                      None, None, "rendered:assistant"), now=12,
+    )
+    assert store.queue_followup("run", reply_id, "Revive and continue", now=13)["status"] == "queued"
+    assert store.queued_recovery_candidates() == ["run"]
+    assert store.next_queued_intent() is None
+    assert not store.recover_original_parent("run", conversation, parent, "Wrong answer")
+    assert store.recover_original_parent("run", conversation, parent, "Original answer")
+    assert store.queued_recovery_candidates() == []
+    assert store.next_queued_intent() == (
+        "run", ReplyIntent(reply_id, conversation, parent, "Revive and continue"),
+    )
+
+
+def test_queued_recovery_scan_batches_state_reads(tmp_path: Path) -> None:
+    """The one-second queue pump must not perform a transcript query per chat."""
+    store = ManualReplyStore(tmp_path / "queued-batch.sqlite3")
+    conversation = "00000000-0000-4000-8000-000000000001"
+    for index in range(6):
+        send_id = f"chat-{index}"
+        store.responses.ensure_queued(send_id, "Original", now=10 + index)
+        assert store.responses.accept(send_id, "test:owner", deadline=100, now=20 + index)
+        assert store.responses.write(
+            send_id, "test:owner",
+            CaptureResult("dom", "complete", "Answer", conversation,
+                          None, None, "rendered:assistant"),
+            now=30 + index,
+        )
+        store.queue_followup(send_id, f"queued-{index}-11111111111", "Continue", now=40 + index)
+
+    statements: list[str] = []
+
+    def count_select(
+        _connection: object, _cursor: object, statement: str,
+        _parameters: object, _context: object, _executemany: bool,
+    ) -> None:
+        if statement.lstrip().upper().startswith("SELECT"):
+            statements.append(statement)
+
+    event.listen(store.engine, "before_cursor_execute", count_select)
+    try:
+        assert store.queued_recovery_candidates() == [
+            f"chat-{index}" for index in reversed(range(6))
+        ]
+    finally:
+        event.remove(store.engine, "before_cursor_execute", count_select)
+    assert len(statements) == 2
+
+
+def test_queued_reply_recovers_uncertain_manual_tip_without_resending_it(tmp_path: Path) -> None:
+    store = ManualReplyStore(tmp_path / "queued-tip-revival.sqlite3")
+    conversation = "00000000-0000-4000-8000-000000000001"
+    original_id = "00000000-0000-4000-8000-000000000002"
+    recovered_id = "00000000-0000-4000-8000-000000000003"
+    store.responses.ensure_queued("run", "Original", now=10)
+    assert store.responses.accept("run", "test:owner", deadline=200, now=11)
+    assert store.responses.write(
+        "run", "test:owner",
+        CaptureResult("sse", "complete", "Answer", conversation,
+                      original_id, "00000000-0000-4000-8000-000000000004"), now=12,
+    )
+    previous = ReplyIntent("uncertain-reply-11111111", conversation, original_id, "Before revival")
+    store.prepare("run", previous, now=13)
+    assert store.claim(previous.reply_id, "dead:worker", deadline=20, now=14)
+    assert store.recover_orphans(now=30) == 1
+    queued_id = "queued-revival-2222222222"
+    assert store.queue_followup("run", queued_id, "Next request", now=31)["status"] == "queued"
+    from prompta.reply_tables import replies
+
+    # A just-observed interrupted answer is still generating, so do not
+    # launch a competing history read until the observation expires.
+    with store.engine.begin() as connection:
+        connection.execute(update(replies).where(
+            replies.c.reply_id == previous.reply_id,
+        ).values(live_observed_at=time.time()))
+    assert store.queued_recovery_candidates() == []
+    with store.engine.begin() as connection:
+        connection.execute(update(replies).where(
+            replies.c.reply_id == previous.reply_id,
+        ).values(live_observed_at=0))
+    assert store.queued_recovery_candidates() == ["run"]
+    assert store.recover_reply_parent(
+        "run", previous.reply_id, conversation, original_id, "Before revival", "", recovered_id,
+    )
+    assert store.next_queued_intent() == (
+        "run", ReplyIntent(queued_id, conversation, recovered_id, "Next request"),
+    )
+
+
+def test_queued_reply_pump_recovers_missing_parent_in_background(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import threading
+
+    from prompta.manual_reply_dispatch import ManualReplyDispatcher
+
+    store = ManualReplyStore(tmp_path / "queued-worker.sqlite3")
+    conversation = "00000000-0000-4000-8000-000000000001"
+    parent = "00000000-0000-4000-8000-000000000002"
+    store.responses.ensure_queued("run", "Original", now=10)
+    assert store.responses.accept("run", "test:owner", deadline=100, now=11)
+    assert store.responses.write(
+        "run", "test:owner", CaptureResult(
+            "dom", "complete", "Answer", conversation, None, None, "rendered:assistant",
+        ), now=12,
+    )
+    queued_id = "queued-worker-1111111111"
+    store.queue_followup("run", queued_id, "Continue", now=13)
+    dispatcher = ManualReplyDispatcher(store, tmp_path / "state.sqlite3")
+    verified = threading.Event()
+    release = threading.Event()
+    dispatched: list[ReplyIntent] = []
+
+    def recover(send_id: str) -> dict[str, str]:
+        assert send_id == "run"
+        verified.set()
+        assert release.wait(2)
+        assert store.recover_original_parent(send_id, conversation, parent, "Answer")
+        return {"message_id": parent}
+
+    def submit(send_id: str, intent: ReplyIntent) -> dict[str, object]:
+        assert send_id == "run"
+        dispatched.append(intent)
+        return {"status": "prepared"}
+
+    monkeypatch.setattr(dispatcher, "recover", recover)
+    monkeypatch.setattr(dispatcher, "submit", submit)
+    dispatcher.pump_queued()
+    assert verified.wait(2)
+    assert not dispatched  # The branch must be verified before any send.
+    release.set()
+    for _ in range(100):
+        if not dispatcher._recovery_scheduled:
+            break
+        time.sleep(0.01)
+    dispatcher.pump_queued()
+    assert dispatched == [ReplyIntent(queued_id, conversation, parent, "Continue")]
+
+
+def test_queued_recovery_shares_history_account_pacing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from prompta.manual_reply_dispatch import ManualReplyDispatcher
+    from prompta.response_store import HISTORY_READ_INTERVAL_SECONDS
+
+    store = ManualReplyStore(tmp_path / "queued-pacing.sqlite3")
+    conversation = "00000000-0000-4000-8000-000000000001"
+    store.responses.ensure_queued("run", "Original", now=10)
+    assert store.responses.accept("run", "test:owner", deadline=100, now=11)
+    assert store.responses.write(
+        "run", "test:owner", CaptureResult(
+            "dom", "complete", "Answer", conversation, None, None, "rendered:assistant",
+        ), now=12,
+    )
+    store.queue_followup("run", "queued-pacing-111111111", "Continue", now=13)
+    assert store.queued_recovery_candidates() == ["run"]
+    assert store.responses.reserve_history_recovery_global_slot(
+        now=time.time(), interval=HISTORY_READ_INTERVAL_SECONDS,
+    )
+
+    dispatcher = ManualReplyDispatcher(store, tmp_path / "state.sqlite3")
+    recovered: list[str] = []
+    monkeypatch.setattr(dispatcher, "recover", lambda send_id: recovered.append(send_id))
+    scanner = store.queued_recovery_candidates
+    monkeypatch.setattr(store, "queued_recovery_candidates", lambda: pytest.fail(
+        "Do not scan queued transcripts while account recovery is paced",
+    ))
+    dispatcher.pump_queued()
+    monkeypatch.setattr(store, "queued_recovery_candidates", scanner)
+    assert recovered == []
+    assert not dispatcher._recovery_scheduled
+
+    restarted = ManualReplyDispatcher(store, tmp_path / "state.sqlite3")
+    with pytest.raises(ReplyConflict, match="account read pacing"):
+        restarted.recover("run")
+    assert store.queued_recovery_candidates() == ["run"]
+
+
+def test_queued_recovery_prioritizes_pins_then_rotates_failed_chats(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from prompta.manual_reply_dispatch import ManualReplyDispatcher
+
+    store = ManualReplyStore(tmp_path / "queued-priority.sqlite3")
+    conversation = "00000000-0000-4000-8000-000000000001"
+    for name, created in [("pinned", 10), ("recent", 20)]:
+        store.responses.ensure_queued(name, "Original", now=created)
+        assert store.responses.accept(name, "test:owner", deadline=100, now=created + 1)
+        assert store.responses.write(
+            name, "test:owner", CaptureResult(
+                "dom", "complete", "Answer", conversation, None, None, "rendered:assistant",
+            ), now=created + 2,
+        )
+        store.queue_followup(name, f"{name}-queued-111111111", "Continue", now=created + 3)
+    assert store.responses.set_local_pin("pinned", pinned=True)
+    assert store.queued_recovery_candidates() == ["pinned", "recent"]
+
+    dispatcher = ManualReplyDispatcher(store, tmp_path / "state.sqlite3")
+    recovered: list[str] = []
+    monkeypatch.setattr(dispatcher, "recover", lambda send_id: recovered.append(send_id))
+    for expected in ("pinned", "recent"):
+        dispatcher.pump_queued()
+        for _ in range(100):
+            if not dispatcher._recovery_scheduled:
+                break
+            time.sleep(0.01)
+        assert recovered[-1:] == [expected]
+    assert recovered == ["pinned", "recent"]
+
+
+def test_queued_recovery_does_not_rescan_while_a_probe_is_active(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from prompta.manual_reply_dispatch import ManualReplyDispatcher
+
+    store = ManualReplyStore(tmp_path / "queued-priority.sqlite3")
+    dispatcher = ManualReplyDispatcher(store, tmp_path / "state.sqlite3")
+    dispatcher._recovery_scheduled.add("already-recovering")
+
+    def unexpected_scan() -> list[str]:
+        raise AssertionError("A running recovery must not rescan the queued transcript")
+
+    monkeypatch.setattr(store, "queued_recovery_candidates", unexpected_scan)
+    dispatcher._schedule_queued_parent_recovery()

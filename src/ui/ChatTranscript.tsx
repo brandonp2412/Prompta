@@ -4,6 +4,7 @@ import type { createChatsPageController } from "./ChatsPageController";
 import TurnActivity from "./TurnActivity";
 import CopyIcon from "./CopyIcon";
 import { ContinueChatIcon, RecoverChatIcon } from "./ChatActionIcons";
+
 import { isVideoAttachment } from "./mediaAttachments";
 import {
   chatMessageTime,
@@ -70,6 +71,13 @@ export default function ChatTranscript({
     if (copyState.value === id) return "Copied";
     if (copyState.value === "error:" + id) return "Copy failed";
     return "Copy";
+  }
+
+  function queuedFollowupLabel(index: number) {
+    const preceding = turns.value[index - 1];
+    if (preceding?.status === "queued") return "Follow-up queued · waiting for earlier follow-up";
+    if (!preceding?.message_id) return "Follow-up queued · reviving chat";
+    return "Follow-up queued · waiting for the preceding response";
   }
 
   return (
@@ -211,6 +219,7 @@ export default function ChatTranscript({
                       </div>
                     )}
                     {turn.assistant_text ||
+                    turn.tool_calls?.length ||
                     turn.display_blocks?.some((block) => block.kind === "text") ? (
                       <>
                         <TurnActivity
@@ -246,7 +255,7 @@ export default function ChatTranscript({
                         {turn.status !== "generating" && (
                           <p className="no-response">
                             {index > 0 && turn.status === "queued"
-                              ? "Follow-up queued · waiting for the preceding response"
+                              ? queuedFollowupLabel(index)
                               : turnStatus(turn.status)}
                           </p>
                         )}

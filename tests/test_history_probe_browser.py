@@ -100,6 +100,7 @@ def test_historical_tools_follow_all_chunks_of_only_the_original_turn() -> None:
         <button data-testid="copy-turn-action-button">Copy</button>
       </article>
       <div data-content-search-unit-key="fallback-turn-1:0:user">Later follow up</div>
+      <button data-testid="stop-button" aria-label="Stop generating">Stop</button>
       <article>
         <div data-content-search-unit-key="fallback-turn-1:1:assistant"><div class="markdown">Later answer</div></div>
         <button>Used Unrelated App</button>

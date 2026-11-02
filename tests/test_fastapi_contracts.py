@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -135,6 +136,41 @@ def test_head_queries_and_lookup_errors_preserve_private_headers(services: WebSe
         missing = client.get("/api/results/missing")
         assert missing.status_code == 404
         assert missing.json()["error"] == "Run not found"
+
+
+def test_settings_save_migrates_to_only_supported_toml_sections(
+    services: WebServices, tmp_path: Path, monkeypatch
+) -> None:
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        "[working_hours]\nenabled = false\n"
+        "[stage_concurrency]\nenabled = true\nday_limit = 1\nnight_limit = 3\n"
+        "[parallelism]\nmax_workers = 3\n"
+        "[connector_approval]\nenabled = true\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("prompta.web.DEFAULT_CONFIG_PATH", config_path)
+
+    with TestClient(create_app(services=services)) as client:
+        loaded = client.get("/api/settings")
+        assert loaded.status_code == 200
+        assert loaded.json()["parallelism"] == {"enabled": True, "max_workers": 3}
+
+        saved = client.put(
+            "/api/settings",
+            json={
+                "parallelism": {"enabled": True, "max_workers": 3},
+                "connector_approval": {"enabled": True},
+            },
+        )
+        assert saved.status_code == 200
+        assert saved.json()["parallelism"]["max_workers"] == 3
+
+    migrated = tomllib.loads(config_path.read_text(encoding="utf-8"))
+    assert migrated == {
+        "parallelism": {"enabled": True, "max_workers": 3},
+        "connector_approval": {"enabled": True},
+    }
 
 
 def test_lifespan_maintains_watchdog_without_request_traffic(

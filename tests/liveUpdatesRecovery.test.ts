@@ -198,6 +198,22 @@ test("offline mode cancels reconnect attempts and resumes once online", () => {
   });
 });
 
+test("manual retry while offline does not start another stream", () => {
+  withFakeStream(({ instances, fireWindow }) => {
+    const off = subscribeLiveUpdates("chats", () => {});
+    try {
+      fireWindow("offline");
+      retryLiveConnection();
+      retryLiveConnection();
+      expect(instances).toHaveLength(1);
+      fireWindow("online");
+      expect(instances).toHaveLength(2);
+    } finally {
+      off();
+    }
+  });
+});
+
 test("returning from a hidden tab restores the stalled-stream watchdog", () => {
   withFakeStream(({ instances, tick, fire, fireWindow, timers }) => {
     const off = subscribeLiveUpdates("chats", () => {});

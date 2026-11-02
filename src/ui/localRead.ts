@@ -6,12 +6,14 @@ const transientGatewayStatuses = new Set([502, 503, 504]);
 const transientRetryDelayMs = 250;
 const firstAttemptTimeoutMs = 6000;
 
-export async function localGet(url: string): Promise<Response> {
+export async function localGet(url: string, signal?: AbortSignal): Promise<Response> {
   const startedAt = Date.now();
   const request = (timeoutMs: number) =>
     fetch(url, {
       cache: "no-store",
-      signal: AbortSignal.timeout(timeoutMs),
+      signal: signal
+        ? AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)])
+        : AbortSignal.timeout(timeoutMs),
     });
 
   // A hung gateway must not consume the entire read budget. The second GET is
@@ -23,6 +25,7 @@ export async function localGet(url: string): Promise<Response> {
   } catch (error) {
     failure = error;
   }
+  if (signal?.aborted) throw signal.reason;
   if (response && !transientGatewayStatuses.has(response.status)) return response;
   const remainingBeforeDelay = localReadTimeoutMs - (Date.now() - startedAt);
   if (remainingBeforeDelay <= transientRetryDelayMs) {
@@ -30,6 +33,7 @@ export async function localGet(url: string): Promise<Response> {
     throw failure;
   }
   await new Promise<void>((resolve) => setTimeout(resolve, transientRetryDelayMs));
+  if (signal?.aborted) throw signal.reason;
   const remaining = localReadTimeoutMs - (Date.now() - startedAt);
   if (remaining <= 0) {
     if (response) return response;

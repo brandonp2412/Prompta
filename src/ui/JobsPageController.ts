@@ -386,10 +386,11 @@ export function createJobsPageController(initialProps: Props) {
     if (!editorOpen.value || saving.value) return;
     if (event.key === "Escape") {
       event.preventDefault();
-      requestClose();
+      if (confirmDiscard.value) confirmDiscard.value = false;
+      else requestClose();
       return;
     }
-    if (!dirty.value || duplicateName.value) return;
+    if (confirmDiscard.value || !dirty.value || duplicateName.value) return;
     if (!(event.ctrlKey || event.metaKey) || event.key !== "Enter") return;
     if (!(event.target instanceof Node) || !editorPage.value?.contains(event.target)) return;
     event.preventDefault();
@@ -748,9 +749,15 @@ export function createJobsPageController(initialProps: Props) {
       void loadDeliveryHealth();
       void loadQueue();
     });
+    // Queue/capture transitions invalidate the chats stream, not jobs revisions.
+    const unsubscribeQueue = subscribeLiveUpdates("chats", () => {
+      void loadDeliveryHealth();
+      void loadQueue();
+    });
     return () => {
       clearInterval(healthTimer);
       unsubscribe();
+      unsubscribeQueue();
       window.removeEventListener("beforeunload", onBeforeUnload);
       window.removeEventListener("resize", onViewportResize);
       window.visualViewport?.removeEventListener("resize", onViewportResize);

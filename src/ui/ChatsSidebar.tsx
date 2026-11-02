@@ -1,9 +1,9 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import { useSignals } from "@preact/signals-react/runtime";
 import type { createChatsPageController } from "./ChatsPageController";
 import ChatRow from "./ChatRow";
 import { queueEtaExplanation, queueEtaText } from "./queueStatus";
-import type { ChatListStatus } from "./resultFormatting";
 
 type SidebarRefs = {
   sidebarPane: (element: HTMLElement | null) => void;
@@ -20,14 +20,12 @@ export default function ChatsSidebar({
 }) {
   useSignals();
   const {
-    statuses,
     queueSnapshot,
     items,
     markingAllRead,
     drawerOpen,
     filtersOpen,
-    search,
-    statusFilter,
+    searchActive,
     loadingList,
     listError,
     pinned,
@@ -35,12 +33,10 @@ export default function ChatsSidebar({
     unpinned,
     markAllRead,
     loadingMore,
+    morePageFailed,
     nextOffset,
     total,
     loadMore,
-    applyFilter,
-    searchChanged,
-    clearSearch,
     toggleSearch,
     showJobs,
     createChat,
@@ -48,25 +44,138 @@ export default function ChatsSidebar({
 
   const [profileOpen, setProfileOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [concurrency, setConcurrency] = useState({ enabled: true, max_workers: 3 });
+  const profileTriggerRef = useRef<HTMLButtonElement>(null);
+  const profileMenuRef = useRef<HTMLDivElement>(null);
+  const settingsCloseRef = useRef<HTMLButtonElement>(null);
+  const settingsSaveRef = useRef<HTMLButtonElement>(null);
+  const settingsApprovalRef = useRef<HTMLInputElement>(null);
+  const listEndRef = useRef<HTMLDivElement>(null);
+  const [concurrency, setConcurrency] = useState<{ enabled: boolean; max_workers: number | "" }>({
+    enabled: true,
+    max_workers: 3,
+  });
   const [approval, setApproval] = useState(false);
   const [settingsError, setSettingsError] = useState("");
+  const [settingsReady, setSettingsReady] = useState(false);
+  const [settingsLoadKey, setSettingsLoadKey] = useState(0);
   const [saving, setSaving] = useState(false);
+  const validWorkerCount =
+    typeof concurrency.max_workers === "number" &&
+    Number.isInteger(concurrency.max_workers) &&
+    concurrency.max_workers >= 1 &&
+    concurrency.max_workers <= 128;
+  const hasOlderChats = nextOffset.value < total.value;
+  useEffect(() => {
+    if (
+      !hasOlderChats ||
+      loadingList.value ||
+      loadingMore.value ||
+      morePageFailed.value ||
+      typeof IntersectionObserver === "undefined"
+    )
+      return;
+    const pane = model.listPane.peek();
+    const end = listEndRef.current;
+    if (!pane || !end) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) void loadMore();
+      },
+      { root: pane, rootMargin: "200px 0px" },
+    );
+    observer.observe(end);
+    return () => observer.disconnect();
+  }, [hasOlderChats, loadingList.value, loadingMore.value, morePageFailed.value, nextOffset.value]);
+
+  function onListScroll(event: React.UIEvent<HTMLDivElement>) {
+    if (!hasOlderChats || loadingList.value || loadingMore.value || morePageFailed.value) return;
+    const pane = event.currentTarget;
+    if (pane.scrollHeight - pane.scrollTop - pane.clientHeight <= 200) void loadMore();
+  }
+  useEffect(() => {
+    if (!profileOpen) return;
+    const dismissOutside = (event: PointerEvent) => {
+      if (!(event.target instanceof Node)) return;
+      if (
+        profileTriggerRef.current?.contains(event.target) ||
+        profileMenuRef.current?.contains(event.target)
+      )
+        return;
+      setProfileOpen(false);
+    };
+    const dismissOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopPropagation();
+      setProfileOpen(false);
+      profileTriggerRef.current?.focus();
+    };
+    document.addEventListener("pointerdown", dismissOutside);
+    document.addEventListener("keydown", dismissOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", dismissOutside);
+      document.removeEventListener("keydown", dismissOnEscape);
+    };
+  }, [profileOpen]);
   useEffect(() => {
     if (!settingsOpen) return;
-    void fetch("./api/settings")
+    settingsCloseRef.current?.focus();
+    const handleKeys = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        setSettingsOpen(false);
+        return;
+      }
+      if (event.key !== "Tab") return;
+      let lastControl: HTMLButtonElement | HTMLInputElement | null = settingsSaveRef.current;
+      if (lastControl?.disabled) lastControl = settingsApprovalRef.current;
+      if (lastControl?.disabled) lastControl = settingsCloseRef.current;
+      if (event.shiftKey && document.activeElement === settingsCloseRef.current) {
+        event.preventDefault();
+        lastControl?.focus();
+      } else if (!event.shiftKey && document.activeElement === lastControl) {
+        event.preventDefault();
+        settingsCloseRef.current?.focus();
+      }
+    };
+    document.addEventListener("keydown", handleKeys);
+    return () => {
+      document.removeEventListener("keydown", handleKeys);
+      profileTriggerRef.current?.focus();
+    };
+  }, [settingsOpen]);
+  useEffect(() => {
+    if (!settingsOpen) return;
+    const controller = new AbortController();
+    setSettingsReady(false);
+    void fetch("./api/settings", { signal: controller.signal })
       .then(async (response) => {
         if (!response.ok) throw new Error("Could not load settings");
         return response.json();
       })
       .then((data) => {
-        setConcurrency(data.stage_concurrency);
+        if (controller.signal.aborted) return;
+        if (
+          typeof data?.parallelism?.enabled !== "boolean" ||
+          !Number.isInteger(data.parallelism.max_workers) ||
+          data.parallelism.max_workers < 1 ||
+          data.parallelism.max_workers > 128 ||
+          typeof data?.connector_approval?.enabled !== "boolean"
+        )
+          throw new Error("Invalid settings response");
+        setConcurrency(data.parallelism);
         setApproval(data.connector_approval.enabled);
         setSettingsError("");
+        setSettingsReady(true);
       })
-      .catch(() => setSettingsError("Could not load settings"));
-  }, [settingsOpen]);
+      .catch(() => {
+        if (!controller.signal.aborted) setSettingsError("Could not load settings");
+      });
+    return () => controller.abort();
+  }, [settingsOpen, settingsLoadKey]);
   async function saveSettings() {
+    if (!settingsReady || !validWorkerCount || saving) return;
     setSaving(true);
     setSettingsError("");
     try {
@@ -74,7 +183,7 @@ export default function ChatsSidebar({
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          stage_concurrency: concurrency,
+          parallelism: concurrency,
           connector_approval: { enabled: approval },
         }),
       });
@@ -87,9 +196,13 @@ export default function ChatsSidebar({
     }
   }
 
+  let settingsButtonLabel = "Save settings";
+  if (saving) settingsButtonLabel = "Saving…";
+  else if (!settingsReady && settingsError) settingsButtonLabel = "Retry loading settings";
+
   function emptyChatsLabel() {
     if (listError.value) return "Chat list temporarily unavailable";
-    if (search.value || statusFilter.value) return "No matching chats";
+    if (searchActive.value) return "No matching chats";
     return "No chats";
   }
 
@@ -120,8 +233,8 @@ export default function ChatsSidebar({
               <circle cx="10.5" cy="10.5" r="6.5" />
               <path d="m16 16 5 5" />
             </svg>
-            {(search.value || statusFilter.value) && (
-              <span aria-label="Filters active" className="filter-active-dot" />
+            {searchActive.value && (
+              <span aria-label="Search active" className="filter-active-dot" />
             )}
           </button>
         </nav>
@@ -137,54 +250,13 @@ export default function ChatsSidebar({
       {filtersOpen.value ? (
         <>
           <div id="chat-filters" className="chats-controls">
-            <div className="search-field">
-              <label className="search-label">
-                <span className="sr-only">Search chats</span>
-                <input
-                  type="search"
-                  placeholder="Search chats"
-                  ref={refs.searchInput}
-                  onInput={searchChanged}
-                  value={search.value}
-                  onChange={(event) => {
-                    search.value = event.currentTarget.value;
-                  }}
-                />
-              </label>
-              {search.value && (
-                <button
-                  type="button"
-                  aria-label="Clear chat search"
-                  title="Clear search"
-                  className="chat-search-clear"
-                  onClick={clearSearch}
-                >
-                  ×
-                </button>
-              )}
-            </div>
-            <label>
-              <span className="sr-only">Filter results by state</span>
-              <select
-                value={statusFilter.value}
-                onChange={(event) => {
-                  statusFilter.value = event.currentTarget.value as ChatListStatus;
-                  applyFilter();
-                }}
-              >
-                {statuses.map((choice) => (
-                  <option key={choice.value} value={choice.value}>
-                    {choice.label}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <SidebarSearchField model={model} inputRef={refs.searchInput} />
           </div>
         </>
       ) : (
         <></>
       )}
-      <div ref={refs.listPane} className="chats-list">
+      <div ref={refs.listPane} className="chats-list" onScroll={onListScroll}>
         {visibleWaiting.value.length ? (
           <>
             {visibleWaiting.value.map((waiting) => (
@@ -249,16 +321,19 @@ export default function ChatsSidebar({
             )}
           </>
         )}
-        {nextOffset.value < total.value ? (
+        {hasOlderChats && morePageFailed.value ? (
           <button
             type="button"
             disabled={loadingList.value || loadingMore.value}
             onClick={() => void loadMore()}
             className="btn ghost"
           >
-            {loadingMore.value ? "Loading chats…" : "Load more chats"}
+            Retry loading older chats
           </button>
         ) : null}
+        {hasOlderChats && !morePageFailed.value && (
+          <div ref={listEndRef} className="chat-list-end" aria-hidden="true" />
+        )}
       </div>
       <div className="sidebar-footer">
         <button
@@ -285,6 +360,8 @@ export default function ChatsSidebar({
           type="button"
           aria-label="Profile"
           aria-expanded={profileOpen}
+          aria-controls="sidebar-profile-menu"
+          ref={profileTriggerRef}
           onClick={() => setProfileOpen(!profileOpen)}
           className="sidebar-profile"
         >
@@ -301,10 +378,15 @@ export default function ChatsSidebar({
           <span>Profile</span>
         </button>
         {profileOpen && (
-          <div className="sidebar-profile-menu" role="menu">
+          <div
+            id="sidebar-profile-menu"
+            ref={profileMenuRef}
+            className="sidebar-profile-menu"
+            role="group"
+            aria-label="Profile actions"
+          >
             <button
               type="button"
-              role="menuitem"
               onClick={() => {
                 showJobs();
                 setProfileOpen(false);
@@ -314,8 +396,9 @@ export default function ChatsSidebar({
             </button>
             <button
               type="button"
-              role="menuitem"
               onClick={() => {
+                setSettingsReady(false);
+                setSettingsError("");
                 setSettingsOpen(true);
                 setProfileOpen(false);
               }}
@@ -324,7 +407,6 @@ export default function ChatsSidebar({
             </button>
             <button
               type="button"
-              role="menuitem"
               disabled={markingAllRead.value}
               onClick={() => {
                 void markAllRead();
@@ -336,80 +418,135 @@ export default function ChatsSidebar({
           </div>
         )}
       </div>
-      {settingsOpen && (
-        <div className="settings-backdrop" onClick={() => setSettingsOpen(false)}>
-          <section
-            role="dialog"
-            aria-modal="true"
-            aria-label="Prompta settings"
-            className="settings-dialog"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="settings-heading">
-              <h2>Settings</h2>
+      {settingsOpen &&
+        createPortal(
+          <div className="settings-backdrop" onClick={() => setSettingsOpen(false)}>
+            <section
+              role="dialog"
+              aria-modal="true"
+              aria-label="Prompta settings"
+              className="settings-dialog"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="settings-heading">
+                <h2>Settings</h2>
+                <button
+                  type="button"
+                  aria-label="Close settings"
+                  ref={settingsCloseRef}
+                  onClick={() => setSettingsOpen(false)}
+                >
+                  ×
+                </button>
+              </div>
+              <h3>Concurrency</h3>
+              <label className="settings-check">
+                <input
+                  type="checkbox"
+                  checked={concurrency.enabled}
+                  disabled={!settingsReady || saving}
+                  onChange={(event) =>
+                    setConcurrency({ ...concurrency, enabled: event.target.checked })
+                  }
+                />{" "}
+                Limit concurrent jobs and chats
+              </label>
+              <label className="settings-number">
+                Maximum workers
+                <input
+                  type="number"
+                  min="1"
+                  max="128"
+                  disabled={!settingsReady || saving || !concurrency.enabled}
+                  value={concurrency.max_workers}
+                  onChange={(event) => {
+                    const value = event.currentTarget.value;
+                    setConcurrency({
+                      ...concurrency,
+                      max_workers: value === "" ? "" : Number(value),
+                    });
+                  }}
+                />
+              </label>
+              <p>
+                One global limit for new chats, replies, one-off and repeating jobs. Running work is
+                not interrupted.
+              </p>
+              <h3>Connector approval</h3>
+              <label className="settings-check">
+                <input
+                  type="checkbox"
+                  checked={approval}
+                  disabled={!settingsReady || saving}
+                  ref={settingsApprovalRef}
+                  onChange={(event) => setApproval(event.target.checked)}
+                />{" "}
+                Automatically approve trusted connector prompts
+              </label>
+              {settingsError && <p role="alert">{settingsError}</p>}
               <button
                 type="button"
-                aria-label="Close settings"
-                onClick={() => setSettingsOpen(false)}
+                className="settings-save"
+                ref={settingsSaveRef}
+                disabled={
+                  (!settingsReady && !settingsError) ||
+                  saving ||
+                  (settingsReady && !validWorkerCount)
+                }
+                onClick={() => {
+                  if (settingsReady) void saveSettings();
+                  else {
+                    setSettingsError("");
+                    setSettingsLoadKey((value) => value + 1);
+                  }
+                }}
               >
-                ×
+                {settingsButtonLabel}
               </button>
-            </div>
-            <h3>Concurrency</h3>
-            <label className="settings-check">
-              <input
-                type="checkbox"
-                checked={concurrency.enabled}
-                onChange={(event) =>
-                  setConcurrency({ ...concurrency, enabled: event.target.checked })
-                }
-              />{" "}
-              Limit concurrent jobs and chats
-            </label>
-            <label className="settings-number">
-              Maximum workers
-              <input
-                type="number"
-                min="1"
-                max="128"
-                disabled={!concurrency.enabled}
-                value={concurrency.max_workers}
-                onChange={(event) =>
-                  setConcurrency({ ...concurrency, max_workers: Number(event.target.value) })
-                }
-              />
-            </label>
-            <p>
-              One global limit for new chats, replies, one-off and repeating jobs. Running work is
-              not interrupted.
-            </p>
-            <h3>Connector approval</h3>
-            <label className="settings-check">
-              <input
-                type="checkbox"
-                checked={approval}
-                onChange={(event) => setApproval(event.target.checked)}
-              />{" "}
-              Automatically approve trusted connector prompts
-            </label>
-            {settingsError && <p role="alert">{settingsError}</p>}
-            <button
-              type="button"
-              className="settings-save"
-              disabled={
-                saving ||
-                (concurrency.enabled &&
-                  (!Number.isInteger(concurrency.max_workers) ||
-                    concurrency.max_workers < 1 ||
-                    concurrency.max_workers > 128))
-              }
-              onClick={() => void saveSettings()}
-            >
-              {saving ? "Saving…" : "Save settings"}
-            </button>
-          </section>
-        </div>
-      )}
+            </section>
+          </div>,
+          document.body,
+        )}
     </aside>
+  );
+}
+
+// The search input updates on every keystroke; keep that subscription out of
+// the sidebar's potentially hundreds of chat rows.
+function SidebarSearchField({
+  model,
+  inputRef,
+}: {
+  model: ReturnType<typeof createChatsPageController>;
+  inputRef: SidebarRefs["searchInput"];
+}) {
+  useSignals();
+  return (
+    <div className="search-field">
+      <label className="search-label">
+        <span className="sr-only">Search chats</span>
+        <input
+          type="search"
+          placeholder="Search chats"
+          ref={inputRef}
+          value={model.search.value}
+          onChange={(event) => {
+            model.search.value = event.currentTarget.value;
+            model.searchChanged();
+          }}
+        />
+      </label>
+      {model.search.value && (
+        <button
+          type="button"
+          aria-label="Clear chat search"
+          title="Clear search"
+          className="chat-search-clear"
+          onClick={model.clearSearch}
+        >
+          ×
+        </button>
+      )}
+    </div>
   );
 }

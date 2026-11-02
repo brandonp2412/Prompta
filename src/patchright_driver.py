@@ -8,7 +8,7 @@ import re
 import threading
 import time
 import uuid
-from collections.abc import Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import replace
 from pathlib import Path
 from typing import Literal, Protocol, TypeVar
@@ -40,6 +40,7 @@ from .browser_ownership import (
     OWNED_WINDOW_PREFIX,
     new_owned_window_marker,
     new_page_owner_id,
+    owned_window_owner_id,
     record_owned_tab,
     touch_owned_tab,
 )
@@ -69,6 +70,7 @@ class BrowsingContextUnavailableError(RuntimeError):
 logger = logging.getLogger(__name__)
 
 _DEFAULT_TIMEOUT_MS = 30_000
+_FreshT = TypeVar("_FreshT")
 
 
 def _normalise_composer_text(text: str) -> str:
@@ -469,13 +471,32 @@ class PatchrightDriver(ModelPickerMixin):
         return None
 
     async def observed_assistant_response(self) -> CaptureResult:
+        script = (
+            '(() => { const observer = window.__promptaPassiveResponseObserver; '
+            'return observer?.read?.() || '
+            '{ message_id: "", text: "", complete: false, ambiguous: false }; })()'
+        )
         try:
-            payload = await self.eval(
-                '(() => { const observer = window.__promptaPassiveResponseObserver; '
-                'return observer?.read?.() || '
-                '{ message_id: "", text: "", complete: false, ambiguous: false }; })()', main_world=True
-            )
-        except (PatchrightError, RuntimeError, TimeoutError):
+            payload = await self.eval(script, main_world=True)
+        except Exception:
+            # The original Playwright channel can fail while its owned Brave
+            # tab remains alive. A second CDP connection observes that exact
+            # page without fetching account history or resending the prompt.
+            async def read(page: Page) -> CaptureResult:
+                payload = await page.evaluate(script, isolated_context=False)
+                return normalize_dom_snapshot(payload)
+
+            try:
+                snapshot = await self._with_fresh_owned_capture_page(read)
+                if snapshot is not None:
+                    if snapshot.text or snapshot.tool_calls:
+                        logger.info("Passive capture observed via fresh owned-tab connection")
+                    return snapshot
+            except Exception as exc:
+                logger.info(
+                    "Fresh owned-tab passive capture unavailable error_type=%s",
+                    type(exc).__name__,
+                )
             return normalize_dom_snapshot(None)
         return normalize_dom_snapshot(payload)
 
@@ -1004,6 +1025,66 @@ class PatchrightDriver(ModelPickerMixin):
 
     async def click_stuck_connector_approval(self) -> object:
         return await trusted_approval_retry(self._page())
+
+    async def _with_fresh_owned_capture_page(
+        self, operation: Callable[[Page], Awaitable[_FreshT]],
+    ) -> _FreshT | None:
+        """Reattach only this active capture's exact CDP target, never navigate."""
+        if not self._attached or not self.debugger_address or self._send_capture is None:
+            return None
+        target_id = self._owned_target_ids.get(self.context)
+        old_page = self._pages.get(self.context)
+        if not target_id or old_page is None:
+            return None
+        url = old_page.url
+        parsed = urlsplit(url)
+        if (
+            parsed.scheme != "https" or parsed.netloc != "chatgpt.com"
+            or parsed.query or parsed.fragment or not parsed.path.startswith("/c/")
+        ):
+            return None
+        conversation_id = parsed.path.removeprefix("/c/")
+        try:
+            if str(uuid.UUID(conversation_id)) != conversation_id:
+                return None
+        except ValueError:
+            return None
+
+        async with async_patchright() as patchright:
+            browser = await patchright.chromium.connect_over_cdp(
+                f"http://{self.debugger_address}", timeout=7000,
+            )
+            matches = [
+                page for context in browser.contexts for page in context.pages
+                if page.url == url
+            ]
+            if len(matches) != 1:
+                return None
+            page = matches[0]
+            session = await page.context.new_cdp_session(page)
+            try:
+                target_info = await session.send("Target.getTargetInfo")
+            finally:
+                await session.detach()
+            info = target_info.get("targetInfo")
+            actual_id = info.get("targetId") if isinstance(info, dict) else None
+            if actual_id != target_id:
+                return None
+            marker = await page.evaluate("window.name", isolated_context=True)
+            if owned_window_owner_id(marker, prefix=self.ownership_prefix) != self.page_owner_id:
+                return None
+            return await operation(page)
+
+    async def retry_connector_approval_from_owned_tab(self) -> object:
+        """Keep approvals moving when this owned capture's first CDP handle stalls."""
+        async def grant(page: Page) -> object:
+            result = await page.evaluate(
+                load_browser_script("approve_connector.js"), isolated_context=True,
+            )
+            return await trusted_approval_retry(page) if result == "stuck" else result
+
+        recovered = await self._with_fresh_owned_capture_page(grant)
+        return False if recovered is None else recovered
 
     @staticmethod
     def _navigation_response_is_security_challenge(response: Response | None) -> bool:

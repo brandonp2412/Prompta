@@ -351,7 +351,7 @@ def test_queue_status_api_is_private_read_only_and_exposes_worker_wait_order(
     with server(tmp_path) as (app, port):
         config_path = tmp_path / "config.toml"
         config_path.write_text(
-            "[stage_concurrency]\nenabled = true\nmax_workers = 1\n"
+            "[parallelism]\nenabled = true\nmax_workers = 1\n"
         )
         app.queue_view.concurrency_config_path = config_path
         for name in ("alpha", "beta", "gamma"):
@@ -393,7 +393,7 @@ def test_queued_chat_sidebar_subtitle_uses_its_dispatch_eta(tmp_path: Path) -> N
         pytest.skip("Visual Chromium binary unavailable")
     with server(tmp_path) as (app, port):
         config_path = tmp_path / "config.toml"
-        config_path.write_text("[stage_concurrency]\nenabled = true\nmax_workers = 1\n")
+        config_path.write_text("[parallelism]\nenabled = true\nmax_workers = 1\n")
         app.queue_view.concurrency_config_path = config_path
         now = time.time()
         first = app.queue.enqueue_manual("First queued chat", now=now, request_id="b" * 32)
@@ -424,7 +424,7 @@ def test_waiting_chats_render_and_advance_on_desktop_and_mobile(tmp_path: Path) 
     with server(tmp_path) as (app, port):
         config_path = tmp_path / "config.toml"
         config_path.write_text(
-            "[stage_concurrency]\nenabled = true\nmax_workers = 1\n"
+            "[parallelism]\nenabled = true\nmax_workers = 1\n"
         )
         app.queue_view.concurrency_config_path = config_path
         at = time.time()

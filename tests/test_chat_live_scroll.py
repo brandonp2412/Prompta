@@ -1,4 +1,5 @@
 """Live transcript refresh must not pull a reader away from older messages."""
+
 from __future__ import annotations
 
 import os
@@ -17,12 +18,16 @@ from prompta.response_capture import CaptureResult
 def serve_current_worktree_assets(monkeypatch: pytest.MonkeyPatch) -> None:
     import prompta.web as web_module
 
-    monkeypatch.setattr(web_module, "_STATIC_ROOT", Path(__file__).resolve().parents[1] / "src/static")
+    monkeypatch.setattr(
+        web_module, "_STATIC_ROOT", Path(__file__).resolve().parents[1] / "src/static"
+    )
 
 
 @pytest.mark.parametrize("width,height", [(1440, 900), (390, 844)])
 def test_live_refresh_respects_upward_scroll_during_request(
-    tmp_path: Path, width: int, height: int,
+    tmp_path: Path,
+    width: int,
+    height: int,
 ) -> None:
     chromium = Path(os.environ.get("PROMPTA_TEST_CHROMIUM", "/usr/bin/chromium"))
     if not chromium.is_file():
@@ -30,19 +35,24 @@ def test_live_refresh_respects_upward_scroll_during_request(
 
     now = time.time()
     initial = "\n\n".join(f"Initial paragraph {i}: " + "A long answer. " * 8 for i in range(130))
-    appended = initial + "\n\n" + "\n\n".join(
-        f"New paragraph {i}: " + "Fresh response text. " * 8 for i in range(40)
+    appended = (
+        initial
+        + "\n\n"
+        + "\n\n".join(f"New paragraph {i}: " + "Fresh response text. " * 8 for i in range(40))
     )
     with server(tmp_path) as (app, port), sync_patchright() as patchright:
         app.results.ensure_queued("live-scroll", "Long response", now=now)
         assert app.results.accept("live-scroll", "100:live-scroll", deadline=now + 120, now=now + 1)
         assert app.results.write(
-            "live-scroll", "100:live-scroll",
+            "live-scroll",
+            "100:live-scroll",
             CaptureResult("dom", "partial", initial, "conversation", "message", "parent"),
             now=now + 2,
         )
         browser = patchright.chromium.launch(
-            executable_path=str(chromium), headless=True, args=["--no-sandbox"],
+            executable_path=str(chromium),
+            headless=True,
+            args=["--no-sandbox"],
         )
         try:
             page = browser.new_page(viewport={"width": width, "height": height})
@@ -57,7 +67,8 @@ def test_live_refresh_respects_upward_scroll_during_request(
             }""")
             # Make the next five-second poll slow, so the user can move toward
             # history AFTER the controller has already decided whether to follow.
-            page.evaluate("""() => {
+            page.evaluate(
+                """() => {
                 const originalFetch = window.fetch.bind(window);
                 window.__delayedRefreshStarted = false;
                 window.__delayedOnce = false;
@@ -72,16 +83,21 @@ def test_live_refresh_respects_upward_scroll_during_request(
                     }
                     return originalFetch(resource, options);
                 };
-            }""", isolated_context=False)
+            }""",
+                isolated_context=False,
+            )
             assert app.results.write(
-                "live-scroll", "100:live-scroll",
+                "live-scroll",
+                "100:live-scroll",
                 CaptureResult("dom", "partial", appended, "conversation", "message", "parent"),
                 now=now + 3,
             )
             page.wait_for_function("window.__delayedRefreshStarted", timeout=12000)
             # Move only 18px upward: close enough to the tail that the old
             # 96px distance heuristic would forcibly snap it back down.
-            pane.evaluate("node => { node.scrollTop = node.scrollHeight - node.clientHeight - 18; }")
+            pane.evaluate(
+                "node => { node.scrollTop = node.scrollHeight - node.clientHeight - 18; }"
+            )
             page.wait_for_function("""() => {
                 const pane = document.querySelector('.chat-transcript-scroll');
                 return pane && pane.scrollHeight - pane.scrollTop - pane.clientHeight >= 16;
@@ -89,10 +105,13 @@ def test_live_refresh_respects_upward_scroll_during_request(
             top_before_wheel = pane.evaluate("node => node.scrollTop")
             page.mouse.move(width * 0.7, height * 0.45)
             page.mouse.wheel(0, -10)
-            page.wait_for_function("""previous => {
+            page.wait_for_function(
+                """previous => {
                 const pane = document.querySelector('.chat-transcript-scroll');
                 return pane && pane.scrollTop <= previous - 8;
-            }""", arg=top_before_wheel)
+            }""",
+                arg=top_before_wheel,
+            )
             top_before = pane.evaluate("node => node.scrollTop")
             expect(pane).to_contain_text("New paragraph 39", timeout=12000)
             page.wait_for_timeout(250)
@@ -111,7 +130,8 @@ def test_live_refresh_respects_upward_scroll_during_request(
             }""")
             more = appended + "\n\nNewest content after rejoining tail " + "More text. " * 40
             assert app.results.write(
-                "live-scroll", "100:live-scroll",
+                "live-scroll",
+                "100:live-scroll",
                 CaptureResult("dom", "partial", more, "conversation", "message", "parent"),
                 now=now + 4,
             )

@@ -35,7 +35,7 @@ test("recovery progress explains pending, paced, and nonrecoverable local reads"
       },
       101,
     ),
-  ).toBe("next check ~3 min");
+  ).toBe("Next check queued");
   expect(
     recoveryProgress(
       {

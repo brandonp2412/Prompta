@@ -8,10 +8,11 @@ import pytest
 from sqlalchemy import update
 
 from prompta.history_recovery import HistoryRecovery
+from prompta.patchright_driver import PatchrightDriver
 from prompta.reply_contracts import ManualReplyStore, ReplyIntent
 from prompta.reply_contracts import replies as reply_table
 from prompta.response_capture import CaptureResult
-from prompta.response_store import ResponseStore
+from prompta.response_store import ResponseStore, history_recovery_attempts
 from prompta.response_store import results as result_table
 from prompta.scheduler_runtime import SchedulerRuntime
 
@@ -28,7 +29,8 @@ def _chain(tmp_path: Path) -> tuple[ResponseStore, ManualReplyStore, str]:
     responses.ensure_queued("chain-run", "Original prompt", now=10)
     assert responses.accept("chain-run", "123:owner", deadline=200, now=11)
     assert responses.write(
-        "chain-run", "123:owner",
+        "chain-run",
+        "123:owner",
         CaptureResult("sse", "complete", "Original answer", CONVERSATION, ORIGINAL_ID, None),
         now=12,
     )
@@ -36,13 +38,17 @@ def _chain(tmp_path: Path) -> tuple[ResponseStore, ManualReplyStore, str]:
     assert replies.prepare("chain-run", first, now=13)["status"] == "prepared"
     assert replies.claim(first.reply_id, "123:reply", deadline=200, now=14)
     assert replies.accepted(
-        first.reply_id, "123:reply", conversation_id=CONVERSATION,
-        parent_id=ORIGINAL_ID, message_id=FIRST_REPLY_ID, now=15,
+        first.reply_id,
+        "123:reply",
+        conversation_id=CONVERSATION,
+        parent_id=ORIGINAL_ID,
+        message_id=FIRST_REPLY_ID,
+        now=15,
     )
     assert replies.observe(
-        first.reply_id, "123:reply",
-        CaptureResult("sse", "complete", "First answer", CONVERSATION,
-                      FIRST_REPLY_ID, ORIGINAL_ID),
+        first.reply_id,
+        "123:reply",
+        CaptureResult("sse", "complete", "First answer", CONVERSATION, FIRST_REPLY_ID, ORIGINAL_ID),
         now=16,
     )
     second = ReplyIntent("second-reply", CONVERSATION, FIRST_REPLY_ID, "Second follow-up")
@@ -50,6 +56,49 @@ def _chain(tmp_path: Path) -> tuple[ResponseStore, ManualReplyStore, str]:
     assert replies.claim(second.reply_id, "123:reply2", deadline=200, now=18)
     assert replies.finish(second.reply_id, "123:reply2", uncertain=True, now=19)
     return responses, replies, second.reply_id
+
+
+def test_newest_pinned_reply_outranks_an_older_pinned_original(
+    tmp_path: Path,
+) -> None:
+    responses, replies, reply_id = _chain(tmp_path)
+    assert responses.set_local_pin("chain-run", pinned=True)
+    responses.ensure_queued("other-pinned", "Other prompt", now=14)
+    assert responses.accept("other-pinned", "123:owner", deadline=200, now=15)
+    other_conversation = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+    assert responses.bind_conversation_route(
+        "other-pinned",
+        "123:owner",
+        "/c/" + other_conversation,
+        now=16,
+    )
+    assert responses.finish("other-pinned", "123:owner", "interrupted", now=17)
+    assert responses.set_local_pin("other-pinned", pinned=True)
+    runtime = SchedulerRuntime(tmp_path / "runtime.sqlite3", tmp_path / "jobs.json")
+    worker = HistoryRecovery(responses, runtime, lambda: PatchrightDriver(profile=tmp_path))
+    due = worker._newest_pinned_due(now=20)
+    assert due is not None and due["reply_id"] == reply_id
+    assert due["activity_at"] == 17
+
+
+def test_legacy_future_reply_deadline_does_not_block_global_only_recovery(
+    tmp_path: Path,
+) -> None:
+    responses, replies, reply_id = _chain(tmp_path)
+    responses.schedule_history_recovery(
+        "reply:" + reply_id, now=20, next_attempt_at=9000,
+    )
+    # A deployed database may still contain a deadline set by the old code.
+    with responses.engine.begin() as connection:
+        connection.execute(
+            update(history_recovery_attempts)
+            .where(history_recovery_attempts.c.send_id == "reply:" + reply_id)
+            .values(next_attempt_at=9000)
+        )
+    candidate = replies.next_history_reply_recovery(now=21)
+    assert candidate is not None and candidate["reply_id"] == reply_id
+    assert candidate["attempt_count"] == 1
+    assert replies.reply_recovery_metrics(now=21)["due_reply_recovery_probes"] == 1
 
 
 def test_later_uncertain_reply_is_eligible_only_with_verified_predecessor(tmp_path: Path) -> None:
@@ -65,13 +114,24 @@ def test_later_uncertain_reply_is_eligible_only_with_verified_predecessor(tmp_pa
     }
 
     assert not replies.recover_historical_reply(
-        reply_id, CaptureResult("dom", "complete", "Wrong parent", CONVERSATION,
-                                SECOND_REPLY_ID, ORIGINAL_ID, "turn"), now=21,
+        reply_id,
+        CaptureResult(
+            "dom", "complete", "Wrong parent", CONVERSATION, SECOND_REPLY_ID, ORIGINAL_ID, "turn"
+        ),
+        now=21,
     )
     assert not replies.recover_historical_reply(
-        reply_id, CaptureResult("dom", "complete", "Wrong chat",
-                                "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-                                SECOND_REPLY_ID, FIRST_REPLY_ID, "turn"), now=22,
+        reply_id,
+        CaptureResult(
+            "dom",
+            "complete",
+            "Wrong chat",
+            "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+            SECOND_REPLY_ID,
+            FIRST_REPLY_ID,
+            "turn",
+        ),
+        now=22,
     )
     unresolved = replies.get(reply_id)
     assert unresolved is not None and unresolved["status"] == "outcome_unknown"
@@ -79,14 +139,19 @@ def test_later_uncertain_reply_is_eligible_only_with_verified_predecessor(tmp_pa
 
 @pytest.mark.parametrize("original_status", ["completed", "interrupted", "unavailable"])
 def test_later_reply_recovers_via_one_read_only_exact_chat_visit(
-    tmp_path: Path, original_status: str,
+    tmp_path: Path,
+    original_status: str,
 ) -> None:
     responses, replies, reply_id = _chain(tmp_path)
     if original_status != "completed":
         with responses.engine.begin() as connection:
-            connection.execute(update(result_table).where(
-                result_table.c.send_id == "chain-run",
-            ).values(status=original_status))
+            connection.execute(
+                update(result_table)
+                .where(
+                    result_table.c.send_id == "chain-run",
+                )
+                .values(status=original_status)
+            )
 
     class ReadOnlyDriver:
         context = "owned"
@@ -108,10 +173,13 @@ def test_later_reply_recovers_via_one_read_only_exact_chat_visit(
         async def eval(self, expression: str, *, main_world: bool = False) -> object:
             assert "Second follow-up" in expression and FIRST_REPLY_ID in expression
             return {
-                "verified": True, "ambiguous": False,
-                "message_id": "second-unit", "branch_message_id": SECOND_REPLY_ID,
+                "verified": True,
+                "ambiguous": False,
+                "message_id": "second-unit",
+                "branch_message_id": SECOND_REPLY_ID,
                 "verified_parent_id": FIRST_REPLY_ID,
-                "pathname": "/c/" + CONVERSATION, "text": "Recovered second answer",
+                "pathname": "/c/" + CONVERSATION,
+                "text": "Recovered second answer",
                 "complete": True,
             }
 
@@ -141,37 +209,58 @@ def test_shorter_tool_snapshot_never_marks_partial_reply_complete(tmp_path: Path
     # worker was interrupted, then a shorter DOM snapshot with tool metadata.
     partial = "A substantial partial answer that must survive."
     with replies.engine.begin() as connection:
-        connection.execute(update(reply_table).where(
-            reply_table.c.reply_id == reply_id
-        ).values(status="interrupted", assistant_text=partial))
+        connection.execute(
+            update(reply_table)
+            .where(reply_table.c.reply_id == reply_id)
+            .values(status="interrupted", assistant_text=partial)
+        )
 
     short = CaptureResult(
-        "dom", "complete", "OK", CONVERSATION, SECOND_REPLY_ID,
-        FIRST_REPLY_ID, "turn", tool_calls=(
-            {"id": "tool-1", "connector": "", "action": "Lookup", "status": "completed"},
-        ),
+        "dom",
+        "complete",
+        "OK",
+        CONVERSATION,
+        SECOND_REPLY_ID,
+        FIRST_REPLY_ID,
+        "turn",
+        tool_calls=({"id": "tool-1", "connector": "", "action": "Lookup", "status": "completed"},),
     )
     assert replies.recover_historical_reply(reply_id, short, now=21)
     saved = replies.get(reply_id)
     assert saved is not None
     assert saved["assistant_text"] == partial and saved["status"] == "interrupted"
     assert replies.recover_historical_reply(
-        reply_id, CaptureResult("dom", "complete", "Fully recovered complete answer with enough verified detail to replace the partial.",
-                                CONVERSATION, SECOND_REPLY_ID, FIRST_REPLY_ID, "turn"),
+        reply_id,
+        CaptureResult(
+            "dom",
+            "complete",
+            "Fully recovered complete answer with enough verified detail to replace the partial.",
+            CONVERSATION,
+            SECOND_REPLY_ID,
+            FIRST_REPLY_ID,
+            "turn",
+        ),
         now=22,
     )
     completed = replies.get(reply_id)
     assert completed is not None
     assert completed["status"] == "completed"
-    assert completed["assistant_text"] == "Fully recovered complete answer with enough verified detail to replace the partial."
+    assert (
+        completed["assistant_text"]
+        == "Fully recovered complete answer with enough verified detail to replace the partial."
+    )
 
 
 def test_short_complete_looking_probe_remains_retryable_after_storage_guard(tmp_path: Path) -> None:
     responses, replies, reply_id = _chain(tmp_path)
     with replies.engine.begin() as connection:
-        connection.execute(update(reply_table).where(
-            reply_table.c.reply_id == reply_id
-        ).values(status="interrupted", assistant_text="A long saved partial answer must survive."))
+        connection.execute(
+            update(reply_table)
+            .where(reply_table.c.reply_id == reply_id)
+            .values(
+                status="interrupted", assistant_text="A long saved partial answer must survive."
+            )
+        )
 
     class ShortReadOnlyDriver:
         context = "owned"
@@ -189,10 +278,13 @@ def test_short_complete_looking_probe_remains_retryable_after_storage_guard(tmp_
         async def eval(self, expression: str, *, main_world: bool = False) -> object:
             assert "Second follow-up" in expression
             return {
-                "verified": True, "ambiguous": False,
-                "message_id": "second-unit", "branch_message_id": SECOND_REPLY_ID,
+                "verified": True,
+                "ambiguous": False,
+                "message_id": "second-unit",
+                "branch_message_id": SECOND_REPLY_ID,
                 "verified_parent_id": FIRST_REPLY_ID,
-                "pathname": "/c/" + CONVERSATION, "text": "OK",
+                "pathname": "/c/" + CONVERSATION,
+                "text": "OK",
                 "complete": True,
                 "tool_calls": [{"action": "Lookup", "status": "completed"}],
             }
@@ -205,44 +297,60 @@ def test_short_complete_looking_probe_remains_retryable_after_storage_guard(tmp_
     still_partial = replies.get(reply_id)
     assert still_partial is not None and still_partial["status"] == "interrupted"
     assert still_partial["assistant_text"] == "A long saved partial answer must survive."
-    assert replies.reply_recovery_metrics(now=22)["due_reply_recovery_probes"] == 0
+    assert replies.reply_recovery_metrics(now=22)["due_reply_recovery_probes"] == 1
 
 
 def test_interrupted_original_keeps_verified_reply_recovery_eligible(tmp_path: Path) -> None:
     responses, replies, reply_id = _chain(tmp_path)
     with responses.engine.begin() as connection:
-        connection.execute(update(result_table).where(
-            result_table.c.send_id == "chain-run"
-        ).values(status="interrupted"))
+        connection.execute(
+            update(result_table)
+            .where(result_table.c.send_id == "chain-run")
+            .values(status="interrupted")
+        )
 
     candidate = replies.next_history_reply_recovery(now=20)
     assert candidate is not None and candidate["reply_id"] == reply_id
     assert replies.reply_recovery_metrics(now=20)["recoverable_reply_captures"] == 1
 
     with responses.engine.begin() as connection:
-        connection.execute(update(result_table).where(
-            result_table.c.send_id == "chain-run"
-        ).values(conversation_id="different-conversation"))
+        connection.execute(
+            update(result_table)
+            .where(result_table.c.send_id == "chain-run")
+            .values(conversation_id="different-conversation")
+        )
     assert replies.next_history_reply_recovery(now=20) is None
     assert replies.reply_recovery_metrics(now=20)["recoverable_reply_captures"] == 0
 
 
 @pytest.mark.parametrize("original_status", ["interrupted", "unavailable"])
 def test_verified_followup_recovers_after_original_capture_fails(
-    tmp_path: Path, original_status: str,
+    tmp_path: Path,
+    original_status: str,
 ) -> None:
     responses, replies, reply_id = _chain(tmp_path)
     with responses.engine.begin() as connection:
-        connection.execute(update(result_table).where(
-            result_table.c.send_id == "chain-run",
-        ).values(status=original_status))
+        connection.execute(
+            update(result_table)
+            .where(
+                result_table.c.send_id == "chain-run",
+            )
+            .values(status=original_status)
+        )
 
     candidate = replies.next_history_reply_recovery(now=20)
     assert candidate is not None and candidate["reply_id"] == reply_id
     assert replies.recover_historical_reply(
         reply_id,
-        CaptureResult("dom", "complete", "Recovered second answer",
-                      CONVERSATION, SECOND_REPLY_ID, FIRST_REPLY_ID, "turn"),
+        CaptureResult(
+            "dom",
+            "complete",
+            "Recovered second answer",
+            CONVERSATION,
+            SECOND_REPLY_ID,
+            FIRST_REPLY_ID,
+            "turn",
+        ),
         now=21,
     )
     saved = replies.get(reply_id)
@@ -260,12 +368,19 @@ def test_attention_filter_surfaces_uncertain_followups_and_clears_after_recovery
     assert responses.recovery_metrics(now=20)["attention_chats"] == 1
     replies.annotate_response_markers(page["items"])
     assert page["items"][0]["needs_attention"] is True
-    assert page["items"][0]["status"] == "completed"
+    assert page["items"][0]["status"] == "outcome_unknown"
 
     assert replies.recover_historical_reply(
         reply_id,
-        CaptureResult("dom", "complete", "Recovered answer", CONVERSATION,
-                      SECOND_REPLY_ID, FIRST_REPLY_ID, "turn"),
+        CaptureResult(
+            "dom",
+            "complete",
+            "Recovered answer",
+            CONVERSATION,
+            SECOND_REPLY_ID,
+            FIRST_REPLY_ID,
+            "turn",
+        ),
         now=25,
     )
     assert responses.page(status="needs_attention")["total"] == 0
@@ -275,20 +390,26 @@ def test_attention_filter_surfaces_uncertain_followups_and_clears_after_recovery
     assert normal["items"][0]["needs_attention"] is False
 
     with responses.engine.begin() as connection:
-        connection.execute(update(result_table).where(
-            result_table.c.send_id == "chain-run"
-        ).values(status="unavailable"))
-    assert responses.page(status="needs_attention")["total"] == 1
-    assert responses.recovery_metrics(now=30)["attention_chats"] == 1
+        connection.execute(
+            update(result_table)
+            .where(result_table.c.send_id == "chain-run")
+            .values(status="unavailable")
+        )
+    assert responses.page(status="needs_attention")["total"] == 0
+    assert responses.recovery_metrics(now=30)["attention_chats"] == 0
 
     with responses.engine.begin() as connection:
-        connection.execute(update(result_table).where(
-            result_table.c.send_id == "chain-run"
-        ).values(status="outcome_unknown"))
+        connection.execute(
+            update(result_table)
+            .where(result_table.c.send_id == "chain-run")
+            .values(status="outcome_unknown")
+        )
     page = responses.page(status="needs_attention")
-    assert page["total"] == 1
-    replies.annotate_response_markers(page["items"])
-    assert page["items"][0]["needs_attention"] is True
+    assert page["total"] == 0
+    completed_page = responses.page()
+    replies.annotate_response_markers(completed_page["items"])
+    assert completed_page["items"][0]["needs_attention"] is False
+    assert completed_page["items"][0]["status"] == "completed"
 
 
 def test_mark_all_read_tracks_only_the_latest_completed_revision(tmp_path: Path) -> None:
@@ -304,8 +425,13 @@ def test_mark_all_read_tracks_only_the_latest_completed_revision(tmp_path: Path)
     assert replies.recover_historical_reply(
         reply_id,
         CaptureResult(
-            "dom", "complete", "Second answer", CONVERSATION,
-            SECOND_REPLY_ID, FIRST_REPLY_ID, "turn",
+            "dom",
+            "complete",
+            "Second answer",
+            CONVERSATION,
+            SECOND_REPLY_ID,
+            FIRST_REPLY_ID,
+            "turn",
         ),
         now=25,
     )

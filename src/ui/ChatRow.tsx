@@ -16,17 +16,33 @@ export default function ChatRow({ item, model }: Props) {
   const selected = model.view.value === "chats" && model.selectedRunId.value === item.send_id;
   const unread = model.isUnread(item);
   const pinned = model.pinnedIds.value.includes(item.send_id);
-  const hasPreview = item.has_response && !!item.preview.trim();
-  const preview = hasPreview ? plainPreview(item.preview) : "";
+  const entering = model.enteringNewChatId.value === item.send_id;
   const rowStatus = item.needs_attention ? "Needs attention" : statusLabel(item.status);
   const queued = item.status === "queued" && !item.needs_attention;
+  // A queued or accepted follow-up has no new answer yet: the prior answer's
+  // preview must not hide the current state or the queue estimate.
+  const showPreview =
+    item.has_response &&
+    !!item.preview.trim() &&
+    !queued &&
+    !(item.status === "accepted" && !item.needs_attention);
+  const preview = showPreview ? plainPreview(item.preview) : "";
   const subtitle = queued ? queuedChatEtaText(item.send_id, model.queueSnapshot.value) : rowStatus;
 
   return (
     <div
-      className={["chat-entry", selected ? "chosen" : "", unread ? "unread" : ""]
+      className={[
+        "chat-entry",
+        selected ? "chosen" : "",
+        unread ? "unread" : "",
+        entering ? "arriving" : "",
+      ]
         .filter(Boolean)
         .join(" ")}
+      onAnimationEnd={(event) => {
+        if (event.target === event.currentTarget && model.enteringNewChatId.peek() === item.send_id)
+          model.enteringNewChatId.value = null;
+      }}
     >
       <a
         href={chatUrl(item.send_id)}
@@ -63,7 +79,7 @@ export default function ChatRow({ item, model }: Props) {
             <span className="sr-only">{rowStatus}</span>
           </span>
         </span>
-        {hasPreview ? (
+        {showPreview ? (
           <span className="chat-preview" title={preview}>
             {item.needs_attention ? "Needs attention · " : ""}
             {preview}

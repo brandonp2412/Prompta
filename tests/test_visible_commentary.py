@@ -30,7 +30,11 @@ def test_visible_blocks_persist_across_partial_and_complete_frames(tmp_path: Pat
     assert store.write("run", "123:owner", after, now=4)
     detail = store.detail("run")
     assert detail is not None
-    assert detail["display_blocks"] == list(after.display_blocks)
+    assert detail["display_blocks"] == [
+        {"kind": "text", "id": "text-0", "text": "I'll check."},
+        {"kind": "tool", "id": "dom-tool-0"},
+        {"kind": "text", "id": "text-1", "text": "Found it."},
+    ]
     turns = ManualReplyStore(tmp_path / "results.db").turns("run")
     assert turns is not None
     assert turns[0]["display_blocks"] == detail["display_blocks"]

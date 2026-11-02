@@ -28,7 +28,7 @@ def test_shutdown_drains_active_capture_without_starting_another(
             self.scans += 1
             scanned.set()
 
-        def active_count(self) -> int:
+        def inflight_count(self) -> int:
             return 0 if finished.is_set() else 1
 
     monkeypatch.setattr(manual_reply_worker, "ManualReplyDispatcher", FakeDispatcher)

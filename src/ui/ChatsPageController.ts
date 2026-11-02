@@ -13,7 +13,6 @@ import { pinReceiptConfirmed, readReceiptConfirmed } from "./localReceiptReconci
 import {
   acknowledgeExactReplyRequest,
   acknowledgeQueuedFollowupRequest,
-  pendingExactReplyRequest,
   pendingQueuedFollowupRequest,
 } from "./pendingExactReply";
 import {
@@ -28,12 +27,7 @@ import {
   queuedFollowupReceiptState,
   type ExactReplyPayload,
 } from "./exactReplyReceipt";
-import {
-  type LocalTurn,
-  type ChatListStatus,
-  type RunDetail,
-  type RunSummary,
-} from "./resultFormatting";
+import { type LocalTurn, type RunDetail, type RunSummary } from "./resultFormatting";
 export type Props = {
   view: "jobs" | "chats";
   selectedRunId: string | null;
@@ -57,18 +51,6 @@ export function createChatsPageController(initialProps: Props) {
   const pageSize = 100;
   const preferencesKey = "prompta.local-sidebar.v1";
   const readSyncKey = "prompta.local-read-sync.v1";
-  const statuses: { value: ChatListStatus; label: string }[] = [
-    { value: "", label: "All states" },
-    { value: "needs_attention", label: "Needs attention" },
-    { value: "accepted", label: "Accepted" },
-    { value: "generating", label: "Generating" },
-    { value: "completed", label: "Completed" },
-    { value: "interrupted", label: "Interrupted" },
-    { value: "unavailable", label: "Unavailable" },
-    { value: "outcome_unknown", label: "Send unverified" },
-    { value: "queued", label: "Queued" },
-  ];
-
   const queueSnapshot = signal<QueueSnapshot>(emptyQueueSnapshot);
   const queueError = signal("");
   let queueGeneration = 0;
@@ -88,6 +70,7 @@ export function createChatsPageController(initialProps: Props) {
   const items = signal<RunSummary[]>([]);
   const pinnedItems = signal<RunSummary[]>([]);
   const pinnedIds = signal<string[]>([]);
+  const enteringNewChatId = signal<string | null>(null);
   let legacyPinIds: string[] = [];
   let confirmedPins: RunSummary[] = [];
   const pinsReady = signal(false);
@@ -110,11 +93,11 @@ export function createChatsPageController(initialProps: Props) {
   const nextOffset = signal(0);
   const loadingMore = signal(false);
   const search = signal("");
-  const statusFilter = signal<ChatListStatus>("");
+  const appliedSearch = signal("");
+  const searchActive = computed(() => search.value.trim().length > 0);
   const detail = signal<RunDetail | null>(null);
   const turns = signal<LocalTurn[]>([]);
   const turnsError = signal("");
-  const recoveringReply = signal(false);
   const requestingManualRecovery = signal(false);
   const startingNewChatFromFailure = signal(false);
   const copyState = signal("");
@@ -131,6 +114,7 @@ export function createChatsPageController(initialProps: Props) {
   const detailError = signal("");
   let listGeneration = 0;
   let listInFlight = false;
+  let listAbort: AbortController | undefined;
   let listRefreshPending = false;
   let pinsGeneration = 0;
   let detailGeneration = 0;
@@ -213,8 +197,14 @@ export function createChatsPageController(initialProps: Props) {
   let followingTranscriptTail = true;
   let transcriptScrollRevision = 0;
   let previousTranscriptScrollTop = 0;
+  let previousTranscriptScrollExtent = 0;
   let lastTranscriptTouchY: number | null = null;
   const transcriptTailThreshold = 24;
+
+  function rememberTranscriptScroll(pane: HTMLDivElement) {
+    previousTranscriptScrollTop = pane.scrollTop;
+    previousTranscriptScrollExtent = Math.max(0, pane.scrollHeight - pane.clientHeight);
+  }
 
   function stopFollowingTranscript() {
     if (!followingTranscriptTail) return;
@@ -225,11 +215,18 @@ export function createChatsPageController(initialProps: Props) {
   function onTranscriptScroll(event: React.UIEvent<HTMLDivElement>) {
     const pane = event.currentTarget;
     const movement = pane.scrollTop - previousTranscriptScrollTop;
-    previousTranscriptScrollTop = pane.scrollTop;
-    if (movement < -1) stopFollowingTranscript();
+    const extent = Math.max(0, pane.scrollHeight - pane.clientHeight);
+    // A shrinking region can clamp scrollTop upward while the reader remains
+    // at the tail. That is a layout adjustment, not an upward scroll gesture.
+    const layoutClampedToTail =
+      extent < previousTranscriptScrollExtent - 1 &&
+      previousTranscriptScrollExtent - previousTranscriptScrollTop <= transcriptTailThreshold &&
+      extent - pane.scrollTop <= transcriptTailThreshold;
+    rememberTranscriptScroll(pane);
+    if (movement < -1 && !layoutClampedToTail) stopFollowingTranscript();
     else if (
       movement > 1 &&
-      pane.scrollHeight - pane.scrollTop - pane.clientHeight <= transcriptTailThreshold &&
+      extent - pane.scrollTop <= transcriptTailThreshold &&
       !followingTranscriptTail
     ) {
       followingTranscriptTail = true;
@@ -267,13 +264,10 @@ export function createChatsPageController(initialProps: Props) {
     b.created_at - a.created_at ||
     b.send_id.localeCompare(a.send_id);
   const visibleWaiting = computed(() =>
-    statusFilter.value && statusFilter.value !== "queued"
-      ? []
-      : queueSnapshot.value.waiting.filter(
-          (job) =>
-            !search.value.trim() ||
-            job.name.toLowerCase().includes(search.value.trim().toLowerCase()),
-        ),
+    queueSnapshot.value.waiting.filter(
+      (job) =>
+        !appliedSearch.value || job.name.toLowerCase().includes(appliedSearch.value.toLowerCase()),
+    ),
   );
   const queuedWaitingChat = (item: RunSummary) =>
     item.status === "queued" && visibleWaiting.value.some((job) => job.name === item.job_name);
@@ -281,7 +275,7 @@ export function createChatsPageController(initialProps: Props) {
     const byId = new Map(
       [...pinnedItems.value, ...items.value].map((item) => [item.send_id, item]),
     );
-    const filtered = search.value.trim() || statusFilter.value;
+    const filtered = appliedSearch.value;
     return pinnedIds.value
       .map((id) => byId.get(id))
       .filter((item): item is RunSummary => !!item)
@@ -392,6 +386,9 @@ export function createChatsPageController(initialProps: Props) {
 
   function isUnread(item: RunSummary) {
     if (!item.last_reply_revision) return false;
+    // A confirmed server read wins over an older optimistic receipt from this tab.
+    // Keep the optimistic receipt for list snapshots that have not caught up yet.
+    if (item.last_read_revision === item.last_reply_revision) return false;
     const seenRevision =
       optimisticReads.value[item.send_id] ||
       item.last_read_revision ||
@@ -701,8 +698,7 @@ export function createChatsPageController(initialProps: Props) {
 
   function resultsParams(offset: number) {
     const params = new URLSearchParams({ limit: String(pageSize), offset: String(offset) });
-    if (search.value.trim()) params.set("q", search.value.trim());
-    if (statusFilter.value) params.set("status", statusFilter.value);
+    if (appliedSearch.value) params.set("q", appliedSearch.value);
     return params;
   }
 
@@ -719,6 +715,10 @@ export function createChatsPageController(initialProps: Props) {
       listRefreshPending = true;
       return;
     }
+    listAbort?.abort();
+    const controller = new AbortController();
+    listAbort = controller;
+    if (reset) listRefreshPending = false;
     const generation = ++listGeneration;
     listInFlight = true;
     loadingMore.value = false; // A fresh first-page response supersedes an in-flight append.
@@ -726,23 +726,23 @@ export function createChatsPageController(initialProps: Props) {
     // and its scroll position until the new result page is actually available.
     loadingList.value = items.value.length === 0;
     try {
-      const response = await localGet("./api/results?" + resultsParams(0));
+      const response = await localGet("./api/results?" + resultsParams(0), controller.signal);
       if (!response.ok) throw new Error("Results could not be loaded");
       const body: { items: RunSummary[]; total: number } = await response.json();
       if (generation !== listGeneration) return;
       items.value = reset
         ? body.items
-        : reconcileResultPage(items.value, body.items, body.total, pageSize, statusFilter.value);
+        : reconcileResultPage(items.value, body.items, body.total, pageSize, "");
       total.value = body.total;
       nextOffset.value = reset
         ? Math.min(body.total, body.items.length)
         : Math.min(body.total, Math.max(nextOffset.value, body.items.length));
       if (reset && listPane.value) listPane.value.scrollTop = 0;
       listError.value = "";
-      morePageFailed.value = false;
+      if (reset) morePageFailed.value = false;
     } catch {
-      if (generation === listGeneration) {
-        morePageFailed.value = false;
+      if (generation === listGeneration && !controller.signal.aborted) {
+        if (reset) morePageFailed.value = false;
         listError.value = "Local results are temporarily unavailable.";
       }
     } finally {
@@ -750,6 +750,7 @@ export function createChatsPageController(initialProps: Props) {
         loadingList.value = false;
         await tick();
         listInFlight = false;
+        if (listAbort === controller) listAbort = undefined;
         if (listRefreshPending) {
           listRefreshPending = false;
           void loadList();
@@ -882,7 +883,7 @@ export function createChatsPageController(initialProps: Props) {
         selectedRunId.value === id
       ) {
         scrollPane.value.scrollTop = scrollPane.value.scrollHeight;
-        previousTranscriptScrollTop = scrollPane.value.scrollTop;
+        rememberTranscriptScroll(scrollPane.value);
       }
       const savedTurns = earlyTurns === undefined ? await replyRequest : earlyTurns;
       if (generation !== detailGeneration || selectedRunId.value !== id) return;
@@ -908,7 +909,7 @@ export function createChatsPageController(initialProps: Props) {
             selectedRunId.value === id
           ) {
             scrollPane.value.scrollTop = scrollPane.value.scrollHeight;
-            previousTranscriptScrollTop = scrollPane.value.scrollTop;
+            rememberTranscriptScroll(scrollPane.value);
           }
         }
       }
@@ -939,7 +940,7 @@ export function createChatsPageController(initialProps: Props) {
     if (!pane) return;
     // Called by the transcript layout effect after React commits its DOM.
     pane.scrollTop = pane.scrollHeight;
-    previousTranscriptScrollTop = pane.scrollTop;
+    rememberTranscriptScroll(pane);
     followingTranscriptTail = true;
     pendingRevealFor.value = null;
   }
@@ -993,8 +994,13 @@ export function createChatsPageController(initialProps: Props) {
       }
       acknowledgeFreshQueueRequest(request.fingerprint, request.requestId);
       // A confirmed queue receipt is enough to navigate; never send again.
+      if (!request.reused) {
+        // Fresh UI chats are locally pinned by the enqueue transaction. Reserve
+        // their position before either GET can render the new row elsewhere.
+        if (!pinnedIds.peek().includes(sendId)) pinnedIds.value = [...pinnedIds.peek(), sendId];
+        enteringNewChatId.value = sendId;
+      }
       search.value = "";
-      statusFilter.value = "";
       onQueued.value(sendId);
       void loadList();
       void loadPins();
@@ -1071,44 +1077,6 @@ export function createChatsPageController(initialProps: Props) {
       );
     } finally {
       requestingManualRecovery.value = false;
-    }
-  }
-
-  async function recoverReply(sendId: string): Promise<{ messageId: string; issue?: string }> {
-    if (recoveringReply.value)
-      return { messageId: "", issue: "Exact-branch verification is already running." };
-    recoveringReply.value = true;
-    try {
-      // Only an explicit Send invokes this read-only, exact-branch verification.
-      const response = await localPost(
-        "./api/results/" + encodeURIComponent(sendId) + "/reply-recover",
-        {},
-        { timeoutMs: 90_000 },
-      );
-      if (!response.ok) {
-        if (response.status >= 500)
-          return {
-            messageId: "",
-            issue: "Exact-branch verification is temporarily unavailable. Nothing was sent.",
-          };
-        return {
-          messageId: "",
-          issue: await localRejectionDetail(response, "The saved branch cannot be verified yet."),
-        };
-      }
-      const recovered = (await response.json()) as { message_id?: string };
-      if (selectedRunId.value !== sendId) return { messageId: "" };
-      if (typeof recovered.message_id === "string" && recovered.message_id)
-        return { messageId: recovered.message_id };
-      return { messageId: "", issue: "Verification returned no assistant identity." };
-    } catch {
-      return {
-        messageId: "",
-        issue:
-          "Exact-branch verification timed out or lost its local connection. Nothing was sent.",
-      };
-    } finally {
-      recoveringReply.value = false;
     }
   }
 
@@ -1353,57 +1321,13 @@ export function createChatsPageController(initialProps: Props) {
         ok: false,
         fallbackAvailable: true,
         message:
-          "This chat has no verified ChatGPT conversation ID. Nothing was sent. Choose Continue in new chat to create a separate conversation with saved context.",
+          "This chat has no verified ChatGPT conversation ID. The reply cannot be revived on its original branch. Continue in a new chat instead.",
       };
     }
-    // Explicit Send is the sole trigger for recovering a persisted ChatGPT branch.
-    // Failed or partial response capture must never permanently lock the composer.
-    const verification = latest.message_id
-      ? { messageId: latest.message_id }
-      : await recoverReply(sendId);
-    const parentId = verification.messageId;
-    if (!parentId) {
-      if (selectedRunId.value !== sendId) {
-        return { ok: false, message: "The selected chat changed. Nothing was sent." };
-      }
-      return {
-        ok: false,
-        message:
-          (verification.issue ?? "The exact ChatGPT branch could not be verified yet.") +
-          " Press Send to retry later, or continue in a new chat.",
-        fallbackAvailable: true,
-      };
-    }
-    if (selectedRunId.value !== sendId) {
-      return { ok: false, message: "The selected chat changed. Nothing was sent." };
-    }
-    // Persist the immutable parent/text fingerprint before any possible dispatch.
-    // A lost response followed by a reload must reuse the same server receipt ID.
-    let request: Awaited<ReturnType<typeof pendingExactReplyRequest>>;
-    try {
-      request = await pendingExactReplyRequest(sendId, latest.conversation_id, parentId, text);
-    } catch (error) {
-      return {
-        ok: false,
-        message: receiptFailureMessage(
-          error,
-          "A durable reply ID could not be created. Nothing was sent.",
-        ),
-      };
-    }
-    if (selectedRunId.value !== sendId) {
-      return { ok: false, message: "The selected chat changed. Nothing was sent." };
-    }
-    return sendExactReply(
-      sendId,
-      {
-        reply_id: request.replyId,
-        conversation_id: latest.conversation_id,
-        parent_id: parentId,
-        text,
-      },
-      request,
-    );
+    // An explicit Send immediately persists an authorized, ordered follow-up.
+    // The durable reply worker recovers any missing assistant parent in the
+    // background; the composer never waits on ChatGPT history reads.
+    return queueEarlyReply(sendId, text);
   }
 
   async function sendExactReply(
@@ -1542,12 +1466,14 @@ export function createChatsPageController(initialProps: Props) {
   }
 
   function applyFilter() {
+    appliedSearch.value = search.value.trim();
     void loadList(true);
   }
 
   function searchChanged() {
     clearTimeout(searchTimer);
-    searchTimer = setTimeout(applyFilter, 300);
+    // SQLite search is fast; only coalesce a short typing burst.
+    searchTimer = setTimeout(applyFilter, 100);
   }
 
   function clearSearch() {
@@ -1649,8 +1575,11 @@ export function createChatsPageController(initialProps: Props) {
       if (!queueError.value) void loadQueue();
     });
     const unsubscribe = subscribeLiveUpdates("chats", () => {
-      clearTimeout(liveRefreshTimer);
-      liveRefreshTimer = setTimeout(refresh, 100);
+      if (liveRefreshTimer !== undefined) return;
+      liveRefreshTimer = setTimeout(() => {
+        liveRefreshTimer = undefined;
+        refresh();
+      }, 100);
     });
     return () => {
       unsubscribe();
@@ -1661,8 +1590,10 @@ export function createChatsPageController(initialProps: Props) {
       clearInterval(detailPollTimer);
       clearInterval(recoveryHealthTimer);
       clearTimeout(liveRefreshTimer);
+      liveRefreshTimer = undefined;
       clearTimeout(searchTimer);
       clearTimeout(hoverPrefetchTimer);
+      listAbort?.abort();
     };
   };
   function mount() {
@@ -1724,7 +1655,6 @@ export function createChatsPageController(initialProps: Props) {
     onTranscriptKeyDown,
     newChatOpen,
     onSelect,
-    statuses,
     queueSnapshot,
     queueError,
     recoveryPauseSeconds,
@@ -1735,6 +1665,7 @@ export function createChatsPageController(initialProps: Props) {
     recoveryReplyBacklog,
     items,
     pinnedIds,
+    enteringNewChatId,
     pinsReady,
     pinError,
     readError,
@@ -1748,11 +1679,10 @@ export function createChatsPageController(initialProps: Props) {
     filtersOpen,
     expandedPrompts,
     search,
-    statusFilter,
+    searchActive,
     detail,
     turns,
     turnsError,
-    recoveringReply,
     requestingManualRecovery,
     requestManualRecovery,
     startingNewChatFromFailure,
@@ -1794,7 +1724,6 @@ export function createChatsPageController(initialProps: Props) {
     sendReply,
     retryFailedTurn,
     copyText,
-    applyFilter,
     searchChanged,
     clearSearch,
     toggleSearch,

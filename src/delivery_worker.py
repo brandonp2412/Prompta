@@ -17,7 +17,7 @@ from typing import Protocol
 
 from sqlalchemy.exc import OperationalError
 
-from .config import StageConcurrencySettings
+from .config import ParallelismSettings
 from .delivery_browser import (
     BrowserDeliverySender,
     DeliveryBackendUnavailableError,
@@ -26,6 +26,7 @@ from .delivery_browser import (
 from .delivery_queue import DeliveryQueueStore
 from .deployment_gate import DeploymentGate
 from .history_recovery import run_history_recovery
+from .logging_config import configure_logging
 from .persistence import DEFAULT_RUNTIME_PATH
 from .rate_limit import RateLimitError
 from .resource_pressure import ResourceAdmission
@@ -46,8 +47,7 @@ def _sqlite_busy(exc: OperationalError) -> bool:
 def _drain_background_captures(health: ServiceHealthStore) -> None:
     names = {"prompta-passive-capture", "prompta-connector-approval"}
     captures = [
-        thread for thread in threading.enumerate()
-        if thread.name in names and thread.is_alive()
+        thread for thread in threading.enumerate() if thread.name in names and thread.is_alive()
     ]
     if captures:
         logger.info("Prompta delivery worker draining captures count=%d", len(captures))
@@ -57,8 +57,7 @@ def _drain_background_captures(health: ServiceHealthStore) -> None:
         for capture in captures:
             capture.join(timeout=1.0)
         captures = [
-            thread for thread in threading.enumerate()
-            if thread.name in names and thread.is_alive()
+            thread for thread in threading.enumerate() if thread.name in names and thread.is_alive()
         ]
     logger.info("Prompta delivery worker captures drained")
 
@@ -128,6 +127,8 @@ def _renew_lease_until_done(
 ) -> None:
     failures = 0
     wait_seconds = _LEASE_RENEW_SECONDS
+    # Temporary storage failures must not forfeit a still-valid delivery lease.
+    safe_deadline = time.monotonic() + max(0.0, _LEASE_SECONDS - _LEASE_RENEW_SECONDS)
     while not stop.wait(wait_seconds):
         try:
             renewed = queue.renew_lease(
@@ -141,18 +142,21 @@ def _renew_lease_until_done(
             failures += 1
             logger.warning(
                 "Delivery lease renewal failed send_id=%s attempt=%d error_type=%s",
-                send_id, failures, type(exc).__name__,
+                send_id,
+                failures,
+                type(exc).__name__,
             )
-            if failures >= 3:
+            if time.monotonic() >= safe_deadline:
                 lost.set()
                 return
-            wait_seconds = _LEASE_RENEW_RETRY_SECONDS
+            wait_seconds = min(_LEASE_RENEW_RETRY_SECONDS, safe_deadline - time.monotonic())
             continue
         if not renewed:
             lost.set()
             return
         failures = 0
         wait_seconds = _LEASE_RENEW_SECONDS
+        safe_deadline = time.monotonic() + max(0.0, _LEASE_SECONDS - _LEASE_RENEW_SECONDS)
 
 
 def _retry(
@@ -445,7 +449,7 @@ def run(
                     record = queue.claim_next(
                         owner,
                         lease_seconds=_LEASE_SECONDS,
-                        max_active=StageConcurrencySettings.load().active_limit,
+                        max_active=ParallelismSettings.load().active_limit,
                     )
                     if record is not None:
                         _deliver_one(queue, sender, runtime, health, owner, record)
@@ -495,7 +499,7 @@ def main() -> None:
         default=float(os.environ.get("PROMPTA_CHROME_AUTH_TIMEOUT_SECONDS", "30")),
     )
     args = parser.parse_args()
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    configure_logging("delivery_worker")
     shutdown = threading.Event()
 
     def request_stop(_signum: int, _frame: FrameType | None) -> None:

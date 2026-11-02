@@ -78,7 +78,7 @@ def test_sidebar_and_reply_composer_keep_identity_through_new_chat(
 
                 if width <= 680:
                     page.get_by_role("button", name="Open chat sidebar").click()
-                page.locator(".chats-sidebar .sidebar-primary").click()
+                page.locator(".chats-sidebar").get_by_role("button", name="New chat").click()
                 page.wait_for_url("**/?view=chats&draft=new")
                 assert page.evaluate("""() =>
                     document.querySelector(".chats-sidebar") === window.__sidebarNode

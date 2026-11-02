@@ -25,11 +25,12 @@ from sse_starlette import EventSourceResponse, ServerSentEvent
 from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from .config import DEFAULT_CONFIG_PATH, ConnectorApproval, StageConcurrencySettings
+from .config import DEFAULT_CONFIG_PATH, ConnectorApproval, ParallelismSettings
 from .core import DEFAULT_JOBS_PATH, DEFAULT_STATE_PATH
 from .delivery_queue import DeliveryQueueStore
 from .image_store import ImageStore
-from .live_events import LocalEventSignals
+from .live_events import LiveRevisions, LocalEventSignals
+from .logging_config import configure_logging
 from .manual_reply_dispatch import ManualReplyDispatcher
 from .reply_contracts import ManualReplyStore, ReplyConflict
 from .response_store import ResponseStore
@@ -170,7 +171,7 @@ class _ApprovalUpdate(BaseModel):
 
 
 class _SettingsUpdate(BaseModel):
-    stage_concurrency: _ConcurrencyUpdate
+    parallelism: _ConcurrencyUpdate
     connector_approval: _ApprovalUpdate
 
 
@@ -249,33 +250,43 @@ def create_app(
     )
     async def events() -> EventSourceResponse:
         async def stream() -> AsyncIterator[ServerSentEvent]:
-            def digest() -> bytes:
-                payload = json.dumps(
-                    local.jobs.scheduled_jobs(),
-                    sort_keys=True,
-                    separators=(",", ":"),
-                    ensure_ascii=False,
-                )
+            def digest() -> bytes | None:
+                try:
+                    payload = json.dumps(
+                        local.jobs.scheduled_jobs(),
+                        sort_keys=True,
+                        separators=(",", ":"),
+                        ensure_ascii=False,
+                    )
+                except Exception as exc:
+                    logger.warning("Live jobs snapshot unavailable error_type=%s", type(exc).__name__)
+                    return None
                 return hashlib.blake2b(payload.encode(), digest_size=16).digest()
 
             def event(topic: str) -> ServerSentEvent:
                 return ServerSentEvent(event=topic, data="refresh", id=str(time.time_ns()))
 
-            previous = local.live_events.snapshot()
+            previous = await run_in_threadpool(local.live_events.snapshot)
             previous_jobs = await run_in_threadpool(digest)
             yield ServerSentEvent(retry=1500)
             yield event("sync")
             while True:
                 await asyncio.sleep(0.75)
-                current = local.live_events.snapshot()
-                if current.jobs != previous.jobs:
+                # SQLite snapshots can block during checkpoints; keep them off the event loop.
+                current = await run_in_threadpool(local.live_events.snapshot)
+                jobs_revision = current.jobs
+                if current.jobs != previous.jobs or previous_jobs is None:
                     current_jobs = await run_in_threadpool(digest)
-                    if current_jobs != previous_jobs:
-                        yield event("jobs")
-                    previous_jobs = current_jobs
+                    if current_jobs is None:
+                        # Keep the earlier revision to retry on a later tick.
+                        jobs_revision = previous.jobs
+                    else:
+                        if current_jobs != previous_jobs:
+                            yield event("jobs")
+                        previous_jobs = current_jobs
                 if current.chats != previous.chats:
                     yield event("chats")
-                previous = current
+                previous = LiveRevisions(jobs=jobs_revision, chats=current.chats)
 
         return EventSourceResponse(
             stream(),
@@ -312,30 +323,27 @@ def create_app(
     @app.get("/api/settings")
     def get_settings() -> dict[str, object]:
         return {
-            "stage_concurrency": StageConcurrencySettings.load(DEFAULT_CONFIG_PATH).model_dump(),
+            "parallelism": ParallelismSettings.load(DEFAULT_CONFIG_PATH).model_dump(),
             "connector_approval": ConnectorApproval.load(DEFAULT_CONFIG_PATH).model_dump(),
         }
 
     @app.put("/api/settings")
     def update_settings(payload: _SettingsUpdate) -> dict[str, object]:
-        # Replace only the two supported sections, preserving unrelated TOML.
-        import re
+        # Persist exactly the two supported sections, dropping obsolete settings.
         import tempfile
+
         config_path = DEFAULT_CONFIG_PATH.expanduser()
         config_path.parent.mkdir(parents=True, exist_ok=True)
-        original = config_path.read_text() if config_path.exists() else ""
-        sections = {
-            "stage_concurrency": payload.stage_concurrency.model_dump(),
-            "connector_approval": payload.connector_approval.model_dump(),
-        }
-        for section, values in sections.items():
-            original = re.sub(r"(?m)^\[" + re.escape(section) + r"\]\s*\n(?:(?!\[).*(?:\n|$))*", "", original)
-            original = original.rstrip() + "\n\n[" + section + "]\n" + "".join(
-                key + " = " + (str(value).lower() if isinstance(value, bool) else str(value)) + "\n"
-                for key, value in values.items()
-            )
+        original = (
+            f"[parallelism]\n"
+            f"enabled = {str(payload.parallelism.enabled).lower()}\n"
+            f"max_workers = {payload.parallelism.max_workers}\n\n"
+            f"[connector_approval]\n"
+            f"enabled = {str(payload.connector_approval.enabled).lower()}\n"
+        )
         # Validate the complete generated configuration before replacing it.
         import tomllib
+
         tomllib.loads(original)
         fd, temporary = tempfile.mkstemp(prefix=".config-", dir=config_path.parent)
         try:
@@ -381,6 +389,7 @@ def serve(
         host=host,
         port=port,
         access_log=False,
+        log_config=None,
     )
 
 
@@ -391,7 +400,7 @@ def main() -> None:
     parser.add_argument("--state", type=Path, default=DEFAULT_STATE_PATH)
     parser.add_argument("--jobs-file", type=Path, default=DEFAULT_JOBS_PATH)
     args = parser.parse_args()
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    configure_logging("ui")
     serve(host=args.host, port=args.port, state_path=args.state, jobs_path=args.jobs_file)
 
 

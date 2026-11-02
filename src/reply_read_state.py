@@ -16,6 +16,17 @@ def _answer_revision(kind: str, identity: str, text: str) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
+_LIVE_OBSERVATION_SECONDS = 10 * 60.0
+
+
+def visible_reply_status(status: str, observed_at: float, *, now: float) -> str:
+    """A detached capture is live only briefly after exact ChatGPT verification."""
+    if (status in ("interrupted", "outcome_unknown") and observed_at > 0
+            and observed_at <= now < observed_at + _LIVE_OBSERVATION_SECONDS):
+        return "generating"
+    return status
+
+
 class ReplyReadState:
     engine: Engine
 
@@ -55,31 +66,40 @@ class ReplyReadState:
             for send_id, reply_id, answer, updated_at in completed:
                 marker = _answer_revision("manual", str(reply_id), str(answer))
                 markers[str(send_id)] = (marker, float(updated_at))
-            attention_ids = set(
-                connection.execute(
-                    select(replies.c.send_id)
-                    .where(
-                        replies.c.send_id.in_(send_ids),
-                        replies.c.status.in_(
-                            (
-                                "preflight_failed",
-                                "outcome_unknown",
-                                "interrupted",
-                                "unavailable",
-                            )
-                        ),
-                    )
-                    .distinct()
-                ).scalars()
-            )
+            # The sidebar describes the latest user turn. Earlier capture failures
+            # must not override a newer working or completed follow-up.
+            latest_replies = {
+                str(send_id): (str(status), float(observed_at))
+                for send_id, status, observed_at in connection.execute(
+                    select(replies.c.send_id, replies.c.status, replies.c.live_observed_at)
+                    .where(replies.c.send_id.in_(send_ids))
+                    .order_by(replies.c.created_at, replies.c.reply_id)
+                )
+            }
         for item in summaries:
             send_id = str(item["send_id"])
             revision, at = markers[send_id]
             item["last_reply_revision"] = revision
             item["last_reply_at"] = at
-            item["needs_attention"] = (
-                item["status"] in ("interrupted", "unavailable", "outcome_unknown") or send_id in attention_ids
-            )
+            latest = latest_replies.get(send_id)
+            if latest is not None:
+                status = visible_reply_status(*latest, now=time.time())
+                if status in (
+                    "queued", "accepted", "generating", "completed", "interrupted",
+                    "unavailable", "outcome_unknown", "stopped",
+                ):
+                    item["status"] = status
+                elif status == "prepared":
+                    item["status"] = "queued"
+                elif status == "dispatching":
+                    item["status"] = "accepted"
+                item["needs_attention"] = status in (
+                    "preflight_failed", "outcome_unknown", "interrupted", "unavailable",
+                )
+            else:
+                item["needs_attention"] = item["status"] in (
+                    "interrupted", "unavailable", "outcome_unknown",
+                )
 
     def mark_all_local_read(self) -> int:
         """Read all currently completed local answers, including off-page runs.

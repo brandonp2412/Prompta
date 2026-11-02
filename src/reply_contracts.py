@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import re
 import time
 from collections.abc import Collection
@@ -19,14 +18,15 @@ from sqlalchemy import (
     update,
 )
 from sqlalchemy.dialects.sqlite import insert
+from sqlalchemy.engine import Connection, RowMapping
 from sqlalchemy.sql.elements import ColumnElement
 
 from .display_blocks_store import deserialize_display_blocks, merge_display_blocks
-from .reply_read_state import ReplyReadState
+from .reply_read_state import ReplyReadState, visible_reply_status
 from .reply_tables import replies
 from .response_capture import CaptureResult
-from .response_store import ResponseStore
-from .response_tables import history_recovery_attempts, results
+from .response_store import ResponseStore, _alive
+from .response_tables import history_recovery_attempts, local_chat_pins, results
 from .tool_call_store import deserialize_tool_calls, merge_tool_calls
 from .web_models import ReplyRequest
 
@@ -93,6 +93,12 @@ class ManualReplyStore(ReplyReadState):
             "reply_id", "send_id", "conversation_id", "parent_id", "message_id",
             "user_text", "assistant_text", "status", "queued_by_user", "created_at", "updated_at",
         )}
+        observed_at = row["live_observed_at"]
+        public["status"] = visible_reply_status(
+            str(row["status"]),
+            float(observed_at) if isinstance(observed_at, (int, float)) else 0.0,
+            now=time.time(),
+        )
         public["tool_calls"] = deserialize_tool_calls(row["tool_calls_json"])
         public["display_blocks"] = deserialize_display_blocks(row["display_blocks_json"])
         return public
@@ -225,62 +231,158 @@ class ManualReplyStore(ReplyReadState):
         assert row is not None
         return row
 
+    @staticmethod
+    def _ready_queued_intent(
+        connection: Connection, exclude: set[str] | None,
+    ) -> tuple[str, ReplyIntent, str] | None:
+        """Read-only lineage check; only verified predecessors allow dispatch."""
+        waiting = replies.alias("waiting")
+        queued_chats = select(waiting.c.send_id).where(
+            waiting.c.queued_by_user.is_(True),
+            waiting.c.status.in_(("queued", "prepared")),
+        )
+        rows = connection.execute(
+            select(
+                replies.c.reply_id, replies.c.send_id, replies.c.status,
+                replies.c.conversation_id, replies.c.parent_id, replies.c.message_id,
+                replies.c.user_text, replies.c.queued_by_user, replies.c.created_at,
+                results.c.conversation_id.label("original_conversation_id"),
+                results.c.message_id.label("original_message_id"),
+            )
+            .join(results, results.c.send_id == replies.c.send_id)
+            .where(
+                replies.c.send_id.in_(queued_chats),
+                results.c.status.in_(("completed", "interrupted", "unavailable", "stopped")),
+                results.c.conversation_id != "",
+                results.c.message_id != "",
+            )
+            .order_by(replies.c.send_id, replies.c.created_at, replies.c.reply_id)
+        ).mappings()
+        by_send: dict[str, list[RowMapping]] = {}
+        candidates: list[RowMapping] = []
+        for row in rows:
+            by_send.setdefault(str(row["send_id"]), []).append(row)
+            if row["queued_by_user"] and row["status"] in ("queued", "prepared"):
+                candidates.append(row)
+        for row in sorted(candidates, key=lambda item: (item["created_at"], item["reply_id"])):
+            reply_id = str(row["reply_id"])
+            if exclude and reply_id in exclude:
+                continue
+            send_id = str(row["send_id"])
+            conversation_id = str(row["original_conversation_id"])
+            parent_id = str(row["original_message_id"])
+            for previous in by_send[send_id]:
+                if previous["status"] == "cancelled":
+                    continue
+                if previous["reply_id"] == reply_id:
+                    if row["status"] == "queued" or (
+                        row["conversation_id"], row["parent_id"]
+                    ) == (conversation_id, parent_id):
+                        return send_id, ReplyIntent(
+                            reply_id, conversation_id, parent_id, str(row["user_text"]),
+                        ), str(row["status"])
+                    break
+                if (previous["status"] not in ("completed", "interrupted", "stopped")
+                        or not previous["message_id"]
+                        or previous["conversation_id"] != conversation_id
+                        or previous["parent_id"] != parent_id):
+                    break
+                parent_id = str(previous["message_id"])
+        return None
+
     def next_queued_intent(
         self, *, exclude: set[str] | None = None, now: float | None = None,
     ) -> tuple[str, ReplyIntent] | None:
-        """Bind one explicitly queued turn only after verified, ordered predecessors."""
+        """Bind one explicit intent after a read-only preflight and atomic recheck."""
         at = time.time() if now is None else now
+        # Blocked follow-ups are common while a parent is generating or
+        # awaiting recovery. Never acquire SQLite's writer lock for those.
+        with self.engine.connect() as connection:
+            if self._ready_queued_intent(connection, exclude) is None:
+                return None
         with self.engine.begin() as connection:
             connection.exec_driver_sql("BEGIN IMMEDIATE")
-            candidates = connection.execute(select(replies).where(
-                replies.c.queued_by_user.is_(True),
-                replies.c.status.in_(("queued", "prepared")),
-            ).order_by(replies.c.created_at, replies.c.reply_id)).mappings().all()
-            for row in candidates:
-                reply_id = str(row["reply_id"])
-                if exclude and reply_id in exclude:
-                    continue
-                send_id = str(row["send_id"])
-                original = connection.execute(select(results).where(
-                    results.c.send_id == send_id,
-                )).mappings().one_or_none()
-                if (original is None or original["status"] not in
-                        ("completed", "interrupted", "unavailable", "stopped") or
-                        not original["conversation_id"] or not original["message_id"]):
-                    continue
-                conversation_id = str(original["conversation_id"])
-                parent_id = str(original["message_id"])
-                predecessors = connection.execute(select(replies).where(
-                    replies.c.send_id == send_id,
-                ).order_by(replies.c.created_at, replies.c.reply_id)).mappings().all()
-                eligible = False
-                for previous in predecessors:
-                    if previous["status"] == "cancelled":
-                        continue
-                    if previous["reply_id"] == reply_id:
-                        eligible = True
-                        break
-                    if (previous["status"] not in ("completed", "interrupted", "stopped")
-                            or not previous["message_id"]
-                            or previous["conversation_id"] != conversation_id
-                            or previous["parent_id"] != parent_id):
-                        break
-                    parent_id = str(previous["message_id"])
-                if not eligible:
-                    continue
-                if row["status"] == "queued":
-                    connection.execute(update(replies).where(
-                        replies.c.reply_id == reply_id, replies.c.status == "queued",
-                    ).values(status="prepared", conversation_id=conversation_id,
-                             parent_id=parent_id, updated_at=at))
-                elif (row["conversation_id"], row["parent_id"]) != (
-                    conversation_id, parent_id,
-                ):
-                    continue
-                return send_id, ReplyIntent(
-                    reply_id, conversation_id, parent_id, str(row["user_text"]),
+            # A capture or another worker may have changed the lineage since
+            # the preflight. This is the authoritative dispatch decision.
+            ready = self._ready_queued_intent(connection, exclude)
+            if ready is None:
+                return None
+            send_id, intent, status = ready
+            if status == "queued":
+                connection.execute(update(replies).where(
+                    replies.c.reply_id == intent.reply_id,
+                    replies.c.status == "queued",
+                ).values(
+                    status="prepared", conversation_id=intent.conversation_id,
+                    parent_id=intent.parent_id, updated_at=at,
+                ))
+            return send_id, intent
+
+    def queued_recovery_candidates(self) -> list[str]:
+        """Find queued chats needing a verified parent, with two bounded DB reads."""
+        with self.engine.connect() as connection:
+            ids = list(connection.execute(
+                select(replies.c.send_id)
+                .outerjoin(local_chat_pins, local_chat_pins.c.send_id == replies.c.send_id)
+                .where(replies.c.queued_by_user.is_(True), replies.c.status == "queued")
+                .group_by(replies.c.send_id)
+                .order_by(
+                    local_chat_pins.c.send_id.is_not(None).desc(),
+                    func.max(replies.c.created_at).desc(),
+                    replies.c.send_id.desc(),
                 )
-        return None
+            ).scalars())
+            if not ids:
+                return []
+            # Only state and identity columns are needed. Do not materialize
+            # entire transcripts (including text/tool calls) for every chat.
+            rows = connection.execute(
+                select(
+                    replies.c.send_id, replies.c.status, replies.c.conversation_id,
+                    replies.c.message_id, replies.c.live_observed_at,
+                    results.c.status.label("original_status"),
+                    results.c.conversation_id.label("original_conversation_id"),
+                    results.c.message_id.label("original_message_id"),
+                )
+                .join(results, results.c.send_id == replies.c.send_id)
+                .where(replies.c.send_id.in_(ids))
+                .order_by(replies.c.send_id, replies.c.created_at, replies.c.reply_id)
+            ).mappings()
+
+            tips: dict[str, tuple[str, str, str]] = {}
+            predecessors: dict[str, str] = {}
+            now = time.time()
+            for row in rows:
+                send_id = str(row["send_id"])
+                if send_id not in tips:
+                    tips[send_id] = (
+                        str(row["original_status"]),
+                        str(row["original_conversation_id"] or ""),
+                        str(row["original_message_id"] or ""),
+                    )
+                status = str(row["status"])
+                observed_at = row["live_observed_at"]
+                visible = visible_reply_status(
+                    status,
+                    float(observed_at) if isinstance(observed_at, (int, float)) else 0.0,
+                    now=now,
+                )
+                if visible != "queued":
+                    predecessors[send_id] = tips[send_id][2]
+                    tips[send_id] = (
+                        visible,
+                        str(row["conversation_id"] or ""),
+                        str(row["message_id"] or ""),
+                    )
+        return [
+            send_id for send_id in ids
+            if send_id in tips
+            and tips[send_id][0] in (
+                "completed", "interrupted", "unavailable", "outcome_unknown", "stopped"
+            )
+            and tips[send_id][1] and not tips[send_id][2]
+            and (send_id not in predecessors or bool(predecessors[send_id]))
+        ]
 
     def mark_preflight_failed(self, reply_id: str, *, now: float | None = None) -> bool:
         """Only a never-claimed reply can fail safely before dispatch."""
@@ -331,18 +433,24 @@ class ManualReplyStore(ReplyReadState):
             return False
         with self.engine.begin() as connection:
             connection.exec_driver_sql("BEGIN IMMEDIATE")
+            # A user may queue the next message before recovery finishes.
+            # Those unsent intents do not invalidate proof of the original turn.
             existing = connection.execute(select(replies.c.reply_id).where(
-                replies.c.send_id == send_id
+                replies.c.send_id == send_id,
+                replies.c.status != "queued",
             ).limit(1)).first()
             if existing is not None:
                 return False
             changed = connection.execute(update(results).where(
                 results.c.send_id == send_id,
-                results.c.status.in_(("completed", "interrupted", "unavailable", "stopped")),
+                results.c.status.in_(("completed", "interrupted", "unavailable", "outcome_unknown", "stopped")),
                 results.c.conversation_id == conversation_id,
                 results.c.message_id == "",
                 results.c.assistant_text == original_answer,
-            ).values(message_id=message_id.lower()))
+            ).values(message_id=message_id.lower(), status=case(
+                (results.c.status == "outcome_unknown", "interrupted"),
+                else_=results.c.status,
+            )))
         return changed.rowcount == 1
 
     def recover_reply_parent(
@@ -368,7 +476,8 @@ class ManualReplyStore(ReplyReadState):
             if original != conversation_id:
                 return False
             rows = connection.execute(select(replies).where(
-                replies.c.send_id == send_id
+                replies.c.send_id == send_id,
+                replies.c.status != "queued",
             ).order_by(replies.c.created_at, replies.c.reply_id)).mappings().all()
             if not rows or rows[-1]["reply_id"] != reply_id:
                 return False
@@ -551,37 +660,29 @@ class ManualReplyStore(ReplyReadState):
 
     def recover_orphans(self, *, now: float | None = None) -> int:
         at = time.time() if now is None else now
+        active = replies.c.status.in_(("dispatching", "accepted", "generating"))
+        with self.engine.connect() as connection:
+            owners = connection.execute(select(replies.c.lease_owner).where(
+                active, replies.c.lease_deadline > at,
+            ).distinct()).scalars().all()
+        dead_owners = [owner for owner in owners if not _alive(str(owner))]
+        stale = replies.c.lease_deadline <= at
+        if dead_owners:
+            stale = or_(stale, replies.c.lease_owner.in_(dead_owners))
         with self.engine.begin() as connection:
             changed = 0
-            rows = connection.execute(select(
-                replies.c.reply_id, replies.c.status, replies.c.lease_owner,
-                replies.c.lease_deadline,
-            ).where(replies.c.status.in_(("dispatching", "accepted", "generating")))).all()
-            for reply_id, status, owner, deadline in rows:
-                try:
-                    os.kill(int(str(owner).split(":", 1)[0]), 0)
-                    alive = True
-                except (ValueError, ProcessLookupError):
-                    alive = False
-                except PermissionError:
-                    alive = True
-                if deadline > at and alive:
-                    continue
-                result = connection.execute(update(replies).where(
-                    replies.c.reply_id == reply_id, replies.c.status == status,
-                    replies.c.lease_owner == owner,
-                ).values(status="outcome_unknown" if status == "dispatching" else "interrupted",
-                         lease_owner="", updated_at=at))
-                changed += result.rowcount
-        return changed
+            for statuses, next_status in (
+                (("dispatching",), "outcome_unknown"),
+                (("accepted", "generating"), "interrupted"),
+            ):
+                changed += connection.execute(update(replies).where(
+                    replies.c.status.in_(statuses), stale,
+                ).values(status=next_status, lease_owner="", updated_at=at)).rowcount
+        return int(changed)
 
     def reply_recovery_metrics(self, *, now: float | None = None) -> dict[str, int]:
         """Count unresolved explicit replies without exposing their text or branch IDs."""
-        at = time.time() if now is None else now
-        attempts = history_recovery_attempts.alias("reply_metric_attempts")
-        joined = replies.join(results, replies.c.send_id == results.c.send_id).outerjoin(
-            attempts, attempts.c.send_id == literal("reply:") + replies.c.reply_id,
-        )
+        joined = replies.join(results, replies.c.send_id == results.c.send_id)
         outstanding, verified = _recovery_conditions()
         with self.engine.connect() as connection:
             total = connection.execute(select(func.count()).select_from(replies).where(
@@ -590,40 +691,46 @@ class ManualReplyStore(ReplyReadState):
             recoverable = connection.execute(select(func.count()).select_from(joined).where(
                 *verified
             )).scalar_one()
-            due = connection.execute(select(func.count()).select_from(joined).where(
-                *verified, func.coalesce(attempts.c.next_attempt_at, 0) <= at,
-            )).scalar_one()
         return {
             "unresolved_reply_captures": total,
             "recoverable_reply_captures": recoverable,
-            "due_reply_recovery_probes": due,
+            "due_reply_recovery_probes": recoverable,
         }
 
     def next_history_reply_recovery(
         self, *, now: float | None = None, priority_ids: Collection[str] | None = None,
+        pinned_only: bool = False,
     ) -> dict[str, object] | None:
         """Only verified Prompta-owned parent chains are eligible."""
-        at = time.time() if now is None else now
         attempts = history_recovery_attempts.alias("reply_recovery")
         _, verified = _recovery_conditions()
         joined = replies.join(results, replies.c.send_id == results.c.send_id).outerjoin(
             attempts, attempts.c.send_id == literal("reply:") + replies.c.reply_id,
         )
+        if pinned_only:
+            joined = joined.join(local_chat_pins, local_chat_pins.c.send_id == results.c.send_id)
         query = select(
             replies.c.reply_id, replies.c.conversation_id, replies.c.parent_id,
             replies.c.user_text, results.c.user_text.label("original_prompt"),
+            replies.c.created_at.label("activity_at"),
             func.coalesce(attempts.c.attempt_count, 0).label("attempt_count"),
         ).select_from(joined).where(
             *verified,
-            func.coalesce(attempts.c.next_attempt_at, 0) <= at,
         )
         if priority_ids is not None:
             if not priority_ids:
                 return None
             query = query.where(replies.c.reply_id.in_(priority_ids))
-        query = query.order_by(
-            func.coalesce(attempts.c.next_attempt_at, 0), replies.c.created_at.desc(),
-        ).limit(1)
+        if pinned_only:
+            query = query.order_by(
+                func.coalesce(attempts.c.attempt_count, 0),
+                replies.c.created_at.desc(),
+            )
+        else:
+            query = query.order_by(
+                func.coalesce(attempts.c.attempt_count, 0), replies.c.created_at.desc(),
+            )
+        query = query.limit(1)
         with self.engine.connect() as connection:
             row = connection.execute(query).mappings().one_or_none()
         return dict(row) if row is not None else None
@@ -688,7 +795,9 @@ class ManualReplyStore(ReplyReadState):
                 tool_calls_json=merge_tool_calls(row["tool_calls_json"], capture.tool_calls),
                 display_blocks_json=merge_display_blocks(row["display_blocks_json"], capture.display_blocks),
                 message_id=capture.message_id or row["message_id"],
-                status="completed" if complete else row["status"], updated_at=at,
+                status="completed" if complete else row["status"],
+                live_observed_at=at if capture.verified_generating and not complete else 0,
+                updated_at=at,
             ))
         return changed.rowcount == 1
 

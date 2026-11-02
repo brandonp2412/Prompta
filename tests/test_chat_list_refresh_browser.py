@@ -45,8 +45,8 @@ def test_recovery_update_does_not_reorder_sidebar_but_user_followup_does(tmp_pat
         browser.close()
 
 
-@pytest.mark.parametrize("width,height", [(1440, 900), (390, 844)])
-def test_status_filtered_chat_disappears_after_completion(
+@pytest.mark.parametrize("width,height", [(320, 700), (360, 800), (390, 844), (412, 915), (844, 390), (1440, 900)])
+def test_search_keeps_matching_chat_after_status_changes(
     tmp_path: Path, width: int, height: int,
 ) -> None:
     executable = os.environ.get("PROMPTA_TEST_CHROMIUM", "")
@@ -64,7 +64,15 @@ def test_status_filtered_chat_disappears_after_completion(
         page.route("**/api/events", lambda route: route.abort())
         page.goto(f"http://127.0.0.1:{port}/?view=chats")
         page.get_by_role("button", name="Search chats").click()
-        page.get_by_label("Filter results by state").select_option("queued")
+        expect(page.get_by_role("combobox", name="Filter results by state")).to_have_count(0)
+        search = page.get_by_role("searchbox", name="Search chats")
+        controls = page.locator(".chats-controls").bounding_box()
+        search_box = search.bounding_box()
+        assert controls is not None and search_box is not None
+        assert search_box["width"] >= controls["width"] - 25
+        search.fill("no-such-chat")
+        expect(page.get_by_text("No matching chats")).to_be_visible()
+        search.fill("Filtering")
         expect(page.locator(".chats-list .chat-row").filter(has_text="Filtering probe")).to_be_visible()
         owner = "123:browser-refresh"
         assert app.results.accept("filtered-local-run", owner, deadline=now + 600, now=now + 1)
@@ -74,8 +82,8 @@ def test_status_filtered_chat_disappears_after_completion(
             "87654321-4321-4321-8321-123456789abc", None,
         ), now=now + 2)
         page.evaluate("window.dispatchEvent(new Event('online'))")
-        expect(page.get_by_text("No matching chats")).to_be_visible()
-        expect(page.locator(".chats-list .chat-row").filter(has_text="Filtering probe")).to_have_count(0)
+        expect(page.locator(".chats-list .chat-row").filter(has_text="Filtering probe")).to_be_visible()
+        expect(search).to_have_value("Filtering")
         assert remote == []
         browser.close()
 

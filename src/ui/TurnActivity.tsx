@@ -39,6 +39,25 @@ export function orderedActivity(turn: LocalTurn): Activity[] {
     const insertAt = lastText > 0 ? lastText : activity.length;
     activity.splice(insertAt, 0, { kind: "tools", id: "unplaced-tools", calls: remaining });
   }
+  // The passive DOM observer can end before the final SSE text lands. Retain
+  // the streamed answer if the ordered snapshot contains only earlier blocks.
+  const rendered = blocks
+    .filter((block) => block.kind === "text")
+    .map((block) => block.text)
+    .join("\n\n")
+    .trim();
+  const answer = turn.assistant_text.trim();
+  if (answer && !rendered.includes(answer)) {
+    if (answer.startsWith(rendered)) {
+      const tail = answer.slice(rendered.length).trim();
+      if (tail) activity.push({ kind: "text", id: "answer-tail", text: tail });
+    } else if (answer.endsWith(rendered)) {
+      const head = answer.slice(0, -rendered.length).trim();
+      if (head) activity.unshift({ kind: "text", id: "answer-head", text: head });
+    } else {
+      activity.push({ kind: "text", id: "answer-fallback", text: answer });
+    }
+  }
   return activity;
 }
 

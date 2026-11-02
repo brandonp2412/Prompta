@@ -12052,6 +12052,8 @@ function createDrawerSwipe({ drawerOpen, drawerProgress, isList, drawerWidth, dr
 	function startSwipe(event) {
 		if (swipe || !window.matchMedia("(max-width: 680px)").matches || event.touches.length !== 1) return;
 		const touch = event.touches[0];
+		const target = event.target;
+		if (target && "closest" in target && typeof target.closest === "function" && target.closest(".settings-backdrop, .sidebar-profile-menu, input, textarea, select, [contenteditable]:not([contenteditable='false']), pre")) return;
 		if (isList() || !drawerOpen.value && touch.clientX > 120) return;
 		swipe = {
 			identifier: touch.identifier,
@@ -12349,7 +12351,7 @@ function subscribeLiveStatus(listener) {
 var activeToast = y$2(null);
 var nextToastId = 0;
 var waitingToasts = [];
-function notify(message, tone = "info", action, duration = tone === "error" ? 6500 : 2800) {
+function notify(message, tone = "info", action, duration = tone === "error" ? 6500 : 2800, replaceCurrent = false) {
 	const current = activeToast.peek();
 	if (current?.message === message && current.tone === tone) return current.id;
 	const waiting = waitingToasts.find((notice) => notice.message === message && notice.tone === tone);
@@ -12364,8 +12366,8 @@ function notify(message, tone = "info", action, duration = tone === "error" ? 65
 	};
 	if (!current) activeToast.value = notice;
 	else if (tone === "success" || tone === "info") activeToast.value = notice;
-	else if (tone === "error" && current.tone !== "error") {
-		if (current.duration > 0) waitingToasts.unshift(current);
+	else if (replaceCurrent || tone === "error" && current.tone !== "error") {
+		if (!replaceCurrent && current.duration > 0) waitingToasts.unshift(current);
 		activeToast.value = notice;
 	} else {
 		waitingToasts.push(notice);
@@ -12389,7 +12391,7 @@ function useToastSignal(source, options = {}) {
 		if (!message) return;
 		const current = optionsRef.current;
 		if (current.when && !current.when(message)) return;
-		notify(message, (typeof current.tone === "function" ? current.tone(message) : current.tone) ?? "error", current.action);
+		notify(message, (typeof current.tone === "function" ? current.tone(message) : current.tone) ?? "error", current.action, void 0, current.immediate);
 	}), [source]);
 }
 function feedbackTone(message) {
@@ -12489,11 +12491,11 @@ var transientGatewayStatuses = /* @__PURE__ */ new Set([
 ]);
 var transientRetryDelayMs = 250;
 var firstAttemptTimeoutMs = 6e3;
-async function localGet(url) {
+async function localGet(url, signal) {
 	const startedAt = Date.now();
 	const request = (timeoutMs) => fetch(url, {
 		cache: "no-store",
-		signal: AbortSignal.timeout(timeoutMs)
+		signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)]) : AbortSignal.timeout(timeoutMs)
 	});
 	let response;
 	let failure;
@@ -12502,12 +12504,14 @@ async function localGet(url) {
 	} catch (error) {
 		failure = error;
 	}
+	if (signal?.aborted) throw signal.reason;
 	if (response && !transientGatewayStatuses.has(response.status)) return response;
 	if (12e3 - (Date.now() - startedAt) <= transientRetryDelayMs) {
 		if (response) return response;
 		throw failure;
 	}
 	await new Promise((resolve) => setTimeout(resolve, transientRetryDelayMs));
+	if (signal?.aborted) throw signal.reason;
 	const remaining = localReadTimeoutMs - (Date.now() - startedAt);
 	if (remaining <= 0) {
 		if (response) return response;
@@ -12615,34 +12619,6 @@ function persist$1(items) {
 	} catch {
 		throw new Error("Unresolved reply receipts cannot be saved in browser storage; nothing was sent.");
 	}
-}
-async function pendingExactReplyRequest(sendId, conversationId, parentId, text) {
-	const bytes = new TextEncoder().encode(JSON.stringify([
-		sendId,
-		conversationId,
-		parentId,
-		text
-	]));
-	const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
-	const fingerprint = Array.from(digest, (byte) => byte.toString(16).padStart(2, "0")).join("");
-	const saved = records$1();
-	const previous = saved.find((entry) => entry.fingerprint === fingerprint);
-	if (previous) return {
-		replyId: previous.replyId,
-		fingerprint,
-		reused: true
-	};
-	const replyId = crypto.randomUUID().replaceAll("-", "");
-	persist$1([...saved, {
-		fingerprint,
-		replyId,
-		createdAt: Date.now()
-	}]);
-	return {
-		replyId,
-		fingerprint,
-		reused: false
-	};
 }
 function acknowledgeExactReplyRequest(fingerprint, replyId) {
 	try {
@@ -12839,44 +12815,6 @@ function createChatsPageController(initialProps) {
 	const pageSize = 100;
 	const preferencesKey = "prompta.local-sidebar.v1";
 	const readSyncKey = "prompta.local-read-sync.v1";
-	const statuses = [
-		{
-			value: "",
-			label: "All states"
-		},
-		{
-			value: "needs_attention",
-			label: "Needs attention"
-		},
-		{
-			value: "accepted",
-			label: "Accepted"
-		},
-		{
-			value: "generating",
-			label: "Generating"
-		},
-		{
-			value: "completed",
-			label: "Completed"
-		},
-		{
-			value: "interrupted",
-			label: "Interrupted"
-		},
-		{
-			value: "unavailable",
-			label: "Unavailable"
-		},
-		{
-			value: "outcome_unknown",
-			label: "Send unverified"
-		},
-		{
-			value: "queued",
-			label: "Queued"
-		}
-	];
 	const queueSnapshot = y$2(emptyQueueSnapshot);
 	const queueError = y$2("");
 	let queueGeneration = 0;
@@ -12896,6 +12834,7 @@ function createChatsPageController(initialProps) {
 	const items = y$2([]);
 	const pinnedItems = y$2([]);
 	const pinnedIds = y$2([]);
+	const enteringNewChatId = y$2(null);
 	let legacyPinIds = [];
 	let confirmedPins = [];
 	const pinsReady = y$2(false);
@@ -12918,11 +12857,11 @@ function createChatsPageController(initialProps) {
 	const nextOffset = y$2(0);
 	const loadingMore = y$2(false);
 	const search = y$2("");
-	const statusFilter = y$2("");
+	const appliedSearch = y$2("");
+	const searchActive = O(() => search.value.trim().length > 0);
 	const detail = y$2(null);
 	const turns = y$2([]);
 	const turnsError = y$2("");
-	const recoveringReply = y$2(false);
 	const requestingManualRecovery = y$2(false);
 	const startingNewChatFromFailure = y$2(false);
 	const copyState = y$2("");
@@ -12939,6 +12878,7 @@ function createChatsPageController(initialProps) {
 	const detailError = y$2("");
 	let listGeneration = 0;
 	let listInFlight = false;
+	let listAbort;
 	let listRefreshPending = false;
 	let pinsGeneration = 0;
 	let detailGeneration = 0;
@@ -13012,8 +12952,13 @@ function createChatsPageController(initialProps) {
 	let followingTranscriptTail = true;
 	let transcriptScrollRevision = 0;
 	let previousTranscriptScrollTop = 0;
+	let previousTranscriptScrollExtent = 0;
 	let lastTranscriptTouchY = null;
 	const transcriptTailThreshold = 24;
+	function rememberTranscriptScroll(pane) {
+		previousTranscriptScrollTop = pane.scrollTop;
+		previousTranscriptScrollExtent = Math.max(0, pane.scrollHeight - pane.clientHeight);
+	}
 	function stopFollowingTranscript() {
 		if (!followingTranscriptTail) return;
 		followingTranscriptTail = false;
@@ -13022,9 +12967,11 @@ function createChatsPageController(initialProps) {
 	function onTranscriptScroll(event) {
 		const pane = event.currentTarget;
 		const movement = pane.scrollTop - previousTranscriptScrollTop;
-		previousTranscriptScrollTop = pane.scrollTop;
-		if (movement < -1) stopFollowingTranscript();
-		else if (movement > 1 && pane.scrollHeight - pane.scrollTop - pane.clientHeight <= transcriptTailThreshold && !followingTranscriptTail) {
+		const extent = Math.max(0, pane.scrollHeight - pane.clientHeight);
+		const layoutClampedToTail = extent < previousTranscriptScrollExtent - 1 && previousTranscriptScrollExtent - previousTranscriptScrollTop <= transcriptTailThreshold && extent - pane.scrollTop <= transcriptTailThreshold;
+		rememberTranscriptScroll(pane);
+		if (movement < -1 && !layoutClampedToTail) stopFollowingTranscript();
+		else if (movement > 1 && extent - pane.scrollTop <= transcriptTailThreshold && !followingTranscriptTail) {
 			followingTranscriptTail = true;
 			transcriptScrollRevision += 1;
 		}
@@ -13054,11 +13001,11 @@ function createChatsPageController(initialProps) {
 	let searchTimer;
 	let liveRefreshTimer;
 	const newestFirst = (a, b) => (b.activity_at ?? b.created_at) - (a.activity_at ?? a.created_at) || b.created_at - a.created_at || b.send_id.localeCompare(a.send_id);
-	const visibleWaiting = O(() => statusFilter.value && statusFilter.value !== "queued" ? [] : queueSnapshot.value.waiting.filter((job) => !search.value.trim() || job.name.toLowerCase().includes(search.value.trim().toLowerCase())));
+	const visibleWaiting = O(() => queueSnapshot.value.waiting.filter((job) => !appliedSearch.value || job.name.toLowerCase().includes(appliedSearch.value.toLowerCase())));
 	const queuedWaitingChat = (item) => item.status === "queued" && visibleWaiting.value.some((job) => job.name === item.job_name);
 	const pinned = O(() => {
 		const byId = new Map([...pinnedItems.value, ...items.value].map((item) => [item.send_id, item]));
-		const filtered = search.value.trim() || statusFilter.value;
+		const filtered = appliedSearch.value;
 		return pinnedIds.value.map((id) => byId.get(id)).filter((item) => !!item).filter((item) => !filtered || items.value.some((listed) => listed.send_id === item.send_id)).filter((item) => !queuedWaitingChat(item));
 	});
 	const replyBlockedReason = O(() => {
@@ -13114,6 +13061,7 @@ function createChatsPageController(initialProps) {
 	}
 	function isUnread(item) {
 		if (!item.last_reply_revision) return false;
+		if (item.last_read_revision === item.last_reply_revision) return false;
 		const seenRevision = optimisticReads.value[item.send_id] || item.last_read_revision || readRevisions.value[item.send_id];
 		if (seenRevision) return seenRevision !== item.last_reply_revision;
 		return item.last_reply_at > (readAt.value[item.send_id] ?? baselineAt.value);
@@ -13339,8 +13287,7 @@ function createChatsPageController(initialProps) {
 			limit: String(pageSize),
 			offset: String(offset)
 		});
-		if (search.value.trim()) params.set("q", search.value.trim());
-		if (statusFilter.value) params.set("status", statusFilter.value);
+		if (appliedSearch.value) params.set("q", appliedSearch.value);
 		return params;
 	}
 	function mergeRuns(previous, incoming) {
@@ -13351,24 +13298,28 @@ function createChatsPageController(initialProps) {
 			listRefreshPending = true;
 			return;
 		}
+		listAbort?.abort();
+		const controller = new AbortController();
+		listAbort = controller;
+		if (reset) listRefreshPending = false;
 		const generation = ++listGeneration;
 		listInFlight = true;
 		loadingMore.value = false;
 		loadingList.value = items.value.length === 0;
 		try {
-			const response = await localGet("./api/results?" + resultsParams(0));
+			const response = await localGet("./api/results?" + resultsParams(0), controller.signal);
 			if (!response.ok) throw new Error("Results could not be loaded");
 			const body = await response.json();
 			if (generation !== listGeneration) return;
-			items.value = reset ? body.items : reconcileResultPage(items.value, body.items, body.total, pageSize, statusFilter.value);
+			items.value = reset ? body.items : reconcileResultPage(items.value, body.items, body.total, pageSize, "");
 			total.value = body.total;
 			nextOffset.value = reset ? Math.min(body.total, body.items.length) : Math.min(body.total, Math.max(nextOffset.value, body.items.length));
 			if (reset && listPane.value) listPane.value.scrollTop = 0;
 			listError.value = "";
-			morePageFailed.value = false;
+			if (reset) morePageFailed.value = false;
 		} catch {
-			if (generation === listGeneration) {
-				morePageFailed.value = false;
+			if (generation === listGeneration && !controller.signal.aborted) {
+				if (reset) morePageFailed.value = false;
 				listError.value = "Local results are temporarily unavailable.";
 			}
 		} finally {
@@ -13376,6 +13327,7 @@ function createChatsPageController(initialProps) {
 				loadingList.value = false;
 				await tick();
 				listInFlight = false;
+				if (listAbort === controller) listAbort = void 0;
 				if (listRefreshPending) {
 					listRefreshPending = false;
 					loadList();
@@ -13467,7 +13419,7 @@ function createChatsPageController(initialProps) {
 			await tick();
 			if (followTail && !newSelection && followingTranscriptTail && transcriptScrollRevision === scrollRevision && scrollPane.value && selectedRunId.value === id) {
 				scrollPane.value.scrollTop = scrollPane.value.scrollHeight;
-				previousTranscriptScrollTop = scrollPane.value.scrollTop;
+				rememberTranscriptScroll(scrollPane.value);
 			}
 			const savedTurns = earlyTurns === void 0 ? await replyRequest : earlyTurns;
 			if (generation !== detailGeneration || selectedRunId.value !== id) return;
@@ -13481,7 +13433,7 @@ function createChatsPageController(initialProps) {
 					await tick();
 					if (followingTranscriptTail && transcriptScrollRevision === scrollRevision && scrollPane.value && selectedRunId.value === id) {
 						scrollPane.value.scrollTop = scrollPane.value.scrollHeight;
-						previousTranscriptScrollTop = scrollPane.value.scrollTop;
+						rememberTranscriptScroll(scrollPane.value);
 					}
 				}
 			}
@@ -13509,7 +13461,7 @@ function createChatsPageController(initialProps) {
 		const pane = scrollPane.peek();
 		if (!pane) return;
 		pane.scrollTop = pane.scrollHeight;
-		previousTranscriptScrollTop = pane.scrollTop;
+		rememberTranscriptScroll(pane);
 		followingTranscriptTail = true;
 		pendingRevealFor.value = null;
 	}
@@ -13553,8 +13505,11 @@ function createChatsPageController(initialProps) {
 				message: "The queue receipt has an unknown state; the saved request ID was preserved."
 			};
 			acknowledgeFreshQueueRequest(request.fingerprint, request.requestId);
+			if (!request.reused) {
+				if (!pinnedIds.peek().includes(sendId)) pinnedIds.value = [...pinnedIds.peek(), sendId];
+				enteringNewChatId.value = sendId;
+			}
 			search.value = "";
-			statusFilter.value = "";
 			onQueued.value(sendId);
 			loadList();
 			loadPins();
@@ -13613,40 +13568,6 @@ function createChatsPageController(initialProps) {
 			notify("Recovery request could not be confirmed. Refresh the chat to check its status.", "warning");
 		} finally {
 			requestingManualRecovery.value = false;
-		}
-	}
-	async function recoverReply(sendId) {
-		if (recoveringReply.value) return {
-			messageId: "",
-			issue: "Exact-branch verification is already running."
-		};
-		recoveringReply.value = true;
-		try {
-			const response = await localPost("./api/results/" + encodeURIComponent(sendId) + "/reply-recover", {}, { timeoutMs: 9e4 });
-			if (!response.ok) {
-				if (response.status >= 500) return {
-					messageId: "",
-					issue: "Exact-branch verification is temporarily unavailable. Nothing was sent."
-				};
-				return {
-					messageId: "",
-					issue: await localRejectionDetail(response, "The saved branch cannot be verified yet.")
-				};
-			}
-			const recovered = await response.json();
-			if (selectedRunId.value !== sendId) return { messageId: "" };
-			if (typeof recovered.message_id === "string" && recovered.message_id) return { messageId: recovered.message_id };
-			return {
-				messageId: "",
-				issue: "Verification returned no assistant identity."
-			};
-		} catch {
-			return {
-				messageId: "",
-				issue: "Exact-branch verification timed out or lost its local connection. Nothing was sent."
-			};
-		} finally {
-			recoveringReply.value = false;
 		}
 	}
 	function freshContinuationPrompt(text) {
@@ -13825,44 +13746,9 @@ function createChatsPageController(initialProps) {
 		if (!latest.conversation_id) return {
 			ok: false,
 			fallbackAvailable: true,
-			message: "This chat has no verified ChatGPT conversation ID. Nothing was sent. Choose Continue in new chat to create a separate conversation with saved context."
+			message: "This chat has no verified ChatGPT conversation ID. The reply cannot be revived on its original branch. Continue in a new chat instead."
 		};
-		const verification = latest.message_id ? { messageId: latest.message_id } : await recoverReply(sendId);
-		const parentId = verification.messageId;
-		if (!parentId) {
-			if (selectedRunId.value !== sendId) return {
-				ok: false,
-				message: "The selected chat changed. Nothing was sent."
-			};
-			return {
-				ok: false,
-				message: (verification.issue ?? "The exact ChatGPT branch could not be verified yet.") + " Press Send to retry later, or continue in a new chat.",
-				fallbackAvailable: true
-			};
-		}
-		if (selectedRunId.value !== sendId) return {
-			ok: false,
-			message: "The selected chat changed. Nothing was sent."
-		};
-		let request;
-		try {
-			request = await pendingExactReplyRequest(sendId, latest.conversation_id, parentId, text);
-		} catch (error) {
-			return {
-				ok: false,
-				message: receiptFailureMessage(error, "A durable reply ID could not be created. Nothing was sent.")
-			};
-		}
-		if (selectedRunId.value !== sendId) return {
-			ok: false,
-			message: "The selected chat changed. Nothing was sent."
-		};
-		return sendExactReply(sendId, {
-			reply_id: request.replyId,
-			conversation_id: latest.conversation_id,
-			parent_id: parentId,
-			text
-		}, request);
+		return queueEarlyReply(sendId, text);
 	}
 	async function sendExactReply(sendId, payload, request) {
 		const accepted = async () => {
@@ -13967,11 +13853,12 @@ function createChatsPageController(initialProps) {
 		if (view.value === "chats" && selectedRunId.value) loadDetail(selectedRunId.value);
 	}
 	function applyFilter() {
+		appliedSearch.value = search.value.trim();
 		loadList(true);
 	}
 	function searchChanged() {
 		clearTimeout(searchTimer);
-		searchTimer = setTimeout(applyFilter, 300);
+		searchTimer = setTimeout(applyFilter, 100);
 	}
 	function clearSearch() {
 		clearTimeout(searchTimer);
@@ -14055,8 +13942,11 @@ function createChatsPageController(initialProps) {
 			if (!queueError.value) loadQueue();
 		});
 		const unsubscribe = subscribeLiveUpdates("chats", () => {
-			clearTimeout(liveRefreshTimer);
-			liveRefreshTimer = setTimeout(refresh, 100);
+			if (liveRefreshTimer !== void 0) return;
+			liveRefreshTimer = setTimeout(() => {
+				liveRefreshTimer = void 0;
+				refresh();
+			}, 100);
 		});
 		return () => {
 			unsubscribe();
@@ -14067,8 +13957,10 @@ function createChatsPageController(initialProps) {
 			clearInterval(detailPollTimer);
 			clearInterval(recoveryHealthTimer);
 			clearTimeout(liveRefreshTimer);
+			liveRefreshTimer = void 0;
 			clearTimeout(searchTimer);
 			clearTimeout(hoverPrefetchTimer);
+			listAbort?.abort();
 		};
 	};
 	function mount() {
@@ -14127,7 +14019,6 @@ function createChatsPageController(initialProps) {
 		onTranscriptKeyDown,
 		newChatOpen,
 		onSelect,
-		statuses,
 		queueSnapshot,
 		queueError,
 		recoveryPauseSeconds,
@@ -14138,6 +14029,7 @@ function createChatsPageController(initialProps) {
 		recoveryReplyBacklog,
 		items,
 		pinnedIds,
+		enteringNewChatId,
 		pinsReady,
 		pinError,
 		readError,
@@ -14151,11 +14043,10 @@ function createChatsPageController(initialProps) {
 		filtersOpen,
 		expandedPrompts,
 		search,
-		statusFilter,
+		searchActive,
 		detail,
 		turns,
 		turnsError,
-		recoveringReply,
 		requestingManualRecovery,
 		requestManualRecovery,
 		startingNewChatFromFailure,
@@ -14197,7 +14088,6 @@ function createChatsPageController(initialProps) {
 		sendReply,
 		retryFailedTurn,
 		copyText,
-		applyFilter,
 		searchChanged,
 		clearSearch,
 		toggleSearch,
@@ -14826,10 +14716,11 @@ function createJobsPageController(initialProps) {
 		if (!editorOpen.value || saving.value) return;
 		if (event.key === "Escape") {
 			event.preventDefault();
-			requestClose();
+			if (confirmDiscard.value) confirmDiscard.value = false;
+			else requestClose();
 			return;
 		}
-		if (!dirty.value || duplicateName.value) return;
+		if (confirmDiscard.value || !dirty.value || duplicateName.value) return;
 		if (!(event.ctrlKey || event.metaKey) || event.key !== "Enter") return;
 		if (!(event.target instanceof Node) || !editorPage.value?.contains(event.target)) return;
 		event.preventDefault();
@@ -15130,9 +15021,14 @@ function createJobsPageController(initialProps) {
 			loadDeliveryHealth();
 			loadQueue();
 		});
+		const unsubscribeQueue = subscribeLiveUpdates("chats", () => {
+			loadDeliveryHealth();
+			loadQueue();
+		});
 		return () => {
 			clearInterval(healthTimer);
 			unsubscribe();
+			unsubscribeQueue();
 			window.removeEventListener("beforeunload", onBeforeUnload);
 			window.removeEventListener("resize", onViewportResize);
 			window.visualViewport?.removeEventListener("resize", onViewportResize);
@@ -15257,6 +15153,9 @@ var import_jsx_runtime = (/* @__PURE__ */ __commonJSMin(((exports, module) => {
 function JobEditor({ model, refs }) {
 	N$1();
 	useToastSignal(model.editorError);
+	const keepEditingRef = (0, import_react.useRef)(null);
+	const cancelRef = (0, import_react.useRef)(null);
+	const wasConfirmingRef = (0, import_react.useRef)(false);
 	const { saving, editing, runOnce, name, schedule, interval, onceDelay, pinChat, dailyAt, exact, prompt, images, uploadingImage, imageInput, editorError, confirmDiscard, dirty, duplicateName, requestClose, discardEditor, keepFocusedPromptVisible, addImages, submit } = model;
 	function editorFeedback() {
 		if (editorError.value || duplicateName.value) return {
@@ -15282,6 +15181,11 @@ function JobEditor({ model, refs }) {
 		if (!runOnce.value) return "Create job";
 		return Number(onceDelay.value) > 0 ? "Schedule once" : "Run once";
 	}
+	(0, import_react.useLayoutEffect)(() => {
+		if (confirmDiscard.value) keepEditingRef.current?.focus();
+		else if (wasConfirmingRef.current) cancelRef.current?.focus();
+		wasConfirmingRef.current = confirmDiscard.value;
+	}, [confirmDiscard.value]);
 	const feedback = editorFeedback();
 	const editorModeTitle = runOnce.value ? "Run once" : "New job";
 	return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("section", {
@@ -15294,7 +15198,7 @@ function JobEditor({ model, refs }) {
 			ref: refs.editorForm,
 			onSubmit: (event) => {
 				event.preventDefault();
-				submit();
+				if (!confirmDiscard.value) submit();
 			},
 			className: "job-editor",
 			children: [
@@ -15491,6 +15395,7 @@ function JobEditor({ model, refs }) {
 							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Discard unsaved changes?" }),
 							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 								type: "button",
+								ref: keepEditingRef,
 								onClick: () => confirmDiscard.value = false,
 								className: "toolbar-button",
 								children: "Keep editing"
@@ -15510,6 +15415,7 @@ function JobEditor({ model, refs }) {
 						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 							type: "button",
 							disabled: saving.value,
+							ref: cancelRef,
 							onClick: requestClose,
 							className: "toolbar-button",
 							children: "Cancel"
@@ -16177,9 +16083,9 @@ function createChatComposerController(initialProps) {
 		textarea.value.style.height = "auto";
 		const maxHeight = Number.parseFloat(getComputedStyle(textarea.value).maxHeight);
 		const contentHeight = textarea.value.scrollHeight;
-		const nextHeight = Math.min(contentHeight, maxHeight);
+		const nextHeight = Number.isFinite(maxHeight) ? Math.min(contentHeight, maxHeight) : contentHeight;
 		textarea.value.style.height = nextHeight + "px";
-		textarea.value.style.overflowY = contentHeight > maxHeight ? "auto" : "hidden";
+		textarea.value.style.overflowY = Number.isFinite(maxHeight) && contentHeight > maxHeight ? "auto" : "hidden";
 		if (animateCollapse && previousHeight > nextHeight && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) textarea.value.animate([{ height: previousHeight + "px" }, { height: nextHeight + "px" }], {
 			duration: 160,
 			easing: "ease-out"
@@ -16249,7 +16155,7 @@ function createChatComposerController(initialProps) {
 			if (generation === uploadGeneration && key === draftStorageKey.value) {
 				images.value = images.value.filter((image) => !batchRefs.includes(image.ref));
 				rememberComposerImages(key, images.value);
-				if (error instanceof DOMException && error.name === "TimeoutError") feedback.value = "Attachment upload timed out. The unsent attachments were restored; try again.";
+				if (error instanceof DOMException && error.name === "TimeoutError") feedback.value = "Attachment upload timed out. Reattach any images that did not upload.";
 				else if (error instanceof Error) feedback.value = error.message;
 				else feedback.value = "Attachment upload failed.";
 			}
@@ -16262,6 +16168,44 @@ function createChatComposerController(initialProps) {
 	}
 	async function submit(useFallback = false) {
 		if (useFallback ? !canFallback.value : !canSend.value) return;
+		if (mode.value === "reply" && !useFallback) {
+			const submittedKey = draftStorageKey.value;
+			const submitted = draft.value;
+			const send = onSend.value;
+			clearComposerDraft(submittedKey);
+			clearComposerImages(submittedKey);
+			try {
+				if (submittedKey && localStorage.getItem(submittedKey) === submitted) localStorage.removeItem(submittedKey);
+			} catch {}
+			draft.value = "";
+			images.value = [];
+			hasLocalDraft.value = false;
+			feedback.value = "";
+			fallbackAvailable.value = false;
+			requestAnimationFrame(() => fitTextarea(true));
+			const restore = (reason, fallback = false) => {
+				const current = readComposerDraft(submittedKey) ?? "";
+				const restored = current ? submitted + "\n\n" + current : submitted;
+				rememberComposerDraft(submittedKey, restored);
+				if (draftStorageKey.value === submittedKey) {
+					draft.value = restored;
+					hasLocalDraft.value = true;
+					fallbackAvailable.value = fallback;
+					feedback.value = reason;
+					requestAnimationFrame(resizeTextarea);
+				}
+				try {
+					if (submittedKey) localStorage.setItem(submittedKey, restored);
+				} catch {}
+			};
+			try {
+				const result = await send(submitted, []);
+				if (!result.ok) restore(result.message, Boolean(result.fallbackAvailable));
+			} catch {
+				restore("Queue confirmation was lost. Your message was restored for safe reconciliation.");
+			}
+			return;
+		}
 		const submittedKey = draftStorageKey.value;
 		const generation = ++submissionGeneration;
 		const submitted = draft.value;
@@ -16335,7 +16279,6 @@ function createChatComposerController(initialProps) {
 		addFiles(Array.from(event.dataTransfer?.files || []));
 	}
 	const onMountImpl = () => {
-		if (mode.value === "fresh") textarea.value?.focus();
 		requestAnimationFrame(resizeTextarea);
 		window.addEventListener("resize", resizeTextarea);
 		return () => {
@@ -16477,7 +16420,10 @@ function RecoverChatIcon() {
 function ChatComposer(props) {
 	const model = (0, import_react.useMemo)(() => createChatComposerController(props), []);
 	N$1();
-	useToastSignal(model.feedback, { tone: feedbackTone });
+	useToastSignal(model.feedback, {
+		tone: feedbackTone,
+		immediate: true
+	});
 	const { mode, onFallbackSend, onNewChat, disabled, draft, images, uploading, sending, fallbackAvailable, offerFreshContinuation, dragging, fileInput, draftStorageKey, canAttach, hasDraft, canSend, canFallback, draftChanged, addFiles, showStop, stopping, stop, submit, keydown, pasted, dropped } = model;
 	const refs = (0, import_react.useMemo)(() => ({
 		textarea: (element) => {
@@ -16680,22 +16626,28 @@ function ChatComposer(props) {
 }
 //#endregion
 //#region src/ui/ChatRow.tsx
+var import_react_dom = require_react_dom();
 function ChatRow({ item, model }) {
 	N$1();
 	const selected = model.view.value === "chats" && model.selectedRunId.value === item.send_id;
 	const unread = model.isUnread(item);
 	const pinned = model.pinnedIds.value.includes(item.send_id);
-	const hasPreview = item.has_response && !!item.preview.trim();
-	const preview = hasPreview ? plainPreview(item.preview) : "";
+	const entering = model.enteringNewChatId.value === item.send_id;
 	const rowStatus = item.needs_attention ? "Needs attention" : statusLabel(item.status);
 	const queued = item.status === "queued" && !item.needs_attention;
+	const showPreview = item.has_response && !!item.preview.trim() && !queued && !(item.status === "accepted" && !item.needs_attention);
+	const preview = showPreview ? plainPreview(item.preview) : "";
 	const subtitle = queued ? queuedChatEtaText(item.send_id, model.queueSnapshot.value) : rowStatus;
 	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 		className: [
 			"chat-entry",
 			selected ? "chosen" : "",
-			unread ? "unread" : ""
+			unread ? "unread" : "",
+			entering ? "arriving" : ""
 		].filter(Boolean).join(" "),
+		onAnimationEnd: (event) => {
+			if (event.target === event.currentTarget && model.enteringNewChatId.peek() === item.send_id) model.enteringNewChatId.value = null;
+		},
 		children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("a", {
 			href: chatUrl(item.send_id),
 			onClick: (event) => {
@@ -16730,7 +16682,7 @@ function ChatRow({ item, model }) {
 						})
 					})
 				]
-			}), hasPreview ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+			}), showPreview ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
 				className: "chat-preview",
 				title: preview,
 				children: [item.needs_attention ? "Needs attention · " : "", preview]
@@ -16764,28 +16716,121 @@ function ChatRow({ item, model }) {
 //#region src/ui/ChatsSidebar.tsx
 function ChatsSidebar({ model, refs }) {
 	N$1();
-	const { statuses, queueSnapshot, items, markingAllRead, drawerOpen, filtersOpen, search, statusFilter, loadingList, listError, pinned, visibleWaiting, unpinned, markAllRead, loadingMore, nextOffset, total, loadMore, applyFilter, searchChanged, clearSearch, toggleSearch, showJobs, createChat } = model;
+	const { queueSnapshot, items, markingAllRead, drawerOpen, filtersOpen, searchActive, loadingList, listError, pinned, visibleWaiting, unpinned, markAllRead, loadingMore, morePageFailed, nextOffset, total, loadMore, toggleSearch, showJobs, createChat } = model;
 	const [profileOpen, setProfileOpen] = (0, import_react.useState)(false);
 	const [settingsOpen, setSettingsOpen] = (0, import_react.useState)(false);
+	const profileTriggerRef = (0, import_react.useRef)(null);
+	const profileMenuRef = (0, import_react.useRef)(null);
+	const settingsCloseRef = (0, import_react.useRef)(null);
+	const settingsSaveRef = (0, import_react.useRef)(null);
+	const settingsApprovalRef = (0, import_react.useRef)(null);
+	const listEndRef = (0, import_react.useRef)(null);
 	const [concurrency, setConcurrency] = (0, import_react.useState)({
 		enabled: true,
 		max_workers: 3
 	});
 	const [approval, setApproval] = (0, import_react.useState)(false);
 	const [settingsError, setSettingsError] = (0, import_react.useState)("");
+	const [settingsReady, setSettingsReady] = (0, import_react.useState)(false);
+	const [settingsLoadKey, setSettingsLoadKey] = (0, import_react.useState)(0);
 	const [saving, setSaving] = (0, import_react.useState)(false);
+	const validWorkerCount = typeof concurrency.max_workers === "number" && Number.isInteger(concurrency.max_workers) && concurrency.max_workers >= 1 && concurrency.max_workers <= 128;
+	const hasOlderChats = nextOffset.value < total.value;
+	(0, import_react.useEffect)(() => {
+		if (!hasOlderChats || loadingList.value || loadingMore.value || morePageFailed.value || typeof IntersectionObserver === "undefined") return;
+		const pane = model.listPane.peek();
+		const end = listEndRef.current;
+		if (!pane || !end) return;
+		const observer = new IntersectionObserver((entries) => {
+			if (entries.some((entry) => entry.isIntersecting)) loadMore();
+		}, {
+			root: pane,
+			rootMargin: "200px 0px"
+		});
+		observer.observe(end);
+		return () => observer.disconnect();
+	}, [
+		hasOlderChats,
+		loadingList.value,
+		loadingMore.value,
+		morePageFailed.value,
+		nextOffset.value
+	]);
+	function onListScroll(event) {
+		if (!hasOlderChats || loadingList.value || loadingMore.value || morePageFailed.value) return;
+		const pane = event.currentTarget;
+		if (pane.scrollHeight - pane.scrollTop - pane.clientHeight <= 200) loadMore();
+	}
+	(0, import_react.useEffect)(() => {
+		if (!profileOpen) return;
+		const dismissOutside = (event) => {
+			if (!(event.target instanceof Node)) return;
+			if (profileTriggerRef.current?.contains(event.target) || profileMenuRef.current?.contains(event.target)) return;
+			setProfileOpen(false);
+		};
+		const dismissOnEscape = (event) => {
+			if (event.key !== "Escape") return;
+			event.preventDefault();
+			event.stopPropagation();
+			setProfileOpen(false);
+			profileTriggerRef.current?.focus();
+		};
+		document.addEventListener("pointerdown", dismissOutside);
+		document.addEventListener("keydown", dismissOnEscape);
+		return () => {
+			document.removeEventListener("pointerdown", dismissOutside);
+			document.removeEventListener("keydown", dismissOnEscape);
+		};
+	}, [profileOpen]);
 	(0, import_react.useEffect)(() => {
 		if (!settingsOpen) return;
-		fetch("./api/settings").then(async (response) => {
+		settingsCloseRef.current?.focus();
+		const handleKeys = (event) => {
+			if (event.key === "Escape") {
+				event.preventDefault();
+				event.stopPropagation();
+				setSettingsOpen(false);
+				return;
+			}
+			if (event.key !== "Tab") return;
+			let lastControl = settingsSaveRef.current;
+			if (lastControl?.disabled) lastControl = settingsApprovalRef.current;
+			if (lastControl?.disabled) lastControl = settingsCloseRef.current;
+			if (event.shiftKey && document.activeElement === settingsCloseRef.current) {
+				event.preventDefault();
+				lastControl?.focus();
+			} else if (!event.shiftKey && document.activeElement === lastControl) {
+				event.preventDefault();
+				settingsCloseRef.current?.focus();
+			}
+		};
+		document.addEventListener("keydown", handleKeys);
+		return () => {
+			document.removeEventListener("keydown", handleKeys);
+			profileTriggerRef.current?.focus();
+		};
+	}, [settingsOpen]);
+	(0, import_react.useEffect)(() => {
+		if (!settingsOpen) return;
+		const controller = new AbortController();
+		setSettingsReady(false);
+		fetch("./api/settings", { signal: controller.signal }).then(async (response) => {
 			if (!response.ok) throw new Error("Could not load settings");
 			return response.json();
 		}).then((data) => {
-			setConcurrency(data.stage_concurrency);
+			if (controller.signal.aborted) return;
+			if (typeof data?.parallelism?.enabled !== "boolean" || !Number.isInteger(data.parallelism.max_workers) || data.parallelism.max_workers < 1 || data.parallelism.max_workers > 128 || typeof data?.connector_approval?.enabled !== "boolean") throw new Error("Invalid settings response");
+			setConcurrency(data.parallelism);
 			setApproval(data.connector_approval.enabled);
 			setSettingsError("");
-		}).catch(() => setSettingsError("Could not load settings"));
-	}, [settingsOpen]);
+			setSettingsReady(true);
+		}).catch(() => {
+			if (!controller.signal.aborted) setSettingsError("Could not load settings");
+		});
+		return () => controller.abort();
+	}, [settingsOpen, settingsLoadKey]);
 	async function saveSettings() {
+		if (!settingsReady || !validWorkerCount || saving) return;
 		setSaving(true);
 		setSettingsError("");
 		try {
@@ -16793,7 +16838,7 @@ function ChatsSidebar({ model, refs }) {
 				method: "PUT",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({
-					stage_concurrency: concurrency,
+					parallelism: concurrency,
 					connector_approval: { enabled: approval }
 				})
 			})).ok) throw new Error("Settings could not be saved");
@@ -16804,9 +16849,12 @@ function ChatsSidebar({ model, refs }) {
 			setSaving(false);
 		}
 	}
+	let settingsButtonLabel = "Save settings";
+	if (saving) settingsButtonLabel = "Saving…";
+	else if (!settingsReady && settingsError) settingsButtonLabel = "Retry loading settings";
 	function emptyChatsLabel() {
 		if (listError.value) return "Chat list temporarily unavailable";
-		if (search.value || statusFilter.value) return "No matching chats";
+		if (searchActive.value) return "No matching chats";
 		return "No chats";
 	}
 	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("aside", {
@@ -16844,8 +16892,8 @@ function ChatsSidebar({ model, refs }) {
 									cy: "10.5",
 									r: "6.5"
 								}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: "m16 16 5 5" })]
-							}), (search.value || statusFilter.value) && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-								"aria-label": "Filters active",
+							}), searchActive.value && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+								"aria-label": "Search active",
 								className: "filter-active-dot"
 							})]
 						})
@@ -16859,52 +16907,18 @@ function ChatsSidebar({ model, refs }) {
 					})
 				]
 			}),
-			filtersOpen.value ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+			filtersOpen.value ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 				id: "chat-filters",
 				className: "chats-controls",
-				children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-					className: "search-field",
-					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
-						className: "search-label",
-						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-							className: "sr-only",
-							children: "Search chats"
-						}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
-							type: "search",
-							placeholder: "Search chats",
-							ref: refs.searchInput,
-							onInput: searchChanged,
-							value: search.value,
-							onChange: (event) => {
-								search.value = event.currentTarget.value;
-							}
-						})]
-					}), search.value && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-						type: "button",
-						"aria-label": "Clear chat search",
-						title: "Clear search",
-						className: "chat-search-clear",
-						onClick: clearSearch,
-						children: "×"
-					})]
-				}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-					className: "sr-only",
-					children: "Filter results by state"
-				}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("select", {
-					value: statusFilter.value,
-					onChange: (event) => {
-						statusFilter.value = event.currentTarget.value;
-						applyFilter();
-					},
-					children: statuses.map((choice) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
-						value: choice.value,
-						children: choice.label
-					}, choice.value))
-				})] })]
+				children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(SidebarSearchField, {
+					model,
+					inputRef: refs.searchInput
+				})
 			}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {}),
 			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 				ref: refs.listPane,
 				className: "chats-list",
+				onScroll: onListScroll,
 				children: [
 					visibleWaiting.value.length ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: visibleWaiting.value.map((waiting) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 						className: "chat-entry queue-waiting",
@@ -16945,13 +16959,18 @@ function ChatsSidebar({ model, refs }) {
 						item,
 						model
 					}, item.send_id)) }) }),
-					nextOffset.value < total.value ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+					hasOlderChats && morePageFailed.value ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 						type: "button",
 						disabled: loadingList.value || loadingMore.value,
 						onClick: () => void loadMore(),
 						className: "btn ghost",
-						children: loadingMore.value ? "Loading chats…" : "Load more chats"
-					}) : null
+						children: "Retry loading older chats"
+					}) : null,
+					hasOlderChats && !morePageFailed.value && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+						ref: listEndRef,
+						className: "chat-list-end",
+						"aria-hidden": "true"
+					})
 				]
 			}),
 			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
@@ -16978,6 +16997,8 @@ function ChatsSidebar({ model, refs }) {
 						type: "button",
 						"aria-label": "Profile",
 						"aria-expanded": profileOpen,
+						"aria-controls": "sidebar-profile-menu",
+						ref: profileTriggerRef,
 						onClick: () => setProfileOpen(!profileOpen),
 						className: "sidebar-profile",
 						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("svg", {
@@ -16994,12 +17015,14 @@ function ChatsSidebar({ model, refs }) {
 						}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Profile" })]
 					}),
 					profileOpen && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+						id: "sidebar-profile-menu",
+						ref: profileMenuRef,
 						className: "sidebar-profile-menu",
-						role: "menu",
+						role: "group",
+						"aria-label": "Profile actions",
 						children: [
 							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 								type: "button",
-								role: "menuitem",
 								onClick: () => {
 									showJobs();
 									setProfileOpen(false);
@@ -17008,8 +17031,9 @@ function ChatsSidebar({ model, refs }) {
 							}),
 							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 								type: "button",
-								role: "menuitem",
 								onClick: () => {
+									setSettingsReady(false);
+									setSettingsError("");
 									setSettingsOpen(true);
 									setProfileOpen(false);
 								},
@@ -17017,7 +17041,6 @@ function ChatsSidebar({ model, refs }) {
 							}),
 							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 								type: "button",
-								role: "menuitem",
 								disabled: markingAllRead.value,
 								onClick: () => {
 									markAllRead();
@@ -17029,7 +17052,7 @@ function ChatsSidebar({ model, refs }) {
 					})
 				]
 			}),
-			settingsOpen && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+			settingsOpen && (0, import_react_dom.createPortal)(/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 				className: "settings-backdrop",
 				onClick: () => setSettingsOpen(false),
 				children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", {
@@ -17044,6 +17067,7 @@ function ChatsSidebar({ model, refs }) {
 							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { children: "Settings" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 								type: "button",
 								"aria-label": "Close settings",
+								ref: settingsCloseRef,
 								onClick: () => setSettingsOpen(false),
 								children: "×"
 							})]
@@ -17055,6 +17079,7 @@ function ChatsSidebar({ model, refs }) {
 								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
 									type: "checkbox",
 									checked: concurrency.enabled,
+									disabled: !settingsReady || saving,
 									onChange: (event) => setConcurrency({
 										...concurrency,
 										enabled: event.target.checked
@@ -17070,12 +17095,15 @@ function ChatsSidebar({ model, refs }) {
 								type: "number",
 								min: "1",
 								max: "128",
-								disabled: !concurrency.enabled,
+								disabled: !settingsReady || saving || !concurrency.enabled,
 								value: concurrency.max_workers,
-								onChange: (event) => setConcurrency({
-									...concurrency,
-									max_workers: Number(event.target.value)
-								})
+								onChange: (event) => {
+									const value = event.currentTarget.value;
+									setConcurrency({
+										...concurrency,
+										max_workers: value === "" ? "" : Number(value)
+									});
+								}
 							})]
 						}),
 						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { children: "One global limit for new chats, replies, one-off and repeating jobs. Running work is not interrupted." }),
@@ -17086,6 +17114,8 @@ function ChatsSidebar({ model, refs }) {
 								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
 									type: "checkbox",
 									checked: approval,
+									disabled: !settingsReady || saving,
+									ref: settingsApprovalRef,
 									onChange: (event) => setApproval(event.target.checked)
 								}),
 								" ",
@@ -17099,14 +17129,50 @@ function ChatsSidebar({ model, refs }) {
 						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 							type: "button",
 							className: "settings-save",
-							disabled: saving || concurrency.enabled && (!Number.isInteger(concurrency.max_workers) || concurrency.max_workers < 1 || concurrency.max_workers > 128),
-							onClick: () => void saveSettings(),
-							children: saving ? "Saving…" : "Save settings"
+							ref: settingsSaveRef,
+							disabled: !settingsReady && !settingsError || saving || settingsReady && !validWorkerCount,
+							onClick: () => {
+								if (settingsReady) saveSettings();
+								else {
+									setSettingsError("");
+									setSettingsLoadKey((value) => value + 1);
+								}
+							},
+							children: settingsButtonLabel
 						})
 					]
 				})
-			})
+			}), document.body)
 		]
+	});
+}
+function SidebarSearchField({ model, inputRef }) {
+	N$1();
+	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+		className: "search-field",
+		children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
+			className: "search-label",
+			children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+				className: "sr-only",
+				children: "Search chats"
+			}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+				type: "search",
+				placeholder: "Search chats",
+				ref: inputRef,
+				value: model.search.value,
+				onChange: (event) => {
+					model.search.value = event.currentTarget.value;
+					model.searchChanged();
+				}
+			})]
+		}), model.search.value && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+			type: "button",
+			"aria-label": "Clear chat search",
+			title: "Clear search",
+			className: "chat-search-clear",
+			onClick: model.clearSearch,
+			children: "×"
+		})]
 	});
 }
 //#endregion
@@ -20918,6 +20984,29 @@ function orderedActivity(turn) {
 			calls: remaining
 		});
 	}
+	const rendered = blocks.filter((block) => block.kind === "text").map((block) => block.text).join("\n\n").trim();
+	const answer = turn.assistant_text.trim();
+	if (answer && !rendered.includes(answer)) {
+		if (answer.startsWith(rendered)) {
+			const tail = answer.slice(rendered.length).trim();
+			if (tail) activity.push({
+				kind: "text",
+				id: "answer-tail",
+				text: tail
+			});
+		} else if (answer.endsWith(rendered)) {
+			const head = answer.slice(0, -rendered.length).trim();
+			if (head) activity.unshift({
+				kind: "text",
+				id: "answer-head",
+				text: head
+			});
+		} else activity.push({
+			kind: "text",
+			id: "answer-fallback",
+			text: answer
+		});
+	}
 	return activity;
 }
 function TurnActivity({ turn, captureSource, turnTimestamp }) {
@@ -20955,6 +21044,12 @@ function ChatTranscript({ model, refs, conversationUrl }) {
 		if (copyState.value === id) return "Copied";
 		if (copyState.value === "error:" + id) return "Copy failed";
 		return "Copy";
+	}
+	function queuedFollowupLabel(index) {
+		const preceding = turns.value[index - 1];
+		if (preceding?.status === "queued") return "Follow-up queued · waiting for earlier follow-up";
+		if (!preceding?.message_id) return "Follow-up queued · reviving chat";
+		return "Follow-up queued · waiting for the preceding response";
 	}
 	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 		className: "chat-transcript-shell",
@@ -21043,7 +21138,7 @@ function ChatTranscript({ model, refs, conversationUrl }) {
 									children: responseBadge(turn.status)
 								})
 							}),
-							turn.assistant_text || turn.display_blocks?.some((block) => block.kind === "text") ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
+							turn.assistant_text || turn.tool_calls?.length || turn.display_blocks?.some((block) => block.kind === "text") ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
 								/* @__PURE__ */ (0, import_jsx_runtime.jsx)(TurnActivity, {
 									turn,
 									captureSource: index === 0 ? detail.value.source : "",
@@ -21065,7 +21160,7 @@ function ChatTranscript({ model, refs, conversationUrl }) {
 								})
 							] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [turn.status !== "generating" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
 								className: "no-response",
-								children: index > 0 && turn.status === "queued" ? "Follow-up queued · waiting for the preceding response" : turnStatus(turn.status)
+								children: index > 0 && turn.status === "queued" ? queuedFollowupLabel(index) : turnStatus(turn.status)
 							}), turn.status === "preflight_failed" && turn.reply_id && turn.conversation_id && turn.parent_id ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 								type: "button",
 								onClick: () => void retryFailedTurn(turn),
@@ -21244,7 +21339,7 @@ function ChatsPage(props) {
 			notify("Could not copy chat link", "error");
 		}
 	}
-	const { view, selectedRunId, newChatOpen, drawerOpen, filtersOpen, detail, turns, recoveringReply, jobsWorkspace, replyBlockedReason, selectedChatTitle, sendFresh, freshContinuationPrompt, originalImageRefs, sendReply, cancelSwipe, startSwipe, finishSwipe, createChat, escapeDrawer } = model;
+	const { view, selectedRunId, newChatOpen, drawerOpen, filtersOpen, detail, turns, jobsWorkspace, replyBlockedReason, selectedChatTitle, sendFresh, freshContinuationPrompt, originalImageRefs, sendReply, cancelSwipe, startSwipe, finishSwipe, createChat, escapeDrawer } = model;
 	const pageTitle = view.value === "jobs" ? "Jobs" : selectedChatTitle.value;
 	const conversationUrl = detail.value?.send_id === selectedRunId.value ? exactConversationUrl(turns.value.findLast((turn) => exactConversationUrl(turn.conversation_id))?.conversation_id || detail.value.conversation_id) : null;
 	const activeSelectedChat = canStopTurn(selectedRunId.value && detail.value?.send_id === selectedRunId.value ? turns.value.findLast((turn) => turn.status !== "cancelled") : void 0);
@@ -21397,7 +21492,7 @@ function ChatsPage(props) {
 						onNewChat: createChat,
 						restoreDraft: selectedRunId.value && detail.value?.send_id === selectedRunId.value && turns.value.at(-1)?.status === "preflight_failed" ? turns.value.at(-1)?.user_text ?? "" : "",
 						retryablePreflight: Boolean(selectedRunId.value && detail.value?.send_id === selectedRunId.value && turns.value.at(-1)?.status === "preflight_failed"),
-						sendDisabled: Boolean(selectedRunId.value && (detail.value?.send_id !== selectedRunId.value || replyBlockedReason.value || recoveringReply.value))
+						sendDisabled: Boolean(selectedRunId.value && (detail.value?.send_id !== selectedRunId.value || replyBlockedReason.value))
 					}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {})
 				]
 			})

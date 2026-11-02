@@ -67,6 +67,14 @@ def test_reply_history_probe_real_chromium_dom() -> None:
                 assert result["tool_calls"] == [
                     {"action": "Used test connector", "status": "completed"}
                 ]
+                await page.locator("main").evaluate(
+                    "node => node.insertAdjacentHTML('beforeend', "
+                    "'<button data-testid=\"stop-button\" aria-label=\"Stop generating\">Stop</button>')"
+                )
+                still_running = await page.evaluate(script)
+                assert still_running["verified"] is True
+                assert still_running["complete"] is False
+                assert still_running["generating"] is True
                 await (
                     page.locator('[data-message-author-role="user"]')
                     .nth(1)

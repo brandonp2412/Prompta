@@ -82,7 +82,7 @@ def test_terminal_chat_send_is_enabled_and_routes_safely(
                 route.fulfill(
                     status=202,
                     content_type="application/json",
-                    body=json.dumps({"ok": True, "turn": {"status": "prepared"}}),
+                    body=json.dumps({"ok": True, "turn": {"status": "queued"}}),
                 )
 
             def fresh_route(route: Route) -> None:
@@ -93,10 +93,11 @@ def test_terminal_chat_send_is_enabled_and_routes_safely(
                     body=json.dumps({"send_id": "new-run"}),
                 )
 
-            page.route(f"**/api/results/{send_id}/reply-send", reply_route)
+            page.route(f"**/api/results/{send_id}/reply-queue", reply_route)
             page.route("**/api/chats", fresh_route)
             saved_image_ref = "a" * 64 + "/saved.png"
             if missing_id:
+
                 def saved_image_detail(route: Route) -> None:
                     response = route.fetch()
                     record = response.json()
@@ -111,6 +112,15 @@ def test_terminal_chat_send_is_enabled_and_routes_safely(
 
                 page.route(f"**/api/results/{send_id}", saved_image_detail)
             page.goto(f"http://127.0.0.1:{port}/?view=chats&run={send_id}")
+            if not missing_id:
+                copy = page.get_by_role("button", name="Copy assistant reply 1")
+                continuation = page.get_by_role("button", name="Continue in new chat")
+                expect(copy).to_be_visible()
+                expect(continuation).to_be_visible()
+                copy_box = copy.bounding_box()
+                continuation_box = continuation.bounding_box()
+                assert copy_box is not None and continuation_box is not None
+                assert abs(copy_box["x"] - continuation_box["x"]) <= 1
             field = page.get_by_role("textbox", name="Message for current chat")
             expect(field).to_be_visible()
             field.fill("Please continue")
@@ -118,7 +128,9 @@ def test_terminal_chat_send_is_enabled_and_routes_safely(
             expect(button).to_be_enabled()
             if missing_id:
                 button.click()
-                expect(page.get_by_text("Nothing was sent. Choose Continue in new chat", exact=False)).to_be_visible()
+                expect(
+                    page.get_by_text("Continue in a new chat instead.", exact=False)
+                ).to_be_visible()
                 assert not fresh
                 fallback = page.get_by_role("form", name="Reply composer").get_by_role(
                     "button", name="Continue in new chat"
@@ -127,7 +139,7 @@ def test_terminal_chat_send_is_enabled_and_routes_safely(
                 with page.expect_request("**/api/chats"):
                     fallback.click()
             else:
-                with page.expect_request(f"**/api/results/{send_id}/reply-send"):
+                with page.expect_request(f"**/api/results/{send_id}/reply-queue"):
                     button.click()
             page.wait_for_timeout(200)
             if missing_id:
@@ -139,13 +151,13 @@ def test_terminal_chat_send_is_enabled_and_routes_safely(
             else:
                 assert len(sent) == 1
                 assert len(fresh) == 0
-                assert sent[0]["conversation_id"] == CONVERSATION
-                assert sent[0]["parent_id"] == ASSISTANT
+                assert sent[0]["text"] == "Please continue"
+                assert isinstance(sent[0]["reply_id"], str)
         finally:
             browser.close()
 
 
-def test_failed_exact_recovery_keeps_draft_and_allows_retry(
+def test_queued_reply_does_not_wait_for_exact_parent_recovery(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -159,7 +171,6 @@ def test_failed_exact_recovery_keeps_draft_and_allows_retry(
     )
     with server(tmp_path) as (app, port), sync_patchright() as patchright:
         seed_terminal(app, send_id="recover", missing_id=False)
-        # Simulate a captured conversation without a verified assistant identity.
         with app.results.engine.begin() as connection:
             connection.exec_driver_sql(
                 "UPDATE job_responses SET message_id = '' WHERE send_id = 'recover'",
@@ -172,51 +183,27 @@ def test_failed_exact_recovery_keeps_draft_and_allows_retry(
         try:
             page = browser.new_page(viewport={"width": 390, "height": 844})
             recoveries: list[str] = []
-            fresh: list[str] = []
-
-            def recover_route(route: Route) -> None:
-                recoveries.append(route.request.method)
-                route.fulfill(
-                    status=409,
-                    content_type="application/json",
-                    body='{"error":"ChatGPT account read cooldown is active; retry in 300 seconds"}',
-                )
-
-            page.route("**/api/results/recover/reply-recover", recover_route)
-
-            def fresh_fallback(route: Route) -> None:
-                fresh.append(route.request.post_data or "")
-                route.fulfill(
-                    status=202, content_type="application/json", body='{"send_id":"continued-run"}'
-                )
-
-            page.route("**/api/chats", fresh_fallback)
+            page.on(
+                "request",
+                lambda request: (
+                    recoveries.append(request.url)
+                    if request.url.endswith("/reply-recover")
+                    else None
+                ),
+            )
             page.goto(f"http://127.0.0.1:{port}/?view=chats&run=recover")
             field = page.get_by_role("textbox", name="Message for current chat")
             field.fill("Still here")
-            button = page.get_by_role("button", name="Send reply")
-            with page.expect_request("**/api/results/recover/reply-recover"):
-                button.click()
-            expect(
-                page.get_by_text(
-                    "ChatGPT account read cooldown is active; retry in 300 seconds", exact=False
-                )
-            ).to_be_visible()
-            expect(button).to_be_enabled()
-            assert field.input_value() == "Still here"
-            with page.expect_request("**/api/results/recover/reply-recover"):
-                button.click()
-            page.wait_for_timeout(200)
-            assert len(recoveries) == 2
-            assert not fresh
-            with page.expect_request("**/api/chats"):
-                page.get_by_role("form", name="Reply composer").get_by_role(
-                    "button", name="Continue in new chat"
-                ).click()
-            page.wait_for_timeout(200)
-            assert len(fresh) == 1
-            assert "Last saved assistant result:\\nSaved partial answer" in fresh[0]
-            assert "Still here" in fresh[0]
+            with page.expect_response("**/api/results/recover/reply-queue") as queued:
+                page.get_by_role("button", name="Send reply").click()
+            assert queued.value.status == 202
+            expect(field).to_have_value("")
+            expect(page.get_by_role("button", name="New chat", exact=True)).to_be_enabled()
+            assert page.get_by_role("button", name="Sending").count() == 0
+            assert recoveries == []
+            saved = app.replies.turns("recover") or []
+            assert saved[-1]["status"] == "queued"
+            assert saved[-1]["user_text"] == "Still here"
         finally:
             browser.close()
 
@@ -340,7 +327,7 @@ def test_uncertain_fresh_queue_reuses_idempotency_key(
             )
             expect(fallback).to_be_visible()
             button.click()
-            expect(page.get_by_text("Nothing was sent. Choose Continue in new chat", exact=False)).to_be_visible()
+            expect(page.get_by_text("Continue in a new chat instead.", exact=False)).to_be_visible()
             assert not requests
             with page.expect_request("**/api/chats"):
                 fallback.click()

@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useLayoutEffect, useRef } from "react";
 import { useSignals } from "@preact/signals-react/runtime";
 import type { createJobsPageController } from "./JobsPageController";
 import { attachmentAccept, isVideoAttachment } from "./mediaAttachments";
@@ -19,6 +19,9 @@ type EditorRefs = {
 export default function JobEditor({ model, refs }: { model: Controller; refs: EditorRefs }) {
   useSignals();
   useToastSignal(model.editorError);
+  const keepEditingRef = useRef<HTMLButtonElement>(null);
+  const cancelRef = useRef<HTMLButtonElement>(null);
+  const wasConfirmingRef = useRef(false);
   const {
     saving,
     editing,
@@ -58,6 +61,12 @@ export default function JobEditor({ model, refs }: { model: Controller; refs: Ed
     return Number(onceDelay.value) > 0 ? "Schedule once" : "Run once";
   }
 
+  useLayoutEffect(() => {
+    if (confirmDiscard.value) keepEditingRef.current?.focus();
+    else if (wasConfirmingRef.current) cancelRef.current?.focus();
+    wasConfirmingRef.current = confirmDiscard.value;
+  }, [confirmDiscard.value]);
+
   const feedback = editorFeedback();
   const editorModeTitle = runOnce.value ? "Run once" : "New job";
 
@@ -73,7 +82,7 @@ export default function JobEditor({ model, refs }: { model: Controller; refs: Ed
         ref={refs.editorForm}
         onSubmit={(event) => {
           event.preventDefault();
-          void submit();
+          if (!confirmDiscard.value) void submit();
         }}
         className="job-editor"
       >
@@ -309,6 +318,7 @@ export default function JobEditor({ model, refs }: { model: Controller; refs: Ed
                 <span>Discard unsaved changes?</span>
                 <button
                   type="button"
+                  ref={keepEditingRef}
                   onClick={() => (confirmDiscard.value = false)}
                   className="toolbar-button"
                 >
@@ -334,6 +344,7 @@ export default function JobEditor({ model, refs }: { model: Controller; refs: Ed
                 <button
                   type="button"
                   disabled={saving.value}
+                  ref={cancelRef}
                   onClick={requestClose}
                   className="toolbar-button"
                 >

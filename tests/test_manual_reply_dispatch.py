@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 
 from prompta import manual_reply_dispatch as dispatch
+from prompta.deployment_gate import DeploymentGate
 from prompta.reply_contracts import ManualReplyStore, ReplyConflict, ReplyIntent
 from prompta.response_capture import CaptureResult
 from prompta.scheduler_runtime import SchedulerRuntime
@@ -18,6 +19,29 @@ from prompta.scheduler_runtime import SchedulerRuntime
 CONVERSATION = "c" * 32
 PARENT = "m" * 32
 REPLY_ID = "r" * 32
+
+
+def test_exact_parent_recovery_refuses_deploy_pause(tmp_path: Path) -> None:
+    state_path = tmp_path / "runtime.sqlite3"
+    gate = DeploymentGate(state_path)
+    gate.pause_path.touch()
+    dispatcher = dispatch.ManualReplyDispatcher(
+        ManualReplyStore(tmp_path / "chat-results.sqlite3"), state_path,
+    )
+    with pytest.raises(ReplyConflict, match="paused for deployment"):
+        dispatcher.recover("any-send-id")
+    assert dispatcher.inflight_count() == 0
+
+
+def test_shutdown_inflight_count_includes_read_only_recovery(tmp_path: Path) -> None:
+    dispatcher = dispatch.ManualReplyDispatcher(
+        ManualReplyStore(tmp_path / "chat-results.sqlite3"),
+        tmp_path / "runtime.sqlite3",
+    )
+    with dispatcher._lock:
+        dispatcher._recovering.add("read-only-parent")
+    assert dispatcher.active_count() == 0
+    assert dispatcher.inflight_count() == 1
 
 
 class FakeDriver:

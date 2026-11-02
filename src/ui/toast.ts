@@ -20,6 +20,7 @@ export function notify(
   tone: ToastTone = "info",
   action?: ToastAction,
   duration = tone === "error" ? 6500 : 2800,
+  replaceCurrent = false,
 ): number {
   const current = activeToast.peek();
   if (current?.message === message && current.tone === tone) return current.id;
@@ -33,8 +34,8 @@ export function notify(
   else if (tone === "success" || tone === "info") {
     // Direct user feedback (such as Copy) must appear immediately.
     activeToast.value = notice;
-  } else if (tone === "error" && current.tone !== "error") {
-    if (current.duration > 0) waitingToasts.unshift(current);
+  } else if (replaceCurrent || (tone === "error" && current.tone !== "error")) {
+    if (!replaceCurrent && current.duration > 0) waitingToasts.unshift(current);
     activeToast.value = notice;
   } else {
     waitingToasts.push(notice);
@@ -56,6 +57,7 @@ type SignalToastOptions = {
   tone?: ToastTone | ((message: string) => ToastTone);
   when?: (message: string) => boolean;
   action?: ToastAction;
+  immediate?: boolean;
 };
 
 export function useToastSignal(
@@ -72,7 +74,7 @@ export function useToastSignal(
         const current = optionsRef.current;
         if (current.when && !current.when(message)) return;
         const tone = typeof current.tone === "function" ? current.tone(message) : current.tone;
-        notify(message, tone ?? "error", current.action);
+        notify(message, tone ?? "error", current.action, undefined, current.immediate);
       }),
     [source],
   );

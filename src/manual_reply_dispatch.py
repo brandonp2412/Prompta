@@ -22,6 +22,8 @@ from .patchright_driver import PatchrightDriver, _normalise_composer_text
 from .rate_limit import RateLimitError
 from .reply_contracts import ManualReplyStore, ReplyConflict, ReplyIntent
 from .response_capture import CaptureResult
+from .response_store import HISTORY_READ_INTERVAL_SECONDS
+from .scheduler_runtime import SchedulerRuntime
 from .strict_types import int_value
 
 logger = logging.getLogger(__name__)
@@ -111,6 +113,9 @@ class ManualReplyDispatcher:
         self.state_path = state_path
         self._active: set[str] = set()
         self._recovering: set[str] = set()
+        self._recovery_scheduled: set[str] = set()
+        self.runtime = SchedulerRuntime(state_path, state_path)
+        self._recovery_cursor = 0
         self._lock = threading.Lock()
 
     def submit(self, send_id: str, intent: ReplyIntent) -> dict[str, object]:
@@ -145,6 +150,11 @@ class ManualReplyDispatcher:
         with self._lock:
             return len(self._active)
 
+    def inflight_count(self) -> int:
+        """All sends and read-only recoveries that must drain at shutdown."""
+        with self._lock:
+            return len(self._active | self._recovering | self._recovery_scheduled)
+
     def pump_queued(self) -> None:
         """Dispatch only explicit user-clicked follow-ups whose parent is ready.
 
@@ -154,6 +164,7 @@ class ManualReplyDispatcher:
         """
         if DeploymentGate(self.state_path).is_paused():
             return
+        self._schedule_queued_parent_recovery()
         selected: set[str] = set()
         for _ in range(_MAX_QUEUED_REPLY_DISPATCHES):
             if self.active_count() >= _MAX_QUEUED_REPLY_DISPATCHES:
@@ -169,24 +180,77 @@ class ManualReplyDispatcher:
                 # A concurrent explicit request may already own this turn.
                 continue
 
+    def _schedule_queued_parent_recovery(self) -> None:
+        # A queued reply is explicit consent to reopen its exact branch.
+        # Recovery runs off the 1s queue-pump path and never dispatches a send;
+        # only next_queued_intent can authorize dispatch after verified lineage.
+        # A scan is wasted while the previous background scan is still running.
+        with self._lock:
+            if self._recovery_scheduled:
+                return
+        if (self.store.responses.history_recovery_global_pace_remaining() > 0
+                or self.store.responses.history_recovery_security_pause_remaining() > 0
+                or self.runtime.read_backoff_remaining() > 0):
+            return
+        candidates = self.store.queued_recovery_candidates()
+        if not candidates:
+            return
+        for offset in range(len(candidates)):
+            index = (self._recovery_cursor + offset) % len(candidates)
+            send_id = candidates[index]
+            with self._lock:
+                if (send_id in self._recovery_scheduled or send_id in self._recovering
+                        or len(self._recovery_scheduled) >= 1):
+                    continue
+                self._recovery_scheduled.add(send_id)
+                self._recovery_cursor = (index + 1) % len(candidates)
+            try:
+                threading.Thread(
+                    target=self._recover_queued_parent,
+                    args=(send_id,),
+                    name="prompta-queued-reply-recovery",
+                    daemon=True,
+                ).start()
+            except RuntimeError:
+                with self._lock:
+                    self._recovery_scheduled.discard(send_id)
+                logger.warning("Queued reply recovery thread unavailable")
+            return
+
+    def _recover_queued_parent(self, send_id: str) -> None:
+        try:
+            self.recover(send_id)
+        except (ReplyConflict, PatchrightError, RuntimeError, TimeoutError) as exc:
+            logger.info("Queued reply parent recovery pending error_type=%s", type(exc).__name__)
+        except Exception as exc:
+            logger.warning("Queued reply parent recovery failed error_type=%s", type(exc).__name__)
+        finally:
+            with self._lock:
+                self._recovery_scheduled.discard(send_id)
+
     def recover(self, send_id: str) -> dict[str, str]:
-        """Only an explicit UI POST can inspect the exact persisted branch."""
+        """Inspect the exact branch after a direct click or a queued reply consent."""
         with self._lock:
             if send_id in self._recovering:
                 raise ReplyConflict("This chat's reply identity is already being verified")
             self._recovering.add(send_id)
         try:
-            return asyncio.run(self._recover_exact_parent(send_id))
+            with DeploymentGate(self.state_path).admission() as deploy_allowed:
+                if not deploy_allowed:
+                    raise ReplyConflict("Prompta is paused for deployment")
+                return asyncio.run(self._recover_exact_parent(send_id))
         finally:
             with self._lock:
                 self._recovering.discard(send_id)
 
     async def _recover_exact_parent(self, send_id: str) -> dict[str, str]:
-        turns = self.store.turns(send_id)
+        # Ignore later unsent follow-ups: their durable presence must not
+        # prevent verifying the preceding assistant message.
+        turns = [turn for turn in (self.store.turns(send_id) or []) if turn["status"] != "queued"]
         if not turns:
             raise ReplyConflict("A saved Prompta chat is required")
         latest = turns[-1]
-        if latest["status"] not in ("completed", "interrupted", "unavailable", "outcome_unknown"):
+        if latest["status"] not in ("completed", "interrupted", "unavailable", "outcome_unknown", "stopped"):
             raise ReplyConflict("A terminal Prompta turn is required")
         conversation_id = str(latest.get("conversation_id") or "")
         answer = str(latest["assistant_text"])
@@ -197,17 +261,23 @@ class ManualReplyDispatcher:
         previous_parent = str(turns[-2]["message_id"] or "") if len(turns) > 1 else ""
         if len(turns) > 1 and not previous_parent:
             raise ReplyConflict("The preceding assistant identity is unavailable")
+        if self.store.responses.history_recovery_security_pause_remaining() > 0:
+            raise ReplyConflict("ChatGPT account read security pause is active")
+        remaining = self.runtime.read_backoff_remaining()
+        if remaining > 0:
+            raise ReplyConflict(
+                f"ChatGPT account read cooldown is active; retry in {int(remaining + 0.999)} seconds"
+            )
+        if not self.store.responses.reserve_history_recovery_global_slot(
+            now=time.time(), interval=HISTORY_READ_INTERVAL_SECONDS,
+        ):
+            raise ReplyConflict("ChatGPT account read pacing is active; retry later")
         sender = BrowserDeliverySender(
             self.state_path,
             debugger_address=os.environ.get(
                 "PROMPTA_CHROME_DEBUGGER_ADDRESS", "127.0.0.1:9223"
             ),
         )
-        remaining = sender.runtime.read_backoff_remaining()
-        if remaining > 0:
-            raise ReplyConflict(
-                f"ChatGPT account read cooldown is active; retry in {int(remaining + 0.999)} seconds"
-            )
         driver = PatchrightDriver(
             profile=sender.profile,
             chrome_path=sender.chrome_path,

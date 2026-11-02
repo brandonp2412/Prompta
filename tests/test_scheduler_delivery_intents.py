@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 from sqlalchemy import update
 
-from prompta.config import StageConcurrencySettings
+from prompta.config import ParallelismSettings
 from prompta.jobs import add_job, load_jobs
 from prompta.manual_fire import fire_job_now
 from prompta.persistence import job_deliveries
@@ -240,7 +240,7 @@ def test_manual_fire_replaces_queued_scheduled_send(tmp_path: Path) -> None:
 def _stage_config(tmp_path: Path, *, max_workers: int = 3) -> Path:
     path = tmp_path / "config.toml"
     path.write_text(
-        f"[stage_concurrency]\nenabled = true\nmax_workers = {max_workers}\n",
+        f"[parallelism]\nenabled = true\nmax_workers = {max_workers}\n",
         encoding="utf-8",
     )
     return path
@@ -398,7 +398,7 @@ def test_global_cap_applies_to_direct_one_off_chat_and_scheduled_job(
     ) is not None
 
 
-def test_stage_concurrency_hot_reloads_without_worker_restart(tmp_path: Path) -> None:
+def test_parallelism_hot_reloads_without_worker_restart(tmp_path: Path) -> None:
     producer = _due_producer(tmp_path, due=1000, count=5)
     assert producer.tick(now=1000) == 5
     config = producer.concurrency_config_path
@@ -414,13 +414,13 @@ def test_stage_concurrency_hot_reloads_without_worker_restart(tmp_path: Path) ->
     assert producer._current_concurrency_settings().active_limit == 4
     assert producer.queue.claim_next(
         "worker-4", now=1001, lease_seconds=30,
-        max_active=StageConcurrencySettings.load(config).active_limit
+        max_active=ParallelismSettings.load(config).active_limit
     ) is not None
     _stage_config(tmp_path, max_workers=1)
     assert producer._current_concurrency_settings().active_limit == 1
     assert producer.queue.claim_next(
         "worker-5", now=1002, lease_seconds=30,
-        max_active=StageConcurrencySettings.load(config).active_limit
+        max_active=ParallelismSettings.load(config).active_limit
     ) is None
 
 

@@ -89,7 +89,7 @@ def test_fault_injected_partial_then_final_is_read_only_and_reconciled(tmp_path:
     assert pending["recovery"] == {
         "attempt_count": 1,
         "last_attempt_at": 150,
-        "next_attempt_at": 240,
+        "next_attempt_at": 0,
         "eligible": True,
         "state": "pending",
     }
@@ -111,7 +111,7 @@ def test_fault_injected_partial_then_final_is_read_only_and_reconciled(tmp_path:
     ] for driver in used)
 
 
-def test_http_429_honors_retry_after_in_persisted_per_chat_gate(tmp_path: Path) -> None:
+def test_http_429_honors_account_backoff_without_blocking_one_chat(tmp_path: Path) -> None:
     path = tmp_path / "results.sqlite3"
     store = ResponseStore(path)
     expired_partial(store)
@@ -128,8 +128,8 @@ def test_http_429_honors_retry_after_in_persisted_per_chat_gate(tmp_path: Path) 
     assert isinstance(recovery, dict)
     next_attempt = recovery.get("next_attempt_at")
     assert isinstance(next_attempt, (int, float))
-    assert next_attempt >= 150 + 12 * 60
-    assert ResponseStore(path).next_history_recovery(now=150 + 11 * 60) is None
+    assert next_attempt == 0
+    assert ResponseStore(path).next_history_recovery(now=150 + 11 * 60) is not None
     assert SchedulerRuntime(runtime_path, tmp_path / "jobs.json").read_backoff_remaining() > 0
 
 

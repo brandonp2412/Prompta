@@ -8,7 +8,7 @@ import { ContinueChatIcon } from "./ChatActionIcons";
 export default function ChatComposer(props: Props) {
   const model = useMemo(() => createChatComposerController(props), []);
   useSignals();
-  useToastSignal(model.feedback, { tone: feedbackTone });
+  useToastSignal(model.feedback, { tone: feedbackTone, immediate: true });
   const {
     mode,
     onFallbackSend,

@@ -12,6 +12,7 @@ from sqlalchemy import event, inspect
 
 from prompta.delivery_browser import BrowserDeliverySender
 from prompta.delivery_queue import DeliveryQueueStore
+from prompta.rate_limit import RateLimitError
 from prompta.response_capture import CaptureResult
 from prompta.response_store import ResponseStore
 from prompta.strict_types import string_object_dict
@@ -99,6 +100,61 @@ def test_timeout_and_crash_keep_partial_without_fake_completion(tmp_path: Path) 
     assert row is not None
     assert row["status"] == "interrupted"
     assert not store.write("crash", "99999999:dead", _capture("Late", "complete"), now=111)
+
+
+def test_orphan_recovery_batches_stale_captures_and_keeps_live_leases(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from prompta import response_store
+
+    store = ResponseStore(tmp_path / "chat-results.sqlite3")
+    live_owner = f"{os.getpid()}:live"
+    dead_owner = "99999999:dead"
+    oversized_owner = f"{'9' * 200}:invalid"
+    for send_id, owner, deadline in (
+        ("expired", live_owner, 150),
+        ("dead-1", dead_owner, 250),
+        ("dead-2", dead_owner, 250),
+        ("invalid-pid", oversized_owner, 250),
+        ("live", live_owner, 250),
+    ):
+        store.ensure_queued(send_id, "prompt", now=100)
+        assert store.accept(send_id, owner, deadline=deadline, now=101)
+
+    original_alive = response_store._alive
+    checked: list[str] = []
+    updates: list[str] = []
+
+    def check_owner(owner: str) -> bool:
+        checked.append(owner)
+        return original_alive(owner)
+
+    def record_sql(
+        _connection: object, _cursor: object, statement: str,
+        _parameters: object, _context: object, _executemany: bool,
+    ) -> None:
+        if statement.lstrip().upper().startswith("UPDATE"):
+            updates.append(statement)
+
+    monkeypatch.setattr(response_store, "_alive", check_owner)
+    event.listen(store.engine, "before_cursor_execute", record_sql)
+    try:
+        assert store.recover_orphans(now=200) == 4
+    finally:
+        event.remove(store.engine, "before_cursor_execute", record_sql)
+
+    assert updates and len(updates) == 1
+    assert checked.count(dead_owner) == 1
+    assert checked.count(live_owner) == 1
+    assert checked.count(oversized_owner) == 1
+    for send_id in ("expired", "dead-1", "dead-2", "invalid-pid"):
+        row = store.get(send_id)
+        assert row is not None and row["status"] == "interrupted"
+        assert row["capture_owner"] == ""
+    alive = store.get("live")
+    assert alive is not None and alive["status"] == "accepted"
+    assert alive["capture_owner"] == live_owner
+    assert store.recover_orphans(now=200) == 0
 
 
 def test_empty_answer_cannot_be_completed(tmp_path: Path) -> None:
@@ -375,6 +431,50 @@ async def test_late_same_tab_recovery_after_observer_failure(
     assert row["assistant_text"] == "Recovered final answer"
     assert row["conversation_id"] == _RECOVERED_CHAT
     assert driver.dom_reads == 1 and driver.eval_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_same_tab_recovery_runs_during_history_read_cooldown(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from prompta import delivery_browser
+
+    sender = BrowserDeliverySender(tmp_path / "runtime.sqlite3", connector_approval=False)
+    sender.results.ensure_queued("cooldown", "private prompt")
+    owner = f"{os.getpid()}:cooldown"
+    assert sender.results.accept("cooldown", owner, deadline=time.time() + 60)
+    sender.runtime.record_read_rate_limit(
+        RateLimitError("ChatGPT history reads limited", retry_after=600)
+    )
+    assert sender.runtime.read_backoff_remaining() > 0
+    monkeypatch.setattr(delivery_browser, "_PASSIVE_RECOVERY_PROBE_SECONDS", 0.03)
+
+    class RecoveringDriver(StreamDriver):
+        async def observed_assistant_response(self) -> CaptureResult:
+            self.dom_reads += 1
+            return CaptureResult(
+                "dom", "complete", "Answer captured from the owned tab", _RECOVERED_CHAT,
+                "11111111-1111-4111-8111-111111111111", None,
+                observer_id="owned-answer",
+            )
+
+        async def eval(self, _script: str, *, main_world: bool = False) -> str:
+            self.eval_calls += 1
+            return f"/c/{_RECOVERED_CHAT}"
+
+    driver = RecoveringDriver([])
+    await sender._capture_until_complete(
+        driver, {"status": 200}, "cooldown", owner,
+        deadline=asyncio.get_running_loop().time() + 2.0,
+    )
+    row = sender.results.get("cooldown")
+    assert row is not None
+    assert row["status"] == "completed"
+    assert row["assistant_text"] == "Answer captured from the owned tab"
+    assert row["conversation_id"] == _RECOVERED_CHAT
+    assert driver.dom_reads > 0
+    # Only a real account-history read can clear its persisted 429 backoff.
+    assert sender.runtime.read_backoff_remaining() > 0
 
 
 @pytest.mark.asyncio

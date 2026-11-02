@@ -25,13 +25,11 @@ from .patchright_driver import BrowserSecurityChallengeError
 from .rate_limit import RateLimitError, is_rate_limited_text
 from .reply_contracts import ManualReplyStore
 from .response_capture import CaptureResult, normalize_dom_snapshot
-from .response_store import ResponseStore
+from .response_store import HISTORY_READ_INTERVAL_SECONDS, ResponseStore
 from .scheduler_runtime import SchedulerRuntime
 from .strict_types import int_value
 
 logger = logging.getLogger(__name__)
-_GLOBAL_INTERVAL_SECONDS = 90.0
-_MAX_PER_CHAT_INTERVAL_SECONDS = 4 * 3600.0
 _LOOKUP_TIMEOUT_SECONDS = 55.0
 _READ_PROBE_SECONDS = 25.0
 _RESUMED_COMPLETION_GRACE_SECONDS = 3.0
@@ -298,6 +296,75 @@ class HistoryRecovery:
                     type(exc).__name__,
                 )
 
+    def _newest_pinned_due(self, *, now: float) -> dict[str, object] | None:
+        """Sweep least-attempted pinned turns, newest activity first within a sweep."""
+        originals = self.results.next_history_recovery(now=now, pinned_only=True)
+        replies = self.replies.next_history_reply_recovery(now=now, pinned_only=True)
+        choices = [row for row in (originals, replies) if row is not None]
+
+        def priority(row: dict[str, object]) -> tuple[int, float]:
+            activity = row.get("activity_at")
+            recency = float(activity) if isinstance(activity, (int, float)) else float("-inf")
+            return (-int_value(row.get("attempt_count")), recency)
+
+        return max(choices, key=priority, default=None)
+
+    def _next_automatic_candidate(
+        self, *, now: float, priority_sends: tuple[str, ...],
+        priority_replies: tuple[str, ...],
+    ) -> dict[str, object] | None:
+        """Recover the freshest least-tried chat, even after an older deploy.
+
+        Deployment inventory breaks ties, but cannot permanently suppress
+        newer interrupted turns outside an old inventory. Replies and original
+        sends share the same fair recovery budget.
+        """
+        options = (
+            (True, self.replies.next_history_reply_recovery(
+                now=now, priority_ids=priority_replies,
+            ) if priority_replies else None),
+            (True, self.results.next_history_recovery(
+                now=now, priority_ids=priority_sends,
+            ) if priority_sends else None),
+            (False, self.replies.next_history_reply_recovery(now=now)),
+            (False, self.results.next_history_recovery(now=now)),
+        )
+
+        def priority(item: tuple[bool, dict[str, object]]) -> tuple[int, float, bool]:
+            in_deployment, candidate = item
+            activity = candidate.get("activity_at")
+            recency = float(activity) if isinstance(activity, (float, int)) else float("-inf")
+            return (-int_value(candidate.get("attempt_count")), recency, in_deployment)
+
+        available = [(deployed, row) for deployed, row in options if row is not None]
+        return max(available, key=priority)[1] if available else None
+
+    def _next_requested_candidate(
+        self, requests: list[str], *, now: float,
+    ) -> tuple[dict[str, object] | None, str]:
+        """Try never-probed manual turns before repeatedly failing older requests."""
+        best: dict[str, object] | None = None
+        best_target = ""
+        for target in requests:
+            reply_id = target.removeprefix("reply:") if target.startswith("reply:") else ""
+            candidate = (
+                self.replies.next_history_reply_recovery(now=now, priority_ids=(reply_id,))
+                if reply_id else self.results.next_history_recovery(
+                    now=now, priority_ids=(target,),
+                )
+            )
+            if candidate is not None:
+                if (best is None or int_value(candidate.get("attempt_count"))
+                        < int_value(best.get("attempt_count"))):
+                    best, best_target = candidate, target
+                continue
+            # Keep active captures and temporarily unverifiable parents queued.
+            # Only terminal or missing turns consume the durable recovery intent.
+            row = self.replies.get(reply_id) if reply_id else self.results.get(target)
+            if row is None or row["status"] in ("completed", "stopped", "cancelled"):
+                self.results.clear_manual_recovery_request(target)
+        return best, best_target
+
     def recover_once(
         self, *, now: float | None = None, preferred_send_id: str | None = None,
         owned_tab_recovery: bool = False,
@@ -305,71 +372,71 @@ class HistoryRecovery:
         """Attempt at most one due chat; all retries are read-only and persisted."""
         at = time.time() if now is None else now
         if (
-            _read_backoff_remaining(self.runtime) > 0
+            (not owned_tab_recovery and _read_backoff_remaining(self.runtime) > 0)
             or self.results.history_recovery_security_pause_remaining(now=at) > 0
             or self.results.history_recovery_global_pace_remaining(now=at) > 0
         ):
             return False
-        # First reconcile conversations whose capture owner was stopped by a
-        # deploy. This is still one verified, read-only lookup per global slot.
+        # Newest eligible pinned chats take precedence. Deployment-interrupted
+        # captures and explicit manual requests remain the fallbacks, all under
+        # the same single verified recovery slot.
         priority_sends, priority_replies = deployment_recovery_priority(self.results.path.parent)
-        candidate = (
-            self.results.next_history_recovery(now=at, priority_ids=(preferred_send_id,))
-            if preferred_send_id is not None else (
-                self.replies.next_history_reply_recovery(now=at, priority_ids=priority_replies)
-                if priority_replies else None
+        manual_requests = (
+            self.results.pending_manual_recovery_requests()
+            if preferred_send_id is None else []
+        )
+        # Untried explicit requests get the next available non-pinned slot;
+        # retries retain one in three slots so automatic recovery progresses.
+        requested, requested_target = self._next_requested_candidate(manual_requests, now=at)
+        slot_number = self.results.history_recovery_global_attempt_count() % 3
+        manual_slot = requested is not None and (
+            slot_number == 0 or (
+                slot_number == 2 and int_value(requested.get("attempt_count")) == 0
             )
         )
-        if candidate is None and preferred_send_id is None and priority_sends:
-            candidate = self.results.next_history_recovery(now=at, priority_ids=priority_sends)
-        manual_target = ""
+        manual_target = requested_target if manual_slot else ""
+        candidate = requested if manual_slot else None
+        if candidate is None:
+            candidate = (
+                self.replies.next_history_reply_recovery(
+                    now=at, priority_ids=(preferred_send_id.removeprefix("reply:"),),
+                )
+                if preferred_send_id is not None and preferred_send_id.startswith("reply:")
+                else self.results.next_history_recovery(
+                    now=at, priority_ids=(preferred_send_id,),
+                ) if preferred_send_id is not None else self._newest_pinned_due(now=at)
+            )
         if candidate is None and preferred_send_id is None:
-            for target in self.results.pending_manual_recovery_requests():
-                reply_id = target.removeprefix("reply:") if target.startswith("reply:") else ""
-                if reply_id:
-                    due = self.replies.next_history_reply_recovery(
-                        now=at, priority_ids=(reply_id,),
-                    )
-                    eligible = due or self.replies.next_history_reply_recovery(
-                        now=float("inf"), priority_ids=(reply_id,),
-                    )
-                else:
-                    due = self.results.next_history_recovery(
-                        now=at, priority_ids=(target,),
-                    )
-                    eligible = due or self.results.next_history_recovery(
-                        now=float("inf"), priority_ids=(target,),
-                    )
-                if eligible is None:
-                    self.results.clear_manual_recovery_request(target)
-                elif due is not None:
-                    candidate = due
-                    manual_target = target
-                    break
+            candidate = self._next_automatic_candidate(
+                now=at, priority_sends=priority_sends, priority_replies=priority_replies,
+            )
         if candidate is None and preferred_send_id is None:
-            # Preserve deliberate pinned-chat priority for the normal backlog.
-            candidate = (self.results.next_history_recovery(now=at, pinned_only=True)
-                         or self.replies.next_history_reply_recovery(now=at)
-                         or self.results.next_history_recovery(now=at))
+            candidate, manual_target = self._next_requested_candidate(manual_requests, now=at)
         if candidate is None:
             return False
         if not self.results.reserve_history_recovery_global_slot(
-            now=at, interval=_GLOBAL_INTERVAL_SECONDS,
+            now=at, interval=HISTORY_READ_INTERVAL_SECONDS,
         ):
             return False
         reply_id = str(candidate["reply_id"]) if "reply_id" in candidate else ""
         send_id = "reply:" + reply_id if reply_id else str(candidate["send_id"])
+        # Automatic pinned/owned-tab probes must consume an explicit request
+        # for the same turn, even if it was not chosen by the manual branch.
+        if not manual_target and send_id in (
+            manual_requests if preferred_send_id is None else
+            self.results.pending_manual_recovery_requests()
+        ):
+            manual_target = send_id
         conversation_id = str(candidate["conversation_id"])
         prompt = str(candidate["user_text"])
-        attempts = int_value(candidate["attempt_count"])
-        delay = min(_MAX_PER_CHAT_INTERVAL_SECONDS, 90.0 * 2 ** min(attempts, 8))
         try:
             if str(UUID(conversation_id)) != conversation_id.lower():
                 logger.warning("Historical recovery skipped invalid conversation identity send_id=%s", send_id)
-                delay = _MAX_PER_CHAT_INTERVAL_SECONDS
             else:
                 if reply_id:
-                    allow_resume = self.approval_enabled and reply_id in priority_replies
+                    allow_resume = self.approval_enabled and (
+                        reply_id in priority_replies or owned_tab_recovery
+                    )
                     probe = self._read_reply_response(
                         conversation_id, str(candidate["original_prompt"]),
                         prompt, str(candidate["parent_id"]),
@@ -394,35 +461,54 @@ class HistoryRecovery:
                     # Report success only after durable storage is terminal.
                     stored = self.replies.get(reply_id) if reply_id else self.results.get(send_id)
                     if stored is not None and stored["status"] == "completed":
-                        self.runtime.record_read_success()
+                        # A local surviving-tab DOM check does not prove that
+                        # account-wide HTTP history reads have recovered from 429.
+                        if not owned_tab_recovery:
+                            self.runtime.record_read_success()
                         logger.info("Historical response recovered send_id=%s", send_id)
                         if manual_target:
                             self.results.clear_manual_recovery_request(manual_target)
                         return True
         except RateLimitError as exc:
-            # The rejected chat gets a durable read-only retry gate as well
-            # as the persisted account-wide backoff; honor Retry-After.
-            delay = max(delay, 5 * 60.0, float(exc.retry_after),
-                        _record_read_rate_limit(self.runtime, exc))
+            # Only the account-wide read gate owns Retry-After. Never block
+            # a single chat independently after this failed observation.
+            _record_read_rate_limit(self.runtime, exc)
             logger.warning("Historical recovery paused for account rate limit")
         except BrowserSecurityChallengeError:
             # A challenge is not proof that the answer is unavailable.
             failures = self.results.history_recovery_security_failures(now=at)
-            delay = max(delay, min(_SECURITY_PAUSE_CAP_SECONDS,
-                                   _SECURITY_PAUSE_BASE_SECONDS * 2 ** min(failures, 3)))
-            self.results.pause_history_recovery_security(until=at + delay, now=at)
+            pause = min(
+                _SECURITY_PAUSE_CAP_SECONDS,
+                _SECURITY_PAUSE_BASE_SECONDS * 2 ** min(failures, 3),
+            )
+            self.results.pause_history_recovery_security(until=at + pause, now=at)
             logger.warning("Historical recovery paused for browser security challenge")
         except Exception as exc:
             logger.warning(
                 "Historical recovery will retry send_id=%s error_type=%s",
                 send_id, type(exc).__name__,
             )
-        self.results.schedule_history_recovery(
-            send_id, now=at, next_attempt_at=at + delay,
-        )
+        self.results.schedule_history_recovery(send_id, now=at)
         if manual_target:
-            self.results.clear_manual_recovery_request(manual_target)
+            self.results.defer_manual_recovery_request(manual_target, now=at)
         return False
+
+
+def _network_recovery_turn(
+    *,
+    network_read_allowed: bool,
+    manual_slot: bool,
+    pinned_target: str,
+    owned_target: str,
+    slot_number: int,
+) -> bool:
+    """Reserve network slots so an unresponsive old owned tab cannot starve history."""
+    return network_read_allowed and (
+        manual_slot
+        or not owned_target
+        or bool(pinned_target and pinned_target != owned_target)
+        or (not pinned_target and slot_number != 1)
+    )
 
 
 def run_history_recovery(
@@ -440,10 +526,9 @@ def run_history_recovery(
     while not shutdown.is_set():
         try:
             current = time.monotonic()
-            if current - last_checked_at >= _GLOBAL_INTERVAL_SECONDS:
+            if current - last_checked_at >= HISTORY_READ_INTERVAL_SECONDS:
                 if (
-                    _read_backoff_remaining(runtime) <= 0
-                    and results.history_recovery_security_pause_remaining() <= 0
+                    results.history_recovery_security_pause_remaining() <= 0
                     and results.history_recovery_global_pace_remaining() <= 0
                 ):
                     # The global pacing clock advances for each attempted scan.
@@ -457,22 +542,62 @@ def run_history_recovery(
                                 if debugger_address:
                                     from .owned_tab_recovery import (
                                         ExistingOwnedTabDriver,
-                                        next_owned_recovery_candidate,
+                                        best_owned_recovery_candidate,
                                     )
-                                    owned_candidate = next_owned_recovery_candidate(
+                                    owned_candidate = best_owned_recovery_candidate(
                                         results, debugger_address,
                                     )
-                                if owned_candidate is not None:
+                                pinned = recovery._newest_pinned_due(now=time.time())
+                                pinned_target = (
+                                    "reply:" + str(pinned["reply_id"])
+                                    if pinned is not None and "reply_id" in pinned else
+                                    str(pinned["send_id"]) if pinned is not None else ""
+                                )
+                                owned_target = (
+                                    ("reply:" + owned_candidate.reply_id)
+                                    if owned_candidate is not None and owned_candidate.reply_id
+                                    else owned_candidate.send_id if owned_candidate is not None else ""
+                                )
+                                network_read_allowed = _read_backoff_remaining(runtime) <= 0
+                                requested, _ = recovery._next_requested_candidate(
+                                    results.pending_manual_recovery_requests(), now=time.time(),
+                                )
+                                slot_number = results.history_recovery_global_attempt_count() % 3
+                                manual_slot = (
+                                    network_read_allowed
+                                    and requested is not None
+                                    and (
+                                        slot_number == 0 or (
+                                            slot_number == 2
+                                            and int_value(requested.get("attempt_count")) == 0
+                                        )
+                                    )
+                                )
+                                if _network_recovery_turn(
+                                    network_read_allowed=network_read_allowed,
+                                    manual_slot=manual_slot,
+                                    pinned_target=pinned_target,
+                                    owned_target=owned_target,
+                                    slot_number=slot_number,
+                                ):
+                                    # Pinned/history reads take priority, while
+                                    # old owned tabs use at most one in three
+                                    # slots whenever network reads are healthy.
+                                    recovery.recover_once()
+                                elif owned_candidate is not None:
                                     tab = owned_candidate.tab
                                     owned_recovery = HistoryRecovery(
                                         results, runtime,
-                                        lambda: ExistingOwnedTabDriver(debugger_address or "", tab),
+                                        lambda: ExistingOwnedTabDriver(
+                                            debugger_address or "", tab,
+                                            reply=bool(owned_candidate.reply_id),
+                                        ),
                                     )
                                     owned_recovery.recover_once(
-                                        preferred_send_id=owned_candidate.send_id,
+                                        preferred_send_id=owned_target,
                                         owned_tab_recovery=True,
                                     )
-                                else:
+                                elif network_read_allowed:
                                     recovery.recover_once()
         except Exception as exc:
             last_checked_at = time.monotonic()

@@ -34,7 +34,7 @@ def test_response_detail_shows_only_bounded_read_only_recovery_metadata(tmp_path
     assert later["recovery"] == {
         "attempt_count": 2,
         "last_attempt_at": 201,
-        "next_attempt_at": 381,
+        "next_attempt_at": 0,
         "eligible": True,
         "state": "pending",
     }

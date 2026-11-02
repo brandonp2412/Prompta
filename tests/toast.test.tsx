@@ -13,11 +13,15 @@ afterEach(() => {
 
 test("one accessible bottom toast replaces earlier feedback and can be dismissed", async () => {
   render(<ToastHost chatView />);
-  act(() => { notify("Copied chat link", "success"); });
+  act(() => {
+    notify("Copied chat link", "success");
+  });
   expect(screen.getByRole("status").textContent).toContain("Copied chat link");
   expect(document.querySelector(".toast-viewport.chat-view")).toBeTruthy();
 
-  act(() => { notify("Copy failed", "error"); });
+  act(() => {
+    notify("Copy failed", "error");
+  });
   expect(screen.getByRole("alert").textContent).toContain("Copy failed");
   expect(screen.queryByText("Copied chat link")).toBeNull();
   await userEvent.setup().click(screen.getByRole("button", { name: "Dismiss notification" }));
@@ -26,29 +30,60 @@ test("one accessible bottom toast replaces earlier feedback and can be dismissed
 
 test("copy confirmation appears immediately even while an older error is visible", () => {
   render(<ToastHost chatView />);
-  act(() => { notify("Previous failure", "error"); notify("Chat link copied", "success"); });
+  act(() => {
+    notify("Previous failure", "error");
+    notify("Chat link copied", "success");
+  });
   expect(screen.getByRole("status").textContent).toContain("Chat link copied");
   expect(screen.queryByText("Previous failure")).toBeNull();
 });
 
 test("multiple errors are shown sequentially without stacking or losing them", async () => {
   render(<ToastHost chatView={false} />);
-  act(() => { notify("First failure", "error"); notify("Second failure", "error"); });
+  act(() => {
+    notify("First failure", "error");
+    notify("Second failure", "error");
+  });
   expect(screen.getAllByRole("alert")).toHaveLength(1);
   expect(screen.getByRole("alert").textContent).toContain("First failure");
   await userEvent.setup().click(screen.getByRole("button", { name: "Dismiss notification" }));
   expect(screen.getByRole("alert").textContent).toContain("Second failure");
 });
 
+test("immediate composer feedback replaces an older error without replaying it", async () => {
+  render(<ToastHost chatView />);
+  act(() => {
+    notify("Continue in a new chat instead.", "error");
+    notify("Queue receipt is uncertain.", "error", undefined, undefined, true);
+  });
+  expect(screen.getByRole("alert").textContent).toContain("Queue receipt is uncertain.");
+  await userEvent.setup().click(screen.getByRole("button", { name: "Dismiss notification" }));
+  expect(screen.queryByRole("alert")).toBeNull();
+});
+
 test("signal errors become retryable toasts with no inline boxes", async () => {
   const failure = signal("");
   let retries = 0;
   function Source() {
-    useToastSignal(failure, { action: { label: "Retry", onClick: () => { retries++; } } });
+    useToastSignal(failure, {
+      action: {
+        label: "Retry",
+        onClick: () => {
+          retries++;
+        },
+      },
+    });
     return null;
   }
-  render(<><Source /><ToastHost chatView={false} /></>);
-  act(() => { failure.value = "Replies unavailable"; });
+  render(
+    <>
+      <Source />
+      <ToastHost chatView={false} />
+    </>,
+  );
+  act(() => {
+    failure.value = "Replies unavailable";
+  });
   expect(screen.getByRole("alert").textContent).toContain("Replies unavailable");
   await userEvent.setup().click(screen.getByRole("button", { name: "Retry" }));
   expect(retries).toBe(1);
