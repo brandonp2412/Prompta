@@ -10,14 +10,14 @@ from __future__ import annotations
 import json
 import logging
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import urlsplit
 from urllib.request import urlopen
 from uuid import UUID
 
 from patchright.async_api import Browser, Page, Playwright, async_playwright
-from sqlalchemy import func, select
+from sqlalchemy import func, literal, select
 
 from .browser_ownership import (
     MAX_OWNED_TAB_AGE_SECONDS,
@@ -29,11 +29,14 @@ from .browser_ownership import (
     touch_owned_tab,
 )
 from .connector_approval_supervisor import trusted_approval_retry
+from .reply_contracts import _recovery_conditions
+from .reply_tables import replies
 from .response_store import _ACTIVITY_AT, ResponseStore
 from .response_tables import history_recovery_attempts, local_chat_pins, results
 
 logger = logging.getLogger(__name__)
 _DELIVERY_PREFIX = "prompta-delivery:"
+_REPLY_PREFIX = "prompta:reply:"
 
 
 @dataclass(frozen=True)
@@ -46,6 +49,10 @@ class SurvivingTab:
 class OwnedRecoveryCandidate:
     send_id: str
     tab: SurvivingTab
+    reply_id: str = ""
+    # Pinned, then least attempted, then newest. Keep these scheduling details
+    # out of candidate identity so the tab/turn binding remains explicit.
+    priority: tuple[int, int, float] = field(default=(0, 0, 0.0), compare=False)
 
 
 def _conversation_from_url(url: object) -> str | None:
@@ -135,6 +142,9 @@ def next_owned_recovery_candidate(
         select(
             results.c.send_id,
             results.c.conversation_id,
+            local_chat_pins.c.send_id.label("pinned_id"),
+            func.coalesce(attempts.c.attempt_count, 0).label("attempt_count"),
+            _ACTIVITY_AT,
         )
         .select_from(joined)
         .where(
@@ -161,12 +171,107 @@ def next_owned_recovery_candidate(
     for row in rows:
         conversation = str(row["conversation_id"])
         if counts[conversation] == 1:
-            return OwnedRecoveryCandidate(str(row["send_id"]), unique[conversation])
+            return OwnedRecoveryCandidate(
+                str(row["send_id"]), unique[conversation],
+                priority=(
+                    int(row["pinned_id"] is not None), -int(row["attempt_count"]),
+                    float(row["activity_at"]),
+                ),
+            )
     return None
 
 
+def next_owned_reply_recovery_candidate(
+    store: ResponseStore,
+    debugger_address: str,
+    *,
+    ledger_path: Path = OWNED_TAB_LEDGER,
+    now: float | None = None,
+) -> OwnedRecoveryCandidate | None:
+    """Find an interrupted exact-parent reply with one surviving owned tab."""
+    stamp = time.time() if now is None else now
+    tabs = surviving_owned_tabs(debugger_address, ledger_path=ledger_path, now=stamp)
+    by_conversation: dict[str, list[SurvivingTab]] = {}
+    for tab in tabs:
+        by_conversation.setdefault(tab.conversation_id, []).append(tab)
+    unique = {
+        conversation: matches[0]
+        for conversation, matches in by_conversation.items() if len(matches) == 1
+    }
+    if not unique:
+        return None
+    attempts = history_recovery_attempts.alias("owned_reply_attempts")
+    _, verified = _recovery_conditions()
+    joined = (
+        replies.join(results, replies.c.send_id == results.c.send_id)
+        .outerjoin(attempts, attempts.c.send_id == literal("reply:") + replies.c.reply_id)
+        .outerjoin(local_chat_pins, local_chat_pins.c.send_id == results.c.send_id)
+    )
+    query = (
+        select(
+            replies.c.reply_id, replies.c.send_id, replies.c.conversation_id,
+            local_chat_pins.c.send_id.label("pinned_id"),
+            func.coalesce(attempts.c.attempt_count, 0).label("attempt_count"),
+            replies.c.created_at.label("activity_at"),
+        )
+        .select_from(joined)
+        .where(*verified, replies.c.conversation_id.in_(tuple(unique)))
+        .order_by(
+            local_chat_pins.c.send_id.is_(None),
+            func.coalesce(attempts.c.attempt_count, 0),
+            replies.c.created_at.desc(),
+        )
+    )
+    with store.engine.connect() as connection:
+        rows = connection.execute(query).mappings().all()
+    # Several unresolved replies in one conversation are not one provable tip.
+    counts: dict[str, int] = {}
+    for row in rows:
+        conversation = str(row["conversation_id"])
+        counts[conversation] = counts.get(conversation, 0) + 1
+    for row in rows:
+        conversation = str(row["conversation_id"])
+        if counts[conversation] == 1:
+            return OwnedRecoveryCandidate(
+                str(row["send_id"]), unique[conversation], str(row["reply_id"]),
+                priority=(
+                    int(row["pinned_id"] is not None), -int(row["attempt_count"]),
+                    float(row["activity_at"]),
+                ),
+            )
+    return None
+
+
+def best_owned_recovery_candidate(
+    store: ResponseStore,
+    debugger_address: str,
+    *,
+    ledger_path: Path = OWNED_TAB_LEDGER,
+    now: float | None = None,
+) -> OwnedRecoveryCandidate | None:
+    """Prefer pinned, least-tried, newest captures and exact follow-up tips."""
+    candidates = (
+        next_owned_recovery_candidate(
+            store, debugger_address, ledger_path=ledger_path, now=now,
+        ),
+        next_owned_reply_recovery_candidate(
+            store, debugger_address, ledger_path=ledger_path, now=now,
+        ),
+    )
+    available: list[OwnedRecoveryCandidate] = []
+    for candidate in candidates:
+        if candidate is not None:
+            available.append(candidate)
+    if not available:
+        return None
+    return max(
+        available,
+        key=lambda candidate: (candidate.priority, bool(candidate.reply_id)),
+    )
+
+
 class ExistingOwnedTabDriver:
-    """Read/continue one orphaned delivery tab without creating or closing tabs."""
+    """Read/continue one orphaned owned tab without creating or closing tabs."""
 
     def __init__(
         self,
@@ -174,10 +279,12 @@ class ExistingOwnedTabDriver:
         tab: SurvivingTab,
         *,
         ledger_path: Path = OWNED_TAB_LEDGER,
+        reply: bool = False,
     ) -> None:
         self.debugger_address = debugger_address
         self.tab = tab
         self.ledger_path = ledger_path
+        self.ownership_prefix = _REPLY_PREFIX if reply else _DELIVERY_PREFIX
         self.context = "surviving-owned-tab"
         self._patchright: Playwright | None = None
         self._browser: Browser | None = None
@@ -223,8 +330,8 @@ class ExistingOwnedTabDriver:
                 if target_id != self.tab.target_id:
                     continue
                 marker = await page.evaluate("window.name", isolated_context=True)
-                owner = owned_window_owner_id(marker, prefix=_DELIVERY_PREFIX)
-                started = owned_window_started_at(marker, prefix=_DELIVERY_PREFIX)
+                owner = owned_window_owner_id(marker, prefix=self.ownership_prefix)
+                started = owned_window_started_at(marker, prefix=self.ownership_prefix)
                 if (
                     owner is None
                     or started is None

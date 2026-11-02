@@ -10,6 +10,7 @@ import pytest
 import prompta.history_recovery as history_recovery
 import prompta.owned_tab_recovery as owned
 from prompta.history_recovery import HistoryRecovery
+from prompta.reply_contracts import ManualReplyStore, ReplyIntent
 from prompta.response_capture import CaptureResult
 from prompta.response_store import ResponseStore
 from prompta.scheduler_runtime import SchedulerRuntime
@@ -23,6 +24,24 @@ def _interrupted(store: ResponseStore, send_id: str, conversation: str = CONV) -
     assert store.accept(send_id, "123:owner", deadline=100, now=11)
     assert store.bind_conversation_route(send_id, "123:owner", "/c/" + conversation, now=12)
     assert store.finish(send_id, "123:owner", "interrupted", now=100)
+
+
+def _interrupted_reply(store: ResponseStore, *, send_id: str = "original") -> str:
+    parent_id = "87654321-4321-4321-8321-123456789abc"
+    store.ensure_queued(send_id, "Original prompt", now=10)
+    assert store.accept(send_id, "123:owner", deadline=100, now=11)
+    assert store.write(
+        send_id, "123:owner",
+        CaptureResult("sse", "complete", "Original answer", CONV, parent_id, None),
+        now=12,
+    )
+    replies = ManualReplyStore(store.path)
+    reply_id = "reply-for-" + send_id
+    intent = ReplyIntent(reply_id, CONV, parent_id, "Follow up")
+    assert replies.prepare(send_id, intent, now=13)["status"] == "prepared"
+    assert replies.claim(reply_id, "123:reply", deadline=200, now=14)
+    assert replies.finish(reply_id, "123:reply", uncertain=True, now=15)
+    return reply_id
 
 
 class _CDPResponse:
@@ -176,6 +195,81 @@ def test_due_owned_tabs_receive_first_attempt_before_retries(
     assert candidate is not None and candidate.send_id == "never-tried"
 
 
+def test_owned_reply_candidate_requires_exact_parent_and_unique_tab(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store = ResponseStore(tmp_path / "chat-results.sqlite3")
+    reply_id = _interrupted_reply(store)
+    assert store.set_local_pin("original", pinned=True)
+    tab = owned.SurvivingTab("reply-tab", CONV)
+    monkeypatch.setattr(owned, "surviving_owned_tabs", lambda *args, **kwargs: (tab,))
+    candidate = owned.next_owned_reply_recovery_candidate(
+        store, "127.0.0.1:9222", now=150,
+    )
+    assert candidate is not None
+    assert candidate.send_id == "original"
+    assert candidate.reply_id == reply_id
+    assert candidate.tab == tab
+    assert candidate.priority[0] == 1
+    assert owned.best_owned_recovery_candidate(
+        store, "127.0.0.1:9222", now=150,
+    ) == candidate
+    monkeypatch.setattr(
+        owned, "surviving_owned_tabs",
+        lambda *args, **kwargs: (tab, owned.SurvivingTab("second", CONV)),
+    )
+    assert owned.next_owned_reply_recovery_candidate(
+        store, "127.0.0.1:9222", now=150,
+    ) is None
+
+
+def test_owned_reply_recovers_after_429_without_resend(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store = ResponseStore(tmp_path / "chat-results.sqlite3")
+    reply_id = _interrupted_reply(store)
+    runtime = SchedulerRuntime(tmp_path / "runtime.sqlite3", tmp_path / "jobs.json")
+    before: list[dict[str, object]] = [{"send_id": "original", "status": "completed"}]
+    ManualReplyStore(store.path).annotate_response_markers(before)
+    assert before[0]["status"] == "outcome_unknown"
+    assert before[0]["needs_attention"] is True
+    worker = HistoryRecovery(store, runtime, lambda: None, approval_enabled=True)
+    monkeypatch.setattr(history_recovery, "_read_backoff_remaining", lambda _: 500.0)
+    read_successes: list[bool] = []
+    monkeypatch.setattr(runtime, "record_read_success", lambda: read_successes.append(True))
+    calls: list[tuple[str, str, str, str, bool]] = []
+
+    async def read(
+        conversation: str, original: str, reply: str, parent: str,
+        *, resume_approvals: bool,
+    ) -> CaptureResult:
+        calls.append((conversation, original, reply, parent, resume_approvals))
+        return CaptureResult(
+            "dom", "complete", "Verified recovered reply", CONV,
+            "11111111-1111-4111-8111-111111111111", parent, "reply-unit",
+        )
+
+    monkeypatch.setattr(worker, "_read_reply_response", read)
+    assert worker.recover_once(
+        now=150, preferred_send_id="reply:" + reply_id, owned_tab_recovery=True,
+    )
+    assert calls == [(
+        CONV, "Original prompt", "Follow up",
+        "87654321-4321-4321-8321-123456789abc", True,
+    )]
+    assert read_successes == []
+    turn = ManualReplyStore(store.path).get(reply_id)
+    assert turn is not None and turn["status"] == "completed"
+    assert turn["assistant_text"] == "Verified recovered reply"
+    after: list[dict[str, object]] = [{"send_id": "original", "status": "completed"}]
+    ManualReplyStore(store.path).annotate_response_markers(after)
+    assert after[0]["status"] == "completed"
+    assert after[0]["needs_attention"] is False
+    assert not worker.recover_once(
+        now=240, preferred_send_id="reply:" + reply_id, owned_tab_recovery=True,
+    )
+
+
 def test_targeted_owned_recovery_persists_exact_response_without_resending(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -220,10 +314,12 @@ def test_targeted_owned_recovery_persists_exact_response_without_resending(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("reply", [False, True])
 async def test_attached_driver_proves_target_marker_owner_and_never_navigates_or_closes(
     monkeypatch: pytest.MonkeyPatch,
+    reply: bool,
 ) -> None:
-    marker = "prompta-delivery:900:1234-dead:abcdef"
+    marker = ("prompta:reply:" if reply else "prompta-delivery:") + "900:1234-dead:abcdef"
     actions: list[str] = []
 
     class Page:
@@ -282,6 +378,7 @@ async def test_attached_driver_proves_target_marker_owner_and_never_navigates_or
     driver = owned.ExistingOwnedTabDriver(
         "127.0.0.1:9222",
         owned.SurvivingTab("target", CONV),
+        reply=reply,
     )
     await driver.connect()
     await driver.navigate("https://chatgpt.com/c/" + CONV, context=driver.context)

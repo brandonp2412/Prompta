@@ -94,7 +94,7 @@ def test_next_deploy_keeps_unfinished_recovery_priority(tmp_path: Path) -> None:
     }
 
 
-def test_bounded_shutdown_interrupts_busy_workers(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_busy_shutdown_never_kills_capture_owners(monkeypatch: pytest.MonkeyPatch) -> None:
     commands: list[tuple[str, ...]] = []
 
     def fake_run(args: list[str], **_kwargs: object) -> object:
@@ -102,10 +102,10 @@ def test_bounded_shutdown_interrupts_busy_workers(monkeypatch: pytest.MonkeyPatc
         return type("Result", (), {"returncode": 0})()
 
     monkeypatch.setattr(deploy_guarded.subprocess, "run", fake_run)
-    deploy_guarded.stop_workers(timeout=0)
+    with pytest.raises(TimeoutError, match="must not kill"):
+        deploy_guarded.stop_workers(timeout=0)
     assert commands[0][2:4] == ("stop", "--no-block")
-    assert commands[1][2:4] == ("kill", "--signal=SIGKILL")
-    assert commands[2][2] == "stop"
+    assert all("kill" not in command for command in commands)
 
 
 def test_refuses_to_take_over_existing_pause(tmp_path: Path) -> None:

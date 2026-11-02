@@ -37,8 +37,8 @@ def request_pause(gate: DeploymentGate) -> None:
         marker.write(f"pid={os.getpid()} time={time.time():.0f}\n")
 
 
-def stop_workers(*, timeout: float = 5.0) -> None:
-    """Give workers a bounded shutdown window, then interrupt outstanding reads."""
+def stop_workers(*, timeout: float = 60.0) -> None:
+    """Stop only after graceful drain; never kill an accepted ChatGPT capture."""
     subprocess.run(["systemctl", "--user", "stop", "--no-block", *SERVICES], check=True)
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
@@ -53,15 +53,9 @@ def stop_workers(*, timeout: float = 5.0) -> None:
             in {"inactive", "failed"}
             for unit in SERVICES
         ):
-            break
+            return
         time.sleep(0.25)
-    else:
-        subprocess.run(
-            ["systemctl", "--user", "kill", "--signal=SIGKILL", *SERVICES],
-            check=False,
-        )
-    # Wait for the stop jobs to complete before changing the loaded checkout.
-    subprocess.run(["systemctl", "--user", "stop", *SERVICES], check=True, timeout=15)
+    raise TimeoutError("Workers did not drain; deployment must not kill active captures")
 
 
 _DRAIN_TIMEOUT_SECONDS = 180.0

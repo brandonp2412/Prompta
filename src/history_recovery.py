@@ -368,8 +368,13 @@ class HistoryRecovery:
         candidate = requested if manual_slot else None
         if candidate is None:
             candidate = (
-                self.results.next_history_recovery(now=at, priority_ids=(preferred_send_id,))
-                if preferred_send_id is not None else self._newest_pinned_due(now=at)
+                self.replies.next_history_reply_recovery(
+                    now=at, priority_ids=(preferred_send_id.removeprefix("reply:"),),
+                )
+                if preferred_send_id is not None and preferred_send_id.startswith("reply:")
+                else self.results.next_history_recovery(
+                    now=at, priority_ids=(preferred_send_id,),
+                ) if preferred_send_id is not None else self._newest_pinned_due(now=at)
             )
         if candidate is None and preferred_send_id is None and priority_replies:
             candidate = self.replies.next_history_reply_recovery(
@@ -404,7 +409,9 @@ class HistoryRecovery:
                 logger.warning("Historical recovery skipped invalid conversation identity send_id=%s", send_id)
             else:
                 if reply_id:
-                    allow_resume = self.approval_enabled and reply_id in priority_replies
+                    allow_resume = self.approval_enabled and (
+                        reply_id in priority_replies or owned_tab_recovery
+                    )
                     probe = self._read_reply_response(
                         conversation_id, str(candidate["original_prompt"]),
                         prompt, str(candidate["parent_id"]),
@@ -493,12 +500,22 @@ def run_history_recovery(
                                 if debugger_address:
                                     from .owned_tab_recovery import (
                                         ExistingOwnedTabDriver,
-                                        next_owned_recovery_candidate,
+                                        best_owned_recovery_candidate,
                                     )
-                                    owned_candidate = next_owned_recovery_candidate(
+                                    owned_candidate = best_owned_recovery_candidate(
                                         results, debugger_address,
                                     )
                                 pinned = recovery._newest_pinned_due(now=time.time())
+                                pinned_target = (
+                                    "reply:" + str(pinned["reply_id"])
+                                    if pinned is not None and "reply_id" in pinned else
+                                    str(pinned["send_id"]) if pinned is not None else ""
+                                )
+                                owned_target = (
+                                    ("reply:" + owned_candidate.reply_id)
+                                    if owned_candidate is not None and owned_candidate.reply_id
+                                    else owned_candidate.send_id if owned_candidate is not None else ""
+                                )
                                 network_read_allowed = _read_backoff_remaining(runtime) <= 0
                                 requested, _ = recovery._next_requested_candidate(
                                     results.pending_manual_recovery_requests(), now=time.time(),
@@ -520,13 +537,7 @@ def run_history_recovery(
                                     and (
                                         manual_slot
                                         or owned_candidate is None
-                                        or (
-                                            pinned is not None
-                                            and (
-                                                "reply_id" in pinned
-                                                or owned_candidate.send_id != pinned["send_id"]
-                                            )
-                                        )
+                                        or (pinned is not None and owned_target != pinned_target)
                                     )
                                 ):
                                     # A newer pinned chat without a live tab
@@ -536,10 +547,13 @@ def run_history_recovery(
                                     tab = owned_candidate.tab
                                     owned_recovery = HistoryRecovery(
                                         results, runtime,
-                                        lambda: ExistingOwnedTabDriver(debugger_address or "", tab),
+                                        lambda: ExistingOwnedTabDriver(
+                                            debugger_address or "", tab,
+                                            reply=bool(owned_candidate.reply_id),
+                                        ),
                                     )
                                     owned_recovery.recover_once(
-                                        preferred_send_id=owned_candidate.send_id,
+                                        preferred_send_id=owned_target,
                                         owned_tab_recovery=True,
                                     )
                                 elif network_read_allowed:
