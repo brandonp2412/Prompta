@@ -210,6 +210,75 @@ def test_cli_restores_human_readable_list_show_and_json(
     ]
 
 
+def test_ls_includes_pending_once_deliveries_by_default(tmp_path: Path, monkeypatch, capsys) -> None:
+    runtime = tmp_path / "runtime.sqlite3"
+    paths = _paths(runtime)
+    queue = DeliveryQueueStore(tmp_path / "ui-send-jobs.sqlite3")
+    manual = queue.enqueue_manual("Immediate once audit", now=12.0)
+    queue.upsert(
+        {
+            "send_id": "scheduled-once",
+            "client_id": "scheduled:key:nightly-once",
+            "message": "One-shot scheduled task",
+            "one_time": True,
+            "status": "rate_limited",
+            "created_at": 14.0,
+            "retry_at": 9999999999.0,
+        }
+    )
+    queue.upsert(
+        {
+            "send_id": "finished",
+            "client_id": "manual:finished",
+            "message": "Do not show finished",
+            "status": "succeeded",
+        }
+    )
+
+    output = _run_cli(monkeypatch, capsys, "ls", *paths)
+    assert "No jobs configured" not in output
+    assert "2 jobs" in output
+    assert "Immediate once audit" in output
+    assert "One-shot scheduled task" in output
+    assert "nightly-once" in output
+    assert "rate-limited" in output
+    assert "Do not show finished" not in output
+
+    payload = json.loads(_run_cli(monkeypatch, capsys, "ls", "--json", *paths))
+    assert payload == [
+        {
+            "kind": "once",
+            "name": f"once:{str(manual['send_id']).removeprefix('manual-')[:8]}",
+            "prompt": "Immediate once audit",
+            "status": "queued",
+            "send_id": manual["send_id"],
+            "client_id": manual["client_id"],
+            "created_at": 12.0,
+            "retry_at": 0.0,
+        },
+        {
+            "kind": "once",
+            "name": "nightly-once",
+            "prompt": "One-shot scheduled task",
+            "status": "rate_limited",
+            "send_id": "scheduled-once",
+            "client_id": "scheduled:key:nightly-once",
+            "created_at": 14.0,
+            "retry_at": 9999999999.0,
+        },
+    ]
+
+    _run_cli(monkeypatch, capsys, "add", "repeat", "Recurring audit", *paths)
+    payload = json.loads(_run_cli(monkeypatch, capsys, "ls", "--json", *paths))
+    assert [item["name"] for item in payload] == [
+        "repeat", f"once:{str(manual['send_id']).removeprefix('manual-')[:8]}", "nightly-once"
+    ]
+
+    assert queue.cancel_pending(str(manual["send_id"]), now=20.0)
+    output = _run_cli(monkeypatch, capsys, "ls", *paths)
+    assert "Immediate once audit" not in output
+
+
 def test_cli_start_in_minutes_sets_first_due_without_changing_interval(
     tmp_path: Path, monkeypatch, capsys
 ) -> None:

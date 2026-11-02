@@ -331,6 +331,31 @@ def test_scheduled_once_priority_precedes_older_repeats_and_preserves_fifo(tmp_p
     assert claimed_ids == [manual["send_id"], "once-old", "once-new", "repeat-old", "repeat-new"]
 
 
+def test_pending_once_deliveries_include_manual_and_scheduled_only_until_terminal(
+    tmp_path: Path,
+) -> None:
+    queue = DeliveryQueueStore(tmp_path / "delivery.sqlite3")
+    queue.upsert(_queued_record("repeat", client_id="scheduled:key:repeat"))
+    queue.upsert(
+        {**_queued_record("scheduled-once", client_id="scheduled:key:one"), "one_time": True}
+    )
+    manual = queue.enqueue_manual("Immediate once", now=12.0)
+    queue.upsert({**_queued_record("retry", client_id="manual:retry"), "status": "rate_limited"})
+    queue.upsert({**_queued_record("active", client_id="manual:active"), "status": "running"})
+    queue.upsert({**_queued_record("done", client_id="manual:done"), "status": "succeeded"})
+    queue.upsert({**_queued_record("cancelled", client_id="manual:cancelled"), "status": "cancelled"})
+
+    assert [row["send_id"] for row in queue.pending_once_deliveries()] == [
+        manual["send_id"], "retry", "active", "scheduled-once",
+    ]
+    assert queue.bump_to_front("scheduled-once")
+    assert queue.pending_once_deliveries()[0]["send_id"] == "scheduled-once"
+    assert queue.cancel_pending(str(manual["send_id"]), now=20.0)
+    assert manual["send_id"] not in {
+        row["send_id"] for row in queue.pending_once_deliveries()
+    }
+
+
 def test_non_ui_manual_queue_does_not_pin_local_sidebar_by_default(tmp_path: Path) -> None:
     queue = DeliveryQueueStore(tmp_path / "delivery.sqlite3")
     receipt = queue.enqueue_manual("Manual CLI or job run", now=12.0)

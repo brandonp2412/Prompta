@@ -15,6 +15,7 @@ from .cli_display import (
     _format_duration,
     _format_next_due,
     _job_status_from_state,
+    _once_delivery_name,
     _paint,
     _print_job_table,
     _print_notice,
@@ -409,13 +410,27 @@ def main() -> None:
         return
 
     if args.command in {"list", "ls"}:
+        queue = DeliveryQueueStore(args.state.expanduser().parent / "ui-send-jobs.sqlite3")
+        pending_once = queue.pending_once_deliveries()
         if args.json:
-            print(
-                json.dumps(_jobs_payload(args.jobs_file, args.state), indent=2, ensure_ascii=False)
+            payload = _jobs_payload(args.jobs_file, args.state)
+            payload.extend(
+                {
+                    "kind": "once",
+                    "name": _once_delivery_name(delivery),
+                    "prompt": delivery["message"],
+                    "status": delivery["status"],
+                    "send_id": delivery["send_id"],
+                    "client_id": delivery["client_id"],
+                    "created_at": delivery["created_at"],
+                    "retry_at": delivery["retry_at"],
+                }
+                for delivery in pending_once
             )
+            print(json.dumps(payload, indent=2, ensure_ascii=False))
             return
         runtime = SchedulerRuntime(args.state, args.jobs_file)
-        _print_job_table(runtime, load_jobs(args.jobs_file))
+        _print_job_table(runtime, load_jobs(args.jobs_file), pending_once)
         return
 
     if args.command in {"clear", "cls"}:

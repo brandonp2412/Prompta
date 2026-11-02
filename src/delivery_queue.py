@@ -198,6 +198,32 @@ class DeliveryQueueStore:
             )
         return [self.record_from_row(row) for row in rows]
 
+    def pending_once_deliveries(self) -> list[dict[str, object]]:
+        """Unfinished immediate/manual and scheduled one-shot deliveries in claim order."""
+        with self.engine.connect() as connection:
+            rows = (
+                connection.execute(
+                    select(job_deliveries)
+                    .where(
+                        or_(
+                            job_deliveries.c.client_id.like("manual:%"),
+                            job_deliveries.c.one_time.is_(True),
+                        ),
+                        job_deliveries.c.status.in_(
+                            ("queued", "retrying", "rate_limited", "running")
+                        ),
+                    )
+                    .order_by(
+                        job_deliveries.c.queue_priority,
+                        _DISPATCH_PRIORITY,
+                        job_deliveries.c.sequence,
+                    )
+                )
+                .mappings()
+                .all()
+            )
+        return [self.record_from_row(row) for row in rows]
+
     def bump_to_front(self, send_id: str) -> bool:
         """Prioritize a waiting delivery without changing retry or active leases."""
         priority = select(func.coalesce(func.min(job_deliveries.c.queue_priority), 0) - 1).scalar_subquery()

@@ -8,7 +8,7 @@ from datetime import datetime
 
 from .jobs import PromptJob
 from .scheduler_runtime import SchedulerRuntime
-from .strict_types import int_value
+from .strict_types import float_value, int_value
 
 
 def _format_duration(seconds: float) -> str:
@@ -59,6 +59,14 @@ def _prompt_preview(prompt: str, width: int = 52) -> str:
     return single_line if len(single_line) <= width else single_line[: width - 1].rstrip() + "…"
 
 
+def _once_delivery_name(delivery: Mapping[str, object]) -> str:
+    client_id = str(delivery.get("client_id") or "")
+    if client_id.startswith("scheduled:"):
+        return client_id.rsplit(":", 1)[-1]
+    send_id = str(delivery.get("send_id") or "")
+    return f"once:{send_id.removeprefix('manual-')[:8]}"
+
+
 def _uses_color(stream: object = None) -> bool:
     stream = sys.stdout if stream is None else stream
     return bool(
@@ -79,6 +87,9 @@ def _status_text(status: str) -> str:
         "rate-limited": "1;33",
         "paused": "1;33",
         "pending": "2",
+        "queued": "2",
+        "retrying": "1;33",
+        "running": "1;36",
     }.get(status, "0")
     return _paint(status, code)
 
@@ -90,12 +101,35 @@ def _print_notice(icon: str, title: str, detail: str = "", *, tone: str = "36") 
     print(f"{marker} {heading}{suffix}")
 
 
-def _print_job_table(runtime: SchedulerRuntime, jobs: dict[str, PromptJob]) -> None:
-    if not jobs:
+def _print_job_table(
+    runtime: SchedulerRuntime,
+    jobs: dict[str, PromptJob],
+    pending_once: list[dict[str, object]] | None = None,
+) -> None:
+    if not jobs and not pending_once:
         _print_notice("○", "No jobs configured", "Add one with `prompta add …`", tone="33")
         return
 
     rows: list[tuple[str, str, str, str, str]] = []
+    for delivery in pending_once or []:
+        status = str(delivery["status"])
+        icon, label = {
+            "queued": ("○", "queued"),
+            "retrying": ("↻", "retrying"),
+            "rate_limited": ("⏳", "rate-limited"),
+            "running": ("▶", "running"),
+        }.get(status, ("○", status))
+        retry_in = float_value(delivery.get("retry_at")) - time.time()
+        due = f"in {_format_duration(retry_in)} (once)" if retry_in > 0 else "now (once)"
+        rows.append(
+            (
+                icon,
+                label,
+                _once_delivery_name(delivery),
+                due,
+                _prompt_preview(str(delivery["message"])),
+            )
+        )
     for job in jobs.values():
         icon, status = _job_status_from_state(runtime.job_state(job.name))
         rows.append(
