@@ -1,1 +1,16 @@
-(async()=>{try{const r=await fetch('/api/auth/session');const challenge=r.headers.get('cf-mitigated')?.toLowerCase()==='challenge';if(challenge||!r.ok||!(r.headers.get('content-type')||'').includes('json'))return JSON.stringify({ok:false,challenge,token:''});const j=await r.json();return JSON.stringify({ok:true,challenge:false,token:j.accessToken||j.access_token||''})}catch{return JSON.stringify({ok:false,challenge:false,token:''})}})()
+(async () => {
+  try {
+    const r = await fetch("/api/auth/session");
+    const challenge = r.headers.get("cf-mitigated")?.toLowerCase() === "challenge";
+    if (challenge || !r.ok || !(r.headers.get("content-type") || "").includes("json"))
+      return JSON.stringify({ ok: false, challenge, token: "" });
+    const j = await r.json();
+    return JSON.stringify({
+      ok: true,
+      challenge: false,
+      token: j.accessToken || j.access_token || "",
+    });
+  } catch {
+    return JSON.stringify({ ok: false, challenge: false, token: "" });
+  }
+})();
