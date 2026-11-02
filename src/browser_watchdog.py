@@ -17,13 +17,14 @@ from urllib.request import urlopen
 
 from patchright.async_api import async_playwright as async_patchright
 
+from prompta.deployment_gate import DeploymentGate
+
 from .browser_ownership import (
     MAX_OWNED_TAB_AGE_SECONDS,
     claim_expired_tab,
     forget_owned_tabs,
     owned_tab_records,
 )
-from .deployment_gate import DeploymentGate
 from .logging_config import configure_logging
 from .reply_contracts import ManualReplyStore
 
@@ -295,12 +296,76 @@ def main() -> None:
         try:
             fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
+            check_busy_browser()
             return
         try:
             if not gate.is_paused():
                 check_browser()
         finally:
             fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+    if not gate.is_paused() and delivery_in_flight(STATE_DIR / "runtime.sqlite3", time.time()):
+        check_busy_browser()
+
+
+def recover_crashed_browser(gate: DeploymentGate, browser_service: str) -> None:
+    """Quiesce owners before restarting a confirmed broken browser."""
+    from scripts.deploy_guarded import (
+        SERVICES,
+        record_interrupted_work,
+        request_pause,
+        stop_workers,
+        verify_services,
+    )
+
+    request_pause(gate)
+    success = False
+    try:
+        record_interrupted_work(gate)
+        stop_workers()
+        with gate.lock_path.open("a+b") as handle:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            try:
+                subprocess.run(
+                    ["systemctl", "--user", "restart", browser_service],
+                    check=True, timeout=60,
+                )
+            finally:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        subprocess.run(["systemctl", "--user", "start", *SERVICES], check=True, timeout=30)
+        if not verify_services():
+            raise RuntimeError("Browser recovery failed service verification; admission stays paused")
+        success = True
+    finally:
+        if success:
+            gate.pause_path.unlink()
+
+
+def check_busy_browser() -> None:
+    """A capture lock must not hide a permanently crashed renderer."""
+    gate = DeploymentGate(STATE_DIR / "runtime.sqlite3")
+    if gate.is_paused():
+        return
+    address = os.environ.get("PROMPTA_CHROME_DEBUGGER_ADDRESS", "127.0.0.1:9222")
+    healthy = debugger_responding(address) and asyncio.run(bounded_renderer_probe(address))
+    state = load_state(STATE_FILE)
+    now = time.time()
+    # Failed probes authorize a coordinated interruption, never an unguarded restart.
+    restart = decide_restart(state, healthy=healthy, busy=False, now=now)
+    save_state(STATE_FILE, state)
+    if not restart:
+        return
+    browser_service = os.environ.get("PROMPTA_BROWSER_SERVICE", "prompta-browser.service")
+    active = subprocess.run(
+        ["systemctl", "--user", "is-active", "--quiet", browser_service],
+        check=False, timeout=10,
+    ).returncode == 0
+    if not active:
+        return
+    logger.error("Confirmed browser failure during active work; recording and recovering owners")
+    recover_crashed_browser(gate, browser_service)
+    state.consecutive_failures = 0
+    state.last_restart_at = time.time()
+    save_state(STATE_FILE, state)
 
 
 def check_browser() -> None:
@@ -314,7 +379,9 @@ def check_browser() -> None:
         logger.warning("Manual reply lease recovery failed error_type=%s", type(exc).__name__)
     healthy = debugger_responding(address)
     busy = delivery_in_flight(STATE_DIR / "runtime.sqlite3", now)
-    if healthy and not busy:
+    if busy:
+        return
+    if healthy:
         healthy = asyncio.run(bounded_renderer_probe(address))
     if healthy and not busy:
         try:

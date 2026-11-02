@@ -262,6 +262,11 @@ def test_healthy_watchdog_never_reaps_during_live_capture(monkeypatch, tmp_path)
         watchdog, "reap_expired_owned_tabs",
         lambda **kwargs: (_ for _ in ()).throw(AssertionError("live lease must prevent expiry")),
     )
+
+    async def healthy_renderer(address):
+        return True
+
+    monkeypatch.setattr(watchdog, "bounded_renderer_probe", healthy_renderer)
     watchdog.main()
 
 
@@ -372,6 +377,7 @@ def test_watchdog_skips_checks_while_browser_operation_holds_gate(monkeypatch, t
         raise AssertionError("Watchdog must not probe or restart during browser operations")
 
     monkeypatch.setattr(watchdog, "check_browser", unexpected_check)
+    monkeypatch.setattr(watchdog, "check_busy_browser", lambda: None)
     with gate.admission() as admitted:
         assert admitted
         watchdog.main()
@@ -411,3 +417,80 @@ async def test_renderer_probe_closes_tab_after_evaluation_failure(monkeypatch):
     monkeypatch.setattr(watchdog, "async_patchright", Patchright)
     assert not await watchdog.bounded_renderer_probe("127.0.0.1:9222")
     assert closed == [True]
+
+
+def test_busy_crashed_renderer_triggers_coordinated_recovery(monkeypatch, tmp_path):
+    from types import SimpleNamespace
+
+    import prompta.browser_watchdog as watchdog
+    from prompta.deployment_gate import DeploymentGate
+
+    monkeypatch.setattr(watchdog, "STATE_DIR", tmp_path)
+    monkeypatch.setattr(watchdog, "STATE_FILE", tmp_path / "watchdog.json")
+    monkeypatch.setattr(watchdog, "debugger_responding", lambda address: True)
+    monkeypatch.setattr(watchdog.time, "time", lambda: 2000.0)
+
+    async def crashed_renderer(address):
+        return False
+
+    monkeypatch.setattr(watchdog, "bounded_renderer_probe", crashed_renderer)
+    monkeypatch.setattr(watchdog.subprocess, "run", lambda *args, **kwargs: SimpleNamespace(returncode=0))
+    recovered = []
+    monkeypatch.setattr(watchdog, "recover_crashed_browser", lambda gate, service: recovered.append(service))
+    gate = DeploymentGate(tmp_path / "runtime.sqlite3")
+    with gate.admission() as admitted:
+        assert admitted
+        watchdog.main()
+        assert recovered == []
+        watchdog.main()
+    assert recovered == ["prompta-browser.service"]
+    assert watchdog.load_state(tmp_path / "watchdog.json").last_restart_at == 2000.0
+
+
+def test_busy_probe_does_not_interfere_with_deployment_pause(monkeypatch, tmp_path):
+    import prompta.browser_watchdog as watchdog
+    from prompta.deployment_gate import DeploymentGate
+
+    monkeypatch.setattr(watchdog, "STATE_DIR", tmp_path)
+    gate = DeploymentGate(tmp_path / "runtime.sqlite3")
+    gate.pause_path.touch()
+    monkeypatch.setattr(watchdog, "debugger_responding", lambda address: (_ for _ in ()).throw(AssertionError()))
+    watchdog.check_busy_browser()
+
+
+def test_crash_recovery_records_and_stops_before_restart(monkeypatch, tmp_path):
+    import prompta.browser_watchdog as watchdog
+    import scripts.deploy_guarded as deploy
+    from prompta.deployment_gate import DeploymentGate
+
+    gate = DeploymentGate(tmp_path / "runtime.sqlite3")
+    events = []
+    monkeypatch.setattr(deploy, "record_interrupted_work", lambda gate: events.append("record"))
+    monkeypatch.setattr(deploy, "stop_workers", lambda: events.append("stop"))
+    monkeypatch.setattr(deploy, "verify_services", lambda: True)
+
+    def command(args, **kwargs):
+        assert gate.is_paused()
+        events.append(args[2])
+
+    monkeypatch.setattr(watchdog.subprocess, "run", command)
+    watchdog.recover_crashed_browser(gate, "prompta-browser.service")
+    assert events == ["record", "stop", "restart", "start"]
+    assert not gate.is_paused()
+
+
+def test_failed_crash_recovery_keeps_admission_paused(monkeypatch, tmp_path):
+    import pytest
+
+    import prompta.browser_watchdog as watchdog
+    import scripts.deploy_guarded as deploy
+    from prompta.deployment_gate import DeploymentGate
+
+    gate = DeploymentGate(tmp_path / "runtime.sqlite3")
+    monkeypatch.setattr(deploy, "record_interrupted_work", lambda gate: None)
+    monkeypatch.setattr(deploy, "stop_workers", lambda: None)
+    monkeypatch.setattr(deploy, "verify_services", lambda: False)
+    monkeypatch.setattr(watchdog.subprocess, "run", lambda *args, **kwargs: None)
+    with pytest.raises(RuntimeError, match="admission stays paused"):
+        watchdog.recover_crashed_browser(gate, "prompta-browser.service")
+    assert gate.is_paused()
