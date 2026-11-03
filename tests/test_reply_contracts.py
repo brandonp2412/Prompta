@@ -420,6 +420,35 @@ def test_verified_submission_can_bind_a_later_assistant_message(tmp_path: Path) 
     assert turns[-1]["assistant_text"] == "Final reply"
 
 
+def test_reply_retains_commentary_after_final_dom_reindexes_text(tmp_path: Path) -> None:
+    store = seed(tmp_path)
+    store.prepare("run", intent(), now=200)
+    owner = f"{os.getpid()}:commentary"
+    assert store.claim(REPLY_ID, owner, deadline=400, now=201)
+    assert store.acknowledge_submission(
+        REPLY_ID, owner, conversation_id=CONVERSATION, parent_id=PARENT, now=202,
+    )
+    assert store.accepted(
+        REPLY_ID, owner, conversation_id=CONVERSATION,
+        parent_id=PARENT, message_id=MESSAGE, now=203,
+    )
+    assert store.observe(REPLY_ID, owner, CaptureResult(
+        "dom", "partial", "OPENING", CONVERSATION, MESSAGE, None,
+        display_blocks=({"kind": "text", "id": "text-0", "text": "OPENING"},),
+    ), now=204)
+    assert store.observe(REPLY_ID, owner, CaptureResult(
+        "dom", "complete", "FINISH", CONVERSATION, MESSAGE, None,
+        display_blocks=({"kind": "text", "id": "text-0", "text": "FINISH"},),
+    ), now=205)
+    turns = store.turns("run")
+    assert turns is not None and turns[-1]["status"] == "completed"
+    assert turns[-1]["assistant_text"] == "OPENING\n\nFINISH"
+    assert turns[-1]["display_blocks"] == [
+        {"kind": "text", "id": "text-0", "text": "OPENING"},
+        {"kind": "text", "id": "text-1", "text": "FINISH"},
+    ]
+
+
 def test_ambiguous_claim_crash_and_partial_recovery_never_resend(tmp_path: Path) -> None:
     store = seed(tmp_path)
     store.prepare("run", intent(), now=200)

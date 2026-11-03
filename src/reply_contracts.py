@@ -22,7 +22,11 @@ from sqlalchemy.engine import Connection, RowMapping
 from sqlalchemy.sql.elements import ColumnElement
 
 from .browser_ownership import MAX_OWNED_TAB_AGE_SECONDS
-from .display_blocks_store import deserialize_display_blocks, merge_display_blocks
+from .display_blocks_store import (
+    deserialize_display_blocks,
+    display_blocks_text,
+    merge_display_blocks,
+)
 from .reply_read_state import ReplyReadState, visible_reply_status
 from .reply_tables import replies
 from .response_capture import CaptureResult
@@ -586,12 +590,14 @@ class ManualReplyStore(ReplyReadState):
                 if capture.source == "sse"
                 else capture.parent_id is None or capture.parent_id == expected_parent
             )
+            blocks_json = merge_display_blocks(row["display_blocks_json"], capture.display_blocks)
+            text = max((capture.text, display_blocks_text(blocks_json)), key=len)
             if (
                 (capture.conversation_id, capture.message_id)
                 != (row["conversation_id"], row["message_id"])
                 or not parent_matches
-                or not capture.text
-                or len(capture.text) < len(str(row["assistant_text"]))
+                or not text
+                or len(text) < len(str(row["assistant_text"]))
             ):
                 return False
             complete = capture.status == "complete"
@@ -599,9 +605,9 @@ class ManualReplyStore(ReplyReadState):
                 replies.c.reply_id == reply_id, replies.c.lease_owner == owner,
                 replies.c.status.in_(("accepted", "generating")),
             ).values(status="completed" if complete else "generating",
-                     assistant_text=capture.text[:2 * 1024 * 1024],
+                     assistant_text=text[:2 * 1024 * 1024],
                       tool_calls_json=merge_tool_calls(row["tool_calls_json"], capture.tool_calls),
-                       display_blocks_json=merge_display_blocks(row["display_blocks_json"], capture.display_blocks),
+                       display_blocks_json=blocks_json,
                       updated_at=at, finished_at=at if complete else row["finished_at"],
                      lease_owner="" if complete else owner))
         return changed.rowcount == 1

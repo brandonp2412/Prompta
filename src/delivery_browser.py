@@ -15,6 +15,11 @@ from .browser_ownership import MAX_OWNED_TAB_AGE_SECONDS
 from .browser_script_loader import load_browser_script
 from .config import ConnectorApproval
 from .connector_approval_supervisor import supervise_connector_approvals
+from .display_blocks_store import (
+    deserialize_display_blocks,
+    display_blocks_text,
+    merge_display_blocks,
+)
 from .image_store import ImageStore, image_refs
 from .patchright_driver import PatchrightDriver, _normalise_composer_text
 from .rate_limit import (
@@ -46,6 +51,17 @@ _PASSIVE_RECOVERY_PROBE_SECONDS = 45.0
 _EMPTY_REASONING_GRACE_SECONDS = 60.0
 # Allow bounded pinning and receipt persistence after the dispatch deadline.
 _HANDOFF_GRACE_SECONDS = 60.0
+
+
+def _retain_dom_progress(saved: str, update: CaptureResult) -> tuple[str, CaptureResult]:
+    """Keep visible commentary through DOM collapse, even between SQLite writes."""
+    if update.source != "dom" or not update.display_blocks:
+        return saved, update
+    merged = merge_display_blocks(saved, update.display_blocks)
+    text = max((update.text, display_blocks_text(merged)), key=len)
+    return merged, replace(
+        update, text=text, display_blocks=tuple(deserialize_display_blocks(merged)),
+    )
 
 
 def _is_conversation_path(path: str) -> bool:
@@ -439,6 +455,7 @@ class BrowserDeliverySender:
         last_verified_text = ""
         last_verified_tools: tuple[dict[str, object], ...] = ()
         last_verified_blocks: tuple[dict[str, str], ...] = ()
+        retained_blocks = "[]"
         final_status: str = "interrupted"
         next_recovery_probe = (
             asyncio.get_running_loop().time() + _PASSIVE_RECOVERY_PROBE_SECONDS
@@ -573,7 +590,7 @@ class BrowserDeliverySender:
                     update = sse
                 elif update is None and sse is not None and sse.text:
                     update = sse
-                if update is not None and (update.text or update.tool_calls):
+                if update is not None and (update.text or update.tool_calls or update.display_blocks):
                     # Tools and final text can advance the backend message ID
                     # inside one modern assistant reply. The stable DOM reply
                     # unit and exact owned route prove it is not a new turn.
@@ -602,6 +619,7 @@ class BrowserDeliverySender:
                         seen_message = update.message_id
                     if update.observer_id:
                         seen_observer = update.observer_id
+                    retained_blocks, update = _retain_dom_progress(retained_blocks, update)
                     if (
                         pending is None
                         or update.status == "complete"
