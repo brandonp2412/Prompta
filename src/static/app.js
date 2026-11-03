@@ -14233,9 +14233,40 @@ function legacyTableRow(chunk) {
 		after: after.slice(1).join("\n\n")
 	};
 }
+function recoverDomLinkifiedUrls(text) {
+	if (!text.includes("]([http")) return text;
+	const nestedLink = /\\?\[([^\\[\]\n]+)\\?\]\(\[(https?:\/\/[^\]\s]+)\]\((https?:\/\/[^\s)]+)\)\)?/g;
+	let fenceChar = "";
+	let fenceLength = 0;
+	return text.split("\n").map((line) => {
+		const marker = /^ {0,3}(`{3,}|~{3,})/.exec(line)?.[1];
+		if (marker) {
+			if (!fenceChar) {
+				fenceChar = marker[0];
+				fenceLength = marker.length;
+			} else if (marker[0] === fenceChar && marker.length >= fenceLength && line.trim() === marker) {
+				fenceChar = "";
+				fenceLength = 0;
+			}
+			return line;
+		}
+		if (fenceChar) return line;
+		return line.replace(nestedLink, (matched, label, visibleUrl, href) => {
+			try {
+				const target = new URL(href);
+				if (target.searchParams.get("utm_source") === "chatgpt.com") target.searchParams.delete("utm_source");
+				if (target.href !== new URL(visibleUrl).href) return matched;
+				return `[${label}](${visibleUrl})`;
+			} catch {
+				return matched;
+			}
+		});
+	}).join("\n");
+}
 function formatStoredResponse(text, captureSource) {
-	if (captureSource === "sse" || !text.includes("	")) return text;
-	const parts = text.split(/(\n{3,})/);
+	const displayText = captureSource === "dom" ? recoverDomLinkifiedUrls(text) : text;
+	if (captureSource === "sse" || !displayText.includes("	")) return displayText;
+	const parts = displayText.split(/(\n{3,})/);
 	let output = "";
 	for (let i = 0; i < parts.length;) {
 		const first = legacyTableRow(parts[i]);

@@ -139,6 +139,21 @@ test("does not misread prose tabs, native Markdown, or SSE as legacy tables", ()
   expect(formatStoredResponse(raw, "sse")).toBe(raw);
 });
 
+test("repairs DOM-linkified nested URLs without rewriting unrelated Markdown", () => {
+  const direct = "https://github.com/brandonp2412/BlockDrop/blob/1321a249/docs/p2p";
+  const captured = String.raw`\[Full implementation plan and handoff\]([${direct}](${direct}?utm_source=chatgpt.com)`;
+  const rendered = `[Full implementation plan and handoff](${direct})`;
+  expect(formatStoredResponse(captured, "dom")).toBe(rendered);
+  expect(formatStoredResponse(captured, "sse")).toBe(captured);
+  expect(formatStoredResponse(`Before.\n\n${captured}\n\nAfter.`, "dom")).toBe(
+    `Before.\n\n${rendered}\n\nAfter.`,
+  );
+  const fenced = "```md\n" + captured + "\n```";
+  expect(formatStoredResponse(fenced, "dom")).toBe(fenced);
+  const unrelated = String.raw`\[Read this\]([${direct}](https://example.com/another-target)`;
+  expect(formatStoredResponse(unrelated, "dom")).toBe(unrelated);
+});
+
 test("legacy flattened DOM answers render densely without changing real Markdown", () => {
   const cells = [
     "Status",

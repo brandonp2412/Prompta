@@ -136,6 +136,61 @@ def test_response_is_unboxed_and_preserves_markdown(
             browser.close()
 
 
+def test_dom_linkified_url_recovers_readable_link(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    chromium = Path(os.environ.get("PROMPTA_TEST_CHROMIUM", "/usr/bin/chromium"))
+    if not chromium.is_file():
+        pytest.skip("Chromium unavailable")
+
+    import prompta.web as web_module
+
+    monkeypatch.setattr(
+        web_module,
+        "_STATIC_ROOT",
+        Path(__file__).resolve().parents[1] / "src/static",
+    )
+    with server(tmp_path) as (app, port), sync_patchright() as patchright:
+        send_id = "broken-captured-link"
+        seed_terminal(app, send_id=send_id, missing_id=False)
+        direct = "https://github.com/brandonp2412/BlockDrop/blob/1321a249/docs/p2p"
+        captured = (
+            r"\[Full implementation plan and handoff\](["
+            + direct
+            + "]("
+            + direct
+            + "?utm_source=chatgpt.com)"
+        )
+        with app.results.engine.begin() as connection:
+            connection.exec_driver_sql(
+                "UPDATE job_responses SET source = ?, status = ?, assistant_text = ? "
+                "WHERE send_id = ?",
+                ("dom", "completed", captured, send_id),
+            )
+        browser = patchright.chromium.launch(
+            executable_path=str(chromium),
+            headless=True,
+            args=["--no-sandbox"],
+        )
+        try:
+            for width in (390, 1440):
+                page = browser.new_page(viewport={"width": width, "height": 900})
+                page.goto(f"http://127.0.0.1:{port}/?view=chats&run={send_id}")
+                link = page.locator(".assistant-group .result-markdown a")
+                expect(link).to_have_count(1)
+                expect(link).to_have_text("Full implementation plan and handoff")
+                expect(link).to_have_attribute("href", direct)
+                assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
+                if screenshot_dir := os.environ.get("PROMPTA_RESPONSE_SCREENSHOT_DIR"):
+                    destination = Path(screenshot_dir)
+                    destination.mkdir(parents=True, exist_ok=True)
+                    page.screenshot(path=str(destination / f"repaired-link-{width}.png"))
+                page.close()
+        finally:
+            browser.close()
+
+
 def test_multiple_local_responses_keep_distinct_turns_and_tool_activity(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

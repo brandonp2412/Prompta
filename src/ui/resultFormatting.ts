@@ -256,9 +256,58 @@ function legacyTableRow(chunk: string): LegacyTableRow | null {
   };
 }
 
+// ChatGPT sometimes linkifies a URL inside a malformed Markdown link. Our DOM
+// capture preserves the resulting literal label plus linked URL, which Marked
+// correctly displays as broken punctuation. Recover only when both URLs agree;
+// leave source text, code fences, and differently targeted links untouched.
+function recoverDomLinkifiedUrls(text: string): string {
+  if (!text.includes("]([http")) return text;
+  const nestedLink =
+    /\\?\[([^\\[\]\n]+)\\?\]\(\[(https?:\/\/[^\]\s]+)\]\((https?:\/\/[^\s)]+)\)\)?/g;
+  let fenceChar = "";
+  let fenceLength = 0;
+  return text
+    .split("\n")
+    .map((line) => {
+      const marker = /^ {0,3}(`{3,}|~{3,})/.exec(line)?.[1];
+      if (marker) {
+        if (!fenceChar) {
+          fenceChar = marker[0];
+          fenceLength = marker.length;
+        } else if (
+          marker[0] === fenceChar &&
+          marker.length >= fenceLength &&
+          line.trim() === marker
+        ) {
+          fenceChar = "";
+          fenceLength = 0;
+        }
+        return line;
+      }
+      if (fenceChar) return line;
+      return line.replace(
+        nestedLink,
+        (matched, label: string, visibleUrl: string, href: string) => {
+          try {
+            const target = new URL(href);
+            if (target.searchParams.get("utm_source") === "chatgpt.com") {
+              target.searchParams.delete("utm_source");
+            }
+            if (target.href !== new URL(visibleUrl).href) return matched;
+            return `[${label}](${visibleUrl})`;
+          } catch {
+            return matched;
+          }
+        },
+      );
+    })
+    .join("\n");
+}
+
 export function formatStoredResponse(text: string, captureSource: string): string {
-  if (captureSource === "sse" || !text.includes("\t")) return text;
-  const parts = text.split(/(\n{3,})/);
+  const displayText = captureSource === "dom" ? recoverDomLinkifiedUrls(text) : text;
+  if (captureSource === "sse" || !displayText.includes("\t")) return displayText;
+  const parts = displayText.split(/(\n{3,})/);
   let output = "";
   for (let i = 0; i < parts.length;) {
     const first = legacyTableRow(parts[i]);
