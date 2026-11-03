@@ -438,6 +438,7 @@ class BrowserDeliverySender:
         seen_observer = ""
         last_verified_text = ""
         last_verified_tools: tuple[dict[str, object], ...] = ()
+        last_verified_blocks: tuple[dict[str, str], ...] = ()
         final_status: str = "interrupted"
         next_recovery_probe = (
             asyncio.get_running_loop().time() + _PASSIVE_RECOVERY_PROBE_SECONDS
@@ -616,14 +617,22 @@ class BrowserDeliverySender:
                     update.verified_generating
                     or (update.text and update.text != last_verified_text)
                     or (update.tool_calls and update.tool_calls != last_verified_tools)
-                    or update.display_blocks
+                    or (update.display_blocks and update.display_blocks != last_verified_blocks)
                 ))
-                if progress and isinstance(driver, VerifiedActivityDriver) and driver.record_verified_activity():
+                verified_branch = bool(update is not None and (
+                    (update.source == "dom" and update.conversation_id
+                     and update.message_id)
+                    or (update.source == "sse" and capture.get("sse_stream")
+                        and not capture.get("ambiguous_request"))
+                ))
+                if progress and verified_branch and isinstance(driver, VerifiedActivityDriver) and driver.record_verified_activity():
                     if update is not None:
                         if update.text:
                             last_verified_text = update.text
                         if update.tool_calls:
                             last_verified_tools = update.tool_calls
+                        if update.display_blocks:
+                            last_verified_blocks = update.display_blocks
                     refreshed = time.time() + MAX_OWNED_TAB_AGE_SECONDS
                     if self.results.renew_capture_deadline(send_id, owner, deadline=refreshed):
                         deadline = asyncio.get_running_loop().time() + MAX_OWNED_TAB_AGE_SECONDS

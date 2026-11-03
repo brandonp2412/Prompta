@@ -26,7 +26,7 @@ async def test_connector_grace_approves_multiple_dialogs_before_timeout(
 ) -> None:
     import threading
 
-    assert delivery_browser._CONNECTOR_APPROVAL_SECONDS == 2700.0
+    assert delivery_browser._CONNECTOR_APPROVAL_SECONDS == 900.0
     monkeypatch.setattr(delivery_browser, "_CONNECTOR_APPROVAL_SECONDS", 0.04)
     accepted = threading.Event()
 

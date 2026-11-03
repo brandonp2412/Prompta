@@ -224,3 +224,33 @@ def test_nonfinal_message_followed_by_patch_cannot_leak_hidden_text() -> None:
     result = parse_sse_body(body)
     assert result.text == "Safe"
     assert result.status == "complete"
+
+
+def test_stream_error_is_terminal_without_exposing_error_payload() -> None:
+    accumulator = SseResponseAccumulator()
+    accumulator.feed('data: {"type":"error","error":{"message":"internal secret"}}\n\n')
+    assert accumulator.progress_events == 1
+    result = accumulator.snapshot()
+    assert result.stream_error is True
+    assert result.status == "interrupted"
+    assert "secret" not in result.text
+
+
+def test_non_error_sse_events_are_activity_even_without_final_text() -> None:
+    accumulator = SseResponseAccumulator()
+    accumulator.feed('data: {"type":"message","message":{"author":{"role":"assistant"},"channel":"analysis","content":{"content_type":"thoughts"}}}\n\n')
+    assert accumulator.progress_events == 1
+    assert accumulator.snapshot().stream_error is False
+
+
+def test_dom_error_signal_requires_explicit_flag() -> None:
+    result = normalize_dom_snapshot({
+        "message_id": "unit", "text": "", "complete": False,
+        "stream_error": True, "pathname": "/c/" + CONVERSATION_ID,
+    })
+    assert result.stream_error is True
+    normal = normalize_dom_snapshot({
+        "message_id": "unit", "text": "error in response stream",
+        "complete": True, "pathname": "/c/" + CONVERSATION_ID,
+    })
+    assert normal.stream_error is False
