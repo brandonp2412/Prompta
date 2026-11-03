@@ -15595,14 +15595,23 @@ function QueueFrontButton({ endpoint, label, onMoved }) {
 			setMoving(false);
 		}
 	}
-	return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
 		type: "button",
-		className: "row-action queue-front",
+		className: "row-action queue-front chat-action-button",
 		title: "Run next when a slot is free; retry delays still apply",
 		"aria-label": "Bump " + label + " to front of queue",
 		disabled: moving,
 		onClick: () => void move(),
-		children: moving ? "Moving…" : "Bump to front"
+		children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("svg", {
+			viewBox: "0 0 24 24",
+			fill: "none",
+			stroke: "currentColor",
+			strokeWidth: "1.8",
+			strokeLinecap: "round",
+			strokeLinejoin: "round",
+			"aria-hidden": "true",
+			children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: "M5 4h14M12 20V9m-5 5 5-5 5 5" })
+		}), moving ? "Moving…" : "Bump to front"]
 	});
 }
 //#endregion
@@ -16348,7 +16357,6 @@ function createChatComposerController(initialProps) {
 		addFiles(Array.from(event.dataTransfer?.files || []));
 	}
 	const onMountImpl = () => {
-		requestAnimationFrame(resizeTextarea);
 		window.addEventListener("resize", resizeTextarea);
 		return () => {
 			window.removeEventListener("resize", resizeTextarea);
@@ -16456,6 +16464,7 @@ function createChatComposerController(initialProps) {
 		pasted,
 		dropped,
 		mount,
+		resizeTextarea,
 		syncProps
 	};
 }
@@ -16631,6 +16640,7 @@ function ChatComposer(props) {
 	}), [model]);
 	(0, import_react.useLayoutEffect)(() => {
 		model.syncProps(props);
+		model.resizeTextarea();
 	});
 	(0, import_react.useEffect)(() => model.mount(), [model]);
 	(0, import_react.useEffect)(() => {

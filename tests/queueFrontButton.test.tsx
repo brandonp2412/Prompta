@@ -18,7 +18,9 @@ test("bumps the existing queue item and refreshes its position", async () => {
     return Response.json({ ok: true });
   }, { preconnect: originalFetch.preconnect });
   render(<QueueFrontButton endpoint="./api/queue/send-2/front" label="Second chat" onMoved={async () => { refreshed = true; }} />);
-  fireEvent.click(screen.getByRole("button", { name: "Bump Second chat to front of queue" }));
+  const button = screen.getByRole("button", { name: "Bump Second chat to front of queue" });
+  expect(button.querySelector('svg[aria-hidden="true"]')).not.toBeNull();
+  fireEvent.click(button);
   await waitFor(() => expect(refreshed).toBe(true));
   expect(calls).toEqual(["./api/queue/send-2/front"]);
 });

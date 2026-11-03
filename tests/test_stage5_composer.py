@@ -107,6 +107,36 @@ def test_early_followup_http_queue_is_durable_and_idempotent(tmp_path: Path) -> 
         assert turns[1]["user_text"] == "Additional context"
 
 
+@pytest.mark.parametrize("saved_draft", ["", "Saved line\n" * 5])
+def test_desktop_composer_does_not_shrink_on_first_focus(
+    tmp_path: Path, saved_draft: str
+) -> None:
+    executable = os.environ.get("PROMPTA_TEST_CHROMIUM", "")
+    if not executable or not Path(executable).exists():
+        pytest.skip("Headless Chromium unavailable")
+    with serve_test_ui(tmp_path) as port, sync_patchright() as patchright:
+        browser = patchright.chromium.launch(executable_path=executable, headless=True)
+        page = browser.new_page(viewport={"width": 1440, "height": 900})
+        page.add_init_script(
+            f"localStorage.setItem('prompta.new-chat-draft.v1', {json.dumps(saved_draft)})"
+        )
+        page.goto(f"http://127.0.0.1:{port}/?view=chats&draft=new")
+        composer = page.get_by_role("textbox", name="Message for new chat")
+        expect(composer).to_have_value(saved_draft)
+        page.wait_for_function(
+            "() => !!document.querySelector('.chat-composer textarea')?.style.height"
+        )
+        initial_height = composer.evaluate("element => element.getBoundingClientRect().height")
+        composer.click()
+        focused_height = composer.evaluate("element => element.getBoundingClientRect().height")
+        assert abs(initial_height - focused_height) < 1, (initial_height, focused_height)
+        if saved_draft:
+            assert initial_height > 70, initial_height
+        else:
+            assert 20 < initial_height < 40, initial_height
+        browser.close()
+
+
 @pytest.mark.parametrize("width,height", [(1440, 900), (390, 844)])
 def test_composer_queues_followup_while_first_answer_is_pending(
     tmp_path: Path,
