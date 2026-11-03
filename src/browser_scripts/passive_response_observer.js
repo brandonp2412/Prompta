@@ -22,7 +22,7 @@
     return element.getAttribute("data-chatgpt-search-unit-key") || element.getAttribute("data-content-search-unit-key") || "";
   };
   const branchMessageId = (element) => {
-    const ids = assistantMessageIdsFromDom(element);
+    const ids = assistantMessageIdsFromDom(element, true);
     return ids.length === 1 ? ids[0] : "";
   };
   const baseline = new Set(topLevelResponseNodes(document, messageSelector).map(identity).filter(Boolean));

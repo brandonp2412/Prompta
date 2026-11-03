@@ -342,10 +342,18 @@ def test_rich_answer_source_id_overrides_aggregate_reference_ids() -> None:
                 assert result.status == "complete"
                 assert result.message_id == PART_B
                 assert result.text == "First response\n\nSecond response"
-                # Multiple visible source messages remain ambiguous.
+                # Multiple rich content chunks share the verified turn; the final
+                # source chunk supplies its reply parent.
                 await page.locator('[data-dil-source-message-id]').evaluate(
                     "(node, id) => node.insertAdjacentHTML('afterend', "
                     "'<div data-dil-source-message-id=\"' + id + '\">Other</div>')", PART_A,
+                )
+                rich = normalize_dom_snapshot(await page.evaluate(_historical_script()))
+                assert rich.status == "complete"
+                assert rich.message_id == PART_A
+                assert rich.turn_message_ids == (PART_A, PART_B)
+                await page.locator('[data-dil-source-message-id]').evaluate_all(
+                    "nodes => nodes.forEach(node => node.removeAttribute('data-dil-source-message-id'))",
                 )
                 ambiguous = normalize_dom_snapshot(await page.evaluate(_historical_script()))
                 assert ambiguous.status != "complete"

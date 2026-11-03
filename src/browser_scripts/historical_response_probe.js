@@ -83,7 +83,7 @@
     )].some(visible)
   );
   const finalAnswer = answerUnits.at(-1) || assistant;
-  const finalIds = assistantMessageIdsFromDom(finalAnswer);
+  const finalIds = assistantMessageIdsFromDom(finalAnswer, true);
   const branch = finalIds.length === 1 ? finalIds[0] : "";
   return {
     verified: true, ambiguous: false, message_id: identity,

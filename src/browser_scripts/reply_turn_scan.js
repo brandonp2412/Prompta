@@ -97,7 +97,7 @@ const scanExactReplyTurn = (conversation, originalPrompt, replyText, parent, all
     'button[data-testid="stop-button"], button[aria-label="Stop"], button[aria-label="Stop generating"], button[aria-label="Stop streaming"]'
   )].some(visible);
   const finalNode = later.at(-1)?.node || null;
-  const finalIds = finalNode ? ids(finalNode) : [];
+  const finalIds = finalNode ? ids(finalNode, true) : [];
   const modernTurn = later[0].node.closest?.('[data-content-search-turn-key]');
   const complete = !!text && copyReady && !streaming && !generating && finalIds.length === 1 &&
     (!modernTurn || !!modernTurn.querySelector('[data-talvt-turn-state="complete"]'));

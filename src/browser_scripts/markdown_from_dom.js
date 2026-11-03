@@ -116,7 +116,7 @@
 // Search units can wrap legacy message nodes. Treat each rendered unit once.
 const topLevelResponseNodes = (root, selector) => [...root.querySelectorAll(selector)]
   .filter((node) => !node.parentElement?.closest(selector));
-const assistantMessageIdsFromDom = (element) => {
+const assistantMessageIdsFromDom = (element, finalOnly = false) => {
   const uuid = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i;
   const legacy = element.getAttribute("data-message-id") || "";
   if (legacy) return uuid.test(legacy) ? [legacy.toLowerCase()] : [];
@@ -126,14 +126,14 @@ const assistantMessageIdsFromDom = (element) => {
     .map((node) => node.getAttribute?.("data-message-id")).filter(Boolean);
   if (nested.length) return nested.every((id) => uuid.test(id))
     ? [...new Set(nested.map((id) => id.toLowerCase()))] : [];
-  // Rich answers carry their own source identity; aggregate search IDs also
-  // include references which cannot serve as the answer's reply parent.
+  // Rich answers identify their ordered content chunks directly. The final
+  // chunk is the reply parent; retain every chunk ID for turn verification.
   const sources = [...element.querySelectorAll('[data-dil-source-message-id]')]
     .filter((node) => node.getClientRects().length > 0 &&
       getComputedStyle(node).visibility !== "hidden")
     .map((node) => node.getAttribute('data-dil-source-message-id'));
   if (sources.length) return sources.every((id) => uuid.test(id))
-    ? [...new Set(sources.map((id) => id.toLowerCase()))] : [];
+    ? [...new Set((finalOnly ? sources.slice(-1) : sources).map((id) => id.toLowerCase()))] : [];
   const raw = element.getAttribute("data-chatgpt-search-message-ids") || element.getAttribute("data-content-search-message-ids") || "";
   try {
     const ids = raw.trim().startsWith("[") ? JSON.parse(raw) : raw.trim().split(/\s+/);
