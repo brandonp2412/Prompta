@@ -58,7 +58,9 @@ def _retain_dom_progress(saved: str, update: CaptureResult) -> tuple[str, Captur
     if update.source != "dom" or not update.display_blocks:
         return saved, update
     merged = merge_display_blocks(saved, update.display_blocks)
-    text = max((update.text, display_blocks_text(merged)), key=len)
+    # DOM text can itself contain several cumulative Markdown frames. Use the
+    # normalized visible blocks as the canonical transcript when available.
+    text = display_blocks_text(merged) or update.text
     return merged, replace(
         update, text=text, display_blocks=tuple(deserialize_display_blocks(merged)),
     )

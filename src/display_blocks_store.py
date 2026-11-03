@@ -4,11 +4,52 @@ from __future__ import annotations
 
 import json
 import re
+from difflib import SequenceMatcher
 
 _MAX_BLOCKS = 256
 _MAX_CHARS = 2 * 1024 * 1024
 _ID_PATTERN = re.compile(r"^(?:(?:text|dom-tool)-[0-9]{1,3}|sse-(?:text|tool)-[0-9a-f]{24})$")
 _CALL_ID_PATTERN = re.compile(r"^[A-Za-z0-9_.:-]{1,100}$")
+
+
+def _progressive_versions(first: str, second: str) -> bool:
+    """Recognize a Markdown block re-rendered while it is still streaming.
+
+    The DOM observer can give successive versions of one growing table new
+    positional IDs. Markdown links may be repaired between frames, so a strict
+    startswith comparison is insufficient. Restrict fuzzy matching to a long,
+    identical opening and a bounded, substantially similar prefix.
+    """
+    shorter, longer = sorted((first, second), key=len)
+    if len(shorter) < 160 or shorter[:96] != longer[:96]:
+        return False
+    sample = shorter[:512]
+    return SequenceMatcher(None, sample, longer[: len(sample) + 64], autojunk=False).ratio() >= 0.75
+
+
+def _collapse_progressive_versions(items: list[dict[str, str]]) -> tuple[dict[str, str], ...]:
+    visible: list[dict[str, str]] = []
+    for block in items:
+        if block["kind"] != "text":
+            visible.append(block)
+            continue
+        matches = [
+            index for index, prior in enumerate(visible)
+            if prior["kind"] == "text" and _progressive_versions(prior["text"], block["text"])
+        ]
+        if not matches:
+            visible.append(block)
+            continue
+        best = max((visible[index] for index in matches), key=lambda item: len(item["text"]))
+        # A truncated hydration frame must not replace a longer verified one.
+        # A growing version moves to its latest observed position, including
+        # after tool calls that occurred while the answer was being written.
+        if len(block["text"]) <= len(best["text"]):
+            continue
+        for index in reversed(matches):
+            del visible[index]
+        visible.append(block)
+    return tuple(visible)
 
 
 def normalize_display_blocks(value: object) -> tuple[dict[str, str], ...]:
@@ -43,7 +84,7 @@ def normalize_display_blocks(value: object) -> tuple[dict[str, str], ...]:
             continue
         length += len(text)
         items.append({"kind": "text", "id": identity, "text": text})
-    return tuple(items)
+    return _collapse_progressive_versions(items)
 
 
 def deserialize_display_blocks(value: object) -> list[dict[str, str]]:
@@ -61,6 +102,32 @@ def display_blocks_text(value: object) -> str:
     return "\n\n".join(
         block["text"] for block in deserialize_display_blocks(value) if block["kind"] == "text"
     )[:_MAX_CHARS]
+
+
+def visible_assistant_text(saved_text: str, blocks_json: object) -> str:
+    """Read legacy duplicated transcripts without rewriting historical rows.
+
+    Only substitute the cleaned blocks when the saved text is exactly their
+    original concatenation. Keep independent SSE text or missing DOM prose.
+    """
+    if not isinstance(blocks_json, str):
+        return saved_text
+    try:
+        raw: object = json.loads(blocks_json)
+    except (TypeError, ValueError):
+        return saved_text
+    if not isinstance(raw, list):
+        return saved_text
+    text_blocks: list[str] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        candidate = item.get("text")
+        if item.get("kind") == "text" and isinstance(candidate, str):
+            text_blocks.append(candidate.strip())
+    unmerged = "\n\n".join(text_blocks)
+    compact = display_blocks_text(blocks_json)
+    return compact if len(compact) < len(unmerged) and saved_text.strip() == unmerged else saved_text
 
 
 def merge_display_blocks(previous: object, incoming: tuple[dict[str, str], ...]) -> str:

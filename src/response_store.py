@@ -19,6 +19,7 @@ from .display_blocks_store import (
     deserialize_display_blocks,
     display_blocks_text,
     merge_display_blocks,
+    visible_assistant_text,
 )
 from .reply_tables import replies
 from .response_capture import CaptureResult, conversation_id_from_path
@@ -285,11 +286,11 @@ class ResponseStore:
             complete = capture.status == "complete" and bool(
                 text and (capture.message_id or capture.observer_id)
             )
-            prior = str(row["assistant_text"])
+            prior = visible_assistant_text(str(row["assistant_text"]), row["display_blocks_json"])
             tool_json = merge_tool_calls(row["tool_calls_json"], capture.tool_calls)
             blocks_json = merge_display_blocks(row["display_blocks_json"], capture.display_blocks)
             if capture.source == "dom":
-                text = max((text, display_blocks_text(blocks_json)), key=len)[:_MAX_TEXT]
+                text = (display_blocks_text(blocks_json) or text)[:_MAX_TEXT]
             if not text:
                 # Tool-only snapshots can carry the first verified branch IDs.
                 # Persist them even if the tools did not change; otherwise a
@@ -901,8 +902,8 @@ class ResponseStore:
             # partial response is longer. Preserve it without falsely claiming
             # completion; only a sufficiently complete snapshot can close it.
             blocks_json = merge_display_blocks(row["display_blocks_json"], capture.display_blocks)
-            text = max((capture.text[:_MAX_TEXT], display_blocks_text(blocks_json)), key=len)[:_MAX_TEXT]
-            saved_text = str(row["assistant_text"])
+            text = (display_blocks_text(blocks_json) or capture.text)[:_MAX_TEXT]
+            saved_text = visible_assistant_text(str(row["assistant_text"]), row["display_blocks_json"])
             complete = (
                 capture.status == "complete" and bool(text)
                 and len(text) >= len(saved_text)
@@ -996,6 +997,7 @@ class ResponseStore:
         )
         detail["tool_calls"] = deserialize_tool_calls(row["tool_calls_json"])
         detail["display_blocks"] = deserialize_display_blocks(row["display_blocks_json"])
+        detail["assistant_text"] = visible_assistant_text(str(row["assistant_text"]), row["display_blocks_json"])
         detail["manual_recovery_pending"] = self.manual_recovery_pending(send_id)
         # Recovery is read-only and rate-limited. Expose its persisted schedule
         # so users can distinguish a pending check from a silent failure.

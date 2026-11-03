@@ -26,6 +26,7 @@ from .display_blocks_store import (
     deserialize_display_blocks,
     display_blocks_text,
     merge_display_blocks,
+    visible_assistant_text,
 )
 from .reply_read_state import ReplyReadState, visible_reply_status
 from .reply_tables import replies
@@ -106,6 +107,7 @@ class ManualReplyStore(ReplyReadState):
         )
         public["tool_calls"] = deserialize_tool_calls(row["tool_calls_json"])
         public["display_blocks"] = deserialize_display_blocks(row["display_blocks_json"])
+        public["assistant_text"] = visible_assistant_text(str(row["assistant_text"]), row["display_blocks_json"])
         return public
 
     def get(self, reply_id: str) -> dict[str, object] | None:
@@ -591,13 +593,15 @@ class ManualReplyStore(ReplyReadState):
                 else capture.parent_id is None or capture.parent_id == expected_parent
             )
             blocks_json = merge_display_blocks(row["display_blocks_json"], capture.display_blocks)
-            text = max((capture.text, display_blocks_text(blocks_json)), key=len)
+            text = (display_blocks_text(blocks_json) or capture.text) if capture.source == "dom" else max(
+                (capture.text, display_blocks_text(blocks_json)), key=len,
+            )
             if (
                 (capture.conversation_id, capture.message_id)
                 != (row["conversation_id"], row["message_id"])
                 or not parent_matches
                 or not text
-                or len(text) < len(str(row["assistant_text"]))
+                or len(text) < len(visible_assistant_text(str(row["assistant_text"]), row["display_blocks_json"]))
             ):
                 return False
             complete = capture.status == "complete"
@@ -816,7 +820,7 @@ class ManualReplyStore(ReplyReadState):
                     return False
             captured_text = capture.text[:2 * 1024 * 1024]
             text = captured_text
-            if len(text) < len(str(row["assistant_text"])):
+            if len(text) < len(visible_assistant_text(str(row["assistant_text"]), row["display_blocks_json"])):
                 if not capture.tool_calls and not capture.verified_generating:
                     return False
                 text = str(row["assistant_text"])
@@ -866,7 +870,7 @@ class ManualReplyStore(ReplyReadState):
             {"reply_id": "", "send_id": send_id,
              "conversation_id": original["conversation_id"], "parent_id": original["parent_id"],
              "message_id": original["message_id"], "user_text": original["user_text"],
-             "assistant_text": original["assistant_text"],
+             "assistant_text": visible_assistant_text(str(original["assistant_text"]), original["display_blocks_json"]),
               "tool_calls": deserialize_tool_calls(original["tool_calls_json"]),
                "display_blocks": deserialize_display_blocks(original["display_blocks_json"]),
               "status": original_status,
