@@ -72,9 +72,10 @@ class ReplyReadState:
             # The sidebar describes the latest user turn. Earlier capture failures
             # must not override a newer working or completed follow-up.
             latest_replies = {
-                str(send_id): (str(status), float(observed_at))
-                for send_id, status, observed_at in connection.execute(
-                    select(replies.c.send_id, replies.c.status, replies.c.live_observed_at)
+                str(send_id): (str(status), float(observed_at), bool(queued_by_user))
+                for send_id, status, observed_at, queued_by_user in connection.execute(
+                    select(replies.c.send_id, replies.c.status, replies.c.live_observed_at,
+                           replies.c.queued_by_user)
                     .where(replies.c.send_id.in_(send_ids), replies.c.status != "merged")
                     .order_by(replies.c.created_at, replies.c.reply_id)
                 )
@@ -86,7 +87,12 @@ class ReplyReadState:
             item["last_reply_at"] = at
             latest = latest_replies.get(send_id)
             if latest is not None:
-                status = visible_reply_status(*latest, now=time.time())
+                reply_status, observed_at, queued_by_user = latest
+                status = visible_reply_status(reply_status, observed_at, now=time.time())
+                # A user-queued follow-up is active chat work even before its worker
+                # claims it. Keep its queued label, but distinguish it from an
+                # unsent fresh chat in the sidebar's activity indicator.
+                item["queued_followup"] = queued_by_user and status in ("queued", "prepared")
                 if status in (
                     "queued", "accepted", "generating", "completed", "interrupted",
                     "unavailable", "outcome_unknown", "stopped",
@@ -100,6 +106,7 @@ class ReplyReadState:
                     "preflight_failed", "outcome_unknown", "interrupted", "unavailable",
                 )
             else:
+                item["queued_followup"] = False
                 item["status"] = visible_reply_status(*original_live[send_id], now=time.time())
                 item["needs_attention"] = item["status"] in (
                     "interrupted", "unavailable", "outcome_unknown",

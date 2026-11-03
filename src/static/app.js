@@ -14302,6 +14302,11 @@ function statusLabel(status) {
 		case "outcome_unknown": return "Send unverified";
 	}
 }
+function chatDotStatus(item) {
+	if (item.needs_attention) return "interrupted";
+	if (item.queued_followup && item.status === "queued") return "generating";
+	return item.status;
+}
 function safeHref(href) {
 	try {
 		const url = new URL(href);
@@ -17385,7 +17390,7 @@ function ChatRow({ item, model }) {
 					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("strong", { children: item.title || "Untitled run" }),
 					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
 						title: rowStatus,
-						className: "result-dot status-" + (item.needs_attention ? "interrupted" : item.status),
+						className: "result-dot status-" + chatDotStatus(item),
 						children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
 							className: "sr-only",
 							children: rowStatus

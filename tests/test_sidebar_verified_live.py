@@ -97,6 +97,33 @@ def test_finished_followup_clears_sidebar_attention_from_old_original(tmp_path: 
     assert items[0]["needs_attention"] is False
 
 
+def test_queued_followup_is_distinguished_from_queued_fresh_chat(tmp_path: Path) -> None:
+    responses = ResponseStore(tmp_path / "results.sqlite3")
+    replies = ManualReplyStore(responses.path)
+    responses.ensure_queued("pending-chat", "Original prompt", now=10)
+
+    fresh = responses.page()["items"]
+    replies.annotate_response_markers(fresh)
+    assert fresh[0]["status"] == "queued"
+    assert fresh[0]["queued_followup"] is False
+
+    saved = replies.queue_followup("pending-chat", "queued-followup-12345678", "Continue", now=11)
+    assert saved["status"] == "queued"
+    queued = responses.page()["items"]
+    replies.annotate_response_markers(queued)
+    assert queued[0]["status"] == "queued"
+    assert queued[0]["queued_followup"] is True
+    assert queued[0]["needs_attention"] is False
+
+    with replies.engine.begin() as connection:
+        connection.execute(update(reply_table).where(
+            reply_table.c.reply_id == "queued-followup-12345678",
+        ).values(status="completed"))
+    completed = responses.page()["items"]
+    replies.annotate_response_markers(completed)
+    assert completed[0]["queued_followup"] is False
+
+
 def test_dom_live_signal_requires_explicit_generating_state() -> None:
     payload = {
         "message_id": "fallback-turn-1:1:assistant",

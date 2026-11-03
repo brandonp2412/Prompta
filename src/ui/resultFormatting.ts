@@ -18,6 +18,7 @@ export type RunSummary = {
   status: ResultStatus;
   has_response: boolean;
   needs_attention?: boolean;
+  queued_followup?: boolean;
   last_reply_revision: string;
   last_read_revision: string;
   last_reply_at: number;
@@ -244,6 +245,16 @@ export function statusLabel(status: ResultStatus): string {
     case "outcome_unknown":
       return "Send unverified";
   }
+}
+
+export function chatDotStatus(
+  item: Pick<RunSummary, "status" | "needs_attention" | "queued_followup">,
+): ResultStatus {
+  if (item.needs_attention) return "interrupted";
+  // A follow-up waiting for dispatch remains blue without falsely claiming
+  // that a response is already streaming. Its status label remains Queued.
+  if (item.queued_followup && item.status === "queued") return "generating";
+  return item.status;
 }
 
 export function safeHref(href: string): string | null {

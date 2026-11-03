@@ -1,7 +1,7 @@
 import { chatUrl } from "./chatUrl";
 import { useSignals } from "@preact/signals-react/runtime";
 import type { createChatsPageController } from "./ChatsPageController";
-import { plainPreview, statusLabel, type RunSummary } from "./resultFormatting";
+import { chatDotStatus, plainPreview, statusLabel, type RunSummary } from "./resultFormatting";
 import { queuedChatEtaText, queueEtaExplanation } from "./queueStatus";
 
 type Controller = ReturnType<typeof createChatsPageController>;
@@ -72,10 +72,7 @@ export default function ChatRow({ item, model }: Props) {
             </span>
           )}
           <strong>{item.title || "Untitled run"}</strong>
-          <span
-            title={rowStatus}
-            className={"result-dot status-" + (item.needs_attention ? "interrupted" : item.status)}
-          >
+          <span title={rowStatus} className={"result-dot status-" + chatDotStatus(item)}>
             <span className="sr-only">{rowStatus}</span>
           </span>
         </span>
