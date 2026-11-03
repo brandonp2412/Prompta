@@ -38,6 +38,8 @@ export default function ChatTranscript({
     startingNewChatFromFailure: startingNewChat,
     requestingManualRecovery,
     requestManualRecovery,
+    stopping,
+    stopJob,
     detailError,
     switchingChat,
     startFailedReplyInNewChat,
@@ -394,6 +396,14 @@ export default function ChatTranscript({
                   >
                     <RecoverChatIcon />
                     {manualRecoveryLabel()}
+                  </button>
+                  <button
+                    type="button"
+                    className="row-action chat-action-button"
+                    disabled={Boolean(stopping.value)}
+                    onClick={() => void stopJob(detail.value!.send_id)}
+                  >
+                    {stopping.value ? "Stopping chat…" : "Stop recovery"}
                   </button>
                   <span>
                     {(detail.value.manual_recovery_pending ?? 0) > 0

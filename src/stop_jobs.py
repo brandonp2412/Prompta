@@ -173,9 +173,9 @@ class StopJobService:
                     select(replies).where(
                         replies.c.send_id == send_id,
                         replies.c.status.in_(
-                            ("queued", "prepared", "dispatching", "accepted", "generating")
+                            ("queued", "prepared", "dispatching", "accepted", "generating", "interrupted", "outcome_unknown")
                         ),
-                    )
+                    ).order_by(replies.c.created_at, replies.c.reply_id)
                 )
                 .mappings()
                 .all()
@@ -183,7 +183,7 @@ class StopJobService:
         active = [
             row
             for row in pending_replies
-            if row["status"] in ("dispatching", "accepted", "generating")
+            if row["status"] in ("dispatching", "accepted", "generating", "interrupted", "outcome_unknown")
         ]
         targets: dict[tuple[str, str], tuple[str, str, bool]] = {}
         if record is not None and (
@@ -191,7 +191,9 @@ class StopJobService:
             or (record["conversation_id"] and record["status"] in ("interrupted", "unavailable"))
         ):
             targets[(str(record["conversation_id"]), str(record["message_id"]))] = ("", "", False)
-        for row in active:
+        # Only the latest reply can still generate remotely. Earlier turns
+        # are settled by a subsequent user turn, even if their capture is stale.
+        for row in active[-1:]:
             targets[(str(row["conversation_id"]), str(row["message_id"]))] = (
                 str(row["user_text"]), str(row["parent_id"]), not row["lease_owner"],
             )
