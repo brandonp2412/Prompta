@@ -124,25 +124,18 @@ def test_concurrency_rejects_non_table(tmp_path: Path) -> None:
         ConcurrencySettings.load(path)
 
 
-def test_system_prompt_defaults_to_no_prefix(tmp_path: Path) -> None:
+def test_system_prompt_defaults_to_no_addendum(tmp_path: Path) -> None:
     config = tmp_path / "missing.toml"
     assert SystemPromptSettings.load(config).text == ""
     assert prefix_system_prompt("Do the work", config_path=config) == "Do the work"
 
 
-def test_system_prompt_is_clearly_delimited_and_retains_job_body(tmp_path: Path) -> None:
+def test_system_prompt_is_appended_after_two_newlines(tmp_path: Path) -> None:
     config = tmp_path / "config.toml"
     config.write_text('[system_prompt]\ntext = "Follow these rules\\nBe brief."\n', encoding="utf-8")
     original = "Audit this code.\n[BEGIN PROMPTA SYSTEM PROMPT]"
     prepared = prefix_system_prompt(original, config_path=config)
-    assert prepared == (
-        "[BEGIN PROMPTA SYSTEM PROMPT]\n"
-        "Follow these rules\nBe brief.\n"
-        "[END PROMPTA SYSTEM PROMPT]\n\n"
-        "[BEGIN JOB PROMPT]\n"
-        f"{original}\n"
-        "[END JOB PROMPT]"
-    )
+    assert prepared == f"{original}\n\nFollow these rules\nBe brief."
 
 
 def test_system_prompt_rejects_invalid_types_and_excess_length(tmp_path: Path) -> None:

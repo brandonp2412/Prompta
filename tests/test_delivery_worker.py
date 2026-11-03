@@ -147,7 +147,7 @@ def test_manual_once_job_respects_pin_choice(tmp_path: Path, pin_chat: bool) -> 
     assert calls == [("Fire me", pin_chat)]
 
 
-def test_system_prompt_prefix_is_sent_once_without_changing_stored_job(
+def test_system_prompt_addendum_is_sent_once_without_changing_stored_job(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from prompta.config import prefix_system_prompt
@@ -174,11 +174,7 @@ def test_system_prompt_prefix_is_sent_once_without_changing_stored_job(
     _deliver_one(
         queue, sender, runtime, ServiceHealthStore(tmp_path / "health.sqlite3"), "worker", record
     )
-    assert messages == [
-        "[BEGIN PROMPTA SYSTEM PROMPT]\nAlways use NZ English.\n"
-        "[END PROMPTA SYSTEM PROMPT]\n\n"
-        "[BEGIN JOB PROMPT]\nRun the audit\n[END JOB PROMPT]"
-    ]
+    assert messages == ["Run the audit\n\nAlways use NZ English."]
     stored = queue.get(str(record["send_id"]))
     assert stored is not None and stored["message"] == "Run the audit"
 

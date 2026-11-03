@@ -77,22 +77,15 @@ class ConnectorApproval(SettingsSection):
 
 
 class SystemPromptSettings(SettingsSection):
-    """Plain-text instructions prepended to new Prompta job messages."""
+    """Plain-text instructions appended to new Prompta job messages."""
 
     section = "system_prompt"
     text: str = Field(default="", max_length=16_000)
 
 
 def prefix_system_prompt(message: str, *, config_path: Path = DEFAULT_CONFIG_PATH) -> str:
-    """Build a labeled job message without altering the stored source prompt."""
+    """Append instructions without altering the stored source prompt."""
     instructions = SystemPromptSettings.load(config_path).text.strip()
     if not instructions:
         return message
-    return (
-        "[BEGIN PROMPTA SYSTEM PROMPT]\n"
-        f"{instructions}\n"
-        "[END PROMPTA SYSTEM PROMPT]\n\n"
-        "[BEGIN JOB PROMPT]\n"
-        f"{message}\n"
-        "[END JOB PROMPT]"
-    )
+    return f"{message}\n\n{instructions}"
