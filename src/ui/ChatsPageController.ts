@@ -1323,6 +1323,11 @@ export function createChatsPageController(initialProps: Props) {
     ) {
       return { ok: false, message: "Wait for the current response to finish." };
     }
+    // A concluded answer already contains the context needed by the next task.
+    // Start a separate chat instead of reopening and recovering its old branch.
+    if (latest.status === "completed" && latest.assistant_text.trim()) {
+      return sendFresh(freshContinuationPrompt(text), [], "completed-chat:" + sendId);
+    }
     if (!latest.conversation_id) {
       return {
         ok: false,

@@ -13796,6 +13796,7 @@ function createChatsPageController(initialProps) {
 			ok: false,
 			message: "Wait for the current response to finish."
 		};
+		if (latest.status === "completed" && latest.assistant_text.trim()) return sendFresh(freshContinuationPrompt(text), [], "completed-chat:" + sendId);
 		if (!latest.conversation_id) return {
 			ok: false,
 			fallbackAvailable: true,
@@ -22306,7 +22307,6 @@ function ChatsPage(props) {
 						onSend: selectedRunId.value ? sendReply : sendFresh,
 						onFallbackSend: (text) => sendFresh(freshContinuationPrompt(text), originalImageRefs()),
 						offerFreshContinuation: Boolean(selectedRunId.value && detail.value?.send_id === selectedRunId.value && !detail.value.conversation_id && !turns.value.at(-1)?.conversation_id && [
-							"completed",
 							"interrupted",
 							"unavailable",
 							"outcome_unknown"

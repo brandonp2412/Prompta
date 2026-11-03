@@ -327,7 +327,7 @@ export default function ChatsPage(props: Props & { serverName: string }) {
                   detail.value?.send_id === selectedRunId.value &&
                   !detail.value.conversation_id &&
                   !turns.value.at(-1)?.conversation_id &&
-                  ["completed", "interrupted", "unavailable", "outcome_unknown"].includes(
+                  ["interrupted", "unavailable", "outcome_unknown"].includes(
                     turns.value.at(-1)?.status ?? "",
                   ),
                 )}

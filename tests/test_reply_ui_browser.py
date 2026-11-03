@@ -157,6 +157,79 @@ def test_terminal_chat_send_is_enabled_and_routes_safely(
             browser.close()
 
 
+@pytest.mark.parametrize("width,height", [(390, 844), (1440, 900)])
+def test_concluded_chat_reply_starts_fresh_chat_without_recovery(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    width: int,
+    height: int,
+) -> None:
+    chromium = Path(os.environ.get("PROMPTA_TEST_CHROMIUM", "/usr/bin/chromium"))
+    if not chromium.is_file():
+        pytest.skip("Chromium unavailable")
+    import prompta.web as web_module
+
+    monkeypatch.setattr(
+        web_module, "_STATIC_ROOT", Path(__file__).resolve().parents[1] / "src/static"
+    )
+    send_id = "old-concluded"
+    final_answer = "The implementation is complete and all tests passed."
+    with server(tmp_path) as (app, port), sync_patchright() as patchright:
+        app.results.ensure_queued(send_id, "Implement the feature", now=100)
+        assert app.results.accept(send_id, "test:owner", deadline=300, now=101)
+        assert app.results.write(
+            send_id,
+            "test:owner",
+            CaptureResult(
+                "sse", "complete", final_answer, CONVERSATION, ASSISTANT, USER
+            ),
+            now=102,
+        )
+        browser = patchright.chromium.launch(
+            executable_path=str(chromium), headless=True, args=["--no-sandbox"]
+        )
+        try:
+            page = browser.new_page(viewport={"width": width, "height": height})
+            fresh: list[dict[str, object]] = []
+            old_branch_requests: list[str] = []
+
+            def fresh_route(route: Route) -> None:
+                payload = json_object(route.request.post_data or "{}", label="new chat")
+                fresh.append(payload)
+                route.fulfill(
+                    status=202,
+                    content_type="application/json",
+                    body=json.dumps(
+                        {"send_id": "manual-" + str(payload["request_id"]), "status": "queued"}
+                    ),
+                )
+
+            def old_branch_route(route: Route) -> None:
+                old_branch_requests.append(route.request.url)
+                route.fulfill(status=409)
+
+            page.route("**/api/chats", fresh_route)
+            page.route(f"**/api/results/{send_id}/reply-queue", old_branch_route)
+            page.route(f"**/api/results/{send_id}/reply-recover", old_branch_route)
+            page.goto(f"http://127.0.0.1:{port}/?view=chats&run={send_id}")
+            field = page.get_by_role("textbox", name="Message for current chat")
+            expect(field).to_be_visible()
+            field.fill("Please add a follow-up improvement")
+            with page.expect_request("**/api/chats"):
+                page.get_by_role("button", name="Send reply").click()
+            expect(page).to_have_url(re.compile(r"\?view=chats&run=manual-[a-f0-9]{32}$"))
+            assert len(fresh) == 1
+            assert old_branch_requests == []
+            prompt = fresh[0]["prompt"]
+            assert isinstance(prompt, str)
+            assert prompt.startswith("Last saved assistant result:\n" + final_answer)
+            assert prompt.endswith("New user message:\nPlease add a follow-up improvement")
+            original = app.results.get(send_id)
+            assert original is not None and original["status"] == "completed"
+        finally:
+            browser.close()
+
+
 def test_queued_reply_does_not_wait_for_exact_parent_recovery(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
