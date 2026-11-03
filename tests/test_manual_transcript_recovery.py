@@ -160,8 +160,8 @@ def test_requested_chat_is_next_without_local_delay_and_is_consumed_once(
     assert older is not None and older["status"] == "completed"
     assert newer is not None and newer["status"] == "interrupted"
     assert store.manual_recovery_pending("older-requested") == 0
-    assert not worker.recover_once(now=449)  # Five-minute account-wide gate.
-    assert worker.recover_once(now=450)
+    assert not worker.recover_once(now=209)  # One-minute manual read gate.
+    assert worker.recover_once(now=210)
     recovered = store.get("newer-backlog")
     assert recovered is not None and recovered["status"] == "completed"
     assert seen == ["read", "read"]
@@ -235,8 +235,8 @@ def test_failed_requested_probe_remains_queued_for_eventual_recovery(
         return CaptureResult("dom", "complete", "Recovered", CONVERSATION, None, None, "observer")
 
     monkeypatch.setattr(worker, "_read_original_response", recovered)
-    assert not worker.recover_once(now=449)
-    assert worker.recover_once(now=450)
+    assert not worker.recover_once(now=209)
+    assert worker.recover_once(now=210)
     assert _status(store, "incomplete-target") == "completed"
     assert store.manual_recovery_pending("incomplete-target") == 0
 

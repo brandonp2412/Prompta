@@ -38,6 +38,6 @@ def test_concurrent_workers_cannot_reuse_the_same_history_read_slot(tmp_path: Pa
 
     assert results.count(True) == 1
     assert sum(driver.visited.count("connect") for driver in drivers) == 1
-    assert initial.history_recovery_global_pace_remaining(now=151) == 299
+    assert initial.history_recovery_global_pace_remaining(now=151) == 59
     saved = [initial.get(send_id) for send_id in ("manual-first", "manual-second")]
     assert sum(record is not None and record["status"] == "completed" for record in saved) == 1

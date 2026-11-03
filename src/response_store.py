@@ -43,6 +43,9 @@ class ResultsPage(TypedDict):
 
 
 HISTORY_READ_INTERVAL_SECONDS = 5 * 60.0
+# User-requested read-only recoveries share a shorter, account-wide slot.
+# Actual 429 / security pauses still override this interval.
+MANUAL_HISTORY_READ_INTERVAL_SECONDS = 60.0
 _MAX_TEXT = 2 * 1024 * 1024
 
 

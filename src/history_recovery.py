@@ -25,7 +25,11 @@ from .patchright_driver import BrowserSecurityChallengeError
 from .rate_limit import RateLimitError, is_rate_limited_text
 from .reply_contracts import ManualReplyStore
 from .response_capture import CaptureResult, normalize_dom_snapshot
-from .response_store import HISTORY_READ_INTERVAL_SECONDS, ResponseStore
+from .response_store import (
+    HISTORY_READ_INTERVAL_SECONDS,
+    MANUAL_HISTORY_READ_INTERVAL_SECONDS,
+    ResponseStore,
+)
 from .scheduler_runtime import SchedulerRuntime
 from .strict_types import int_value
 
@@ -445,7 +449,10 @@ class HistoryRecovery:
         if candidate is None:
             return False
         if not self.results.reserve_history_recovery_global_slot(
-            now=at, interval=HISTORY_READ_INTERVAL_SECONDS,
+            now=at, interval=(
+                MANUAL_HISTORY_READ_INTERVAL_SECONDS
+                if manual_target else HISTORY_READ_INTERVAL_SECONDS
+            ),
         ):
             return False
         reply_id = str(candidate["reply_id"]) if "reply_id" in candidate else ""
@@ -586,7 +593,7 @@ def run_history_recovery(
             results.recover_orphans()
             recovery.replies.recover_orphans()
             current = time.monotonic()
-            if current - last_checked_at >= HISTORY_READ_INTERVAL_SECONDS:
+            if current - last_checked_at >= MANUAL_HISTORY_READ_INTERVAL_SECONDS:
                 if (
                     results.history_recovery_security_pause_remaining() <= 0
                     and results.history_recovery_global_pace_remaining() <= 0
