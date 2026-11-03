@@ -53,7 +53,7 @@ def test_stop_active_job_clicks_exact_chat_and_preserves_partial(
     assert service.results.next_history_recovery() is None
 
 
-def test_failed_browser_stop_keeps_capture_active(
+def test_failed_browser_stop_still_revokes_local_capture(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     service = StopJobService(tmp_path / "runtime.sqlite3")
@@ -68,12 +68,12 @@ def test_failed_browser_stop_keeps_capture_active(
         return False
 
     monkeypatch.setattr(stop_jobs, "click_chatgpt_stop", unavailable)
-    with pytest.raises(ReplyConflict, match="not available"):
-        service.stop("active")
+    assert service.stop("active")["browser_stop_unconfirmed"] is True
     detail = service.results.get("active")
-    assert detail is not None and detail["status"] == "generating"
-    assert detail["capture_owner"] == "owner"
-    assert [row["send_id"] for row in service.results.local_pinned_runs()] == ["active"]
+    assert detail is not None and detail["status"] == "stopped"
+    assert detail["capture_owner"] == ""
+    assert detail["assistant_text"] == "Partial"
+    assert service.results.local_pinned_runs() == []
 
 
 def test_stop_queued_replies_keeps_completed_original(tmp_path: Path) -> None:

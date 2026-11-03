@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import time
 from pathlib import Path
@@ -21,6 +22,7 @@ from .response_capture import conversation_id_from_path
 from .response_store import ResponseStore
 from .response_tables import local_chat_pins, manual_recovery_requests, results
 
+logger = logging.getLogger(__name__)
 _STOP_LOOKUP_SECONDS = 20.0
 
 
@@ -202,11 +204,11 @@ class StopJobService:
                 "This job is still starting. Try Stop again once ChatGPT accepts it."
             )
         browser_stopped = False
+        browser_stop_unconfirmed = False
         for (conversation, message), (reply_text, parent_id, ownerless) in targets.items():
             if not conversation:
-                raise ReplyConflict(
-                    "The ChatGPT conversation is not available yet. Try Stop again shortly."
-                )
+                browser_stop_unconfirmed = True
+                continue
             try:
                 clicked = asyncio.run(click_chatgpt_stop(conversation, message)) if message else False
                 verified = clicked
@@ -216,11 +218,11 @@ class StopJobService:
                         reply_text=reply_text, parent_id=parent_id, allow_missing_reply=ownerless,
                     ))
             except Exception as exc:
-                raise ReplyConflict("Could not reach ChatGPT's Stop button. Try again.") from exc
+                logger.warning("Remote stop unavailable error_type=%s", type(exc).__name__)
+                verified = False
+                clicked = False
             if not verified:
-                raise ReplyConflict(
-                    "ChatGPT's Stop button was not available in the matching tab. Refresh and try again."
-                )
+                browser_stop_unconfirmed = True
             browser_stopped = browser_stopped or clicked
         at = time.time()
         with self.results.engine.begin() as connection:
@@ -269,4 +271,9 @@ class StopJobService:
             connection.execute(
                 delete(local_chat_pins).where(local_chat_pins.c.send_id == send_id)
             )
-        return {"ok": True, "cancelled_pending": cancelled, "browser_stopped": browser_stopped}
+        outcome: dict[str, object] = {
+            "ok": True, "cancelled_pending": cancelled, "browser_stopped": browser_stopped,
+        }
+        if browser_stop_unconfirmed:
+            outcome["browser_stop_unconfirmed"] = True
+        return outcome

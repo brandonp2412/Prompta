@@ -1456,6 +1456,9 @@ export function createChatsPageController(initialProps: Props) {
         : await localPost("./api/results/" + encodeURIComponent(id) + "/stop", {});
       if (!response.ok)
         throw new Error(await localRejectionDetail(response, "Could not stop this job."));
+      const outcome = (await response.json()) as { browser_stop_unconfirmed?: boolean };
+      if (outcome.browser_stop_unconfirmed)
+        notify("Stopped in Prompta. ChatGPT stop could not be confirmed.", "error");
       refresh();
     } catch (error) {
       stopError.value =
