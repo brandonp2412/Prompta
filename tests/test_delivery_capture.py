@@ -16,7 +16,7 @@ from prompta.delivery_browser import (
     DeliveryBackendUnavailableError,
 )
 from prompta.reply_contracts import ManualReplyStore, ReplyIntent
-from prompta.response_capture import CaptureResult, normalize_dom_snapshot
+from prompta.response_capture import CaptureResult, normalize_dom_snapshot, parse_sse_body
 
 
 @pytest.mark.asyncio
@@ -262,6 +262,46 @@ async def test_accepted_owned_chat_persists_url_and_backend_reply_identity(tmp_p
     )
     assert reply["status"] == "prepared" and reply["parent_id"] == answer
     assert driver.sends == 1 and driver.closed_contexts == ["fresh-tab"]
+
+
+@pytest.mark.asyncio
+async def test_streamed_opening_commentary_is_saved_before_tool_or_final(
+    tmp_path: Path,
+) -> None:
+    """A commentary-only SSE frame must be persisted before the first tool call."""
+
+    opening = parse_sse_body(
+        'data: {"message":{"id":"opening","author":{"role":"assistant"},'
+        '"recipient":"all","channel":"commentary",'
+        '"content":{"content_type":"text","parts":["Starting now."]}}}\n\n'
+    )
+    assert opening.text == "" and opening.display_blocks
+
+    class CommentaryDriver(FakeDriver):
+        def __init__(self) -> None:
+            super().__init__()
+            self.capture["sse_stream"] = True
+
+        async def wait_capture_update(self, *, timeout: float) -> CaptureResult | None:
+            self.is_connected = False
+            return None
+
+        def captured_assistant_response(
+            self, _capture: dict[str, object],
+        ) -> CaptureResult | None:
+            return opening
+
+    driver = CommentaryDriver()
+    sender = BrowserDeliverySender(tmp_path / "runtime.sqlite3", connector_approval=False)
+    sender.results.ensure_queued("sse-opening", "Open with commentary")
+    assert sender.results.accept("sse-opening", "100:owner", deadline=time.time() + 10)
+    await sender._capture_until_complete(
+        driver, driver.capture, "sse-opening", "100:owner",
+        deadline=asyncio.get_running_loop().time() + 10,
+    )
+    detail = sender.results.detail("sse-opening")
+    assert detail is not None
+    assert detail["display_blocks"] == list(opening.display_blocks)
 
 
 @pytest.mark.asyncio

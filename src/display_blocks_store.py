@@ -7,7 +7,8 @@ import re
 
 _MAX_BLOCKS = 256
 _MAX_CHARS = 2 * 1024 * 1024
-_ID_PATTERN = re.compile(r"^(?:text|dom-tool)-[0-9]{1,3}$")
+_ID_PATTERN = re.compile(r"^(?:(?:text|dom-tool)-[0-9]{1,3}|sse-(?:text|tool)-[0-9a-f]{24})$")
+_CALL_ID_PATTERN = re.compile(r"^[A-Za-z0-9_.:-]{1,100}$")
 
 
 def normalize_display_blocks(value: object) -> tuple[dict[str, str], ...]:
@@ -20,16 +21,22 @@ def normalize_display_blocks(value: object) -> tuple[dict[str, str], ...]:
             continue
         kind = candidate.get("kind")
         identity = candidate.get("id")
-        if (kind not in ("text", "tool") or not isinstance(identity, str)
-                or not _ID_PATTERN.fullmatch(identity)):
+        if (
+            kind not in ("text", "tool")
+            or not isinstance(identity, str)
+            or not _ID_PATTERN.fullmatch(identity)
+        ):
             continue
         if kind == "tool":
-            if not identity.startswith("dom-tool-"):
-                continue
-            items.append({"kind": "tool", "id": identity})
+            if identity.startswith("dom-tool-"):
+                items.append({"kind": "tool", "id": identity})
+            elif identity.startswith("sse-tool-"):
+                tool_id = candidate.get("tool_id")
+                if isinstance(tool_id, str) and _CALL_ID_PATTERN.fullmatch(tool_id):
+                    items.append({"kind": "tool", "id": identity, "tool_id": tool_id})
             continue
         raw_text = candidate.get("text")
-        if not identity.startswith("text-") or not isinstance(raw_text, str):
+        if not identity.startswith(("text-", "sse-text-")) or not isinstance(raw_text, str):
             continue
         text = raw_text.strip()
         if not text or length + len(text) > _MAX_CHARS:
@@ -52,8 +59,7 @@ def deserialize_display_blocks(value: object) -> list[dict[str, str]]:
 def display_blocks_text(value: object) -> str:
     """User-visible Markdown prose in the same order as retained tool markers."""
     return "\n\n".join(
-        block["text"] for block in deserialize_display_blocks(value)
-        if block["kind"] == "text"
+        block["text"] for block in deserialize_display_blocks(value) if block["kind"] == "text"
     )[:_MAX_CHARS]
 
 
@@ -72,33 +78,64 @@ def merge_display_blocks(previous: object, incoming: tuple[dict[str, str], ...])
     for block in normalize_display_blocks(list(incoming)):
         identity = block["id"]
         kind = block["kind"]
+        stable = identity.startswith("sse-")
         if kind == "tool":
-            index = next((i for i, prior in enumerate(merged)
-                          if prior["id"] == identity and prior["kind"] == "tool"), None)
+            index = next(
+                (
+                    i
+                    for i, prior in enumerate(merged)
+                    if prior["id"] == identity and prior["kind"] == "tool"
+                ),
+                None,
+            )
             if index is not None:
                 matched.add(index)
                 continue
         else:
             incoming_text = block["text"]
+            stable_index = (
+                next(
+                    (
+                        i
+                        for i, prior in enumerate(merged)
+                        if prior["id"] == identity and prior["kind"] == "text"
+                    ),
+                    None,
+                )
+                if stable
+                else None
+            )
             candidates = [
                 (i, prior["text"])
                 for i, prior in enumerate(merged)
-                if i not in matched and prior["kind"] == "text"
+                if i not in matched
+                and prior["kind"] == "text"
+                and (not stable or not prior["id"].startswith("sse-"))
             ]
             exact = next((i for i, text in candidates if text == incoming_text), None)
             growing = max(
-                ((len(text), i) for i, text in candidates
-                 if incoming_text.startswith(text)),
+                ((len(text), i) for i, text in candidates if incoming_text.startswith(text)),
                 default=None,
             )
             shrinking = max(
-                ((len(incoming_text), i) for i, text in candidates
-                 if text.startswith(incoming_text)),
+                (
+                    (len(incoming_text), i)
+                    for i, text in candidates
+                    if text.startswith(incoming_text)
+                ),
                 default=None,
             )
-            index = exact if exact is not None else (
-                growing[1] if growing is not None else (
-                    shrinking[1] if shrinking is not None else None
+            index = (
+                stable_index
+                if stable_index is not None
+                else (
+                    exact
+                    if exact is not None
+                    else (
+                        growing[1]
+                        if growing is not None
+                        else (shrinking[1] if shrinking is not None else None)
+                    )
                 )
             )
             if index is not None:

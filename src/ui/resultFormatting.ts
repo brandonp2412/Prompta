@@ -64,7 +64,7 @@ export type CapturedToolCall = {
 
 export type DisplayBlock =
   | { kind: "text"; id: string; text: string }
-  | { kind: "tool"; id: string };
+  | { kind: "tool"; id: string; tool_id?: string };
 
 export type LocalTurn = {
   reply_id: string;
@@ -78,6 +78,7 @@ export type LocalTurn = {
   status:
     | ResultStatus
     | "cancelled"
+    | "merged"
     | "prepared"
     | "preflight_failed"
     | "dispatching"
@@ -145,6 +146,8 @@ export function responseBadge(status: LocalTurn["status"]): string {
       return "Waiting";
     case "queued":
       return "Queued";
+    case "merged":
+      return "Appended";
     case "prepared":
       return "Pending";
   }
@@ -191,6 +194,8 @@ export function turnStatus(status: LocalTurn["status"]): string {
       return "Response unavailable";
     case "queued":
       return "Waiting for job dispatch";
+    case "merged":
+      return "Appended to first prompt";
     case "cancelled":
     case "stopped":
       return "Stopped";

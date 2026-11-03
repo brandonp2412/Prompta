@@ -71,12 +71,13 @@ export default function ToolCalls({
   turnTimestamp?: number;
 }) {
   if (!calls.length) return null;
-  const groups = new Map<string, CapturedToolCall[]>();
+  // Collapse adjacent identical actions only; A → B → A must stay A → B → A.
+  const groups: { key: string; calls: CapturedToolCall[] }[] = [];
   for (const call of calls) {
     const key = JSON.stringify([call.connector, call.action]);
-    const group = groups.get(key);
-    if (group) group.push(call);
-    else groups.set(key, [call]);
+    const last = groups.at(-1);
+    if (last?.key === key) last.calls.push(call);
+    else groups.push({ key, calls: [call] });
   }
   const failures = calls.filter((call) => call.status === "error" || call.error).length;
   return (
@@ -105,12 +106,12 @@ export default function ToolCalls({
         {failures > 0 && <span className="tool-failure-count">{failures} failed</span>}
       </div>
       <div className="tool-call-list">
-        {Array.from(groups, ([key, group]) => {
+        {groups.map(({ key, calls: group }, groupIndex) => {
           const times = groupObservedTimes(group, turnTimestamp);
           const firstLabel = times ? chatMessageTime(times.first) : "";
           const lastLabel = times ? chatMessageTime(times.last) : "";
           return (
-            <details className="tool-type-group" key={key}>
+            <details className="tool-type-group" key={`${key}-${groupIndex}`}>
               <summary>
                 <span className="tool-type-label">
                   {title(group[0])} · {group.length} {group.length === 1 ? "call" : "calls"}

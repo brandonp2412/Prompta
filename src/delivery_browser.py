@@ -463,6 +463,7 @@ class BrowserDeliverySender:
         dom_completed_at: float | None = None
         empty_reasoning_since: float | None = None
         seen_tool_calls: tuple[dict[str, object], ...] = ()
+        seen_sse_blocks: tuple[dict[str, str], ...] = ()
         if capture.get("sse_stream"):
             # The stream may start before the passive observer's first wait.
             self.results.mark_generating(send_id, owner)
@@ -553,6 +554,7 @@ class BrowserDeliverySender:
                     sse is not None
                     and sse.ended_without_answer
                     and not sse.tool_calls
+                    and not sse.display_blocks
                     and pending is None
                 ):
                     if empty_reasoning_since is None:
@@ -579,13 +581,17 @@ class BrowserDeliverySender:
                     # An owned, successful event stream is live generation even
                     # when only thinking/tool activity is visible so far.
                     self.results.mark_generating(send_id, owner)
-                if sse is not None and sse.tool_calls and sse.tool_calls != seen_tool_calls:
-                    # Tool-only SSE may finish before any user-facing answer exists.
-                    # Persist its redacted events against this unique owned lease.
+                if sse is not None and (
+                    (sse.tool_calls and sse.tool_calls != seen_tool_calls)
+                    or (sse.display_blocks and sse.display_blocks != seen_sse_blocks)
+                ):
+                    # The opening commentary can arrive before any tool or final
+                    # assistant message. Persist ordered SSE blocks on each change.
                     if not self.results.write(send_id, owner, sse):
                         final_status = "unavailable"
                         break
                     seen_tool_calls = sse.tool_calls
+                    seen_sse_blocks = sse.display_blocks
                 if sse is not None and sse.status == "complete":
                     update = sse
                 elif update is None and sse is not None and sse.text:

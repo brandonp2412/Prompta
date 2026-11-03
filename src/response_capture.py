@@ -6,6 +6,7 @@ The caller feeds only bytes already observed on its own submitted POST.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from dataclasses import dataclass
@@ -124,6 +125,28 @@ def _is_final_assistant(message: dict[str, object]) -> bool:
     return True
 
 
+def _visible_assistant_text(message: dict[str, object]) -> bool:
+    """Only user-visible commentary and final prose; never private analysis."""
+    if _record(message.get("author")).get("role") != "assistant":
+        return False
+    if message.get("recipient") not in (None, "all"):
+        return False
+    metadata = _record(message.get("metadata"))
+    if metadata.get("is_visually_hidden_from_conversation") is True:
+        return False
+    if metadata.get("message_type") in ("analysis", "thought", "reasoning_recap"):
+        return False
+    for channel in (message.get("channel"), metadata.get("channel")):
+        if channel not in (None, "commentary", "final"):
+            return False
+    return _record(message.get("content")).get("content_type") == "text"
+
+
+def _sse_block_id(kind: str, message_id: str) -> str:
+    digest = hashlib.sha256(message_id.encode("utf-8")).hexdigest()[:24]
+    return f"sse-{kind}-{digest}"
+
+
 def _message_complete(message: dict[str, object]) -> bool:
     return (
         message.get("status") == "finished_successfully"
@@ -154,6 +177,11 @@ class SseResponseAccumulator:
         self.stream_error = False
         self._tools = tool_collector if tool_collector is not None else ToolEventCollector()
         self._tool_message: dict[str, object] | None = None
+        self._visible_message_id: str | None = None
+        self._visible_parts: list[str] = []
+        self._visible_parts_by_id: dict[str, list[str]] = {}
+        self._display_blocks: list[dict[str, str]] = []
+        self._visible_indices: dict[str, int] = {}
 
     def feed(self, chunk: str) -> None:
         if not chunk or self._overflow:
@@ -210,6 +238,83 @@ class SseResponseAccumulator:
             else:
                 self._parent_id = parent
 
+    def _remember_visible(self, message: dict[str, object], *, is_tool: bool) -> None:
+        self._visible_message_id = None
+        if is_tool:
+            identifier = _string(message.get("id"))
+            if (
+                identifier
+                and len(self._display_blocks) < 256
+                and any(call.get("id") == identifier for call in self._tools.snapshot())
+            ):
+                block_id = _sse_block_id("tool", identifier)
+                if not any(block["id"] == block_id for block in self._display_blocks):
+                    self._display_blocks.append(
+                        {
+                            "kind": "tool",
+                            "id": block_id,
+                            "tool_id": identifier,
+                        }
+                    )
+            return
+        if not _visible_assistant_text(message):
+            return
+        identifier = _string(message.get("id"))
+        if not identifier:
+            return
+        self._visible_message_id = identifier
+        parts = _message_parts(message)
+        index = self._visible_indices.get(identifier)
+        if index is None:
+            if len(self._display_blocks) >= 256:
+                self._visible_message_id = None
+                return
+            index = len(self._display_blocks)
+            self._visible_indices[identifier] = index
+            self._display_blocks.append(
+                {
+                    "kind": "text",
+                    "id": _sse_block_id("text", identifier),
+                    "text": "",
+                }
+            )
+            self._visible_parts_by_id[identifier] = parts
+        elif len("\n".join(parts)) >= len("\n".join(self._visible_parts_by_id[identifier])):
+            self._visible_parts_by_id[identifier] = parts
+        self._visible_parts = self._visible_parts_by_id[identifier]
+        self._refresh_visible_text()
+
+    def _refresh_visible_text(self) -> None:
+        if self._visible_message_id is None:
+            return
+        index = self._visible_indices[self._visible_message_id]
+        text = "\n".join(part for part in self._visible_parts if part).strip()
+        self._display_blocks[index]["text"] = text[:_MAX_ANSWER_CHARACTERS]
+
+    def _patch_visible_text(self, patch: dict[str, object]) -> None:
+        if self._visible_message_id is None:
+            return
+        path = _string(patch.get("p"))
+        match = _PART_PATH.fullmatch(
+            "/message/content/parts/0" if path in (None, "/message/content/text") else path
+        )
+        value = patch.get("v")
+        if match is None or not isinstance(value, str):
+            return
+        index = int(match.group(1))
+        if index > 16:
+            return
+        while len(self._visible_parts) <= index:
+            self._visible_parts.append("")
+        operation = patch.get("o")
+        if operation in (None, "append"):
+            self._visible_parts[index] += value
+        elif operation in ("replace", "add"):
+            self._visible_parts[index] = value
+        else:
+            return
+        self._refresh_visible_text()
+
     def _consume_message(
         self,
         message: dict[str, object],
@@ -224,6 +329,7 @@ class SseResponseAccumulator:
             # Boolean liveness evidence only; never retain thoughts or their text.
             self._saw_reasoning = True
         is_tool = self._tools.observe(message)
+        self._remember_visible(message, is_tool=is_tool)
         self._tool_message = message if is_tool else None
         if is_tool:
             self._bind_identity(conversation_id, None)
@@ -276,6 +382,7 @@ class SseResponseAccumulator:
                     self._tool_message["content"] = content
                     self._tools.observe(self._tool_message)
             return
+        self._patch_visible_text(patch)
         if not self._tracking or self._ambiguous:
             return
         path = _string(patch.get("p"))
@@ -319,9 +426,7 @@ class SseResponseAccumulator:
             return
         message = _record(event.get("message"))
         if message:
-            self._consume_message(
-                message, event.get("conversation_id"), event.get("parent_id")
-            )
+            self._consume_message(message, event.get("conversation_id"), event.get("parent_id"))
             return
         operation = event.get("o")
         value = event.get("v")
@@ -335,9 +440,7 @@ class SseResponseAccumulator:
             )
             return
         if operation in ("add", "replace") and event.get("p") == "/message" and wrapped:
-            self._consume_message(
-                wrapped, event.get("conversation_id"), event.get("parent_id")
-            )
+            self._consume_message(wrapped, event.get("conversation_id"), event.get("parent_id"))
             return
         if isinstance(value, list) and operation in (None, "patch"):
             for item in value:
@@ -364,7 +467,12 @@ class SseResponseAccumulator:
         else:
             status = "unknown"
         return CaptureResult(
-            "sse", status, text, self._conversation_id, self._message_id, self._parent_id,
+            "sse",
+            status,
+            text,
+            self._conversation_id,
+            self._message_id,
+            self._parent_id,
             tool_calls=self._tools.snapshot(),
             ended_without_answer=self._complete
             and self._saw_reasoning
@@ -372,6 +480,7 @@ class SseResponseAccumulator:
             and not self._seen_final
             and not self._ambiguous,
             stream_error=self.stream_error,
+            display_blocks=normalize_display_blocks(self._display_blocks),
         )
 
 
@@ -433,8 +542,13 @@ def normalize_dom_snapshot(
         except ValueError:
             branch_id = None
     return CaptureResult(
-        "dom", status, text, conversation_id_from_path(record.get("pathname")),
-        branch_id, _string(record.get("verified_parent_id")), identity,
+        "dom",
+        status,
+        text,
+        conversation_id_from_path(record.get("pathname")),
+        branch_id,
+        _string(record.get("verified_parent_id")),
+        identity,
         tool_calls=normalize_dom_tool_calls(record.get("tool_calls")),
         verified_generating=record.get("generating") is True and record.get("complete") is not True,
         display_blocks=normalize_display_blocks(record.get("display_blocks")),

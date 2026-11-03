@@ -26,7 +26,9 @@ export function orderedActivity(turn: LocalTurn): Activity[] {
       continue;
     }
     const index = Number(block.id.replace(/^dom-tool-/, ""));
-    const call = calls.find((candidate) => candidate.id === block.id) ?? calls[index];
+    const call =
+      calls.find((candidate) => candidate.id === (block.tool_id ?? block.id)) ??
+      (block.id.startsWith("dom-tool-") ? calls[index] : undefined);
     if (!call || claimed.has(call.id)) continue;
     claimed.add(call.id);
     const last = activity.at(-1);

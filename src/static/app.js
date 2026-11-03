@@ -12530,6 +12530,8 @@ function mergeConfirmedTurns(stored, previous) {
 	}), ...stored.filter((turn) => !previousIds.has(turn.reply_id))];
 }
 function recoverVisibleTurns(stored, previous, original, sameRun) {
+	stored = stored?.filter((turn) => turn.status !== "merged") ?? null;
+	previous = previous.filter((turn) => turn.status !== "merged");
 	let confirmed;
 	if (stored?.length) confirmed = sameRun && previous.length ? mergeConfirmedTurns(stored, previous) : stored;
 	else if (sameRun && previous.length && (stored === null || previous.length > 1)) confirmed = previous;
@@ -12829,6 +12831,7 @@ function queuedFollowupReceiptState(turn, sendId, replyId, text) {
 	if (turn.status === "outcome_unknown") return "uncertain";
 	return [
 		"queued",
+		"merged",
 		"prepared",
 		"preflight_failed",
 		"dispatching",
@@ -14236,6 +14239,7 @@ function responseBadge(status) {
 		case "dispatching": return "Sending";
 		case "accepted": return "Waiting";
 		case "queued": return "Queued";
+		case "merged": return "Appended";
 		case "prepared": return "Pending";
 	}
 }
@@ -14262,6 +14266,7 @@ function turnStatus(status) {
 		case "interrupted": return "Response capture interrupted";
 		case "unavailable": return "Response unavailable";
 		case "queued": return "Waiting for job dispatch";
+		case "merged": return "Appended to first prompt";
 		case "cancelled":
 		case "stopped": return "Stopped";
 		case "completed": return "Completed";
@@ -21572,12 +21577,15 @@ function clockTime(epoch) {
 }
 function ToolCalls({ calls, turnTimestamp }) {
 	if (!calls.length) return null;
-	const groups = /* @__PURE__ */ new Map();
+	const groups = [];
 	for (const call of calls) {
 		const key = JSON.stringify([call.connector, call.action]);
-		const group = groups.get(key);
-		if (group) group.push(call);
-		else groups.set(key, [call]);
+		const last = groups.at(-1);
+		if (last?.key === key) last.calls.push(call);
+		else groups.push({
+			key,
+			calls: [call]
+		});
 	}
 	const failures = calls.filter((call) => call.status === "error" || call.error).length;
 	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", {
@@ -21642,7 +21650,7 @@ function ToolCalls({ calls, turnTimestamp }) {
 			]
 		}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 			className: "tool-call-list",
-			children: Array.from(groups, ([key, group]) => {
+			children: groups.map(({ key, calls: group }, groupIndex) => {
 				const times = groupObservedTimes(group, turnTimestamp);
 				const firstLabel = times ? chatMessageTime(times.first) : "";
 				const lastLabel = times ? chatMessageTime(times.last) : "";
@@ -21722,7 +21730,7 @@ function ToolCalls({ calls, turnTimestamp }) {
 							})
 						]
 					}, call.id || index))]
-				}, key);
+				}, `${key}-${groupIndex}`);
 			})
 		})]
 	});
@@ -21754,7 +21762,7 @@ function orderedActivity(turn) {
 			continue;
 		}
 		const index = Number(block.id.replace(/^dom-tool-/, ""));
-		const call = calls.find((candidate) => candidate.id === block.id) ?? calls[index];
+		const call = calls.find((candidate) => candidate.id === (block.tool_id ?? block.id)) ?? (block.id.startsWith("dom-tool-") ? calls[index] : void 0);
 		if (!call || claimed.has(call.id)) continue;
 		claimed.add(call.id);
 		const last = activity.at(-1);
