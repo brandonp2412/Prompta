@@ -147,6 +147,42 @@ def test_manual_once_job_respects_pin_choice(tmp_path: Path, pin_chat: bool) -> 
     assert calls == [("Fire me", pin_chat)]
 
 
+def test_system_prompt_prefix_is_sent_once_without_changing_stored_job(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from prompta.config import prefix_system_prompt
+
+    config = tmp_path / "config.toml"
+    config.write_text('[system_prompt]\ntext = "Always use NZ English."\n', encoding="utf-8")
+    monkeypatch.setattr(
+        "prompta.delivery_worker.prefix_system_prompt",
+        lambda message: prefix_system_prompt(message, config_path=config),
+    )
+    state = tmp_path / "runtime.sqlite3"
+    queue = DeliveryQueueStore(tmp_path / "ui-send-jobs.sqlite3")
+    runtime = SchedulerRuntime(state, state)
+    add_job(state, "audit", "Run the audit", 0, run_at_epoch=1_000.0)
+    producer = DurableSchedulerProducer(state, state, queue.path)
+    assert producer.tick(now=1_000.0) == 1
+    record = queue.claim_next("worker", now=epoch_time.time(), lease_seconds=30.0)
+    assert record is not None
+    messages: list[str] = []
+
+    def sender(message: str, *, pin_chat: bool = False) -> None:
+        messages.append(message)
+
+    _deliver_one(
+        queue, sender, runtime, ServiceHealthStore(tmp_path / "health.sqlite3"), "worker", record
+    )
+    assert messages == [
+        "[BEGIN PROMPTA SYSTEM PROMPT]\nAlways use NZ English.\n"
+        "[END PROMPTA SYSTEM PROMPT]\n\n"
+        "[BEGIN JOB PROMPT]\nRun the audit\n[END JOB PROMPT]"
+    ]
+    stored = queue.get(str(record["send_id"]))
+    assert stored is not None and stored["message"] == "Run the audit"
+
+
 def test_manual_delivery_obeys_resource_admission(tmp_path: Path) -> None:
     runtime = SchedulerRuntime(tmp_path / "state.sqlite3", tmp_path / "jobs.sqlite3")
     blocked = DeliveryAdmission(runtime, resource_admission=lambda: (False, "busy"))

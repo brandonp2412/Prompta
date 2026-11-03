@@ -155,6 +155,7 @@ def test_settings_save_migrates_to_only_supported_toml_sections(
         loaded = client.get("/api/settings")
         assert loaded.status_code == 200
         assert loaded.json()["concurrency"] == {"enabled": True, "max_workers": 3}
+        assert loaded.json()["system_prompt"] == {"text": ""}
 
         rejected = client.put(
             "/api/settings",
@@ -172,15 +173,18 @@ def test_settings_save_migrates_to_only_supported_toml_sections(
             json={
                 "concurrency": {"enabled": True, "max_workers": 3},
                 "connector_approval": {"enabled": True},
+                "system_prompt": {"text": "Use NZ English.\nMake it concise: \"yes\"."},
             },
         )
         assert saved.status_code == 200
+        assert saved.json()["system_prompt"]["text"] == 'Use NZ English.\nMake it concise: "yes".'
         assert saved.json()["concurrency"]["max_workers"] == 3
 
     migrated = tomllib.loads(config_path.read_text(encoding="utf-8"))
     assert migrated == {
         "concurrency": {"enabled": True, "max_workers": 3},
         "connector_approval": {"enabled": True},
+        "system_prompt": {"text": 'Use NZ English.\nMake it concise: "yes".'},
     }
 
 

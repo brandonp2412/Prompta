@@ -17411,6 +17411,7 @@ function ChatsSidebar({ model, refs, settingsOpen: controlledSettingsOpen, setSe
 		max_workers: 3
 	});
 	const [approval, setApproval] = (0, import_react.useState)(false);
+	const [systemPrompt, setSystemPrompt] = (0, import_react.useState)("");
 	const [settingsError, setSettingsError] = (0, import_react.useState)("");
 	const [settingsReady, setSettingsReady] = (0, import_react.useState)(false);
 	const [settingsLoadKey, setSettingsLoadKey] = (0, import_react.useState)(0);
@@ -17500,9 +17501,10 @@ function ChatsSidebar({ model, refs, settingsOpen: controlledSettingsOpen, setSe
 			return response.json();
 		}).then((data) => {
 			if (controller.signal.aborted) return;
-			if (typeof data?.concurrency?.enabled !== "boolean" || !Number.isInteger(data.concurrency.max_workers) || data.concurrency.max_workers < 1 || data.concurrency.max_workers > 128 || typeof data?.connector_approval?.enabled !== "boolean") throw new Error("Invalid settings response");
+			if (typeof data?.concurrency?.enabled !== "boolean" || !Number.isInteger(data.concurrency.max_workers) || data.concurrency.max_workers < 1 || data.concurrency.max_workers > 128 || typeof data?.connector_approval?.enabled !== "boolean" || typeof data?.system_prompt?.text !== "string") throw new Error("Invalid settings response");
 			setConcurrency(data.concurrency);
 			setApproval(data.connector_approval.enabled);
+			setSystemPrompt(data.system_prompt.text);
 			setSettingsError("");
 			setSettingsReady(true);
 		}).catch(() => {
@@ -17520,7 +17522,8 @@ function ChatsSidebar({ model, refs, settingsOpen: controlledSettingsOpen, setSe
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({
 					concurrency,
-					connector_approval: { enabled: approval }
+					connector_approval: { enabled: approval },
+					system_prompt: { text: systemPrompt }
 				})
 			})).ok) throw new Error("Settings could not be saved");
 			setSettingsOpen(false);
@@ -17788,6 +17791,20 @@ function ChatsSidebar({ model, refs, settingsOpen: controlledSettingsOpen, setSe
 							})]
 						}),
 						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { children: "One global limit for new chats, replies, one-off and repeating jobs. Running work is not interrupted." }),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h3", { children: "System prompt" }),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
+							className: "settings-system-prompt",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Instructions for every new job" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("textarea", {
+								"aria-label": "System prompt instructions",
+								rows: 5,
+								maxLength: 16e3,
+								placeholder: "Optional global instructions…",
+								value: systemPrompt,
+								disabled: !settingsReady || saving,
+								onChange: (event) => setSystemPrompt(event.currentTarget.value)
+							})]
+						}),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { children: "Added before every job in clearly marked blocks. This is text in the ChatGPT message, not a system-role API message. Leave blank to disable." }),
 						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h3", { children: "Connector approval" }),
 						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
 							className: "settings-check",

@@ -74,3 +74,25 @@ class ConcurrencySettings(SettingsSection):
 class ConnectorApproval(SettingsSection):
     section = "connector_approval"
     enabled: bool = False
+
+
+class SystemPromptSettings(SettingsSection):
+    """Plain-text instructions prepended to new Prompta job messages."""
+
+    section = "system_prompt"
+    text: str = Field(default="", max_length=16_000)
+
+
+def prefix_system_prompt(message: str, *, config_path: Path = DEFAULT_CONFIG_PATH) -> str:
+    """Build a labeled job message without altering the stored source prompt."""
+    instructions = SystemPromptSettings.load(config_path).text.strip()
+    if not instructions:
+        return message
+    return (
+        "[BEGIN PROMPTA SYSTEM PROMPT]\n"
+        f"{instructions}\n"
+        "[END PROMPTA SYSTEM PROMPT]\n\n"
+        "[BEGIN JOB PROMPT]\n"
+        f"{message}\n"
+        "[END JOB PROMPT]"
+    )

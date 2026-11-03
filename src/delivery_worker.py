@@ -17,7 +17,7 @@ from typing import Protocol
 
 from sqlalchemy.exc import OperationalError
 
-from .config import ConcurrencySettings
+from .config import ConcurrencySettings, prefix_system_prompt
 from .delivery_browser import (
     BrowserDeliverySender,
     DeliveryBackendUnavailableError,
@@ -249,16 +249,19 @@ def _deliver_one(
 
     try:
         try:
+            # Prefix at dispatch so original queued bodies and idempotency keys stay intact.
+            # This path covers scheduled, recurring, and manually queued fresh jobs.
+            delivery_message = prefix_system_prompt(message)
             if isinstance(sender, BrowserDeliverySender):
                 sender(
-                    message,
+                    delivery_message,
                     pin_chat=pin_chat,
                     send_id=send_id,
                     job_name=job_name,
                     images=record["images"],
                 )
             else:
-                sender(message, pin_chat=pin_chat)
+                sender(delivery_message, pin_chat=pin_chat)
         except RateLimitError as exc:
             # A rejected send is retried only as its own queued item. It must
             # never close admission for other independent, parallel deliveries.

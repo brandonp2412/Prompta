@@ -25,7 +25,12 @@ from sse_starlette import EventSourceResponse, ServerSentEvent
 from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from .config import DEFAULT_CONFIG_PATH, ConcurrencySettings, ConnectorApproval
+from .config import (
+    DEFAULT_CONFIG_PATH,
+    ConcurrencySettings,
+    ConnectorApproval,
+    SystemPromptSettings,
+)
 from .core import DEFAULT_JOBS_PATH, DEFAULT_STATE_PATH
 from .delivery_queue import DeliveryQueueStore
 from .image_store import ImageStore
@@ -175,11 +180,17 @@ class _ApprovalUpdate(BaseModel):
     enabled: bool
 
 
+class _SystemPromptUpdate(BaseModel):
+    text: str = Field(max_length=16_000)
+
+
 class _SettingsUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     concurrency: _ConcurrencyUpdate
     connector_approval: _ApprovalUpdate
+    # Older open tabs can still save their previous two-setting payload.
+    system_prompt: _SystemPromptUpdate | None = None
 
 
 def create_app(
@@ -346,21 +357,29 @@ def create_app(
         return {
             "concurrency": ConcurrencySettings.load(DEFAULT_CONFIG_PATH).model_dump(),
             "connector_approval": ConnectorApproval.load(DEFAULT_CONFIG_PATH).model_dump(),
+            "system_prompt": SystemPromptSettings.load(DEFAULT_CONFIG_PATH).model_dump(),
         }
 
     @app.put("/api/settings")
     def update_settings(payload: _SettingsUpdate) -> dict[str, object]:
-        # Persist exactly the two supported sections, dropping obsolete settings.
+        # Persist only supported sections, preserving the prompt from older clients.
         import tempfile
 
         config_path = DEFAULT_CONFIG_PATH.expanduser()
         config_path.parent.mkdir(parents=True, exist_ok=True)
+        prompt_text = (
+            payload.system_prompt.text
+            if payload.system_prompt is not None
+            else SystemPromptSettings.load(config_path).text
+        )
         original = (
             f"[concurrency]\n"
             f"enabled = {str(payload.concurrency.enabled).lower()}\n"
             f"max_workers = {payload.concurrency.max_workers}\n\n"
             f"[connector_approval]\n"
-            f"enabled = {str(payload.connector_approval.enabled).lower()}\n"
+            f"enabled = {str(payload.connector_approval.enabled).lower()}\n\n"
+            f"[system_prompt]\n"
+            f"text = {json.dumps(prompt_text, ensure_ascii=False)}\n"
         )
         # Validate the complete generated configuration before replacing it.
         import tomllib

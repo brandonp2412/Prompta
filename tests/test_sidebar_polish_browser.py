@@ -74,6 +74,7 @@ def test_profile_menu_dismissal_and_footer_single_line(
             dialog = page.get_by_role("dialog", name="Prompta settings")
             expect(dialog).to_be_visible()
             expect(page.get_by_role("button", name="Close settings")).to_be_focused()
+            expect(page.get_by_role("button", name="Save settings")).to_be_enabled()
             page.keyboard.press("Shift+Tab")
             expect(page.get_by_role("button", name="Save settings")).to_be_focused()
             page.keyboard.press("Tab")
@@ -179,7 +180,7 @@ def test_settings_load_retry_recovers_without_reopening(
                     route.fulfill(
                         status=200,
                         content_type="application/json",
-                        body='{"concurrency":{"enabled":true,"max_workers":3},"connector_approval":{"enabled":false}}',
+                        body='{"concurrency":{"enabled":true,"max_workers":3},"connector_approval":{"enabled":false},"system_prompt":{"text":""}}',
                     )
 
             page.route("**/api/settings", settings_response)
@@ -228,7 +229,7 @@ def test_settings_worker_count_can_be_retyped_without_saving_zero(
                     route.fulfill(
                         status=200,
                         content_type="application/json",
-                        body='{"concurrency":{"enabled":true,"max_workers":3},"connector_approval":{"enabled":false}}',
+                        body='{"concurrency":{"enabled":true,"max_workers":3},"connector_approval":{"enabled":false},"system_prompt":{"text":""}}',
                     )
 
             page.route("**/api/settings", settings_response)
@@ -236,6 +237,9 @@ def test_settings_worker_count_can_be_retyped_without_saving_zero(
             page.get_by_role("button", name="Profile").click()
             page.get_by_role("button", name="Settings", exact=True).click()
             workers = page.get_by_role("spinbutton", name="Maximum workers")
+            system_prompt = page.get_by_role("textbox", name="System prompt instructions")
+            expect(system_prompt).to_have_value("")
+            system_prompt.fill("Use concise NZ English.")
             save = page.get_by_role("button", name="Save settings")
             expect(workers).to_have_value("3")
             workers.fill("")
@@ -250,6 +254,7 @@ def test_settings_worker_count_can_be_retyped_without_saving_zero(
                 {
                     "concurrency": {"enabled": True, "max_workers": 12},
                     "connector_approval": {"enabled": False},
+                    "system_prompt": {"text": "Use concise NZ English."},
                 }
             ]
             assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")

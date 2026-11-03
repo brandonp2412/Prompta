@@ -62,6 +62,7 @@ export default function ChatsSidebar({
     max_workers: 3,
   });
   const [approval, setApproval] = useState(false);
+  const [systemPrompt, setSystemPrompt] = useState("");
   const [settingsError, setSettingsError] = useState("");
   const [settingsReady, setSettingsReady] = useState(false);
   const [settingsLoadKey, setSettingsLoadKey] = useState(0);
@@ -168,11 +169,13 @@ export default function ChatsSidebar({
           !Number.isInteger(data.concurrency.max_workers) ||
           data.concurrency.max_workers < 1 ||
           data.concurrency.max_workers > 128 ||
-          typeof data?.connector_approval?.enabled !== "boolean"
+          typeof data?.connector_approval?.enabled !== "boolean" ||
+          typeof data?.system_prompt?.text !== "string"
         )
           throw new Error("Invalid settings response");
         setConcurrency(data.concurrency);
         setApproval(data.connector_approval.enabled);
+        setSystemPrompt(data.system_prompt.text);
         setSettingsError("");
         setSettingsReady(true);
       })
@@ -192,6 +195,7 @@ export default function ChatsSidebar({
         body: JSON.stringify({
           concurrency,
           connector_approval: { enabled: approval },
+          system_prompt: { text: systemPrompt },
         }),
       });
       if (!response.ok) throw new Error("Settings could not be saved");
@@ -478,6 +482,23 @@ export default function ChatsSidebar({
               <p>
                 One global limit for new chats, replies, one-off and repeating jobs. Running work is
                 not interrupted.
+              </p>
+              <h3>System prompt</h3>
+              <label className="settings-system-prompt">
+                <span>Instructions for every new job</span>
+                <textarea
+                  aria-label="System prompt instructions"
+                  rows={5}
+                  maxLength={16000}
+                  placeholder="Optional global instructions…"
+                  value={systemPrompt}
+                  disabled={!settingsReady || saving}
+                  onChange={(event) => setSystemPrompt(event.currentTarget.value)}
+                />
+              </label>
+              <p>
+                Added before every job in clearly marked blocks. This is text in the ChatGPT
+                message, not a system-role API message. Leave blank to disable.
               </p>
               <h3>Connector approval</h3>
               <label className="settings-check">
