@@ -13,6 +13,7 @@ import {
   partialResponseLabel,
   responseBadge,
   turnStatus,
+  workedDurationLabel,
 } from "./resultFormatting";
 
 type TranscriptRefs = {
@@ -72,6 +73,17 @@ export default function ChatTranscript({
     if (copyState.value === id) return "Copied";
     if (copyState.value === "error:" + id) return "Copy failed";
     return "Copy";
+  }
+
+  function workedDuration(turn: (typeof turns.value)[number], index: number) {
+    if (turn.status !== "completed") return null;
+    if (index === 0) {
+      // History recovery can complete days later; it does not reveal the real work duration.
+      return detail.value?.source === "history_dom"
+        ? null
+        : workedDurationLabel(detail.value?.accepted_at, detail.value?.finished_at);
+    }
+    return workedDurationLabel(turn.accepted_at, turn.finished_at);
   }
 
   function queuedFollowupLabel(index: number) {
@@ -232,6 +244,11 @@ export default function ChatTranscript({
                           <p className="partial-note">{partialResponseLabel(turn.status)}</p>
                         ) : null}
                         <div className="response-actions">
+                          {workedDuration(turn, index) && (
+                            <span className="response-worked-duration">
+                              {workedDuration(turn, index)}
+                            </span>
+                          )}
                           <button
                             type="button"
                             aria-label={"Copy assistant reply " + (index + 1)}

@@ -22,6 +22,8 @@ replies = Table(
     Column("lease_deadline", Float, nullable=False, default=0),
     Column("live_observed_at", Float, nullable=False, server_default="0"),
     Column("created_at", Float, nullable=False),
+    Column("accepted_at", Float, nullable=False, server_default="0"),
+    Column("finished_at", Float, nullable=False, server_default="0"),
     Column("updated_at", Float, nullable=False),
 )
 Index("manual_reply_turns_branch", replies.c.send_id, replies.c.created_at)

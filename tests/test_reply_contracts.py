@@ -99,6 +99,28 @@ def test_early_followups_wait_for_verified_parent_and_dispatch_in_order(tmp_path
     ]
 
 
+def test_reply_work_duration_excludes_queue_and_preserves_first_acceptance(tmp_path: Path) -> None:
+    store = seed(tmp_path)
+    store.prepare("run", intent(), now=150)
+    assert store.claim(REPLY_ID, "123:reply", deadline=400, now=190)
+    assert store.acknowledge_submission(
+        REPLY_ID, "123:reply", conversation_id=CONVERSATION, parent_id=PARENT, now=200,
+    )
+    assert store.accepted(
+        REPLY_ID, "123:reply", conversation_id=CONVERSATION, parent_id=PARENT,
+        message_id=MESSAGE, now=205,
+    )
+    assert store.observe(REPLY_ID, "123:reply", CaptureResult(
+        "sse", "complete", "Finished answer", CONVERSATION, MESSAGE, PARENT,
+    ), now=267)
+    latest = (store.turns("run") or [])[-1]
+    assert latest["status"] == "completed"
+    assert latest["created_at"] == 150
+    assert latest["accepted_at"] == 200
+    assert latest["finished_at"] == 267
+    assert latest["updated_at"] == 267
+
+
 def test_queued_dispatch_scans_many_blocked_chats_in_two_selects(tmp_path: Path) -> None:
     store = seed(tmp_path)
     for index in range(12):
