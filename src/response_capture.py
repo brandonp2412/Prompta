@@ -40,6 +40,7 @@ class CaptureResult:
     verified_generating: bool = False
     display_blocks: tuple[dict[str, str], ...] = ()
     turn_message_ids: tuple[str, ...] = ()
+    stream_error: bool = False
 
 
 def conversation_id_from_path(path: object) -> str | None:
@@ -126,6 +127,8 @@ class SseResponseAccumulator:
         self._ambiguous = False
         self._overflow = False
         self._received = 0
+        self.progress_events = 0
+        self.stream_error = False
         self._tools = tool_collector if tool_collector is not None else ToolEventCollector()
         self._tool_message: dict[str, object] | None = None
 
@@ -167,7 +170,8 @@ class SseResponseAccumulator:
             event: object = json.loads(payload)
         except (ValueError, TypeError):
             return
-        self._consume(_record(event))
+        if isinstance(event, dict):
+            self._consume(_record(event))
 
     def _bind_identity(self, conversation_id: object, parent_id: object) -> None:
         candidate = _string(conversation_id)
@@ -282,6 +286,10 @@ class SseResponseAccumulator:
     def _consume(self, event: dict[str, object]) -> None:
         if not event:
             return
+        self.progress_events += 1
+        if event.get("type") in ("error", "message_stream_error") or event.get("error"):
+            self.stream_error = True
+            return
         if event.get("type") == "message_stream_complete":
             self._bind_identity(event.get("conversation_id"), event.get("parent_id"))
             self._complete = True
@@ -322,7 +330,9 @@ class SseResponseAccumulator:
             text = text[:_MAX_ANSWER_CHARACTERS]
             self._overflow = True
         status: CaptureStatus
-        if stop_reason is not None and stop_reason != "unknown":
+        if self.stream_error:
+            status = "interrupted"
+        elif stop_reason is not None and stop_reason != "unknown":
             status = stop_reason
         elif self._complete and self._seen_final and text and not self._overflow:
             status = "complete"
@@ -338,6 +348,7 @@ class SseResponseAccumulator:
             and not text
             and not self._seen_final
             and not self._ambiguous,
+            stream_error=self.stream_error,
         )
 
 
@@ -405,4 +416,5 @@ def normalize_dom_snapshot(
         verified_generating=record.get("generating") is True and record.get("complete") is not True,
         display_blocks=normalize_display_blocks(record.get("display_blocks")),
         turn_message_ids=_turn_message_ids(record.get("turn_message_ids")),
+        stream_error=record.get("stream_error") is True,
     )

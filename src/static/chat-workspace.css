@@ -91,7 +91,7 @@
 .chat-composer-wrap { width: min(100%, 920px); padding-bottom: max(15px, env(safe-area-inset-bottom)); }
 .chat-composer { display: grid; grid-template-columns: minmax(0, 1fr) 44px; grid-template-areas: "text text" "attach send"; align-items: center; gap: 4px 8px; border-radius: 23px; padding: 14px 16px 11px; }
 .chat-composer:has(.composer-previews) { grid-template-areas: "previews previews" "text text" "attach send"; }
-.chat-composer textarea { grid-area: text; width: 100%; min-width: 0; min-height: 0; max-height: 110px; resize: none; font-size: 1rem; line-height: 1.55; padding: 3px 6px; }
+.chat-composer textarea { grid-area: text; width: 100%; min-width: 0; min-height: 0; height: calc(1lh + 6px); max-height: 110px; resize: none; font-size: 1rem; line-height: 1.55; padding: 3px 6px; }
 /* Text owns the full first row; attachment and send share the bottom row. */
 .composer-actions { display: contents; }
 .composer-attach { grid-area: attach; display: flex; align-items: center; min-width: 0; }
@@ -206,7 +206,7 @@
 
   .chat-composer-wrap { padding: 5px 10px max(6px, env(safe-area-inset-bottom)); }
   .chat-composer { gap: 0 6px; padding: 6px 9px; border-radius: 20px; }
-  .chat-composer textarea { line-height: 1.4; padding: 2px 4px; }
+  .chat-composer textarea { height: calc(1lh + 4px); line-height: 1.4; padding: 2px 4px; }
   .composer-previews { padding-bottom: 5px; }
   .composer-feedback, .composer-disclaimer, .composer-hint { margin-top: 3px; }
 

@@ -61,6 +61,9 @@ export default function ChatComposer(props: Props) {
   );
   useLayoutEffect(() => {
     model.syncProps(props);
+    // Fit before paint, including when a saved draft hydrates after mount.
+    // A deferred animation frame can leave a tall composer until first interaction.
+    model.resizeTextarea();
   });
   useEffect(() => model.mount(), [model]);
   useEffect(() => {

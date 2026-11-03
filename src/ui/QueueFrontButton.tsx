@@ -28,12 +28,23 @@ export default function QueueFrontButton({ endpoint, label, onMoved }: Props) {
   return (
     <button
       type="button"
-      className="row-action queue-front"
+      className="row-action queue-front chat-action-button"
       title="Run next when a slot is free; retry delays still apply"
       aria-label={"Bump " + label + " to front of queue"}
       disabled={moving}
       onClick={() => void move()}
     >
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden="true"
+      >
+        <path d="M5 4h14M12 20V9m-5 5 5-5 5 5" />
+      </svg>
       {moving ? "Moving…" : "Bump to front"}
     </button>
   );

@@ -437,6 +437,7 @@ class BrowserDeliverySender:
         seen_message = ""
         seen_observer = ""
         last_verified_text = ""
+        last_verified_tools: tuple[dict[str, object], ...] = ()
         final_status: str = "interrupted"
         next_recovery_probe = (
             asyncio.get_running_loop().time() + _PASSIVE_RECOVERY_PROBE_SECONDS
@@ -506,6 +507,9 @@ class BrowserDeliverySender:
                             "Passive recovery route unavailable error_type=%s",
                             type(exc).__name__,
                         )
+                if update is not None and update.stream_error:
+                    logger.warning("ChatGPT owned response reported an explicit stream error")
+                    break
                 if (
                     update is not None
                     and update.source == "dom"
@@ -524,6 +528,9 @@ class BrowserDeliverySender:
                     if capture.get("ambiguous_request")
                     else driver.captured_assistant_response(capture)
                 )
+                if sse is not None and sse.stream_error:
+                    logger.warning("ChatGPT owned SSE reported an explicit stream error")
+                    break
                 if (
                     sse is not None
                     and sse.ended_without_answer
@@ -603,6 +610,23 @@ class BrowserDeliverySender:
                 if sse is not None and sse.tool_calls and pending is not None and not pending.tool_calls:
                     # A DOM answer may finish just before the observed POST stream.
                     pending = replace(pending, tool_calls=sse.tool_calls)
+                # Only distinct, branch-bound ChatGPT updates extend the idle lease.
+                # SSE progress includes reasoning/tool events without retaining their text.
+                progress = bool(update is not None and (
+                    update.verified_generating
+                    or (update.text and update.text != last_verified_text)
+                    or (update.tool_calls and update.tool_calls != last_verified_tools)
+                    or update.display_blocks
+                ))
+                if progress and isinstance(driver, VerifiedActivityDriver) and driver.record_verified_activity():
+                    if update is not None:
+                        if update.text:
+                            last_verified_text = update.text
+                        if update.tool_calls:
+                            last_verified_tools = update.tool_calls
+                    refreshed = time.time() + MAX_OWNED_TAB_AGE_SECONDS
+                    if self.results.renew_capture_deadline(send_id, owner, deadline=refreshed):
+                        deadline = asyncio.get_running_loop().time() + MAX_OWNED_TAB_AGE_SECONDS
                 now = asyncio.get_running_loop().time()
                 if (pending is not None and pending.status == "complete"
                     and pending.source == "dom" and sse is None
@@ -631,21 +655,6 @@ class BrowserDeliverySender:
                         final_status = "unavailable"
                         break
                     last_saved_at = now
-                    if (
-                        pending.text != last_verified_text
-                        # The owned conversation and assistant message identify the
-                        # branch; ChatGPT's DOM snapshots do not expose parent_id.
-                        and pending.conversation_id
-                        and pending.message_id
-                        and isinstance(driver, VerifiedActivityDriver)
-                        and driver.record_verified_activity()
-                    ):
-                        last_verified_text = pending.text
-                        refreshed_wall = time.time() + MAX_OWNED_TAB_AGE_SECONDS
-                        if self.results.renew_capture_deadline(
-                            send_id, owner, deadline=refreshed_wall
-                        ):
-                            deadline = now + MAX_OWNED_TAB_AGE_SECONDS
                     if pending.status == "complete" and (pending.message_id or pending.observer_id):
                         # Same-tab completion is not proof that account history
                         # reads have recovered from ChatGPT's 429 cooldown.

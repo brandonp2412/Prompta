@@ -540,6 +540,7 @@ class ManualReplyDispatcher:
                     sender._handle_connector_approvals(driver, deadline=deadline),
                 )
             last_verified_text = ""
+            last_verified_tools: tuple[dict[str, object], ...] = ()
             observed_tool_calls: tuple[dict[str, object], ...] = ()
             surface_probe_at = (
                 asyncio.get_running_loop().time() + _CAPTURE_SURFACE_GRACE_SECONDS
@@ -568,18 +569,28 @@ class ManualReplyDispatcher:
                         != "/c/" + conversation_id
                     ):
                         break
-                    if (
+                    if update is not None and update.stream_error:
+                        logger.warning("ChatGPT explicit reply reported a stream error")
+                        break
+                    # An owned response update, not just final answer text, is progress.
+                    changed = bool(update is not None and (
+                        update.verified_generating
+                        or (update.text and update.text != last_verified_text)
+                        or (update.tool_calls and update.tool_calls != last_verified_tools)
+                    ))
+                    if changed and (
                         update is not None
-                        and update.source == "dom"
-                        and update.message_id
-                        and update.message_id != parent_id
-                        and update.text
-                        and update.text != last_verified_text
-                        and await driver.eval("location.pathname")
-                        == "/c/" + conversation_id
+                        and (update.source == "sse" or (
+                            update.message_id and update.message_id != parent_id
+                            and await driver.eval("location.pathname") == "/c/" + conversation_id
+                        ))
                         and driver.record_verified_activity()
                     ):
-                        last_verified_text = update.text
+                        if update is not None:
+                            if update.text:
+                                last_verified_text = update.text
+                            if update.tool_calls:
+                                last_verified_tools = update.tool_calls
                         refreshed = time.time() + MAX_OWNED_TAB_AGE_SECONDS
                         if self.store.renew(reply_id, owner, deadline=refreshed):
                             deadline = asyncio.get_running_loop().time() + MAX_OWNED_TAB_AGE_SECONDS

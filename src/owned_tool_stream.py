@@ -33,6 +33,7 @@ class _Stream:
     armed: bool = False
     finished: bool = False
     received: int = 0
+    published_events: int = 0
 
 
 class OwnedToolStream:
@@ -160,7 +161,14 @@ class OwnedToolStream:
 
     def snapshot(self, stream: _Stream) -> None:
         result = stream.parser.snapshot()
+        if stream.parser.progress_events == stream.published_events:
+            return
+        stream.published_events = stream.parser.progress_events
+        if result.stream_error:
+            self.publish(result)
+            return
         if not result.tool_calls:
+            self.publish(CaptureResult("sse", "unknown", "", result.conversation_id, None, None, verified_generating=True))
             return
         conversation = result.conversation_id
         if conversation and self.conversation_id and conversation != self.conversation_id:
@@ -170,6 +178,7 @@ class OwnedToolStream:
         safe = summarize_stream_tool_calls(result.tool_calls)
         merged = merge_tool_calls(self.calls_json, safe)
         if merged == self.calls_json:
+            self.publish(CaptureResult("sse", "unknown", "", conversation, None, None, verified_generating=True))
             return
         self.calls_json = merged
         self.publish(CaptureResult(

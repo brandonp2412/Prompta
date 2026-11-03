@@ -42,6 +42,10 @@
   let observedId = "";
   let ambiguous = false;
   let result = { message_id: "", branch_message_id: "", pathname: "", text: "", complete: false, ambiguous: false };
+  const hasStreamError = () => [...document.querySelectorAll('[role="alert"], [data-testid="error-message"]')]
+    .filter(visible).some((node) =>
+      /error in (?:the )?response stream|error (?:occurred )?while (?:generating|streaming)|something went wrong (?:while generating|with the response)/i
+        .test(node.textContent || ""));
   const publish = () => {
     const signature = `${result.message_id}:${result.branch_message_id}:${result.pathname}:${result.complete}:${result.ambiguous}:${result.text}:${JSON.stringify(result.tool_calls || [])}:${JSON.stringify(result.display_blocks || [])}}`;
     if (signature !== published && typeof window.__promptaPassiveUpdate === "function") {
@@ -61,7 +65,13 @@
       publish();
       return;
     }
-    if (!fresh.length) return;
+    if (!fresh.length) {
+      if (hasStreamError()) {
+        result = { ...result, stream_error: true };
+        publish();
+      }
+      return;
+    }
     observedId = nextId;
     const segments = fresh.map((element) => {
       const roots = [...element.querySelectorAll(markdownSelector)].filter((root) =>
@@ -100,6 +110,7 @@
       ambiguous: false,
       tool_calls,
       display_blocks,
+      stream_error: hasStreamError(),
     };
     // Emit only mutation-coalesced changes over Patchright's in-page binding.
     // No network request, periodic polling, or alternate conversation access.

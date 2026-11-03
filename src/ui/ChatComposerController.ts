@@ -388,7 +388,6 @@ export function createChatComposerController(initialProps: Props) {
   }
 
   const onMountImpl = () => {
-    requestAnimationFrame(resizeTextarea);
     window.addEventListener("resize", resizeTextarea);
     return () => {
       window.removeEventListener("resize", resizeTextarea);
@@ -516,6 +515,7 @@ export function createChatComposerController(initialProps: Props) {
     pasted,
     dropped,
     mount,
+    resizeTextarea,
     syncProps,
   };
 }

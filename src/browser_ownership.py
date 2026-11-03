@@ -11,7 +11,7 @@ from pathlib import Path
 from .schema_migrations import upgrade_path
 
 OWNED_WINDOW_PREFIX = "prompta:"
-MAX_OWNED_TAB_AGE_SECONDS = 45 * 60
+MAX_OWNED_TAB_AGE_SECONDS = 15 * 60
 OWNED_TAB_LEDGER = Path.home() / ".local/state/prompta/owned-tabs.sqlite3"
 
 
