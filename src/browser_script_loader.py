@@ -30,3 +30,24 @@ def load_browser_script(name: str) -> str:
                 raise ValueError("Recursive browser script include")
             source = source.replace(marker, load_browser_script(dependency))
     return source
+
+
+def passive_observer_init_script() -> str:
+    """Arm the passive observer in every new document of the owned capture tab.
+
+    ChatGPT sometimes performs a full navigation after accepting a fresh chat.
+    A one-time page.evaluate observer then disappears, even though the CDP
+    callback remains available. Init scripts run before page scripts on reload.
+    """
+    observer = load_browser_script("passive_response_observer.js")
+    return (
+        "(() => {"
+        "const install = () => {" + observer + ";};"
+        "if (document.documentElement) { install(); return; }"
+        "const bootstrap = new MutationObserver(() => {"
+        "if (!document.documentElement) return;"
+        "bootstrap.disconnect(); install();"
+        "});"
+        "bootstrap.observe(document, {childList: true});"
+        "})()"
+    )

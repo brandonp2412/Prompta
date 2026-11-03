@@ -44,7 +44,7 @@ from .browser_ownership import (
     record_owned_tab,
     touch_owned_tab,
 )
-from .browser_script_loader import load_browser_script
+from .browser_script_loader import load_browser_script, passive_observer_init_script
 from .composer_mentions import NativeMention, expected_native_text, split_native_mentions
 from .connector_approval_supervisor import trusted_approval_retry
 from .flaresolverr_client import solve_cloudflare
@@ -437,6 +437,10 @@ class PatchrightDriver(ModelPickerMixin):
 
         # Page-scoped CDP binding, not an HTTP request, refresh, or DOM scrape.
         await page.expose_function("__promptaPassiveUpdate", on_change)
+        # Keep the observer alive when ChatGPT replaces the fresh-chat document
+        # during navigation to /c/<id>. The caller also evaluates the observer
+        # immediately for same-document SPA transitions.
+        await page.add_init_script(passive_observer_init_script())
         if self._tool_stream is not None:
             await self._tool_stream.stop()
         try:
