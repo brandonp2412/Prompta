@@ -417,7 +417,10 @@
   color: #b9b9b9;
   font-size: .83rem;
 }
-.assistant-group .response-actions { display: flex; justify-content: flex-start; margin: 5px 0 0 -9px; }
+.assistant-group .response-actions { display: flex; align-items: center; justify-content: flex-start; gap: 6px; margin: 5px 0 0; }
+.assistant-group .response-worked-duration { color: #a6a6a6; font-size: .75rem; white-space: nowrap; }
+.assistant-group .response-worked-duration + .copy-message { margin-left: 0; }
+.assistant-group .response-actions > .copy-message:first-child { margin-left: -9px; }
 .assistant-group .chat-recovery-guidance > .chat-action-button { margin-left: -9px; padding-inline: 8px; }
 .assistant-group .copy-message { color: #a6a6a6; font-weight: 500; }
 .assistant-group .copy-message:hover,

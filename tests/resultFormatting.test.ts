@@ -13,6 +13,7 @@ import {
   safeHref,
   statusLabel,
   turnStatus,
+  workedDurationLabel,
   type RunSummary,
 } from "../src/ui/resultFormatting";
 
@@ -26,6 +27,17 @@ test("only active or explicitly queued turns offer Stop", () => {
   expect(canStopTurn({ status: "preflight_failed", queued_by_user: true })).toBe(false);
   expect(canStopTurn({ status: "completed" })).toBe(false);
   expect(canStopTurn({ status: "interrupted" })).toBe(false);
+});
+
+test("worked duration uses accepted-to-finished time and rejects missing timing", () => {
+  expect(workedDurationLabel(100, 195)).toBe("Worked for 1m 35s");
+  expect(workedDurationLabel(100, 108)).toBe("Worked for 8s");
+  expect(workedDurationLabel(100, 3823)).toBe("Worked for 1h 2m");
+  expect(workedDurationLabel(100, 100)).toBeNull();
+  expect(workedDurationLabel(0, 200)).toBeNull();
+  expect(workedDurationLabel(100, 0)).toBeNull();
+  expect(workedDurationLabel(undefined, 200)).toBeNull();
+  expect(workedDurationLabel(100, Number.NaN)).toBeNull();
 });
 
 test("timestamps use Auckland 12-hour clock and DST", () => {

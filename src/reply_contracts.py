@@ -91,7 +91,7 @@ class ManualReplyStore(ReplyReadState):
     def _public(row: dict[str, object]) -> dict[str, object]:
         public = {key: row[key] for key in (
             "reply_id", "send_id", "conversation_id", "parent_id", "message_id",
-            "user_text", "assistant_text", "status", "queued_by_user", "created_at", "updated_at",
+            "user_text", "assistant_text", "status", "queued_by_user", "created_at", "accepted_at", "finished_at", "updated_at",
         )}
         observed_at = row["live_observed_at"]
         public["status"] = visible_reply_status(
@@ -541,7 +541,9 @@ class ManualReplyStore(ReplyReadState):
                 replies.c.lease_deadline > at,
                 replies.c.conversation_id == conversation_id,
                 replies.c.parent_id == parent_id,
-            ).values(status="accepted", updated_at=at))
+            ).values(status="accepted", updated_at=at, accepted_at=case(
+                (replies.c.accepted_at > 0, replies.c.accepted_at), else_=at,
+            )))
         return changed.rowcount == 1
 
     def accepted(
@@ -561,7 +563,8 @@ class ManualReplyStore(ReplyReadState):
                 replies.c.lease_owner == owner, replies.c.lease_deadline > at,
                 replies.c.conversation_id == conversation_id, replies.c.parent_id == parent_id,
             ).values(status="accepted", message_id=message_id,
-                     response_parent_id=response_parent, updated_at=at))
+                     response_parent_id=response_parent, updated_at=at,
+                     accepted_at=case((replies.c.accepted_at > 0, replies.c.accepted_at), else_=at)))
         return changed.rowcount == 1
 
     def observe(self, reply_id: str, owner: str, capture: CaptureResult,
@@ -598,7 +601,7 @@ class ManualReplyStore(ReplyReadState):
                      assistant_text=capture.text[:2 * 1024 * 1024],
                       tool_calls_json=merge_tool_calls(row["tool_calls_json"], capture.tool_calls),
                        display_blocks_json=merge_display_blocks(row["display_blocks_json"], capture.display_blocks),
-                      updated_at=at,
+                      updated_at=at, finished_at=at if complete else row["finished_at"],
                      lease_owner="" if complete else owner))
         return changed.rowcount == 1
 

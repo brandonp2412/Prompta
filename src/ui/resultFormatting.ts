@@ -84,8 +84,35 @@ export type LocalTurn = {
     | "outcome_unknown";
   queued_by_user?: boolean;
   created_at: number;
+  accepted_at?: number;
+  finished_at?: number;
   updated_at: number;
 };
+
+export function workedDurationLabel(
+  startedAt: number | undefined,
+  finishedAt: number | undefined,
+): string | null {
+  if (
+    typeof startedAt !== "number" ||
+    typeof finishedAt !== "number" ||
+    !Number.isFinite(startedAt) ||
+    !Number.isFinite(finishedAt) ||
+    startedAt <= 0 ||
+    finishedAt <= startedAt
+  )
+    return null;
+  const totalSeconds = Math.max(1, Math.round(finishedAt - startedAt));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  const parts = [
+    ...(hours ? [`${hours}h`] : []),
+    ...(minutes ? [`${minutes}m`] : []),
+    ...(!hours || (!minutes && seconds) ? [`${seconds}s`] : []),
+  ];
+  return `Worked for ${parts.join(" ")}`;
+}
 
 export function canStopTurn(
   turn: Pick<LocalTurn, "status" | "queued_by_user"> | undefined,
