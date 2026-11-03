@@ -942,7 +942,8 @@
 .sidebar-footer-new, .sidebar-profile { flex:1 1 0; }
 .sidebar-footer svg { width:21px; height:21px; flex:none; }
 .sidebar-profile-menu { position:absolute; bottom:calc(100% + 6px); left:10px; right:10px; z-index:20; padding:7px; border:1px solid #424242; border-radius:14px; background:#282828; box-shadow:0 12px 35px #0008; }
-.sidebar-profile-menu button { display:block; width:100%; min-height:44px; padding:10px 14px; border:0; border-radius:9px; color:#eee; background:transparent; text-align:left; font:inherit; cursor:pointer; }
+.sidebar-profile-menu button { display:flex; align-items:center; gap:12px; width:100%; min-height:44px; padding:10px 14px; border:0; border-radius:9px; color:#eee; background:transparent; text-align:left; font:inherit; cursor:pointer; }
+.sidebar-profile-menu button svg { width:19px; height:19px; flex:none; }
 .sidebar-footer > button:focus-visible, .sidebar-profile-menu button:focus-visible, .settings-dialog button:focus-visible, .settings-dialog input:focus-visible, .settings-dialog textarea:focus-visible { outline:2px solid #a9c4ff; outline-offset:-2px; }
 .settings-backdrop { position:fixed; inset:0; z-index:100; display:flex; align-items:center; justify-content:center; padding:16px; background:#000a; }
 .settings-dialog { width:min(100%,440px); max-height:90dvh; overflow:auto; padding:22px; border:1px solid #484848; border-radius:18px; background:#242424; color:#eee; box-shadow:0 20px 65px #0009; }

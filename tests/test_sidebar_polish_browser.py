@@ -60,6 +60,18 @@ def test_profile_menu_dismissal_and_footer_single_line(
             menu = page.get_by_role("group", name="Profile actions")
             expect(menu).to_be_visible()
             expect(profile).to_have_attribute("aria-expanded", "true")
+            for label in ("Jobs", "Settings", "Mark all as read"):
+                action = menu.get_by_role("button", name=label)
+                expect(action.locator("svg[aria-hidden='true']")).to_be_visible()
+                assert action.evaluate(
+                    """element => {
+                      const icon = element.querySelector('svg').getBoundingClientRect();
+                      const text = element.querySelector('span').getBoundingClientRect();
+                      return icon.width > 0 && icon.right < text.left
+                        && Math.abs((icon.top + icon.bottom) / 2 - (text.top + text.bottom) / 2) < 2;
+                    }"""
+                )
+            assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
             page.keyboard.press("Escape")
             expect(menu).to_have_count(0)
             expect(profile).to_be_focused()

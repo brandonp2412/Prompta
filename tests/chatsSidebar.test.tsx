@@ -50,6 +50,23 @@ function sidebar() {
   return { model, view };
 }
 
+test("profile actions show distinct decorative icons without changing accessible names", async () => {
+  sidebar();
+  await userEvent.setup().click(screen.getByRole("button", { name: "Profile" }));
+  const menu = screen.getByRole("group", { name: "Profile actions" });
+  const labels = ["Jobs", "Settings", "Mark all as read"];
+  const paths = new Set<string>();
+  for (const label of labels) {
+    const button = screen.getByRole("button", { name: label });
+    expect(menu.contains(button)).toBe(true);
+    const icon = button.querySelector("svg");
+    expect(icon?.getAttribute("aria-hidden")).toBe("true");
+    expect(icon?.getAttribute("viewBox")).toBe("0 0 24 24");
+    paths.add(icon?.innerHTML ?? "");
+  }
+  expect(paths.size).toBe(labels.length);
+});
+
 test("loads older chats as the reader approaches the end of the sidebar", async () => {
   const requests: URL[] = [];
   globalThis.fetch = Object.assign(
@@ -386,6 +403,7 @@ test("settings cannot be saved before a successful load", async () => {
       Response.json({
         concurrency: { enabled: true, max_workers: 7 },
         connector_approval: { enabled: true },
+        system_prompt: { text: "" },
       }),
     );
   });
@@ -401,6 +419,7 @@ test("settings cannot be saved before a successful load", async () => {
   expect(saves[0]).toEqual({
     concurrency: { enabled: true, max_workers: 7 },
     connector_approval: { enabled: true },
+    system_prompt: { text: "" },
   });
 });
 
@@ -418,6 +437,7 @@ test("a failed settings load can be retried without closing the dialog", async (
       return Response.json({
         concurrency: { enabled: true, max_workers: 3 },
         connector_approval: { enabled: false },
+        system_prompt: { text: "" },
       });
     },
     { preconnect: originalFetch.preconnect },
@@ -454,6 +474,7 @@ test("malformed settings stay disabled and allow a safe retry", async () => {
       return Response.json({
         concurrency: { enabled: false, max_workers: 2 },
         connector_approval: { enabled: true },
+        system_prompt: { text: "" },
       });
     },
     { preconnect: originalFetch.preconnect },
@@ -518,6 +539,7 @@ test("maximum workers can be cleared and replaced without submitting an invalid 
       return Response.json({
         concurrency: { enabled: true, max_workers: 3 },
         connector_approval: { enabled: false },
+        system_prompt: { text: "" },
       });
     },
     { preconnect: originalFetch.preconnect },
@@ -543,6 +565,7 @@ test("maximum workers can be cleared and replaced without submitting an invalid 
     {
       concurrency: { enabled: true, max_workers: 12 },
       connector_approval: { enabled: false },
+      system_prompt: { text: "" },
     },
   ]);
 });

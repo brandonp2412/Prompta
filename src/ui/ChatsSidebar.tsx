@@ -403,7 +403,19 @@ export default function ChatsSidebar({
                 setProfileOpen(false);
               }}
             >
-              Jobs
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <rect x="3" y="5" width="18" height="16" rx="2" />
+                <path d="M8 5V3h8v2M8 11h8M8 16h5" />
+              </svg>
+              <span>Jobs</span>
             </button>
             <button
               type="button"
@@ -414,7 +426,19 @@ export default function ChatsSidebar({
                 setProfileOpen(false);
               }}
             >
-              Settings
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8Z" />
+                <path d="M19.4 15a1.8 1.8 0 0 0 .36 1.98l.06.06-1.8 1.8-.06-.06A1.8 1.8 0 0 0 16 18.4a1.8 1.8 0 0 0-1.26 1.64V21h-2.54v-.96a1.8 1.8 0 0 0-1.26-1.64 1.8 1.8 0 0 0-1.97.38l-.06.06-1.8-1.8.06-.06A1.8 1.8 0 0 0 7.55 15a1.8 1.8 0 0 0-1.65-1.26H5v-2.54h.9a1.8 1.8 0 0 0 1.65-1.26 1.8 1.8 0 0 0-.38-1.97l-.06-.06 1.8-1.8.06.06A1.8 1.8 0 0 0 10.94 6.55a1.8 1.8 0 0 0 1.26-1.65V4h2.54v.9A1.8 1.8 0 0 0 16 6.55a1.8 1.8 0 0 0 1.97-.38l.06-.06 1.8 1.8-.06.06a1.8 1.8 0 0 0-.37 1.97 1.8 1.8 0 0 0 1.64 1.26H22v2.54h-.96A1.8 1.8 0 0 0 19.4 15Z" />
+              </svg>
+              <span>Settings</span>
             </button>
             <button
               type="button"
@@ -424,7 +448,18 @@ export default function ChatsSidebar({
                 setProfileOpen(false);
               }}
             >
-              Mark all as read
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <path d="m18 6-11 11-5-5M22 10l-7.5 7.5L13 16" />
+              </svg>
+              <span>Mark all as read</span>
             </button>
           </div>
         )}
