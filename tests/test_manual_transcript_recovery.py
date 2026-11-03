@@ -160,8 +160,8 @@ def test_requested_chat_is_next_without_local_delay_and_is_consumed_once(
     assert older is not None and older["status"] == "completed"
     assert newer is not None and newer["status"] == "interrupted"
     assert store.manual_recovery_pending("older-requested") == 0
-    assert not worker.recover_once(now=239)  # The sole account-wide gate.
-    assert worker.recover_once(now=240)
+    assert not worker.recover_once(now=449)  # Five-minute account-wide gate.
+    assert worker.recover_once(now=450)
     recovered = store.get("newer-backlog")
     assert recovered is not None and recovered["status"] == "completed"
     assert seen == ["read", "read"]
@@ -185,13 +185,13 @@ def test_explicit_requests_get_slots_amid_permanently_eligible_pinned_backlog(
     assert worker.recover_once(now=150)
     assert _status(store, "requested-first") == "completed"
     assert store.manual_recovery_pending("requested-first") == 0
-    assert worker.recover_once(now=240)
+    assert worker.recover_once(now=450)
     assert sum(_status(store, pinned) == "completed"
                for pinned in ("pinned-old", "pinned-new")) == 1
-    assert worker.recover_once(now=330)
+    assert worker.recover_once(now=750)
     assert _status(store, "requested-second") == "completed"
     assert store.manual_recovery_pending("requested-second") == 0
-    assert worker.recover_once(now=420)
+    assert worker.recover_once(now=1050)
     assert _status(store, "pinned-old") == "completed"
     assert _status(store, "pinned-new") == "completed"
     assert store.history_recovery_global_attempt_count() == 4
@@ -235,8 +235,8 @@ def test_failed_requested_probe_remains_queued_for_eventual_recovery(
         return CaptureResult("dom", "complete", "Recovered", CONVERSATION, None, None, "observer")
 
     monkeypatch.setattr(worker, "_read_original_response", recovered)
-    assert not worker.recover_once(now=239)
-    assert worker.recover_once(now=240)
+    assert not worker.recover_once(now=449)
+    assert worker.recover_once(now=450)
     assert _status(store, "incomplete-target") == "completed"
     assert store.manual_recovery_pending("incomplete-target") == 0
 
@@ -293,7 +293,7 @@ def test_failed_requested_probe_moves_behind_other_manual_requests(
     monkeypatch.setattr(worker, "_read_original_response", read)
     assert not worker.recover_once(now=150)
     assert store.pending_manual_recovery_requests() == ["second", "first"]
-    assert worker.recover_once(now=240)
+    assert worker.recover_once(now=450)
     assert store.pending_manual_recovery_requests() == ["first"]
     assert _status(store, "first") == "interrupted"
     assert _status(store, "second") == "completed"

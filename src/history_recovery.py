@@ -177,6 +177,7 @@ class HistoryRecovery:
     ) -> CaptureResult | None:
         driver = self.driver_factory()
         last_partial: CaptureResult | None = None
+        last_verified: CaptureResult | None = None
         complete_since: float | None = None
         approval_script = (
             _guarded_approval_script(script, single_user_only=single_user_only)
@@ -234,11 +235,26 @@ class HistoryRecovery:
                         # tab until the deadline, without navigating again.
                         await asyncio.sleep(2.0)
                         continue
+                    if payload.get("stream_error") is True:
+                        logger.warning("Historical recovery found a response-stream error")
+                        return None
                     if payload.get("verified") is not True:
                         complete_since = None
-                    if payload.get("verified") is True:
+                    if (payload.get("verified") is True
+                            and payload.get("pathname") == "/c/" + conversation_id):
                         result = normalize_dom_snapshot(payload)
+                        if not result.conversation_id:
+                            # The exact user turn and parent can be verified even
+                            # before ChatGPT renders an assistant placeholder.
+                            result = CaptureResult(
+                                "dom", "unknown", "", conversation_id, None,
+                                str(payload.get("verified_parent_id") or "") or None,
+                                verified_loaded=True,
+                            )
+                        elif result.conversation_id == conversation_id:
+                            result = replace(result, verified_loaded=True)
                         if result.conversation_id == conversation_id:
+                            last_verified = result
                             grant: object = False
                             if approval_script:
                                 # Unlike historical reads, this continuation may
@@ -289,7 +305,7 @@ class HistoryRecovery:
                                 return result
                             complete_since = None
                 await asyncio.sleep(2.0)
-            return last_partial
+            return last_partial or last_verified
         finally:
             try:
                 # Cleanup is best effort. A failed CDP disconnect must not
@@ -467,8 +483,18 @@ class HistoryRecovery:
                         **({"resume_approvals": True} if allow_resume else {}),
                     )
                 result = asyncio.run(asyncio.wait_for(probe, timeout=_LOOKUP_TIMEOUT_SECONDS))
-                if (result is not None and result.verified_generating and not reply_id
+                if (result is not None and result.verified_loaded
                         and result.conversation_id == conversation_id):
+                    observed = (
+                        self.replies.observe_history_loaded(
+                            reply_id, conversation_id, result.parent_id, now=at,
+                        ) if reply_id else
+                        self.results.observe_history_generating(send_id, conversation_id, now=at)
+                    )
+                    if observed:
+                        logger.info("event=history_recovery_verified_page send_id=%s", send_id)
+                elif (result is not None and result.verified_generating and not reply_id
+                      and result.conversation_id == conversation_id):
                     self.results.observe_history_generating(send_id, conversation_id, now=at)
                 recovered = result is not None and (
                     self.replies.recover_historical_reply(reply_id, result, now=at)

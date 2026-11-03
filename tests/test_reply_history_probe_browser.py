@@ -84,6 +84,24 @@ def test_reply_history_probe_real_chromium_dom() -> None:
                 )
                 mismatch = await page.evaluate(script)
                 assert mismatch["ambiguous"] is True and mismatch["text"] == ""
+                await page.locator('[data-message-author-role="user"]').nth(1).evaluate(
+                    "element => element.textContent = 'Follow up'",
+                )
+                await page.locator('[data-message-author-role="assistant"]').last.evaluate(
+                    "element => element.closest('article').remove()",
+                )
+                clean = await page.evaluate(script)
+                assert clean["verified"] is True and clean["ambiguous"] is False
+                assert clean["pathname"] == "/c/" + CONVERSATION
+                assert clean["verified_parent_id"] == PARENT
+                assert clean["message_id"] == "" and clean["text"] == ""
+                assert clean["stream_error"] is False
+                await page.locator("main").evaluate(
+                    "node => node.insertAdjacentHTML('beforeend', "
+                    "'<div role=\"alert\">Error in response stream</div>')",
+                )
+                error = await page.evaluate(script)
+                assert error["verified"] is True and error["stream_error"] is True
             finally:
                 await browser.close()
 

@@ -41,6 +41,7 @@ class CaptureResult:
     display_blocks: tuple[dict[str, str], ...] = ()
     turn_message_ids: tuple[str, ...] = ()
     stream_error: bool = False
+    verified_loaded: bool = False
 
 
 def conversation_id_from_path(path: object) -> str | None:

@@ -1,9 +1,12 @@
 // Read only the target user turn and assistant units belonging to its exact branch.
 // Never infer a reply from another chat, and never expose hidden thinking or tool bodies.
 const scanExactReplyTurn = (conversation, originalPrompt, replyText, parent, allowEarlierTurns = false) => {
+  const stream_error = [...document.querySelectorAll('[role="alert"], [data-testid="error-message"]')]
+    .filter(node => node.isConnected && node.getClientRects().length > 0)
+    .some(node => /error in (?:the )?response stream|error (?:occurred )?while (?:generating|streaming)|something went wrong (?:while generating|with the response)/i.test(node.textContent || ""));
   const empty = { verified: false, ambiguous: false, message_id: "", branch_message_id: "",
     latest_branch_message_id: "", pathname: "", text: "", complete: false,
-    rate_limited: false, tool_calls: [] };
+    rate_limited: false, stream_error, tool_calls: [] };
   if (location.origin !== "https://chatgpt.com" ||
       location.pathname !== "/c/" + conversation) return empty;
   const visible = (node) => node.isConnected && node.getClientRects().length > 0 &&

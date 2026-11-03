@@ -738,6 +738,27 @@ class ManualReplyStore(ReplyReadState):
             row = connection.execute(query).mappings().one_or_none()
         return dict(row) if row is not None else None
 
+    def observe_history_loaded(
+        self, reply_id: str, conversation_id: str, parent_id: str | None,
+        *, now: float | None = None,
+    ) -> bool:
+        """A clean, exact-branch read suppresses attention for 15 minutes.
+
+        This is not completion and does not resend the saved reply.
+        """
+        if not conversation_id or not parent_id:
+            return False
+        at = time.time() if now is None else now
+        with self.engine.begin() as connection:
+            changed = connection.execute(update(replies).where(
+                replies.c.reply_id == reply_id,
+                replies.c.conversation_id == conversation_id,
+                replies.c.parent_id == parent_id,
+                replies.c.lease_owner == "",
+                replies.c.status.in_(("interrupted", "outcome_unknown")),
+            ).values(live_observed_at=at))
+            return changed.rowcount == 1
+
     def recover_historical_reply(
         self, reply_id: str, capture: CaptureResult, *, now: float | None = None,
     ) -> bool:
@@ -800,7 +821,7 @@ class ManualReplyStore(ReplyReadState):
                 display_blocks_json=merge_display_blocks(row["display_blocks_json"], capture.display_blocks),
                 message_id=capture.message_id or row["message_id"],
                 status="completed" if complete else row["status"],
-                live_observed_at=at if capture.verified_generating and not complete else 0,
+                live_observed_at=at if (capture.verified_generating or capture.verified_loaded) and not complete else 0,
                 updated_at=at,
             ))
         return changed.rowcount == 1
