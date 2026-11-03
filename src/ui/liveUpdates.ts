@@ -11,6 +11,7 @@ const statusListeners = new Set<StatusListener>();
 const healthyPollMs = 120000;
 const recoveryPollMs = 15000;
 const statusGraceMs = 10000;
+const resumeStatusGraceMs = 20000;
 const reconnectDelayMs = 2000;
 const maxReconnectDelayMs = 30000;
 const staleStreamMs = 60000; // Server sends a ping at least every 15 seconds.
@@ -25,6 +26,8 @@ let lastStreamFrameAt = 0;
 let streamConnected = false;
 let updatesDelayed = false;
 let observedOffline = false;
+let backgrounded = false;
+let resumeGraceUntil = 0;
 
 function notify(topic: Topic) {
   if (document.visibilityState !== "visible") return;
@@ -123,16 +126,20 @@ function connect() {
   }
 }
 
+function armDelayedStatus() {
+  if (statusTimer !== undefined || document.visibilityState !== "visible") return;
+  const delay = Math.max(statusGraceMs, resumeGraceUntil - Date.now());
+  statusTimer = window.setTimeout(() => {
+    statusTimer = undefined;
+    if (!streamConnected && document.visibilityState === "visible") publishStatus(true);
+  }, delay);
+}
+
 function connectionLost() {
   const wasConnected = streamConnected;
   streamConnected = false;
   setPollingInterval(recoveryPollMs);
-  if (statusTimer === undefined) {
-    statusTimer = window.setTimeout(() => {
-      statusTimer = undefined;
-      if (!streamConnected) publishStatus(true);
-    }, statusGraceMs);
-  }
+  armDelayedStatus();
   // Recheck immediately after a healthy stream drops. Repeated errors use
   // bounded polling instead of triggering a request storm.
   if (wasConnected) refreshBoth();
@@ -146,19 +153,37 @@ function connectionRestored() {
   setPollingInterval(healthyPollMs);
 }
 
+function pauseForBackground() {
+  backgrounded = true;
+  window.clearTimeout(statusTimer);
+  window.clearTimeout(watchdogTimer);
+  statusTimer = undefined;
+  watchdogTimer = undefined;
+}
+
 function visibleAgain() {
-  if (document.visibilityState !== "visible") return;
-  refreshBoth();
-  const current = source;
-  if (current?.readyState === 2 || (current && Date.now() - lastStreamFrameAt >= staleStreamMs)) {
-    connectionLost();
-    scheduleReconnect();
+  if (document.visibilityState !== "visible") {
+    pauseForBackground();
     return;
   }
+  if (backgrounded) {
+    backgrounded = false;
+    // A suspended Android PWA needs time to restore its SSE connection. Do not
+    // display a stale outage timer as soon as background timers are released.
+    resumeGraceUntil = Date.now() + resumeStatusGraceMs;
+  }
+  const current = source;
+  if (!current || current.readyState === 2 || Date.now() - lastStreamFrameAt >= staleStreamMs) {
+    // A background-suspended connection is already stale: replace it now.
+    // Retry refreshes both views, so do not issue duplicate GETs here.
+    retryLiveConnection();
+    return;
+  }
+  refreshBoth();
   // A watchdog timeout that fired while hidden does not schedule another check.
   // Re-arm it on return even when the most recent frame is still fresh.
-  if (current) armWatchdog(current);
-  else retryLiveConnection();
+  armWatchdog(current);
+  if (!streamConnected) armDelayedStatus();
 }
 
 function offline() {
@@ -193,6 +218,7 @@ function start() {
   window.addEventListener("online", onlineAgain);
   window.addEventListener("offline", offline);
   window.addEventListener("pageshow", visibleAgain);
+  window.addEventListener("pagehide", pauseForBackground);
 }
 
 function stop() {
@@ -211,11 +237,14 @@ function stop() {
   lastStreamFrameAt = 0;
   streamConnected = false;
   observedOffline = false;
+  backgrounded = false;
+  resumeGraceUntil = 0;
   publishStatus(false);
   document.removeEventListener("visibilitychange", visibleAgain);
   window.removeEventListener("online", onlineAgain);
   window.removeEventListener("offline", offline);
   window.removeEventListener("pageshow", visibleAgain);
+  window.removeEventListener("pagehide", pauseForBackground);
 }
 
 function hasSubscribers() {

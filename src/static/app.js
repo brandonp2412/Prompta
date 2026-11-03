@@ -12133,6 +12133,7 @@ var statusListeners = /* @__PURE__ */ new Set();
 var healthyPollMs = 12e4;
 var recoveryPollMs = 15e3;
 var statusGraceMs = 1e4;
+var resumeStatusGraceMs = 2e4;
 var reconnectDelayMs = 2e3;
 var maxReconnectDelayMs = 3e4;
 var staleStreamMs = 6e4;
@@ -12147,6 +12148,8 @@ var lastStreamFrameAt = 0;
 var streamConnected = false;
 var updatesDelayed = false;
 var observedOffline = false;
+var backgrounded = false;
+var resumeGraceUntil = 0;
 function notify$1(topic) {
 	if (document.visibilityState !== "visible") return;
 	for (const listener of listeners[topic]) listener();
@@ -12232,14 +12235,19 @@ function connect() {
 		scheduleReconnect();
 	}
 }
+function armDelayedStatus() {
+	if (statusTimer !== void 0 || document.visibilityState !== "visible") return;
+	const delay = Math.max(statusGraceMs, resumeGraceUntil - Date.now());
+	statusTimer = window.setTimeout(() => {
+		statusTimer = void 0;
+		if (!streamConnected && document.visibilityState === "visible") publishStatus(true);
+	}, delay);
+}
 function connectionLost() {
 	const wasConnected = streamConnected;
 	streamConnected = false;
 	setPollingInterval(recoveryPollMs);
-	if (statusTimer === void 0) statusTimer = window.setTimeout(() => {
-		statusTimer = void 0;
-		if (!streamConnected) publishStatus(true);
-	}, statusGraceMs);
+	armDelayedStatus();
 	if (wasConnected) refreshBoth();
 }
 function connectionRestored() {
@@ -12249,17 +12257,30 @@ function connectionRestored() {
 	publishStatus(false);
 	setPollingInterval(healthyPollMs);
 }
+function pauseForBackground() {
+	backgrounded = true;
+	window.clearTimeout(statusTimer);
+	window.clearTimeout(watchdogTimer);
+	statusTimer = void 0;
+	watchdogTimer = void 0;
+}
 function visibleAgain() {
-	if (document.visibilityState !== "visible") return;
-	refreshBoth();
-	const current = source;
-	if (current?.readyState === 2 || current && Date.now() - lastStreamFrameAt >= staleStreamMs) {
-		connectionLost();
-		scheduleReconnect();
+	if (document.visibilityState !== "visible") {
+		pauseForBackground();
 		return;
 	}
-	if (current) armWatchdog(current);
-	else retryLiveConnection();
+	if (backgrounded) {
+		backgrounded = false;
+		resumeGraceUntil = Date.now() + resumeStatusGraceMs;
+	}
+	const current = source;
+	if (!current || current.readyState === 2 || Date.now() - lastStreamFrameAt >= staleStreamMs) {
+		retryLiveConnection();
+		return;
+	}
+	refreshBoth();
+	armWatchdog(current);
+	if (!streamConnected) armDelayedStatus();
 }
 function offline() {
 	observedOffline = true;
@@ -12287,6 +12308,7 @@ function start() {
 	window.addEventListener("online", onlineAgain);
 	window.addEventListener("offline", offline);
 	window.addEventListener("pageshow", visibleAgain);
+	window.addEventListener("pagehide", pauseForBackground);
 }
 function stop() {
 	source?.close();
@@ -12304,11 +12326,14 @@ function stop() {
 	lastStreamFrameAt = 0;
 	streamConnected = false;
 	observedOffline = false;
+	backgrounded = false;
+	resumeGraceUntil = 0;
 	publishStatus(false);
 	document.removeEventListener("visibilitychange", visibleAgain);
 	window.removeEventListener("online", onlineAgain);
 	window.removeEventListener("offline", offline);
 	window.removeEventListener("pageshow", visibleAgain);
+	window.removeEventListener("pagehide", pauseForBackground);
 }
 function hasSubscribers() {
 	return listeners.jobs.size > 0 || listeners.chats.size > 0 || statusListeners.size > 0;

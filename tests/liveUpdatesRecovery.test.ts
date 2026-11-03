@@ -14,6 +14,7 @@ function withFakeStream(
     tick: (milliseconds: number) => void;
     fire: (milliseconds: number) => void;
     fireWindow: (name: string) => void;
+    fireDocument: (name: string) => void;
   }) => void,
 ) {
   const originalSource = Object.getOwnPropertyDescriptor(globalThis, "EventSource");
@@ -23,6 +24,7 @@ function withFakeStream(
   const timers = new Map<number, { ms: number; callback: () => void }>();
   const instances: FakeStream[] = [];
   const windowHandlers = new Map<string, Set<() => void>>();
+  const documentHandlers = new Map<string, Set<() => void>>();
   let now = 1000;
   let nextTimer = 0;
   class LocalFakeStream {
@@ -68,8 +70,13 @@ function withFakeStream(
     configurable: true,
     value: {
       visibilityState: "visible",
-      addEventListener: () => {},
-      removeEventListener: () => {},
+      addEventListener: (name: string, callback: () => void) => {
+        if (!documentHandlers.has(name)) documentHandlers.set(name, new Set());
+        documentHandlers.get(name)?.add(callback);
+      },
+      removeEventListener: (name: string, callback: () => void) => {
+        documentHandlers.get(name)?.delete(callback);
+      },
     },
   });
   Date.now = () => now;
@@ -89,6 +96,9 @@ function withFakeStream(
       },
       fireWindow: (name: string) => {
         for (const callback of windowHandlers.get(name) ?? []) callback();
+      },
+      fireDocument: (name: string) => {
+        for (const callback of documentHandlers.get(name) ?? []) callback();
       },
     });
   } finally {
@@ -277,6 +287,56 @@ test("missing EventSource recovers once browser support becomes available", () =
       expect(instances).toHaveLength(1);
       instances[0]?.emit("sync");
       expect(instances[0]?.closed).toBe(false);
+    } finally {
+      off();
+    }
+  });
+});
+
+test("a suspended Samsung PWA reconnects without flashing a stale warning", () => {
+  withFakeStream(({ instances, timers, tick, fireDocument, fireWindow }) => {
+    const statuses: boolean[] = [];
+    let refreshes = 0;
+    const offData = subscribeLiveUpdates("chats", () => refreshes++);
+    const off = subscribeLiveStatus((delayed) => statuses.push(delayed));
+    try {
+      instances[0]?.emit("sync");
+      Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
+      fireDocument("visibilitychange");
+      if (instances[0]) instances[0].readyState = 2;
+      instances[0]?.emit("error");
+      tick(120_000); // Android freezes JS while the PWA is backgrounded.
+      Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
+      fireWindow("pageshow");
+
+      expect(instances).toHaveLength(2); // Repair the suspended stream immediately.
+      expect(refreshes).toBe(2); // Initial sync plus one foreground refresh, not a GET burst.
+      expect([...timers.values()].some((timer) => timer.ms === 10_000)).toBe(false);
+      expect([...timers.values()].some((timer) => timer.ms === 20_000)).toBe(true);
+      expect(statuses).toEqual([false]);
+      instances[1]?.emit("ping");
+      expect(statuses).toEqual([false]);
+      expect([...timers.values()].some((timer) => timer.ms === 20_000)).toBe(false);
+    } finally {
+      off();
+      offData();
+    }
+  });
+});
+
+test("a genuine outage after page resume still warns after the foreground grace", () => {
+  withFakeStream(({ timers, tick, fire, fireWindow }) => {
+    const statuses: boolean[] = [];
+    const off = subscribeLiveStatus((delayed) => statuses.push(delayed));
+    try {
+      expect([...timers.values()].some((timer) => timer.ms === 10_000)).toBe(true);
+      fireWindow("pagehide");
+      expect([...timers.values()].some((timer) => timer.ms === 10_000)).toBe(false);
+      tick(90_000);
+      fireWindow("pageshow");
+      expect(statuses).toEqual([false]);
+      fire(20_000);
+      expect(statuses).toEqual([false, true]);
     } finally {
       off();
     }
