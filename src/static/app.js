@@ -16507,6 +16507,137 @@ function RecoverChatIcon() {
 	});
 }
 //#endregion
+//#region src/ui/slashCommands.ts
+var slashCommands = [
+	{
+		id: "new",
+		name: "new",
+		aliases: [
+			"n",
+			"create",
+			"fresh"
+		],
+		description: "Start a new chat",
+		icon: "＋"
+	},
+	{
+		id: "chats",
+		name: "chats",
+		aliases: [
+			"c",
+			"home",
+			"inbox"
+		],
+		description: "Go to chats",
+		icon: "▤"
+	},
+	{
+		id: "jobs",
+		name: "jobs",
+		aliases: [
+			"j",
+			"queue",
+			"tasks"
+		],
+		description: "Open Jobs",
+		icon: "◷"
+	},
+	{
+		id: "settings",
+		name: "settings",
+		aliases: [
+			"prefs",
+			"config",
+			"options"
+		],
+		description: "Open settings",
+		icon: "⚙"
+	},
+	{
+		id: "search",
+		name: "search",
+		aliases: ["s", "find"],
+		description: "Search your chats",
+		icon: "⌕"
+	},
+	{
+		id: "refresh",
+		name: "refresh",
+		aliases: ["reload", "sync"],
+		description: "Refresh chats and queue",
+		icon: "↻"
+	},
+	{
+		id: "markread",
+		name: "markread",
+		aliases: ["readall", "markall"],
+		description: "Mark every chat as read",
+		icon: "✓"
+	},
+	{
+		id: "copy",
+		name: "copy",
+		aliases: ["link", "share"],
+		description: "Copy the current chat link",
+		icon: "↗"
+	},
+	{
+		id: "open",
+		name: "open",
+		aliases: ["gpt", "chatgpt"],
+		description: "Open this chat in ChatGPT",
+		icon: "↗"
+	},
+	{
+		id: "stop",
+		name: "stop",
+		aliases: ["cancel", "halt"],
+		description: "Stop the current response",
+		icon: "■"
+	},
+	{
+		id: "clear",
+		name: "clear",
+		aliases: ["discard", "reset"],
+		description: "Clear composer text",
+		icon: "×"
+	},
+	{
+		id: "help",
+		name: "help",
+		aliases: ["commands", "?"],
+		description: "Show every slash command",
+		icon: "?"
+	}
+];
+function activeSlashCommand(text, cursor) {
+	if (cursor !== text.length) return null;
+	const match = /^\/([a-z0-9?-]*)$/i.exec(text);
+	return match ? match[1] : null;
+}
+function suggestedSlashCommands(query) {
+	const needle = query.toLocaleLowerCase();
+	return slashCommands.filter(({ name, aliases }) => name.includes(needle) || aliases.some((alias) => alias.includes(needle))).sort((a, b) => {
+		const rank = (command) => {
+			if (command.name === needle) return 0;
+			if (command.aliases.includes(needle)) return 1;
+			if (command.name.startsWith(needle)) return 2;
+			if (command.aliases.some((alias) => alias.startsWith(needle))) return 3;
+			return 4;
+		};
+		return rank(a) - rank(b);
+	});
+}
+function exactSlashCommand(text) {
+	const match = /^\/([a-z0-9?-]+)\s*$/i.exec(text);
+	if (!match) return void 0;
+	const name = match[1].toLocaleLowerCase();
+	return slashCommands.find((command) => command.name === name || command.aliases.includes(name));
+}
+function isCommandOnlyDraft(text) {
+	return /^\/[a-z0-9?-]+\s*$/i.test(text);
+}
+//#endregion
 //#region src/ui/composerMentions.ts
 var mentionCatalog = [
 	{
@@ -16661,6 +16792,9 @@ function ChatComposer(props) {
 	const [mentionMatch, setMentionMatch] = (0, import_react.useState)(null);
 	const [mentionIndex, setMentionIndex] = (0, import_react.useState)(0);
 	const [mentionDismissed, setMentionDismissed] = (0, import_react.useState)(false);
+	const [slashMatch, setSlashMatch] = (0, import_react.useState)(null);
+	const [slashIndex, setSlashIndex] = (0, import_react.useState)(0);
+	const [slashDismissed, setSlashDismissed] = (0, import_react.useState)(false);
 	const { mode, onFallbackSend, onNewChat, disabled, draft, images, uploading, sending, fallbackAvailable, offerFreshContinuation, dragging, fileInput, draftStorageKey, canAttach, hasDraft, canSend, canFallback, draftChanged, addFiles, showStop, stopping, stop, submit, keydown, pasted, dropped } = model;
 	const refs = (0, import_react.useMemo)(() => ({
 		textarea: (element) => {
@@ -16685,17 +16819,26 @@ function ChatComposer(props) {
 	(0, import_react.useEffect)(() => {
 		setMentionMatch(null);
 		setMentionDismissed(false);
+		setSlashMatch(null);
+		setSlashDismissed(false);
 	}, [props.chatId, props.mode]);
 	const mentionOptions = mentionMatch && !mentionDismissed && !model.sending.value && !model.disabled.value ? suggestedMentions(mentionMatch.query) : [];
+	const slashOptions = slashMatch !== null && !slashDismissed && !model.sending.value && !model.disabled.value ? suggestedSlashCommands(slashMatch) : [];
 	const selectedMentions = selectedDraftMentions(draft.value);
 	function updateMention(element, edited = false) {
-		if (edited) setMentionDismissed(false);
+		if (edited) {
+			setMentionDismissed(false);
+			setSlashDismissed(false);
+		}
 		if (element.selectionStart !== element.selectionEnd) {
 			setMentionMatch(null);
+			setSlashMatch(null);
 			return;
 		}
 		setMentionMatch(activeMention(element.value, element.selectionStart));
 		setMentionIndex(0);
+		setSlashMatch(activeSlashCommand(element.value, element.selectionStart));
+		setSlashIndex(0);
 	}
 	function chooseMention(index) {
 		const match = mentionMatch;
@@ -16710,6 +16853,34 @@ function ChatComposer(props) {
 			element?.focus();
 			element?.setSelectionRange(next.cursor, next.cursor);
 		});
+	}
+	function executeSlash(id) {
+		model.setDraft("");
+		setSlashMatch(null);
+		setMentionMatch(null);
+		setSlashDismissed(true);
+		if (id === "help") {
+			model.setDraft("/");
+			setSlashMatch("");
+			setSlashIndex(0);
+			setSlashDismissed(false);
+			requestAnimationFrame(() => model.textarea.peek()?.focus());
+		} else if (id !== "clear") props.onCommand?.(id);
+	}
+	function chooseSlash(index) {
+		const option = slashOptions[index];
+		if (option) executeSlash(option.id);
+	}
+	function submitOrRunCommand() {
+		const text = model.draft.peek();
+		if (isCommandOnlyDraft(text)) {
+			const command = exactSlashCommand(text);
+			if (command) executeSlash(command.id);
+			else model.feedback.value = `Unknown command: ${text.trim()}. Type /help to see commands.`;
+			return;
+		}
+		if (showStop.value) stop();
+		else submit();
 	}
 	function removeSelectedMention(start, end) {
 		const text = model.draft.peek();
@@ -16728,12 +16899,20 @@ function ChatComposer(props) {
 		return mode.value === "fresh" ? "Send fresh chat" : "Send reply";
 	}
 	const showNewChat = !showStop.value && !hasDraft.value && images.value.length === 0 && !uploading.value && !sending.value;
+	let autocompleteControls;
+	let autocompleteActiveOption;
+	if (slashOptions.length) {
+		autocompleteControls = "composer-slash-options";
+		autocompleteActiveOption = `composer-slash-option-${slashIndex}`;
+	} else if (mentionOptions.length) {
+		autocompleteControls = "composer-mention-options";
+		autocompleteActiveOption = `composer-mention-option-${mentionIndex}`;
+	}
 	return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("form", {
 		"aria-label": mode.value === "fresh" ? "New chat composer" : "Reply composer",
 		onSubmit: (event) => {
 			event.preventDefault();
-			if (showStop.value) stop();
-			else submit();
+			submitOrRunCommand();
 		},
 		onDragOver: (event) => {
 			event.preventDefault();
@@ -16743,6 +16922,39 @@ function ChatComposer(props) {
 		onDrop: dropped,
 		className: ["chat-composer-wrap", dragging.value ? "dragging" : ""].filter(Boolean).join(" "),
 		children: [
+			slashOptions.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+				className: "composer-mentions composer-slash",
+				role: "listbox",
+				id: "composer-slash-options",
+				"aria-label": "Slash commands",
+				children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+					className: "composer-mentions-heading",
+					children: "Commands · ↑ ↓ to navigate · Enter to run"
+				}), slashOptions.map((option, index) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+					type: "button",
+					role: "option",
+					id: `composer-slash-option-${index}`,
+					"aria-selected": index === slashIndex,
+					className: index === slashIndex ? "selected" : "",
+					onPointerDown: (event) => event.preventDefault(),
+					onClick: () => chooseSlash(index),
+					children: [
+						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+							className: "composer-mention-icon",
+							"aria-hidden": "true",
+							children: option.icon
+						}),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+							className: "composer-mention-label",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("strong", { children: ["/", option.name] }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("small", { children: option.description })]
+						}),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+							className: "composer-command-aliases",
+							children: option.aliases.slice(0, 2).map((alias) => `/${alias}`).join(" · ")
+						})
+					]
+				}, option.id))]
+			}),
 			mentionOptions.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 				className: "composer-mentions",
 				role: "listbox",
@@ -16842,6 +17054,28 @@ function ChatComposer(props) {
 							updateMention(event.currentTarget, true);
 						},
 						onKeyDown: (event) => {
+							if (slashOptions.length) {
+								if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+									event.preventDefault();
+									setSlashIndex((previous) => (previous + (event.key === "ArrowDown" ? 1 : -1) + slashOptions.length) % slashOptions.length);
+									return;
+								}
+								if ((event.key === "Enter" || event.key === "Tab") && !event.nativeEvent.isComposing) {
+									event.preventDefault();
+									chooseSlash(slashIndex);
+									return;
+								}
+							}
+							if (event.key === "Escape" && slashMatch !== null) {
+								event.preventDefault();
+								setSlashDismissed(true);
+								return;
+							}
+							if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing && isCommandOnlyDraft(model.draft.peek())) {
+								event.preventDefault();
+								submitOrRunCommand();
+								return;
+							}
 							if (mentionOptions.length) {
 								if (event.key === "ArrowDown" || event.key === "ArrowUp") {
 									event.preventDefault();
@@ -16864,7 +17098,7 @@ function ChatComposer(props) {
 							keydown(event);
 						},
 						onSelect: (event) => {
-							if (!mentionDismissed) updateMention(event.currentTarget);
+							if (!mentionDismissed || !slashDismissed) updateMention(event.currentTarget);
 						},
 						onKeyUp: (event) => {
 							if (![
@@ -16873,13 +17107,16 @@ function ChatComposer(props) {
 								"ArrowUp",
 								"Enter",
 								"Tab"
-							].includes(event.key) && !mentionDismissed) updateMention(event.currentTarget);
+							].includes(event.key) && (!mentionDismissed || !slashDismissed)) updateMention(event.currentTarget);
 						},
-						onBlur: () => setMentionMatch(null),
+						onBlur: () => {
+							setMentionMatch(null);
+							setSlashMatch(null);
+						},
 						"aria-autocomplete": "list",
-						"aria-expanded": mentionOptions.length > 0,
-						"aria-controls": mentionOptions.length ? "composer-mention-options" : void 0,
-						"aria-activedescendant": mentionOptions.length ? `composer-mention-option-${mentionIndex}` : void 0,
+						"aria-expanded": slashOptions.length > 0 || mentionOptions.length > 0,
+						"aria-controls": autocompleteControls,
+						"aria-activedescendant": autocompleteActiveOption,
 						onPaste: pasted,
 						rows: 1,
 						maxLength: 32e3,
@@ -17097,11 +17334,13 @@ function ChatRow({ item, model }) {
 }
 //#endregion
 //#region src/ui/ChatsSidebar.tsx
-function ChatsSidebar({ model, refs }) {
+function ChatsSidebar({ model, refs, settingsOpen: controlledSettingsOpen, setSettingsOpen: controlledSetSettingsOpen }) {
 	N$1();
+	const [localSettingsOpen, setLocalSettingsOpen] = (0, import_react.useState)(false);
+	const settingsOpen = controlledSettingsOpen ?? localSettingsOpen;
+	const setSettingsOpen = controlledSetSettingsOpen ?? setLocalSettingsOpen;
 	const { queueSnapshot, items, markingAllRead, drawerOpen, filtersOpen, searchActive, loadingList, listError, pinned, visibleWaiting, unpinned, markAllRead, loadingMore, morePageFailed, nextOffset, total, loadMore, toggleSearch, showJobs, createChat } = model;
 	const [profileOpen, setProfileOpen] = (0, import_react.useState)(false);
-	const [settingsOpen, setSettingsOpen] = (0, import_react.useState)(false);
 	const profileTriggerRef = (0, import_react.useRef)(null);
 	const profileMenuRef = (0, import_react.useRef)(null);
 	const settingsCloseRef = (0, import_react.useRef)(null);
@@ -21730,6 +21969,7 @@ function ChatTranscript({ model, refs, conversationUrl }) {
 //#region src/ui/ChatsPage.tsx
 function ChatsPage(props) {
 	const model = (0, import_react.useMemo)(() => createChatsPageController(props), []);
+	const [settingsOpen, setSettingsOpen] = (0, import_react.useState)(false);
 	N$1();
 	useToastSignal(model.stopError);
 	useToastSignal(model.readError, { action: {
@@ -21770,6 +22010,52 @@ function ChatsPage(props) {
 			notify("Chat link copied", "success");
 		} catch {
 			notify("Could not copy chat link", "error");
+		}
+	}
+	async function runSlashCommand(command) {
+		const id = model.selectedRunId.peek();
+		switch (command) {
+			case "new":
+				model.createChat();
+				break;
+			case "chats":
+				props.onNavigate("chats");
+				break;
+			case "jobs":
+				model.showJobs();
+				break;
+			case "settings":
+				setSettingsOpen(true);
+				break;
+			case "search":
+				model.drawerOpen.value = true;
+				if (!model.filtersOpen.peek()) await model.toggleSearch();
+				else model.searchInput.peek()?.focus();
+				break;
+			case "refresh":
+				await Promise.all([
+					model.loadList(true),
+					model.loadQueue(),
+					...id ? [model.loadDetail(id)] : []
+				]);
+				notify("Chats refreshed", "success");
+				break;
+			case "markread":
+				await model.markAllRead();
+				if (!model.readError.peek()) notify("All chats marked as read", "success");
+				break;
+			case "copy":
+				if (id) await shareChat();
+				else notify("Open a chat to copy its link", "warning");
+				break;
+			case "open": {
+				const url = id ? exactConversationUrl(model.turns.peek().findLast((turn) => exactConversationUrl(turn.conversation_id))?.conversation_id || model.detail.peek()?.conversation_id) : null;
+				if (url) window.open(url, "_blank", "noopener,noreferrer");
+				else notify("This chat has no ChatGPT link yet", "warning");
+				break;
+			}
+			case "stop": if (id && canStopTurn(model.turns.peek().findLast((turn) => turn.status !== "cancelled"))) await model.stopJob(id);
+			else notify("No active response to stop", "warning");
 		}
 	}
 	const { view, selectedRunId, newChatOpen, drawerOpen, filtersOpen, detail, turns, jobsWorkspace, replyBlockedReason, selectedChatTitle, sendFresh, freshContinuationPrompt, originalImageRefs, sendReply, cancelSwipe, startSwipe, finishSwipe, createChat, escapeDrawer } = model;
@@ -21829,7 +22115,9 @@ function ChatsPage(props) {
 			}),
 			/* @__PURE__ */ (0, import_jsx_runtime.jsx)(ChatsSidebar, {
 				model,
-				refs
+				refs,
+				settingsOpen,
+				setSettingsOpen
 			}),
 			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 				className: "chats-detail",
@@ -21923,6 +22211,7 @@ function ChatsPage(props) {
 							"outcome_unknown"
 						].includes(turns.value.at(-1)?.status ?? "")),
 						onNewChat: createChat,
+						onCommand: runSlashCommand,
 						restoreDraft: selectedRunId.value && detail.value?.send_id === selectedRunId.value && turns.value.at(-1)?.status === "preflight_failed" ? turns.value.at(-1)?.user_text ?? "" : "",
 						retryablePreflight: Boolean(selectedRunId.value && detail.value?.send_id === selectedRunId.value && turns.value.at(-1)?.status === "preflight_failed"),
 						sendDisabled: Boolean(selectedRunId.value && (detail.value?.send_id !== selectedRunId.value || replyBlockedReason.value))
