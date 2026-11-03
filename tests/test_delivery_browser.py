@@ -457,3 +457,23 @@ def test_delivery_deadline_during_dispatch_fails_closed_without_resend(tmp_path:
 )
 def test_conversation_route_detection_does_not_parse_identifiers(path: str, expected: bool) -> None:
     assert _is_conversation_path(path) is expected
+
+
+@pytest.mark.asyncio
+async def test_native_mention_rendering_passes_delivery_verification(tmp_path: Path) -> None:
+    class MentionDriver(FakeDriver):
+        async def type_message(self, message: str) -> None:
+            assert message == "Work on market-monk @Glass"
+            self.composer = "Work on market-monk Glass "
+
+        async def click_send(self, expected_message: str) -> None:
+            assert expected_message == "Work on market-monk @Glass"
+            assert self.composer == "Work on market-monk Glass "
+            self.composer = ""
+
+    driver = MentionDriver()
+    sender = BrowserDeliverySender(
+        tmp_path / "runtime.sqlite3", driver_factory=lambda: driver,
+    )
+    await sender._send_browser("Work on market-monk @Glass")
+    assert driver.closed

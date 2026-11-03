@@ -154,7 +154,15 @@ async def test_click_send_control_failure_keeps_outcome_unknown(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("prompt, rendered, chips", [
+    ("Inspect upstream (https://github.com/stufently/gpt-web-gateway).",
+     "Inspect upstream ( https://github.com/stufently/gpt-web-gateway).", []),
+    ("Work on market-monk @Glass", "Work on market-monk Glass ", ["Glass"]),
+])
 async def test_click_send_accepts_normalised_prompt_on_final_recheck(
+    prompt: str,
+    rendered: str,
+    chips: list[str],
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -170,7 +178,11 @@ async def test_click_send_accepts_normalised_prompt_on_final_recheck(
             self.keyboard = Keyboard()
 
     class Composer:
-        pass
+        def locator(self, selector: str) -> Composer:
+            return self
+
+        async def all_inner_texts(self) -> list[str]:
+            return chips
 
     driver = PatchrightDriver(profile=tmp_path / "profile")
     page = Page()
@@ -183,14 +195,18 @@ async def test_click_send_accepts_normalised_prompt_on_final_recheck(
         assert timeout == 3.0
 
     async def read_composer_text(_composer: object) -> str:
-        return "Inspect upstream ( https://github.com/stufently/gpt-web-gateway)."
+        return rendered
 
     monkeypatch.setattr(driver, "_page", lambda _context=None: page)
     monkeypatch.setattr(driver, "_focus_composer", focus_composer)
     monkeypatch.setattr(driver, "wait_for_send_ready", wait_for_send_ready)
     monkeypatch.setattr(driver, "_composer_text", read_composer_text)
 
-    await driver.click_send("Inspect upstream (https://github.com/stufently/gpt-web-gateway).")
+    await driver.click_send(prompt)
+    if chips:
+        chips.clear()
+        with pytest.raises(RuntimeError, match="lost the requested native"):
+            await driver.click_send(prompt)
 
     assert page.keyboard.pressed == ["Enter"]
 

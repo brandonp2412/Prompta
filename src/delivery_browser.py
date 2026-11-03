@@ -21,7 +21,7 @@ from .display_blocks_store import (
     merge_display_blocks,
 )
 from .image_store import ImageStore, image_refs
-from .patchright_driver import PatchrightDriver, _normalise_composer_text
+from .patchright_driver import PatchrightDriver, _expected_composer_text, _normalise_composer_text
 from .rate_limit import (
     DEFAULT_RETRY_AFTER,
     RateLimitError,
@@ -820,7 +820,7 @@ class BrowserDeliverySender:
                 typed = await _timed_stage("prompt_verification", driver.dom_state(), timeout=15.0)
                 if _normalise_composer_text(
                     str(typed.get("composer_text") or "")
-                ) != _normalise_composer_text(message):
+                ) != _expected_composer_text(message):
                     raise RuntimeError("ChatGPT composer did not contain the configured prompt")
 
                 predispatch_path = str(
@@ -1055,7 +1055,7 @@ class BrowserDeliverySender:
                 )
                 if (
                     dispatch_error is None
-                    and final_composer == _normalise_composer_text(message)
+                    and final_composer == _expected_composer_text(message)
                     and not last_transport_confirmed
                     and last_path == baseline_path
                 ):

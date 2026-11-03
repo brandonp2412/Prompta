@@ -79,6 +79,10 @@ def _normalise_composer_text(text: str) -> str:
     return re.sub(r"(?<=[=(])\s+(?=https?://)", "", normalized)
 
 
+def _expected_composer_text(text: str) -> str:
+    return _normalise_composer_text(expected_native_text(split_native_mentions(text)))
+
+
 _RATE_LIMIT_RE = re.compile(
     r"(?:too many requests|temporarily limited access|requests too quickly|rate limit|usage limit|limit (?:has been )?reached|reached (?:your|the) (?:usage )?limit)",
     re.IGNORECASE,
@@ -1609,9 +1613,17 @@ class PatchrightDriver(ModelPickerMixin):
         # without importing private selectors or any response/history logic.
         composer = await self._focus_composer()
         actual = _normalise_composer_text(await self._composer_text(composer))
-        expected = _normalise_composer_text(expected_message)
+        expected = _expected_composer_text(expected_message)
         if actual != expected:
             raise RuntimeError("ChatGPT composer changed before submit")
+        mentions = [part.name for part in split_native_mentions(expected_message)
+                    if isinstance(part, NativeMention)]
+        if mentions:
+            chips = await composer.locator(
+                "[app-mention-name], [data-system-hint-type]"
+            ).all_inner_texts()
+            if [chip.strip() for chip in chips] != mentions:
+                raise RuntimeError("ChatGPT composer lost the requested native @mentions")
 
         try:
             if control is not None:
