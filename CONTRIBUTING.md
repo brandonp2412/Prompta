@@ -71,7 +71,14 @@ The migration environment requires a caller-owned serialized connection; use
 
 Commit validated changes. Acquire the checkout's `.git/prompta-main-merge.lock` with `flock` before updating against `main`, integrating, or pushing. Hold it through the push, then deploy `main` to the configured production host.
 
-On Nox, run `./.venv/bin/python -m scripts.deploy_guarded` from the configured checkout. It records ongoing work, pauses new admissions, stops application workers within a bounded shutdown window, fast-forwards main, migrates, restarts workers, verifies health, and resumes history recovery. It preserves the browser service. See [deployment details](docs/service-architecture.md#guarded-production-deployments). Adding Python modules requires `buildq --wait -- uv sync --locked --reinstall-package prompta` to refresh strict editable imports.
+From Glass, run `python -m scripts.deploy_release` after pushing main. It builds the
+committed UI through `buildq`, packages it with the backend, uploads both to Nox, and
+runs `scripts.deploy_guarded` there. The guarded deploy inventories live chats, kills
+application workers, migrates, launches the new release, and resumes recovery while
+preserving each active chat's parallelism slot until completion or 15 idle minutes.
+It preserves the browser service. See [deployment details](docs/service-architecture.md#guarded-production-deployments).
+Adding Python modules requires `buildq --wait -- uv sync --locked --reinstall-package prompta`
+to refresh strict editable imports.
 
 For a deliberate live delivery/capture check that creates a real ChatGPT chat:
 

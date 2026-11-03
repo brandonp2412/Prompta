@@ -1,4 +1,4 @@
-"""Immutable worker generations with graceful retirement and durable boot selection."""
+"""Immutable releases with immediate worker replacement and durable chat recovery."""
 from __future__ import annotations
 
 import fcntl
@@ -50,13 +50,14 @@ def atomic_json(path: Path, payload: dict[str, object]) -> None:
     temporary.replace(path)
 
 
-def snapshot(repo: Path, revision: str, target: Path) -> None:
+def snapshot(repo: Path, revision: str, target: Path, archive_path: Path | None = None) -> None:
     """Archive tracked code; neither checkout nor dependencies are changed."""
     target.mkdir(parents=True, mode=0o700)
     archive = target / "source.tar"
     try:
-        run("git", "archive", "--format=tar", f"--output={archive}", revision, cwd=repo)
-        with tarfile.open(archive) as source:
+        if archive_path is None:
+            run("git", "archive", "--format=tar", f"--output={archive}", revision, cwd=repo)
+        with tarfile.open(archive_path or archive) as source:
             source.extractall(target, filter="data")
     finally:
         archive.unlink(missing_ok=True)
@@ -73,9 +74,6 @@ def unit_definition(release: Path, worker: str, module: str) -> str:
         f"ExecStart={release}/.venv/bin/prompta-delivery-worker",
         f"ExecStart={release}/.venv/bin/python -m {module}",
     )
-    # A retired generation must never return on reboot or be restarted by its
-    # target. Retirement is a queued systemd stop with an infinite drain budget.
-    definition = definition.replace("Type=simple", "Type=simple\nKillMode=mixed\nSendSIGKILL=no")
     definition = definition.replace(
         "Environment=PYTHONUNBUFFERED=1",
         f"Environment=PYTHONUNBUFFERED=1\nEnvironment=PROMPTA_WORKER_GENERATION={release.name}",
@@ -127,7 +125,9 @@ def schedule_checkout_sync(repo: Path, release: Path, config: Path) -> None:
     run("systemctl", "--user", "enable", "--now", "prompta-checkout-sync.timer")
 
 
-def deploy(repo: Path, gate: DeploymentGate) -> bool:
+def deploy(
+    repo: Path, gate: DeploymentGate, *, archive_path: Path | None = None, revision: str | None = None,
+) -> bool:
     from scripts.deploy_guarded import (
         record_interrupted_work,
         request_pause,
@@ -144,25 +144,14 @@ def deploy(repo: Path, gate: DeploymentGate) -> bool:
         run("git", "fetch", "origin", "main", cwd=repo)
         if run("git", "status", "--porcelain", "--untracked-files=no", cwd=repo):
             raise RuntimeError("Installed checkout has local modifications")
-        revision = run("git", "rev-parse", "origin/main", cwd=repo)
+        revision = revision or run("git", "rev-parse", "origin/main", cwd=repo)
         generation = revision[:12] + "-" + uuid.uuid4().hex[:8]
         release = state_dir / "releases" / generation
-        snapshot(repo, revision, release)
+        if archive_path is None:
+            snapshot(repo, revision, release)
+        else:
+            snapshot(repo, revision, release, archive_path)
         old_units = current_workers(state_dir)
-        previous_manifest = state_dir / "worker-generation.json"
-        previous = (
-            Path(json.loads(previous_manifest.read_text())["release"])
-            if previous_manifest.exists() else repo
-        )
-        previous_migrations = {
-            path.relative_to(previous): path.read_bytes()
-            for path in (previous / "src/migrations").rglob("*.py")
-        }
-        next_migrations = {
-            path.relative_to(release): path.read_bytes()
-            for path in (release / "src/migrations").rglob("*.py")
-        }
-        schema_changed = previous_migrations != next_migrations
         new_units = tuple(f"{worker}-{generation}.service" for worker in WORKERS)
         for worker, module, unit in zip(WORKERS, MODULES, new_units, strict=True):
             (config / unit).write_text(unit_definition(release, worker, module))
@@ -179,23 +168,24 @@ def deploy(repo: Path, gate: DeploymentGate) -> bool:
         request_pause(gate)
         retired = False
         try:
-            if schema_changed:
-                record_interrupted_work(gate)
-                stop_workers()
-                # After stopping owners, failures must leave admission paused.
-                retired = True
-            # Existing code initializes schemas repeatedly. Its migration head
-            # must still match while it owns live work; never migrate underneath
-            # an older owner that cannot recognize the new revision.
+            record_interrupted_work(gate)
+            # Once stopping begins, any failure must leave admission paused.
+            retired = True
+            stop_workers()
             env = os.environ.copy()
             env["PYTHONPATH"] = str(release)
             subprocess.run(
                 [str(release / ".venv/bin/python"), "-m", "prompta.schema_migrations",
                  "--state-dir", str(state_dir)], cwd=release, env=env, check=True,
             )
+            subprocess.run(
+                [str(release / ".venv/bin/python"), "-m", "scripts.deploy_guarded",
+                 "--state", str(state_dir / "runtime.sqlite3"), "--prepare-recovery"],
+                cwd=release, env=env, check=True,
+            )
             run("systemctl", "--user", "daemon-reload")
             run("systemctl", "--user", "start", *new_units)
-            # New owners initialize behind the pause before old owners retire.
+            # Recovery slots are durable before any new owner can admit work.
             if not verify_services(units=new_units, check_http=False, ready_dir=release):
                 raise RuntimeError("New worker generation failed startup")
             atomic_json(state_dir / "worker-handover.json", {
@@ -203,24 +193,7 @@ def deploy(repo: Path, gate: DeploymentGate) -> bool:
                 "retiring_units": list(old_units), "new_units": list(new_units),
                 "release": str(release), "status": "prepared",
             })
-            # SIGTERM is handled cooperatively by both workers. systemd queues
-            # the stop and suppresses Restart=always; TimeoutStopSec=infinity
-            # preserves all live captures for however long they take.
-            for unit in old_units:
-                retirement = config / f"{unit}.d"
-                retirement.mkdir(parents=True, exist_ok=True)
-                retired_marker = state_dir / "retired-workers" / unit
-                retired_marker.parent.mkdir(exist_ok=True)
-                retired_marker.touch()
-                (retirement / "draining.conf").write_text(
-                    f"[Unit]\nConditionPathExists=!{retired_marker}\n"
-                    "[Service]\nKillMode=mixed\nTimeoutStopSec=infinity\n"
-                    "SendSIGKILL=no\nWatchdogSec=0\n"
-                )
-            run("systemctl", "--user", "daemon-reload")
             run("systemctl", "--user", "disable", *old_units)
-            run("systemctl", "--user", "stop", "--no-block", *old_units)
-            retired = True
             atomic_json(state_dir / "worker-generation.json", {
                 "revision": revision, "release": str(release), "units": list(new_units),
             })
@@ -230,7 +203,7 @@ def deploy(repo: Path, gate: DeploymentGate) -> bool:
             run("systemctl", "--user", "restart", *FRONTENDS)
             if not verify_services(units=(*FRONTENDS, *new_units)):
                 raise RuntimeError("New generation health verification failed; admission stays paused")
-            if schema_changed and not verify_recorded_work(gate):
+            if not verify_recorded_work(gate):
                 raise RuntimeError("Interrupted work verification failed; admission stays paused")
             schedule_checkout_sync(repo, release, config)
             atomic_json(state_dir / "worker-handover.json", {
@@ -239,12 +212,11 @@ def deploy(repo: Path, gate: DeploymentGate) -> bool:
                 "release": str(release), "status": "serving",
             })
             gate.pause_path.unlink()
-            logger.info("New generation serving: %s; previous owners draining: %s", generation, old_units)
+            logger.info("New generation serving: %s; previous owners stopped: %s", generation, old_units)
             return True
         except BaseException:
             if not retired:
                 run("systemctl", "--user", "stop", "--no-block", *new_units)
                 gate.pause_path.unlink(missing_ok=True)
-            # After retirement, leave the durable pause and inventory in place.
-            # Never kill old owners or expire their leases to recover a deploy.
+            # After stopping owners, leave the durable pause and inventory in place.
             raise

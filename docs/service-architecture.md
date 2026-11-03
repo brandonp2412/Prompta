@@ -13,37 +13,34 @@
 
 ## Guarded production deployments
 
-On Nox, run `./.venv/bin/python -m scripts.deploy_guarded` from `~/prompta`.
-Each deployment archives the fetched main revision into a unique directory under
-`~/.local/state/prompta/releases/` and installs its own Python environment through
-`buildq`. Workers execute modules from that fixed directory, so later checkout
-and dependency changes cannot change the code of a running capture.
+From Glass, run `python -m scripts.deploy_release` after pushing `main`. It archives
+committed UI/backend source, builds the UI through `buildq`, and uploads the combined
+release to Nox. It invokes `scripts.deploy_guarded` using the uploaded code, so even
+the deployment logic belongs to the new release. The Nox deployer installs a release
+Python environment through `buildq` before interrupting service.
 
-The deployer briefly pauses new admissions, initializes the new delivery and
-manual reply workers, and verifies readiness against their actual PIDs. It then
-queues graceful retirement of the previous pair. Retiring workers accept no new
-work and finish their existing sends and captures without a deadline. Their
-browser transport children stay alive: systemd signals only the main process
-(`KillMode=mixed`, `SendSIGKILL=no`, `TimeoutStopSec=infinity`). Persistent retirement
-conditions prevent an old target dependency from resurrecting retired workers.
-Only the newest pair is enabled for startup. Multiple older generations may drain
-at once.
+The deployer pauses admissions, records active sends and replies in
+`deployment-interrupted.json`, and immediately stops and kills all application workers.
+The persistent browser service stays running. Only after every old owner stops does
+it migrate databases and transfer the recorded captures to recovery with their active
+statuses and parallelism slots intact. Recovery uses exact stored conversations and
+branches; it never resends a prompt.
 
-The UI and scheduler restart on the new release and admissions resume after
-health verification. The browser service is untouched. Capture leases are never
-expired by routine deployment. `worker-generation.json` records the serving
-workers, and `worker-handover.json` records the retiring workers and deployed
-revision. Failures before retirement leave the original workers serving; failures
-after retirement retain the admission pause for operator recovery using
-`python -m scripts.deploy_guarded --resume` after checking service health.
+New delivery and reply workers start behind the pause and publish readiness with their
+actual PIDs. The UI and scheduler restart on the same release. Health and durable-work
+checks must pass before admissions and recovery resume. A recovering chat retains its
+slot for the existing 15-minute idle window. A clean read of the exact conversation and branch refreshes the existing idle
+window, as does verified generation or changed response text, tools, or display blocks.
+Failed or unverified reads do not refresh it. Completion releases the slot immediately. Idle expiry marks recovery
+interrupted and allows queued work to advance, while later history recovery remains
+possible.
 
-During the first rollout, the original workers still load from `~/prompta`.
-Only the deployment scripts may be upgraded there before their retirement; loaded
-application source remains pinned until they finish. A persistent checkout sync
-timer advances the checkout after both original workers exit. Subsequent workers
-all use release snapshots. Host overrides, including browser endpoints and watchdog
-budgets, carry into each new generation. Schema revision changes are rejected
-before handover because old workers cannot recognize a new migration head.
+`worker-generation.json` records the serving workers and `worker-handover.json` the
+replaced workers and revision. Failures after shutdown begins leave admissions paused.
+Use `python -m scripts.deploy_guarded --resume` only after checking service health.
+Workers run from immutable releases. The checkout sync timer advances `~/prompta`
+only after original checkout owners stop, and host overrides carry into new workers.
+
 Browser-crash recovery remains a separate emergency operation that inventories
 and interrupts all worker generations before restarting a crashed browser.
 
@@ -108,6 +105,6 @@ import mutable application metadata.
 
 ## Response recovery
 
-Live recovery reads the installed observer in the same owned tab every 45 seconds within its activity lease. Historical recovery selects interrupted or unavailable local runs with a verified conversation UUID and an expired capture lease. It opens that exact conversation in a temporary tab, verifies the route and original prompt, and captures visible assistant output. Explicit manual requests, deployment-interrupted captures, and surviving owned tabs can resume connector permissions when automatic approval is configured; approval rechecks the exact turn and branch before acting. Recovery never resends a prompt. Completion requires a rendered Copy action with generation finished. If ChatGPT continues the response under a new message ID, the verified turn must contain the saved message ID before recovery can replace it. Completed records stay immutable.
+Live recovery reads the installed observer in the same owned tab every 45 seconds within its activity lease. Historical recovery selects interrupted or unavailable local runs and active deployment recovery captures with a verified conversation UUID and no live capture owner. It opens that exact conversation in a temporary tab, verifies the route and original prompt, and captures visible assistant output. Explicit manual requests, deployment-interrupted captures, and surviving owned tabs can resume connector permissions when automatic approval is configured; approval rechecks the exact turn and branch before acting. Recovery never resends a prompt. Completion requires a rendered Copy action with generation finished. If ChatGPT continues the response under a new message ID, the verified turn must contain the saved message ID before recovery can replace it. Completed records stay immutable.
 
 Historical navigation is globally paced to 90 seconds. Attempt counts provide fair scheduling without a separate per-chat cooldown. HTTP 429 responses trigger persisted read backoff starting at five minutes, doubling to a 30-minute cap with jitter and support for longer `Retry-After` values. Security challenges pause reads for 30 minutes. Delivery admission and read backoff use separate gates. Logs record manual requests, selected turns, permission outcomes, observed and stored text lengths, and completion without logging response bodies.

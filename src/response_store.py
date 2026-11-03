@@ -14,6 +14,7 @@ from sqlalchemy.dialects.sqlite import insert
 from sqlalchemy.engine import Engine, RowMapping
 from sqlalchemy.pool import NullPool
 
+from .browser_ownership import MAX_OWNED_TAB_AGE_SECONDS
 from .display_blocks_store import deserialize_display_blocks, merge_display_blocks
 from .reply_tables import replies
 from .response_capture import CaptureResult, conversation_id_from_path
@@ -398,6 +399,24 @@ class ResponseStore:
                 results.c.conversation_id == "",
             ).values(status="outcome_unknown", updated_at=at, finished_at=at))
 
+    def prepare_deployment_recovery(
+        self, send_ids: Collection[str], reply_ids: Collection[str], *, now: float | None = None,
+    ) -> None:
+        """Transfer stopped owners to recovery without releasing their admission slots."""
+        at = time.time() if now is None else now
+        with self.engine.begin() as connection:
+            connection.execute(update(results).where(
+                results.c.send_id.in_(send_ids),
+                results.c.status.in_(("queued", "accepted", "generating", "partial",
+                                       "interrupted", "unavailable", "outcome_unknown")),
+            ).values(status="generating", capture_owner="",
+                     capture_deadline=at + MAX_OWNED_TAB_AGE_SECONDS, finished_at=0))
+            connection.execute(update(replies).where(
+                replies.c.reply_id.in_(reply_ids),
+                replies.c.status.in_(("dispatching", "accepted", "generating", "interrupted", "outcome_unknown")),
+            ).values(status="generating", lease_owner="",
+                     lease_deadline=at + MAX_OWNED_TAB_AGE_SECONDS, finished_at=0))
+
     def recover_orphans(self, *, now: float | None = None) -> int:
         at = time.time() if now is None else now
         capturing = results.c.status.in_(("accepted", "generating"))
@@ -409,7 +428,7 @@ class ResponseStore:
                     capturing, results.c.capture_deadline > at,
                 ).distinct()
             ).scalars().all()
-        dead_owners = [owner for owner in owners if not _alive(str(owner))]
+        dead_owners = [owner for owner in owners if owner and not _alive(str(owner))]
         stale = results.c.capture_deadline <= at
         if dead_owners:
             stale = or_(stale, results.c.capture_owner.in_(dead_owners))
@@ -434,14 +453,17 @@ class ResponseStore:
                 select(results.c.send_id).where(
                     results.c.status.in_(("accepted", "generating", "partial")),
                     results.c.capture_deadline > now,
-                    results.c.capture_owner != "",
                     or_(
                         results.c.send_id.startswith("scheduled-", autoescape=True),
                         results.c.send_id.startswith("manual-", autoescape=True),
                     ),
                 )
             ).scalars().all()
-        return {str(send_id) for send_id in rows}
+            recovering_replies = connection.execute(select(replies.c.send_id).where(
+                replies.c.status.in_(("accepted", "generating")),
+                replies.c.lease_owner == "", replies.c.lease_deadline > now,
+            )).scalars().all()
+        return {str(send_id) for send_id in (*rows, *recovering_replies)}
 
     @staticmethod
     def _valid_local_read(send_id: str, revision: str) -> bool:
@@ -623,7 +645,7 @@ class ResponseStore:
         self, *, now: float | None = None, pinned_only: bool = False,
         priority_ids: Collection[str] | None = None,
     ) -> dict[str, object] | None:
-        """Choose only expired, Prompta-owned conversations with durable identities."""
+        """Choose ownerless Prompta conversations, including active deployment recovery."""
         attempts = history_recovery_attempts
         joined = results.outerjoin(attempts, results.c.send_id == attempts.c.send_id)
         if pinned_only:
@@ -633,7 +655,7 @@ class ResponseStore:
             _ACTIVITY_AT,
             func.coalesce(attempts.c.attempt_count, 0).label("attempt_count"),
         ).select_from(joined).where(
-            results.c.status.in_(("interrupted", "unavailable")),
+            results.c.status.in_(("interrupted", "unavailable", "accepted", "generating")),
             results.c.conversation_id != "",
             results.c.capture_owner == "",
         )
@@ -819,8 +841,8 @@ class ResponseStore:
     ) -> bool:
         """Temporarily clear attention after a clean read of the exact conversation.
 
-        The durable status remains interrupted and eligible for completion
-        recovery; this observation expires after 15 minutes without a new read.
+        Interrupted captures stay eligible for completion recovery. Active
+        deployment captures also retain their slot for 15 minutes after this read.
         """
         if not conversation_id:
             return False
@@ -830,8 +852,14 @@ class ResponseStore:
                 results.c.send_id == send_id,
                 results.c.conversation_id == conversation_id,
                 results.c.capture_owner == "",
-                results.c.status.in_(("interrupted", "unavailable")),
-            ).values(live_observed_at=at))
+                results.c.status.in_(("interrupted", "unavailable", "accepted", "generating")),
+            ).values(
+                live_observed_at=at,
+                capture_deadline=case(
+                    (results.c.status.in_(("accepted", "generating")), at + MAX_OWNED_TAB_AGE_SECONDS),
+                    else_=results.c.capture_deadline,
+                ),
+            ))
             return changed.rowcount == 1
 
     def recover_historical_response(
@@ -849,7 +877,7 @@ class ResponseStore:
             row = connection.execute(
                 select(results).where(
                     results.c.send_id == send_id,
-                    results.c.status.in_(("interrupted", "unavailable")),
+                    results.c.status.in_(("interrupted", "unavailable", "accepted", "generating")),
                     results.c.conversation_id == capture.conversation_id,
                     results.c.capture_owner == "",
                 )
@@ -875,7 +903,7 @@ class ResponseStore:
                 text = saved_text
             changed = connection.execute(update(results).where(
                 results.c.send_id == send_id,
-                results.c.status.in_(("interrupted", "unavailable")),
+                results.c.status.in_(("interrupted", "unavailable", "accepted", "generating")),
                 results.c.conversation_id == capture.conversation_id,
                 results.c.capture_owner == "",
             ).values(
@@ -887,6 +915,14 @@ class ResponseStore:
                 status="completed" if complete else row["status"],
                 live_observed_at=at if (capture.verified_generating or capture.verified_loaded) and not complete else 0,
                 updated_at=at,
+                capture_deadline=(
+                    at + MAX_OWNED_TAB_AGE_SECONDS
+                    if not complete and row["status"] in ("accepted", "generating")
+                    and (capture.verified_generating or text != saved_text
+                         or merge_tool_calls(row["tool_calls_json"], capture.tool_calls) != row["tool_calls_json"]
+                         or merge_display_blocks(row["display_blocks_json"], capture.display_blocks) != row["display_blocks_json"])
+                    else row["capture_deadline"]
+                ),
                 finished_at=at if complete else row["finished_at"],
             ))
             return changed.rowcount == 1

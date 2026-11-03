@@ -186,3 +186,50 @@ def test_stopped_capture_recovers_from_verified_history_without_resending(tmp_pa
     assert record is not None
     assert record["status"] == "completed"
     assert record["assistant_text"] == "Recovered answer"
+
+
+def test_deploy_recovery_holds_capacity_until_idle_timeout(tmp_path: Path) -> None:
+    from prompta.response_capture import CaptureResult
+    from prompta.response_store import ResponseStore
+
+    store = ResponseStore(tmp_path / "chat-results.sqlite3")
+    send_id = "manual-deploy"
+    conversation = "12345678-1234-4123-8123-123456789abc"
+    store.ensure_queued(send_id, "Original prompt", now=10)
+    assert store.accept(send_id, "999999999:dead", deadline=10000, now=11)
+    assert store.bind_conversation_route(send_id, "999999999:dead", "/c/" + conversation, now=12)
+    store.prepare_deployment_recovery((send_id,), (), now=20)
+    assert store.recover_orphans(now=21) == 0
+    record = store.get(send_id)
+    assert record is not None and record["status"] == "generating"
+    assert store.active_capture_send_ids(now=919) == {send_id}
+    candidate = store.next_history_recovery(now=21)
+    assert candidate is not None and candidate["send_id"] == send_id
+    # Verified live generation renews the same 15-minute idle lease.
+    store.observe_history_generating(send_id, conversation, now=900)
+    assert store.recover_orphans(now=920) == 0
+    assert store.active_capture_send_ids(now=1799) == {send_id}
+    assert store.recover_orphans(now=1800) == 1
+    assert store.active_capture_send_ids(now=1800) == set()
+    record = store.get(send_id)
+    assert record is not None and record["status"] == "interrupted"
+    assert store.recover_historical_response(
+        send_id, CaptureResult("dom", "complete", "Recovered", conversation, None, None, "turn"),
+        now=1801,
+    )
+
+
+def test_repeated_partial_snapshot_does_not_extend_recovery_slot(tmp_path: Path) -> None:
+    from prompta.response_capture import CaptureResult
+    from prompta.response_store import ResponseStore
+
+    store = ResponseStore(tmp_path / "chat-results.sqlite3")
+    store.ensure_queued("manual-deploy", "Prompt", now=10)
+    assert store.accept("manual-deploy", "999999999:dead", deadline=10000, now=11)
+    conversation = "12345678-1234-4123-8123-123456789abc"
+    assert store.bind_conversation_route("manual-deploy", "999999999:dead", "/c/" + conversation, now=12)
+    store.prepare_deployment_recovery(("manual-deploy",), (), now=20)
+    partial = CaptureResult("dom", "partial", "Partial", conversation, None, None, "turn")
+    assert store.recover_historical_response("manual-deploy", partial, now=100)
+    assert store.recover_historical_response("manual-deploy", partial, now=999)
+    assert store.recover_orphans(now=1000) == 1

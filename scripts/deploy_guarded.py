@@ -1,4 +1,4 @@
-"""Deploy a new worker generation while live chats retain their original workers.
+"""Deploy UI and backend together, replacing workers and recovering their live chats.
 
 Run from the installed Prompta checkout: python scripts/deploy_guarded.py
 Queued submissions stay durable. The browser service is deliberately untouched.
@@ -82,7 +82,7 @@ def wait_for_recoverable_handoff(
 
 
 def stop_workers(*, timeout: float = 60.0) -> None:
-    """Emergency browser-crash recovery only; routine deployment never calls this."""
+    """Stop every application owner immediately without touching the browser service."""
     from scripts.rolling_deploy import FRONTENDS, all_worker_units
 
     services = (*FRONTENDS, *all_worker_units())
@@ -263,7 +263,7 @@ def verify_services(
 
 
 def deploy(repo: Path, gate: DeploymentGate) -> bool:
-    """Start an immutable generation while previous owners drain in place."""
+    """Replace application owners and resume their recorded work on a new release."""
     from scripts.rolling_deploy import deploy as rolling_deploy
 
     return rolling_deploy(repo, gate)
@@ -279,6 +279,9 @@ def main() -> None:
         help="Remove a leftover pause only after separately verifying services are healthy",
     )
     parser.add_argument("--sync-checkout", action="store_true")
+    parser.add_argument("--prepare-recovery", action="store_true")
+    parser.add_argument("--archive", type=Path)
+    parser.add_argument("--revision")
     args = parser.parse_args()
     configure_logging("deploy_guarded")
     if args.sync_checkout:
@@ -293,12 +296,34 @@ def main() -> None:
                                 "prompta-checkout-sync.timer"], check=True)
         return
     gate = DeploymentGate(args.state)
+    if args.prepare_recovery:
+        from prompta.response_store import ResponseStore
+
+        inventory = json.loads((args.state.parent / "deployment-interrupted.json").read_text())
+        active = {"running", "dispatching", "accepted", "generating", "partial"}
+        sends = [item["id"] for item in inventory["job_responses"] if item["status"] in active]
+        replies = [item["id"] for item in inventory["manual_reply_turns"] if item["status"] in active]
+        running = [item["id"] for item in inventory["job_deliveries"] if item["status"] == "running"]
+        ResponseStore(args.state.parent / "chat-results.sqlite3").prepare_deployment_recovery(
+            (*sends, *running), replies,
+        )
+        return
     if args.resume:
         if not verify_services():
             raise SystemExit("Services are not healthy; refusing to resume")
         gate.pause_path.unlink(missing_ok=True)
         return
-    if not deploy(args.repo.resolve(), gate):
+    if args.archive:
+        from scripts.rolling_deploy import deploy as deploy_archive
+
+        if not args.revision:
+            parser.error("--archive requires --revision")
+        succeeded = deploy_archive(
+            args.repo.resolve(), gate, archive_path=args.archive.resolve(), revision=args.revision,
+        )
+    else:
+        succeeded = deploy(args.repo.resolve(), gate)
+    if not succeeded:
         raise SystemExit(2)
 
 

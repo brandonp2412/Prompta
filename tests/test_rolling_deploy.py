@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import shutil
-import sqlite3
 from pathlib import Path
 
 import pytest
@@ -37,50 +36,37 @@ def rollout(tmp_path, monkeypatch):
     monkeypatch.setattr(rolling_deploy, "snapshot", archive)
     monkeypatch.setattr(rolling_deploy.subprocess, "run", lambda *args, **kwargs: None)
     monkeypatch.setattr(deploy_guarded, "verify_services", lambda **kwargs: True)
+    monkeypatch.setattr(deploy_guarded, "stop_workers", lambda: commands.append(("stop-all-workers",)))
     return repo, gate, commands
 
 
-def test_handover_preserves_live_work_and_starts_new_owners_first(rollout):
+def test_deployment_stops_owners_before_starting_recovery_workers(rollout):
     repo, gate, commands = rollout
     assert rolling_deploy.deploy(repo, gate)
     assert not gate.is_paused()
     current = rolling_deploy.current_workers(gate.pause_path.parent)
     assert current != rolling_deploy.LEGACY_WORKERS
     start = commands.index(("systemctl", "--user", "start", *current))
-    stop = commands.index(("systemctl", "--user", "stop", "--no-block",
-                           *rolling_deploy.LEGACY_WORKERS))
-    assert start < stop
-    assert not any("kill" in arg or "prompta-browser.service" == arg
-                   for command in commands for arg in command)
-    for filename, table, deadline in (
-        ("chat-results.sqlite3", "job_responses", "capture_deadline"),
-        ("chat-results.sqlite3", "manual_reply_turns", "lease_deadline"),
-        ("ui-send-jobs.sqlite3", "job_deliveries", "lease_expires_at"),
-    ):
-        with sqlite3.connect(gate.pause_path.parent / filename) as db:
-            assert db.execute(f"SELECT {deadline} FROM {table}").fetchone() == (200,)
+    stop = commands.index(("stop-all-workers",))
+    assert stop < start
+    assert not any("prompta-browser.service" == arg for command in commands for arg in command)
+    assert (gate.pause_path.parent / "deployment-interrupted.json").exists()
+    assert (gate.pause_path.parent / "deployment-verification.json").exists()
     report = json.loads((gate.pause_path.parent / "worker-handover.json").read_text())
     assert report["status"] == "serving"
     config = Path.home() / ".config/systemd/user"
-    for unit in rolling_deploy.LEGACY_WORKERS:
-        override = (config / f"{unit}.d/draining.conf").read_text()
-        assert "KillMode=mixed" in override
-        assert "SendSIGKILL=no" in override
-        assert "TimeoutStopSec=infinity" in override
-        assert "ConditionPathExists=!" in override
     definition = (config / current[0]).read_text()
     assert " -m prompta.delivery_worker" in definition
     assert str(repo) not in definition
 
 
-def test_failed_start_keeps_original_workers_and_reopens_admission(rollout, monkeypatch):
+def test_failed_start_keeps_admission_paused(rollout, monkeypatch):
     repo, gate, commands = rollout
     monkeypatch.setattr(deploy_guarded, "verify_services", lambda **kwargs: False)
     with pytest.raises(RuntimeError, match="failed startup"):
         rolling_deploy.deploy(repo, gate)
-    assert not gate.is_paused()
-    assert not any(command[-2:] == rolling_deploy.LEGACY_WORKERS and "stop" in command
-                   for command in commands)
+    assert gate.is_paused()
+    assert ("stop-all-workers",) in commands
     assert rolling_deploy.current_workers(gate.pause_path.parent) == rolling_deploy.LEGACY_WORKERS
 
 
@@ -113,7 +99,7 @@ def test_subsequent_deployment_retires_only_current_generation(rollout):
     assert rolling_deploy.deploy(repo, gate)
     second = rolling_deploy.current_workers(gate.pause_path.parent)
     assert second != first
-    assert ("systemctl", "--user", "stop", "--no-block", *first) in commands
+    assert ("stop-all-workers",) in commands
     assert not any("stop" in command and any(unit in command for unit in rolling_deploy.LEGACY_WORKERS)
                    for command in commands)
 
@@ -146,14 +132,13 @@ def test_schema_change_records_and_stops_owners_before_migration(rollout, monkey
         events.append("stop")
 
     def migrate(*args, **kwargs):
-        assert events == ["record", "stop"]
-        events.append("migrate")
+        events.append("prepare" if "--prepare-recovery" in args[0] else "migrate")
 
     monkeypatch.setattr(deploy_guarded, "record_interrupted_work", inventory)
     monkeypatch.setattr(deploy_guarded, "stop_workers", stop)
     monkeypatch.setattr(rolling_deploy.subprocess, "run", migrate)
     assert rolling_deploy.deploy(repo, gate)
-    assert events == ["record", "stop", "migrate"]
+    assert events == ["record", "stop", "migrate", "prepare"]
     assert not gate.is_paused()
     assert (gate.pause_path.parent / "deployment-verification.json").exists()
     assert not any("prompta-browser.service" in command for command in commands)

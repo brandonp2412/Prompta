@@ -40,6 +40,32 @@ def intent(reply_id: str = REPLY_ID, parent_id: str = PARENT, text: str = "Manua
     return ReplyIntent(reply_id, CONVERSATION, parent_id, text)
 
 
+def test_deploy_reply_recovers_without_releasing_chat_slot(tmp_path: Path) -> None:
+    store = seed(tmp_path)
+    store.prepare("run", intent(), now=150)
+    assert store.claim(REPLY_ID, "999999999:dead", deadline=10000, now=151)
+    assert store.accepted(
+        REPLY_ID, "999999999:dead", conversation_id=CONVERSATION,
+        parent_id=PARENT, message_id=MESSAGE, now=152,
+    )
+    store.responses.prepare_deployment_recovery((), (REPLY_ID,), now=160)
+    assert store.recover_orphans(now=161) == 0
+    assert store.responses.active_capture_send_ids(now=1059) == {"run"}
+    candidate = store.next_history_reply_recovery(now=161)
+    assert candidate is not None and candidate["reply_id"] == REPLY_ID
+    assert store.observe_history_loaded(REPLY_ID, CONVERSATION, PARENT, now=900)
+    assert store.recover_orphans(now=1060) == 0
+    assert store.recover_historical_reply(
+        REPLY_ID, CaptureResult(
+            "dom", "partial", "", CONVERSATION, MESSAGE, PARENT, verified_generating=True,
+        ), now=1000,
+    )
+    assert store.recover_orphans(now=1060) == 0
+    assert store.responses.active_capture_send_ids(now=1899) == {"run"}
+    assert store.recover_orphans(now=1900) == 1
+    assert store.responses.active_capture_send_ids(now=1900) == set()
+
+
 def test_migration_permissions_and_explicit_intent_validation(tmp_path: Path) -> None:
     from prompta.response_store import ResponseStore
 

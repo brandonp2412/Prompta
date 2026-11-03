@@ -9,7 +9,7 @@ from sqlalchemy import update
 
 from prompta.history_recovery import HistoryRecovery
 from prompta.response_capture import CaptureResult
-from prompta.response_store import ResponseStore
+from prompta.response_store import HISTORY_READ_INTERVAL_SECONDS, ResponseStore
 from prompta.response_tables import results
 from prompta.scheduler_runtime import SchedulerRuntime
 
@@ -92,7 +92,7 @@ def test_newest_pinned_interruption_becomes_live_then_completed_without_resend(
     assert store.page(status="needs_attention")["total"] == 2
 
     # The very next global recovery slot can complete the exact interrupted turn.
-    assert recovery.recover_once(now=now + 301)
+    assert recovery.recover_once(now=now + HISTORY_READ_INTERVAL_SECONDS + 1)
     saved = store.get("newer-pinned")
     assert saved is not None and saved["status"] == "completed"
     assert saved["assistant_text"] == "Verified recovered answer"

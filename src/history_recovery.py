@@ -583,6 +583,8 @@ def run_history_recovery(
     last_checked_at = 0.0
     while not shutdown.is_set():
         try:
+            results.recover_orphans()
+            recovery.replies.recover_orphans()
             current = time.monotonic()
             if current - last_checked_at >= HISTORY_READ_INTERVAL_SECONDS:
                 if (

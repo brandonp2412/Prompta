@@ -148,7 +148,7 @@ def next_owned_recovery_candidate(
         )
         .select_from(joined)
         .where(
-            results.c.status.in_(("interrupted", "unavailable")),
+            results.c.status.in_(("interrupted", "unavailable", "accepted", "generating")),
             results.c.capture_owner == "",
             results.c.conversation_id.in_(tuple(unique)),
         )

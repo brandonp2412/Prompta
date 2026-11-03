@@ -20,6 +20,20 @@ def _queued_record(send_id: str = "send-1", *, client_id: str = "client-1") -> d
     }
 
 
+def test_deploy_recovery_blocks_new_claim_until_idle_deadline(tmp_path: Path) -> None:
+    queue = DeliveryQueueStore(tmp_path / "delivery.sqlite3")
+    queue.upsert(_queued_record("manual-active"))
+    queue.upsert(_queued_record("manual-waiting", client_id="waiting-client"))
+    assert queue.claim_next("old-worker", now=100, lease_seconds=30, max_active=1)
+    assert queue.results.accept("manual-active", "999999999:dead", deadline=10000, now=101)
+    queue.results.prepare_deployment_recovery(("manual-active",), (), now=110)
+    # Expiring the dispatch receipt must not release its recovering capture slot.
+    assert queue.claim_next("new-worker", now=140, lease_seconds=30, max_active=1) is None
+    assert queue.claim_next("new-worker", now=1009, lease_seconds=30, max_active=1) is None
+    receipt = queue.claim_next("new-worker", now=1010, lease_seconds=30, max_active=1)
+    assert receipt is not None and receipt["send_id"] == "manual-waiting"
+
+
 def test_only_one_live_claimant_owns_delivery(tmp_path: Path) -> None:
     path = tmp_path / "delivery.sqlite3"
     seed = DeliveryQueueStore(path)

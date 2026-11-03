@@ -21,6 +21,7 @@ from sqlalchemy.dialects.sqlite import insert
 from sqlalchemy.engine import Connection, RowMapping
 from sqlalchemy.sql.elements import ColumnElement
 
+from .browser_ownership import MAX_OWNED_TAB_AGE_SECONDS
 from .display_blocks_store import deserialize_display_blocks, merge_display_blocks
 from .reply_read_state import ReplyReadState, visible_reply_status
 from .reply_tables import replies
@@ -57,7 +58,7 @@ def _recovery_conditions() -> tuple[
     tuple[ColumnElement[bool], ...], tuple[ColumnElement[bool], ...]
 ]:
     outstanding = (
-        replies.c.status.in_(("outcome_unknown", "interrupted")),
+        replies.c.status.in_(("outcome_unknown", "interrupted", "accepted", "generating")),
         replies.c.lease_owner == "",
     )
     prior = replies.alias("verified_predecessor")
@@ -668,7 +669,7 @@ class ManualReplyStore(ReplyReadState):
             owners = connection.execute(select(replies.c.lease_owner).where(
                 active, replies.c.lease_deadline > at,
             ).distinct()).scalars().all()
-        dead_owners = [owner for owner in owners if not _alive(str(owner))]
+        dead_owners = [owner for owner in owners if owner and not _alive(str(owner))]
         stale = replies.c.lease_deadline <= at
         if dead_owners:
             stale = or_(stale, replies.c.lease_owner.in_(dead_owners))
@@ -755,8 +756,14 @@ class ManualReplyStore(ReplyReadState):
                 replies.c.conversation_id == conversation_id,
                 replies.c.parent_id == parent_id,
                 replies.c.lease_owner == "",
-                replies.c.status.in_(("interrupted", "outcome_unknown")),
-            ).values(live_observed_at=at))
+                replies.c.status.in_(("interrupted", "outcome_unknown", "accepted", "generating")),
+            ).values(
+                live_observed_at=at,
+                lease_deadline=case(
+                    (replies.c.status.in_(("accepted", "generating")), at + MAX_OWNED_TAB_AGE_SECONDS),
+                    else_=replies.c.lease_deadline,
+                ),
+            ))
             return changed.rowcount == 1
 
     def recover_historical_reply(
@@ -766,7 +773,7 @@ class ManualReplyStore(ReplyReadState):
         at = time.time() if now is None else now
         if (
             not capture.conversation_id or not capture.parent_id
-            or not (capture.text or capture.tool_calls)
+            or not (capture.text or capture.tool_calls or capture.verified_generating)
             or (capture.text and capture.status not in ("partial", "complete"))
             or not (capture.message_id or capture.observer_id)
         ):
@@ -774,7 +781,7 @@ class ManualReplyStore(ReplyReadState):
         with self.engine.begin() as connection:
             row = connection.execute(select(replies).where(
                 replies.c.reply_id == reply_id,
-                replies.c.status.in_(("outcome_unknown", "interrupted")),
+                replies.c.status.in_(("outcome_unknown", "interrupted", "accepted", "generating")),
                 replies.c.lease_owner == "",
             )).mappings().one_or_none()
             if row is None or (
@@ -813,7 +820,7 @@ class ManualReplyStore(ReplyReadState):
             )
             changed = connection.execute(update(replies).where(
                 replies.c.reply_id == reply_id,
-                replies.c.status.in_(("outcome_unknown", "interrupted")),
+                replies.c.status.in_(("outcome_unknown", "interrupted", "accepted", "generating")),
                 replies.c.lease_owner == "",
             ).values(
                 assistant_text=text,
@@ -823,6 +830,15 @@ class ManualReplyStore(ReplyReadState):
                 status="completed" if complete else row["status"],
                 live_observed_at=at if (capture.verified_generating or capture.verified_loaded) and not complete else 0,
                 updated_at=at,
+                finished_at=at if complete else row["finished_at"],
+                lease_deadline=(
+                    at + MAX_OWNED_TAB_AGE_SECONDS
+                    if not complete and row["status"] in ("accepted", "generating")
+                    and (capture.verified_generating or text != str(row["assistant_text"])
+                         or merge_tool_calls(row["tool_calls_json"], capture.tool_calls) != row["tool_calls_json"]
+                         or merge_display_blocks(row["display_blocks_json"], capture.display_blocks) != row["display_blocks_json"])
+                    else row["lease_deadline"]
+                ),
             ))
         return changed.rowcount == 1
 
