@@ -84,7 +84,7 @@ _SUMMARY_COLUMNS = (
 def _visible_original_status(status: str, live_at: float, *, now: float | None = None) -> str:
     """Present an exact, recently observed original stream as generating."""
     at = time.time() if now is None else now
-    if status in ("interrupted", "unavailable") and 0 < live_at <= at < live_at + 600:
+    if status in ("interrupted", "unavailable") and 0 < live_at <= at < live_at + 15 * 60:
         return "generating"
     return status
 
@@ -817,10 +817,10 @@ class ResponseStore:
     def observe_history_generating(
         self, send_id: str, conversation_id: str, *, now: float | None = None,
     ) -> bool:
-        """Only an exact verified read can suppress attention during live generation.
+        """Temporarily clear attention after a clean read of the exact conversation.
 
-        The durable status remains interrupted and stays eligible for completion
-        recovery; this observation expires automatically if the tab stops.
+        The durable status remains interrupted and eligible for completion
+        recovery; this observation expires after 15 minutes without a new read.
         """
         if not conversation_id:
             return False
@@ -885,7 +885,7 @@ class ResponseStore:
                 message_id=capture.message_id or row["message_id"],
                 parent_id=capture.parent_id or row["parent_id"],
                 status="completed" if complete else row["status"],
-                live_observed_at=at if capture.verified_generating and not complete else 0,
+                live_observed_at=at if (capture.verified_generating or capture.verified_loaded) and not complete else 0,
                 updated_at=at,
                 finished_at=at if complete else row["finished_at"],
             ))

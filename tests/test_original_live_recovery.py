@@ -87,12 +87,12 @@ def test_newest_pinned_interruption_becomes_live_then_completed_without_resend(
     with store.engine.begin() as connection:
         connection.execute(update(results).where(
             results.c.send_id == "newer-pinned",
-        ).values(live_observed_at=now - 601))
+        ).values(live_observed_at=now - 901))
     assert store.page()["items"][0]["status"] == "interrupted"
     assert store.page(status="needs_attention")["total"] == 2
 
     # The very next global recovery slot can complete the exact interrupted turn.
-    assert recovery.recover_once(now=now + 91)
+    assert recovery.recover_once(now=now + 301)
     saved = store.get("newer-pinned")
     assert saved is not None and saved["status"] == "completed"
     assert saved["assistant_text"] == "Verified recovered answer"

@@ -16,7 +16,7 @@ def _answer_revision(kind: str, identity: str, text: str) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
-_LIVE_OBSERVATION_SECONDS = 10 * 60.0
+_LIVE_OBSERVATION_SECONDS = 15 * 60.0
 
 
 def visible_reply_status(status: str, observed_at: float, *, now: float) -> str:

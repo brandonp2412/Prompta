@@ -4,7 +4,10 @@
   // No account-wide listing, internal API request, or prompt submission.
   const conversation = __CONVERSATION__;
   const originalPrompt = __ORIGINAL_PROMPT__;
-  const empty = { verified: false, ambiguous: false, message_id: "", branch_message_id: "", pathname: "", text: "", complete: false, generating: false, rate_limited: false };
+  const stream_error = [...document.querySelectorAll('[role="alert"], [data-testid="error-message"]')]
+    .filter(node => node.isConnected && node.getClientRects().length > 0)
+    .some(node => /error in (?:the )?response stream|error (?:occurred )?while (?:generating|streaming)|something went wrong (?:while generating|with the response)/i.test(node.textContent || ""));
+  const empty = { verified: false, ambiguous: false, message_id: "", branch_message_id: "", pathname: "", text: "", complete: false, generating: false, rate_limited: false, stream_error };
   if (location.origin !== "https://chatgpt.com" || location.pathname !== "/c/" + conversation) return empty;
   const visible = (node) => node.isConnected && node.getClientRects().length > 0 &&
     getComputedStyle(node).visibility !== "hidden";
@@ -39,7 +42,7 @@
     const identity = placeholder?.getAttribute('data-content-search-unit-key') || key + ":activity:assistant";
     if (!/^fallback-turn-\d+$/.test(key) || !identity.startsWith(key + ":") ||
         !turn.querySelector('[data-talvt-turn-state="in_progress"]') ||
-        (users[1] && turn.contains(users[1]))) return { ...empty, verified: true };
+        (users[1] && turn.contains(users[1]))) return { ...empty, verified: true, pathname: location.pathname };
     const excluded = '[data-testid*="reasoning"], [data-testid*="thought"], [data-testid*="thinking"], [data-testid*="tool-call"], [data-testid*="tool-result"]';
     const roots = [...turn.querySelectorAll('[data-markdown-text-style="assistant-message"][data-markdown-text-tone="primary"]')]
       .filter(node => visible(node) && !node.closest(excluded));
