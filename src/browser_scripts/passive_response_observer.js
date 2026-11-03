@@ -103,7 +103,11 @@
     const streaming = turns.some((turn) =>
       !!turn.querySelector('[data-is-streaming="true"], .result-streaming'));
     const generating = [...document.querySelectorAll(stopSelector)].some(visible);
-    const complete = !!text && copyReady && !streaming && !generating &&
+    // Modern turns keep Copy controls visible during tool pauses. Their explicit
+    // lifecycle marker is the only reliable completion signal.
+    const modernTurn = freshTurns.length === 1 ? freshTurns[0] : null;
+    const turnComplete = !modernTurn || !!modernTurn.querySelector('[data-talvt-turn-state="complete"]');
+    const complete = !!text && copyReady && !streaming && !generating && turnComplete &&
       Date.now() - changedAt >= 750;
     const lastAnswer = fresh.at(-1) || null;
     result = {
@@ -134,7 +138,7 @@
     childList: true,
     characterData: true,
     attributes: true,
-    attributeFilter: ["data-is-streaming", "aria-label", "data-testid", "data-state", "data-tool-name", "disabled"],
+    attributeFilter: ["data-is-streaming", "data-talvt-turn-state", "aria-label", "data-testid", "data-state", "data-tool-name", "disabled"],
   });
   window[key] = {
     read: () => {

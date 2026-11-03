@@ -89,7 +89,8 @@
     verified: true, ambiguous: false, message_id: identity,
     branch_message_id: branch, pathname: location.pathname, text,
     turn_message_ids: [...new Set(answerUnits.flatMap(assistantMessageIdsFromDom))],
-    complete: !!text && copyReady && !streaming && !generating,
+    complete: !!text && copyReady && !streaming && !generating &&
+      (!firstGroup || !!assistantDisplayScope(finalAnswer).querySelector('[data-talvt-turn-state="complete"]')),
     generating, rate_limited: false, tool_calls,
     display_blocks,
   };

@@ -77,6 +77,7 @@ def test_passive_observer_survives_full_chat_navigation() -> None:
                 # unit. It must become visible before that unit even exists.
                 await page.locator("main").evaluate("""node => node.insertAdjacentHTML('beforeend', `
                   <div data-content-search-turn-key="fallback-turn-0">
+                    <div data-talvt-turn-state="in_progress"></div>
                     <div data-content-search-unit-key="fallback-turn-0:0:user">
                       <div class="whitespace-pre-wrap">Test prompt, not assistant text.</div>
                     </div>
@@ -100,8 +101,17 @@ def test_passive_observer_survives_full_chat_navigation() -> None:
                 await page.locator("#assistant-slot").evaluate("""node => node.innerHTML = `
                   <div data-chatgpt-search-unit-key="fallback-turn-0:2:assistant" data-chatgpt-search-message-ids="59188b32-a6b2-5b6d-9f58-59ed1ebaba53">
                     <div data-markdown-text-style="assistant-message"><p>Final text.</p></div>
-                  </div>`
+                  </div><button data-testid="copy-turn-action-button">Copy</button>`
                 """)
+                await page.wait_for_timeout(900)
+                still_generating = await page.evaluate(
+                    "window.__promptaPassiveResponseObserver.read()", isolated_context=False
+                )
+                assert still_generating["complete"] is False
+                await page.locator('[data-talvt-turn-state="in_progress"]').evaluate(
+                    "node => node.setAttribute('data-talvt-turn-state', 'complete')"
+                )
+                await page.wait_for_timeout(900)
                 observed = await page.evaluate(
                     "window.__promptaPassiveResponseObserver.read()", isolated_context=False
                 )
@@ -110,6 +120,8 @@ def test_passive_observer_survives_full_chat_navigation() -> None:
                     "kind": "text", "id": "text-2", "text": "Final text."
                 }
                 assert observed["branch_message_id"] == "59188b32-a6b2-5b6d-9f58-59ed1ebaba53"
+                assert observed["complete"] is True
+                assert any(update.get("complete") is True and "Final text." in str(update.get("text")) for update in updates)
             finally:
                 await browser.close()
 
@@ -131,6 +143,7 @@ def test_recovery_reads_commentary_siblings_on_exact_turn_only() -> None:
                 answer = "59188b32-a6b2-5b6d-9f58-59ed1ebaba53"
                 html = f"""<main>
                   <div data-turn-key="turn-0"><div data-content-search-turn-key="fallback-turn-0">
+                    <div data-talvt-turn-state="complete"></div>
                     <div data-content-search-unit-key="fallback-turn-0:0:user"><div class="whitespace-pre-wrap">Original prompt</div></div>
                     <div data-markdown-text-style="assistant-message" data-markdown-text-tone="primary">Original opening.</div>
                     <div data-chatgpt-search-unit-key="fallback-turn-0:2:assistant" data-chatgpt-search-message-ids="{parent}">
@@ -139,6 +152,7 @@ def test_recovery_reads_commentary_siblings_on_exact_turn_only() -> None:
                     <button data-testid="copy-turn-action-button">Copy</button>
                   </div></div>
                   <div data-turn-key="turn-1"><div data-content-search-turn-key="fallback-turn-1">
+                    <div data-talvt-turn-state="in_progress"></div>
                     <div data-content-search-unit-key="fallback-turn-1:0:user"><div class="whitespace-pre-wrap">Follow up</div></div>
                     <div data-markdown-text-style="assistant-message" data-markdown-text-tone="primary">Reply opening.</div>
                     <div class="group/activity-header">Used Search integration</div>
@@ -176,8 +190,14 @@ def test_recovery_reads_commentary_siblings_on_exact_turn_only() -> None:
                       <div data-markdown-text-style="assistant-message">Reply final.</div>
                     </div><button data-testid="copy-turn-action-button">Copy</button>`;
                 }""", answer)
+                partial = await page.evaluate(reply, isolated_context=False)
+                assert partial["complete"] is False
+                await page.locator('[data-content-search-turn-key="fallback-turn-1"] [data-talvt-turn-state]').evaluate(
+                    "node => node.setAttribute('data-talvt-turn-state', 'complete')"
+                )
                 done = await page.evaluate(reply, isolated_context=False)
                 assert done["text"] == "Reply opening.\n\nReply middle.\n\nReply final."
+                assert done["complete"] is True
                 assert done["branch_message_id"] == answer
                 assert done["message_id"] == early["message_id"]
                 assert done["display_blocks"][-1] == {

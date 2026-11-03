@@ -98,7 +98,9 @@ const scanExactReplyTurn = (conversation, originalPrompt, replyText, parent, all
   )].some(visible);
   const finalNode = later.at(-1)?.node || null;
   const finalIds = finalNode ? ids(finalNode) : [];
-  const complete = !!text && copyReady && !streaming && !generating && finalIds.length === 1;
+  const modernTurn = later[0].node.closest?.('[data-content-search-turn-key]');
+  const complete = !!text && copyReady && !streaming && !generating && finalIds.length === 1 &&
+    (!modernTurn || !!modernTurn.querySelector('[data-talvt-turn-state="complete"]'));
   const tool_calls = toolCallsFromTurns(later.map(({ node }) => responseTurnRoot(node)),
     visible, markdownSelector);
   const first = later[0];
