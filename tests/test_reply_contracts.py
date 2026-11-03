@@ -846,6 +846,48 @@ def test_queued_recovery_shares_history_account_pacing(
     assert store.queued_recovery_candidates() == ["run"]
 
 
+def test_queued_parent_yields_shared_read_slots_to_manual_recovery(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from prompta.manual_reply_dispatch import ManualReplyDispatcher
+
+    store = ManualReplyStore(tmp_path / "queued-fairness.sqlite3")
+    conversation = "00000000-0000-4000-8000-000000000001"
+    store.responses.ensure_queued("run", "Original", now=10)
+    assert store.responses.accept("run", "test:owner", deadline=100, now=11)
+    assert store.responses.write(
+        "run", "test:owner", CaptureResult(
+            "dom", "complete", "Answer", conversation, None, None, "rendered:assistant",
+        ), now=12,
+    )
+    store.queue_followup("run", "queued-fairness-111111111", "Continue", now=13)
+
+    # Separate explicit transcript recovery has user-visible priority.
+    store.responses.ensure_queued("requested", "Unfinished", now=10)
+    store.responses.queue_manual_recovery("requested", ["requested"], now=14)
+    dispatcher = ManualReplyDispatcher(store, tmp_path / "state.sqlite3")
+    recovered: list[str] = []
+    monkeypatch.setattr(dispatcher, "recover", lambda send_id: recovered.append(send_id))
+
+    # Two of every three account-wide read slots are reserved for the
+    # explicit transcript queue, even when queued parents are retrying.
+    for attempt in (1, 2):
+        assert store.responses.reserve_history_recovery_global_slot(
+            now=float(attempt), interval=0,
+        )
+        dispatcher.pump_queued()
+        assert recovered == []
+        assert not dispatcher._recovery_scheduled
+
+    assert store.responses.reserve_history_recovery_global_slot(now=3, interval=0)
+    dispatcher.pump_queued()
+    for _ in range(100):
+        if recovered:
+            break
+        time.sleep(0.01)
+    assert recovered == ["run"]
+
+
 def test_queued_recovery_prioritizes_pins_then_rotates_failed_chats(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:

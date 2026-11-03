@@ -22,7 +22,10 @@ from .patchright_driver import PatchrightDriver, _expected_composer_text, _norma
 from .rate_limit import RateLimitError
 from .reply_contracts import ManualReplyStore, ReplyConflict, ReplyIntent
 from .response_capture import CaptureResult, has_new_capture_activity
-from .response_store import HISTORY_READ_INTERVAL_SECONDS
+from .response_store import (
+    HISTORY_READ_INTERVAL_SECONDS,
+    MANUAL_HISTORY_READ_INTERVAL_SECONDS,
+)
 from .scheduler_runtime import SchedulerRuntime
 from .strict_types import int_value
 
@@ -199,6 +202,12 @@ class ManualReplyDispatcher:
         candidates = self.store.queued_recovery_candidates()
         if not candidates:
             return
+        # Do not let repeatedly unverifiable queued parents monopolize the
+        # shared browser-read gate while the user is waiting on a manual probe.
+        # Leave one slot in three for queued parent verification.
+        if (self.store.responses.pending_manual_recovery_requests()
+                and self.store.responses.history_recovery_global_attempt_count() % 3 != 0):
+            return
         for offset in range(len(candidates)):
             index = (self._recovery_cursor + offset) % len(candidates)
             send_id = candidates[index]
@@ -273,7 +282,7 @@ class ManualReplyDispatcher:
                 f"ChatGPT account read cooldown is active; retry in {int(remaining + 0.999)} seconds"
             )
         if not self.store.responses.reserve_history_recovery_global_slot(
-            now=time.time(), interval=HISTORY_READ_INTERVAL_SECONDS,
+            now=time.time(), interval=MANUAL_HISTORY_READ_INTERVAL_SECONDS,
         ):
             raise ReplyConflict("ChatGPT account read pacing is active; retry later")
         sender = BrowserDeliverySender(
