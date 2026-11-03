@@ -26,6 +26,9 @@
     return ids.length === 1 ? ids[0] : "";
   };
   const baseline = new Set(topLevelResponseNodes(document, messageSelector).map(identity).filter(Boolean));
+  const turnSelector = '[data-content-search-turn-key]';
+  const baselineTurns = new Set(topLevelResponseNodes(document, turnSelector)
+    .map((turn) => turn.getAttribute('data-content-search-turn-key')).filter(Boolean));
   const replyIdentity = (elements) => {
     if (!elements.length) return "";
     const modern = elements.map((element) =>
@@ -58,14 +61,23 @@
     const main = document.querySelector("main");
     if (!main) return;
     const fresh = topLevelResponseNodes(main, messageSelector).filter((element) => !baseline.has(identity(element)) && visible(element));
-    const nextId = replyIdentity(fresh);
-    if (ambiguous || (fresh.length && (!nextId || (observedId && nextId !== observedId)))) {
+    // A new ChatGPT turn can render visible commentary long before an assistant
+    // unit exists. Scope by the verified new turn, not its eventual final node.
+    const freshTurns = topLevelResponseNodes(main, turnSelector).filter((turn) => {
+      const key = turn.getAttribute('data-content-search-turn-key');
+      return key && !baselineTurns.has(key) && visible(turn);
+    });
+    const scope = freshTurns.length === 1 ? freshTurns : fresh;
+    const nextId = freshTurns.length === 1
+      ? freshTurns[0].getAttribute('data-content-search-turn-key') : replyIdentity(fresh);
+    if (ambiguous || freshTurns.length > 1 ||
+        (scope.length && (!nextId || (observedId && nextId !== observedId)))) {
       ambiguous = true; // Different turns must not silently replace an earlier answer.
       result = { message_id: "", branch_message_id: "", pathname: "", text: "", complete: false, ambiguous: true };
       publish();
       return;
     }
-    if (!fresh.length) {
+    if (!scope.length) {
       if (hasStreamError()) {
         result = { ...result, stream_error: true };
         publish();
@@ -73,14 +85,9 @@
       return;
     }
     observedId = nextId;
-    const segments = fresh.map((element) => {
-      const roots = [...element.querySelectorAll(markdownSelector)].filter((root) =>
-        !root.parentElement?.closest(markdownSelector) &&
-        !root.closest('[data-testid*="reasoning"], [data-testid*="thought"], [data-testid*="thinking"], [data-testid*="tool-call"], [data-testid*="tool-result"]') && visible(root));
-      return roots.map(markdownFromRoot).filter(Boolean).join("\n\n").trim();
-    });
-    // Aggregate separate user-visible final chunks of the SAME reply turn.
-    const text = segments.filter(Boolean).join("\n\n").trim();
+    const display_blocks = displayBlocksFromUnits(scope, visible, markdownSelector);
+    const text = display_blocks.filter((block) => block.kind === 'text')
+      .map((block) => block.text).join("\n\n").trim();
     if (text !== lastText) {
       changedAt = Date.now();
       lastText = text;
@@ -90,17 +97,15 @@
         sample(); // single delayed finality check after this text change
       }, 850);
     }
-    const turns = fresh.map(responseTurnRoot);
+    const turns = scope.map(responseTurnRoot);
     const tool_calls = toolCallsFromTurns(turns, visible, markdownSelector);
-    const display_blocks = displayBlocksFromUnits(fresh, visible, markdownSelector);
     const copyReady = turns.some((turn) => [...turn.querySelectorAll(copySelector)].some(visible));
     const streaming = turns.some((turn) =>
       !!turn.querySelector('[data-is-streaming="true"], .result-streaming'));
     const generating = [...document.querySelectorAll(stopSelector)].some(visible);
     const complete = !!text && copyReady && !streaming && !generating &&
       Date.now() - changedAt >= 750;
-    const lastTextIndex = segments.findLastIndex(Boolean);
-    const lastAnswer = lastTextIndex < 0 ? null : fresh[lastTextIndex];
+    const lastAnswer = fresh.at(-1) || null;
     result = {
       message_id: nextId,
       branch_message_id: lastAnswer ? branchMessageId(lastAnswer) : "",

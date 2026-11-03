@@ -53,8 +53,21 @@ const scanExactReplyTurn = (conversation, originalPrompt, replyText, parent, all
   }
   const later = nodes.slice(replyUser.index + 1);
   if (later.some(({ role }) => role !== "assistant")) return { ...empty, ambiguous: true };
-  if (!later.length) return { ...empty, verified: true, pathname: location.pathname,
-    verified_parent_id: parent };
+  const markdownSelector = '.markdown, [data-markdown-text-style="assistant-message"]';
+  if (!later.length) {
+    // Commentary can precede the final assistant unit in this exact reply turn.
+    const turn = replyUser.node.closest?.('[data-content-search-turn-key]');
+    const key = turn?.getAttribute?.('data-content-search-turn-key') || '';
+    if (!/^fallback-turn-\d+$/.test(key)) return { ...empty, verified: true,
+      pathname: location.pathname, verified_parent_id: parent };
+    const display_blocks = displayBlocksFromUnits([turn], visible, markdownSelector);
+    const text = display_blocks.filter((block) => block.kind === 'text')
+      .map((block) => block.text).join('\n\n').trim().slice(0, 2 * 1024 * 1024);
+    return { ...empty, verified: true, message_id: key,
+      verified_parent_id: parent, pathname: location.pathname,
+      text, generating: true, display_blocks,
+      tool_calls: toolCallsFromTurns([turn], visible, markdownSelector) };
+  }
   // Modern ChatGPT can render multiple final assistant chunks in one turn.
   // They must share one fallback-turn identity; distinct turns remain ambiguous.
   if (later.length > 1) {
@@ -68,14 +81,9 @@ const scanExactReplyTurn = (conversation, originalPrompt, replyText, parent, all
   if (later.some(({ node }) => ids(node).includes(parent.toLowerCase()))) {
     return { ...empty, ambiguous: true };
   }
-  const markdownSelector = '.markdown, [data-markdown-text-style="assistant-message"]';
-  const segments = later.map(({ node }) => {
-    const roots = [...node.querySelectorAll(markdownSelector)].filter((root) =>
-      !root.parentElement?.closest(markdownSelector) && visible(root)
-    );
-    return roots.map(markdownFromRoot).filter(Boolean).join("\n\n").trim();
-  });
-  const text = segments.filter(Boolean).join("\n\n").trim().slice(0, 2 * 1024 * 1024);
+  const display_blocks = displayBlocksFromUnits(later.map(({ node }) => node), visible, markdownSelector);
+  const text = display_blocks.filter((block) => block.kind === 'text')
+    .map((block) => block.text).join("\n\n").trim().slice(0, 2 * 1024 * 1024);
   const after = (earlier, laterNode) => Boolean(
     earlier.compareDocumentPosition(laterNode) & Node.DOCUMENT_POSITION_FOLLOWING
   );
@@ -88,14 +96,14 @@ const scanExactReplyTurn = (conversation, originalPrompt, replyText, parent, all
   const generating = [...document.querySelectorAll(
     'button[data-testid="stop-button"], button[aria-label="Stop generating"], button[aria-label="Stop streaming"]'
   )].some(visible);
-  const lastTextIndex = segments.findLastIndex(Boolean);
-  const finalNode = lastTextIndex < 0 ? null : later[lastTextIndex].node;
+  const finalNode = later.at(-1)?.node || null;
   const finalIds = finalNode ? ids(finalNode) : [];
   const complete = !!text && copyReady && !streaming && !generating && finalIds.length === 1;
   const tool_calls = toolCallsFromTurns(later.map(({ node }) => responseTurnRoot(node)),
     visible, markdownSelector);
   const first = later[0];
-  const identity = first.node.getAttribute("data-message-id") || first.key;
+  const identity = first.node.closest?.('[data-content-search-turn-key]')?.getAttribute('data-content-search-turn-key') ||
+    first.node.getAttribute("data-message-id") || first.key;
   if (!identity) return { ...empty, ambiguous: true };
   return { ...empty, verified: true, message_id: identity,
     branch_message_id: complete ? finalIds[0] : "",
@@ -103,5 +111,5 @@ const scanExactReplyTurn = (conversation, originalPrompt, replyText, parent, all
     verified_parent_id: parent, pathname: location.pathname,
     turn_message_ids: [...new Set(later.flatMap(({ node }) => ids(node)))],
     text, complete, generating, tool_calls,
-    display_blocks: displayBlocksFromUnits(later.map(({ node }) => node), visible, markdownSelector) };
+    display_blocks };
 };

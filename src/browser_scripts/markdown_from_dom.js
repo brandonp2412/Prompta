@@ -143,15 +143,20 @@ const responseTurnRoot = (element) =>
   element.closest(".group.flex.flex-col") ||
   element;
 
-const visibleToolNodesFromTurns = (turns, visible, markdownSelector) => {
+const visibleToolNodesFromTurns = (turns, visible, markdownSelector, includeActivity = false) => {
   const toolSelector = '[data-testid*="tool-call"], [data-testid*="tool-card"], [data-testid*="tool-result"], [data-tool-name], [aria-label^="Used "], [aria-label^="Searched "], [aria-label^="Searching "], [aria-label^="Ran "]';
+  const activitySelector = '[class*="group/activity-header"]';
+  const selector = toolSelector + (includeActivity ? ', ' + activitySelector : '');
+  const usedTool = /^(?:Used\s+\S|Searched\s+the\s+web|Searching\s+the\s+web|Ran\s+(?:code|Python))/i;
   const seen = new Set();
-  return turns.flatMap((turn) => [...turn.querySelectorAll(toolSelector + ', button, [role="button"]')]
+  return turns.flatMap((turn) => [...turn.querySelectorAll(selector + ', button, [role="button"]')]
     .filter((node) => {
       if (seen.has(node) || !visible(node) || node.closest(markdownSelector) ||
-          node.parentElement?.closest(toolSelector)) return false;
-      // Modern connector disclosures can have only a visible "Used …" label.
-      if (!node.matches(toolSelector) && !/^(?:Used\s+\S|Searched\s+the\s+web|Searching\s+the\s+web|Ran\s+(?:code|Python))/i.test(node.textContent?.trim() || "")) return false;
+          node.parentElement?.closest(selector)) return false;
+      const labelledTool = usedTool.test((node.getAttribute?.('aria-label') || node.textContent || '').trim());
+      // "Thinking" activity headers must never masquerade as tool calls.
+      if (node.matches(activitySelector) && !labelledTool) return false;
+      if (!node.matches(selector) && !labelledTool) return false;
       seen.add(node);
       return true;
     })).slice(0, 128);
@@ -171,14 +176,23 @@ const toolCallsFromTurns = (turns, visible, markdownSelector) =>
         /complete|success|done/i.test(state) ? "completed" : "observed" };
     });
 
-// Keep rendered assistant text and tool headings in document order.
-// Reasoning disclosures and tool payloads cannot become visible text blocks.
+// Modern ChatGPT places visible commentary beside the final assistant unit,
+// but inside the same verified user/assistant turn. Never cross turn boundaries.
+const assistantDisplayScope = (unit) => {
+  const turn = unit.closest?.('[data-content-search-turn-key]');
+  return turn?.getAttribute?.('data-content-search-turn-key') ? turn : unit;
+};
+
+// Keep rendered assistant commentary, tool headings, and final text in DOM order.
+// Tertiary agent-activity summaries are not user-facing assistant prose.
 const displayBlocksFromUnits = (units, visible, markdownSelector) => {
   const excluded = '[data-testid*="reasoning"], [data-testid*="thought"], [data-testid*="thinking"], [data-testid*="tool-call"], [data-testid*="tool-result"]';
-  const roots = [...new Set(units.flatMap((unit) => [...unit.querySelectorAll(markdownSelector)]
+  const scopes = [...new Set(units.map(assistantDisplayScope))];
+  const roots = [...new Set(scopes.flatMap((scope) => [...scope.querySelectorAll(markdownSelector)]
     .filter((node) => !node.parentElement?.closest(markdownSelector) &&
-      !node.closest(excluded) && visible(node))))];
-  const tools = visibleToolNodesFromTurns(units.map(responseTurnRoot), visible, markdownSelector);
+      !node.closest(excluded) && node.getAttribute?.('data-markdown-text-tone') !== 'tertiary' &&
+      visible(node))))];
+  const tools = visibleToolNodesFromTurns(scopes.map(responseTurnRoot), visible, markdownSelector, true);
   const entries = [
     ...roots.map((node) => ({ node, kind: 'text' })),
     ...tools.map((node, index) => ({ node, kind: 'tool', id: `dom-tool-${index}` })),

@@ -43,14 +43,14 @@
     if (!/^fallback-turn-\d+$/.test(key) || !identity.startsWith(key + ":") ||
         !turn.querySelector('[data-talvt-turn-state="in_progress"]') ||
         (users[1] && turn.contains(users[1]))) return { ...empty, verified: true, pathname: location.pathname };
-    const excluded = '[data-testid*="reasoning"], [data-testid*="thought"], [data-testid*="thinking"], [data-testid*="tool-call"], [data-testid*="tool-result"]';
-    const roots = [...turn.querySelectorAll('[data-markdown-text-style="assistant-message"][data-markdown-text-tone="primary"]')]
-      .filter(node => visible(node) && !node.closest(excluded));
-    const text = roots.map(markdownFromRoot).filter(Boolean).join("\n\n").trim().slice(0, 2 * 1024 * 1024);
+    const markdownSelector = '.markdown, [data-markdown-text-style="assistant-message"]';
+    const display_blocks = displayBlocksFromUnits([turn], visible, markdownSelector);
+    const text = display_blocks.filter((block) => block.kind === 'text')
+      .map((block) => block.text).join("\n\n").trim().slice(0, 2 * 1024 * 1024);
     return { ...empty, verified: true, message_id: identity,
       pathname: location.pathname, text, generating: users.length === 1,
-      tool_calls: toolCallsFromTurns([turn], visible, '.markdown, [data-markdown-text-style="assistant-message"]'),
-      display_blocks: roots.map((node, index) => ({ kind: 'text', id: `text-${index}`, text: markdownFromRoot(node) })),
+      tool_calls: toolCallsFromTurns([turn], visible, markdownSelector),
+      display_blocks,
     };
   }
   const assistant = assistants[0];
@@ -66,12 +66,9 @@
     return beforeNextUser(node) && key.match(/^(fallback-turn-\d+):\d+:assistant$/)?.[1] === firstGroup;
   }) : [assistant];
   const markdownSelector = '.markdown, [data-markdown-text-style="assistant-message"]';
-  const segments = answerUnits.map((node) => [...node.querySelectorAll(markdownSelector)]
-    .filter((root) => !root.parentElement?.closest(markdownSelector) && visible(root))
-    .map(markdownFromRoot).filter(Boolean).join("\n\n").trim());
-  // The main turn may contain tools and thoughts; only extract final-answer markdown.
-  const text = segments.filter(Boolean)
-    .join("\n\n").trim().slice(0, 2 * 1024 * 1024);
+  const display_blocks = displayBlocksFromUnits(answerUnits, visible, markdownSelector);
+  const text = display_blocks.filter((block) => block.kind === 'text')
+    .map((block) => block.text).join("\n\n").trim().slice(0, 2 * 1024 * 1024);
   const turns = answerUnits.map(responseTurnRoot);
   // Only visible tool headings in this verified turn, never tool bodies or reasoning.
   const tool_calls = toolCallsFromTurns(turns, visible, markdownSelector);
@@ -85,8 +82,7 @@
       'button[data-testid="stop-button"], button[aria-label="Stop"], button[aria-label="Stop generating"], button[aria-label="Stop streaming"]'
     )].some(visible)
   );
-  const lastTextIndex = segments.findLastIndex(Boolean);
-  const finalAnswer = lastTextIndex < 0 ? assistant : answerUnits[lastTextIndex];
+  const finalAnswer = answerUnits.at(-1) || assistant;
   const finalIds = assistantMessageIdsFromDom(finalAnswer);
   const branch = finalIds.length === 1 ? finalIds[0] : "";
   return {
@@ -95,6 +91,6 @@
     turn_message_ids: [...new Set(answerUnits.flatMap(assistantMessageIdsFromDom))],
     complete: !!text && copyReady && !streaming && !generating,
     generating, rate_limited: false, tool_calls,
-    display_blocks: displayBlocksFromUnits(answerUnits, visible, markdownSelector),
+    display_blocks,
   };
 })()
