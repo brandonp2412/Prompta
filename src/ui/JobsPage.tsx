@@ -20,7 +20,9 @@ export default function JobsPage(props: Props) {
   });
   useToastSignal(model.status, {
     tone: feedbackTone,
-    when: (message) => /failed|could not|uncertain/i.test(message),
+    // jobsLoadError already owns read failures; do not toast the same load twice.
+    when: (message) =>
+      /failed|could not|uncertain/i.test(message) && !/^Could not load jobs:/i.test(message),
   });
   const {
     filterOptions,

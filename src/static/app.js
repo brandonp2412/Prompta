@@ -15916,7 +15916,7 @@ function JobsPage(props) {
 	});
 	useToastSignal(model.status, {
 		tone: feedbackTone,
-		when: (message) => /failed|could not|uncertain/i.test(message)
+		when: (message) => /failed|could not|uncertain/i.test(message) && !/^Could not load jobs:/i.test(message)
 	});
 	const { filterOptions, jobs, activeFilters, showRepeatingJobs, repeatingJobsCount, filteredJobs, filterCounts, page, visibleJobs, allVisiblePaused, status, saving, editorOpen, beginNew, beginOnce, onEditorKeydown, toggleFilter, load, toggleVisible, clearAll } = model;
 	const refs = (0, import_react.useMemo)(() => ({
