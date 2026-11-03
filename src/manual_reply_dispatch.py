@@ -18,7 +18,7 @@ from .browser_ownership import MAX_OWNED_TAB_AGE_SECONDS
 from .browser_script_loader import load_browser_script
 from .delivery_browser import BrowserDeliverySender
 from .deployment_gate import DeploymentGate
-from .patchright_driver import PatchrightDriver, _normalise_composer_text
+from .patchright_driver import PatchrightDriver, _expected_composer_text, _normalise_composer_text
 from .rate_limit import RateLimitError
 from .reply_contracts import ManualReplyStore, ReplyConflict, ReplyIntent
 from .response_capture import CaptureResult
@@ -433,7 +433,7 @@ class ManualReplyDispatcher:
             preflight_stage = "check_existing_composer"
             baseline = await driver.dom_state()
             existing_text = _normalise_composer_text(str(baseline.get("composer_text") or ""))
-            requested_text = _normalise_composer_text(text)
+            requested_text = _expected_composer_text(text)
             if (existing_text and existing_text != requested_text) or baseline.get("send_in_progress"):
                 return
             preflight_stage = "arm_passive_observer"
@@ -453,7 +453,7 @@ class ManualReplyDispatcher:
             before_send = await driver.dom_state()
             if _normalise_composer_text(
                 str(before_send.get("composer_text") or "")
-            ) != _normalise_composer_text(text) or before_send.get("send_in_progress"):
+            ) != _expected_composer_text(text) or before_send.get("send_in_progress"):
                 return
             preflight_stage = "account_resource_admission"
             if sender.runtime.account_state(strict=True).get("resource_blocked") is True:

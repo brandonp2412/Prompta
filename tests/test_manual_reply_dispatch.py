@@ -359,6 +359,30 @@ def test_blank_rich_text_composer_newline_is_not_an_existing_draft(
     assert turns is not None and turns[-1]["status"] == "completed"
 
 
+def test_native_mention_reply_verifies_rendered_chip_text(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store, state = completed_store(tmp_path)
+
+    class MentionDriver(FakeDriver):
+        async def type_message(self, text: str) -> None:
+            assert text == "Synthetic explicit reply @Glass"
+            self.text = "Synthetic explicit reply Glass "
+
+    fake = MentionDriver(correct_branch=True)
+    monkeypatch.setattr(dispatch, "PatchrightDriver", lambda **_kwargs: fake)
+    monkeypatch.setattr(dispatch, "BrowserDeliverySender", FakeSender)
+    service = dispatch.ManualReplyDispatcher(store, state)
+    intent = ReplyIntent(REPLY_ID, CONVERSATION, PARENT, "Synthetic explicit reply @Glass")
+    assert service.submit("send-1", intent)["status"] == "prepared"
+    until = time.monotonic() + 3.0
+    while time.monotonic() < until and REPLY_ID in service._active:
+        time.sleep(0.02)
+    assert fake.calls == 1
+    turns = store.turns("send-1")
+    assert turns is not None and turns[-1]["status"] == "completed"
+
+
 @pytest.mark.parametrize(
     ("existing_draft", "expected_send"),
     [("Synthetic explicit reply", 1), ("Unrelated human draft", 0)],
