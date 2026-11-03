@@ -13001,7 +13001,8 @@ function createChatsPageController(initialProps) {
 	let searchTimer;
 	let liveRefreshTimer;
 	const newestFirst = (a, b) => (b.activity_at ?? b.created_at) - (a.activity_at ?? a.created_at) || b.created_at - a.created_at || b.send_id.localeCompare(a.send_id);
-	const visibleWaiting = O(() => queueSnapshot.value.waiting.filter((job) => job.one_time && (!appliedSearch.value || job.name.toLowerCase().includes(appliedSearch.value.toLowerCase()))));
+	const sidebarJobImminenceSeconds = 300;
+	const visibleWaiting = O(() => queueSnapshot.value.waiting.filter((job) => job.one_time && job.eta_seconds <= sidebarJobImminenceSeconds && (!appliedSearch.value || job.name.toLowerCase().includes(appliedSearch.value.toLowerCase()))));
 	const queuedWaitingChat = (item) => item.status === "queued" && queueSnapshot.value.waiting.some((job) => job.name === item.job_name);
 	const pinned = O(() => {
 		const byId = new Map([...pinnedItems.value, ...items.value].map((item) => [item.send_id, item]));

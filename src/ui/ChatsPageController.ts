@@ -263,10 +263,14 @@ export function createChatsPageController(initialProps: Props) {
     (b.activity_at ?? b.created_at) - (a.activity_at ?? a.created_at) ||
     b.created_at - a.created_at ||
     b.send_id.localeCompare(a.send_id);
+  // Keep the sidebar focused on imminent work. Longer-running queue backlogs
+  // belong in Jobs, even when a scheduled one-shot has already become due.
+  const sidebarJobImminenceSeconds = 5 * 60;
   const visibleWaiting = computed(() =>
     queueSnapshot.value.waiting.filter(
       (job) =>
         job.one_time &&
+        job.eta_seconds <= sidebarJobImminenceSeconds &&
         (!appliedSearch.value ||
           job.name.toLowerCase().includes(appliedSearch.value.toLowerCase())),
     ),

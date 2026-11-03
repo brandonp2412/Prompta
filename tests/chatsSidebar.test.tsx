@@ -306,6 +306,47 @@ test("sidebar shows queued once jobs but hides repeating scheduled deliveries", 
   expect(screen.queryByText("Due once chat")).toBeNull();
 });
 
+test("scheduled once jobs stay out of the sidebar until their queue start is imminent", async () => {
+  const { model } = sidebar();
+  await act(async () => {
+    model.queueSnapshot.value = {
+      max_workers: 1,
+      occupied_slots: 1,
+      estimated_run_seconds: 120,
+      estimate_samples: 5,
+      waiting: [
+        {
+          name: "later-once",
+          one_time: true,
+          position: 1,
+          reason: "global",
+          occupied: 1,
+          limit: 1,
+          eta_seconds: 301,
+        },
+      ],
+    };
+    model.items.value = [
+      { ...run(1), title: "Scheduled one-off chat", job_name: "later-once", status: "queued" },
+      { ...run(2), title: "Immediate manual chat", status: "queued" },
+    ];
+  });
+  expect(model.visibleWaiting.value).toEqual([]);
+  expect(screen.queryByText("later-once")).toBeNull();
+  expect(screen.queryByText("Scheduled one-off chat")).toBeNull();
+  expect(screen.getByText("Immediate manual chat")).toBeTruthy();
+
+  await act(async () => {
+    model.queueSnapshot.value = {
+      ...model.queueSnapshot.peek(),
+      waiting: [{ ...model.queueSnapshot.peek().waiting[0]!, eta_seconds: 300 }],
+    };
+  });
+  expect(model.visibleWaiting.value.map((job) => job.name)).toEqual(["later-once"]);
+  expect(screen.getByText("later-once")).toBeTruthy();
+  expect(screen.queryByText("Scheduled one-off chat")).toBeNull();
+});
+
 test("settings cannot be saved before a successful load", async () => {
   let resolveSettings: ((response: Response) => void) | undefined;
   const saves: unknown[] = [];
