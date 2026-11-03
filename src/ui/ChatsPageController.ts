@@ -1453,7 +1453,11 @@ export function createChatsPageController(initialProps: Props) {
     try {
       const response = scheduled
         ? await localPost("./api/jobs", { action: "stop", name: id })
-        : await localPost("./api/results/" + encodeURIComponent(id) + "/stop", {});
+        : await localPost(
+            "./api/results/" + encodeURIComponent(id) + "/stop",
+            {},
+            { timeoutMs: 60_000 },
+          );
       if (!response.ok)
         throw new Error(await localRejectionDetail(response, "Could not stop this job."));
       const outcome = (await response.json()) as { browser_stop_unconfirmed?: boolean };

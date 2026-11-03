@@ -210,13 +210,15 @@ class StopJobService:
                 browser_stop_unconfirmed = True
                 continue
             try:
-                clicked = asyncio.run(click_chatgpt_stop(conversation, message)) if message else False
+                clicked = asyncio.run(asyncio.wait_for(
+                    click_chatgpt_stop(conversation, message), timeout=5.0,
+                )) if message else False
                 verified = clicked
                 if not verified and record is not None:
-                    verified, clicked = asyncio.run(stop_saved_turn(
+                    verified, clicked = asyncio.run(asyncio.wait_for(stop_saved_turn(
                         conversation, str(record["user_text"]),
                         reply_text=reply_text, parent_id=parent_id, allow_missing_reply=ownerless,
-                    ))
+                    ), timeout=10.0))
             except Exception as exc:
                 logger.warning("Remote stop unavailable error_type=%s", type(exc).__name__)
                 verified = False
