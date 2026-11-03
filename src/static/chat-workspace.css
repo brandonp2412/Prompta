@@ -85,8 +85,11 @@
 .composer-mention-label strong { font-size: .91rem; font-weight: 550; }
 .composer-mention-label small { color: #b1b1b1; font-size: .74rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .composer-mention-kind { color: #999; font-size: .72rem; }
+.composer-command-aliases { flex: none; max-width: 38%; overflow: hidden; color: #989898; font-size: .73rem; white-space: nowrap; text-overflow: ellipsis; }
+.composer-slash .composer-mention-icon { color: #c5d6ff; background: #39445a; }
 @media (max-width: 680px) {
   .composer-mentions { left: 10px; right: 10px; max-width: none; max-height: min(320px, 46vh); }
+  .composer-command-aliases { display: none; }
 }
 .chat-composer-wrap { width: min(100%, 920px); padding-bottom: max(15px, env(safe-area-inset-bottom)); }
 .chat-composer { display: grid; grid-template-columns: minmax(0, 1fr) 44px; grid-template-areas: "text text" "attach send"; align-items: center; gap: 4px 8px; border-radius: 23px; padding: 14px 16px 11px; }

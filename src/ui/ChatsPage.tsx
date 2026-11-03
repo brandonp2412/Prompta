@@ -1,4 +1,4 @@
-import React, { useEffect, useLayoutEffect, useMemo } from "react";
+import React, { useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { useSignals } from "@preact/signals-react/runtime";
 import { createChatsPageController, type Props } from "./ChatsPageController";
 import { chatUrl } from "./chatUrl";
@@ -8,8 +8,10 @@ import ChatComposer from "./ChatComposer";
 import ChatsSidebar from "./ChatsSidebar";
 import ChatTranscript from "./ChatTranscript";
 import { notify, useToastSignal } from "./toast";
+import type { SlashCommandId } from "./slashCommands";
 export default function ChatsPage(props: Props & { serverName: string }) {
   const model = useMemo(() => createChatsPageController(props), []);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   useSignals();
   useToastSignal(model.stopError);
   useToastSignal(model.readError, {
@@ -53,6 +55,63 @@ export default function ChatsPage(props: Props & { serverName: string }) {
       notify("Chat link copied", "success");
     } catch {
       notify("Could not copy chat link", "error");
+    }
+  }
+  async function runSlashCommand(command: SlashCommandId) {
+    const id = model.selectedRunId.peek();
+    switch (command) {
+      case "new":
+        model.createChat();
+        break;
+      case "chats":
+        props.onNavigate("chats");
+        break;
+      case "jobs":
+        model.showJobs();
+        break;
+      case "settings":
+        setSettingsOpen(true);
+        break;
+      case "search":
+        model.drawerOpen.value = true;
+        if (!model.filtersOpen.peek()) await model.toggleSearch();
+        else model.searchInput.peek()?.focus();
+        break;
+      case "refresh":
+        await Promise.all([
+          model.loadList(true),
+          model.loadQueue(),
+          ...(id ? [model.loadDetail(id)] : []),
+        ]);
+        notify("Chats refreshed", "success");
+        break;
+      case "markread":
+        await model.markAllRead();
+        if (!model.readError.peek()) notify("All chats marked as read", "success");
+        break;
+      case "copy":
+        if (id) await shareChat();
+        else notify("Open a chat to copy its link", "warning");
+        break;
+      case "open": {
+        const url = id
+          ? exactConversationUrl(
+              model.turns.peek().findLast((turn) => exactConversationUrl(turn.conversation_id))
+                ?.conversation_id || model.detail.peek()?.conversation_id,
+            )
+          : null;
+        if (url) window.open(url, "_blank", "noopener,noreferrer");
+        else notify("This chat has no ChatGPT link yet", "warning");
+        break;
+      }
+      case "stop":
+        if (id && canStopTurn(model.turns.peek().findLast((turn) => turn.status !== "cancelled")))
+          await model.stopJob(id);
+        else notify("No active response to stop", "warning");
+        break;
+      case "clear":
+      case "help":
+        break;
     }
   }
   const {
@@ -148,7 +207,12 @@ export default function ChatsPage(props: Props & { serverName: string }) {
           onClick={() => (drawerOpen.value = false)}
           className="drawer-backdrop"
         ></button>
-        <ChatsSidebar model={model} refs={refs} />
+        <ChatsSidebar
+          model={model}
+          refs={refs}
+          settingsOpen={settingsOpen}
+          setSettingsOpen={setSettingsOpen}
+        />
 
         <div className="chats-detail">
           <div className="workspace-header">
@@ -263,6 +327,7 @@ export default function ChatsPage(props: Props & { serverName: string }) {
                   ),
                 )}
                 onNewChat={createChat}
+                onCommand={runSlashCommand}
                 restoreDraft={
                   selectedRunId.value &&
                   detail.value?.send_id === selectedRunId.value &&

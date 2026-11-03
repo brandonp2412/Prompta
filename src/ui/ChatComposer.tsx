@@ -6,6 +6,13 @@ import { attachmentAccept, isVideoAttachment } from "./mediaAttachments";
 import { feedbackTone, useToastSignal } from "./toast";
 import { ContinueChatIcon } from "./ChatActionIcons";
 import {
+  activeSlashCommand,
+  exactSlashCommand,
+  isCommandOnlyDraft,
+  suggestedSlashCommands,
+  type SlashCommandId,
+} from "./slashCommands";
+import {
   activeMention,
   insertMention,
   selectedDraftMentions,
@@ -19,6 +26,9 @@ export default function ChatComposer(props: Props) {
   const [mentionMatch, setMentionMatch] = useState<MentionMatch | null>(null);
   const [mentionIndex, setMentionIndex] = useState(0);
   const [mentionDismissed, setMentionDismissed] = useState(false);
+  const [slashMatch, setSlashMatch] = useState<string | null>(null);
+  const [slashIndex, setSlashIndex] = useState(0);
+  const [slashDismissed, setSlashDismissed] = useState(false);
   const {
     mode,
     onFallbackSend,
@@ -75,22 +85,34 @@ export default function ChatComposer(props: Props) {
   useEffect(() => {
     setMentionMatch(null);
     setMentionDismissed(false);
+    setSlashMatch(null);
+    setSlashDismissed(false);
   }, [props.chatId, props.mode]);
 
   const mentionOptions =
     mentionMatch && !mentionDismissed && !model.sending.value && !model.disabled.value
       ? suggestedMentions(mentionMatch.query)
       : [];
+  const slashOptions =
+    slashMatch !== null && !slashDismissed && !model.sending.value && !model.disabled.value
+      ? suggestedSlashCommands(slashMatch)
+      : [];
   const selectedMentions = selectedDraftMentions(draft.value);
 
   function updateMention(element: HTMLTextAreaElement, edited = false) {
-    if (edited) setMentionDismissed(false);
+    if (edited) {
+      setMentionDismissed(false);
+      setSlashDismissed(false);
+    }
     if (element.selectionStart !== element.selectionEnd) {
       setMentionMatch(null);
+      setSlashMatch(null);
       return;
     }
     setMentionMatch(activeMention(element.value, element.selectionStart));
     setMentionIndex(0);
+    setSlashMatch(activeSlashCommand(element.value, element.selectionStart));
+    setSlashIndex(0);
   }
 
   function chooseMention(index: number) {
@@ -108,6 +130,39 @@ export default function ChatComposer(props: Props) {
       element?.focus();
       element?.setSelectionRange(next.cursor, next.cursor);
     });
+  }
+
+  function executeSlash(id: SlashCommandId) {
+    model.setDraft("");
+    setSlashMatch(null);
+    setMentionMatch(null);
+    setSlashDismissed(true);
+    if (id === "help") {
+      model.setDraft("/");
+      setSlashMatch("");
+      setSlashIndex(0);
+      setSlashDismissed(false);
+      requestAnimationFrame(() => model.textarea.peek()?.focus());
+    } else if (id !== "clear") {
+      void props.onCommand?.(id);
+    }
+  }
+
+  function chooseSlash(index: number) {
+    const option = slashOptions[index];
+    if (option) executeSlash(option.id);
+  }
+
+  function submitOrRunCommand() {
+    const text = model.draft.peek();
+    if (isCommandOnlyDraft(text)) {
+      const command = exactSlashCommand(text);
+      if (command) executeSlash(command.id);
+      else model.feedback.value = `Unknown command: ${text.trim()}. Type /help to see commands.`;
+      return;
+    }
+    if (showStop.value) void stop();
+    else void submit();
   }
 
   function removeSelectedMention(start: number, end: number) {
@@ -133,6 +188,15 @@ export default function ChatComposer(props: Props) {
     images.value.length === 0 &&
     !uploading.value &&
     !sending.value;
+  let autocompleteControls: string | undefined;
+  let autocompleteActiveOption: string | undefined;
+  if (slashOptions.length) {
+    autocompleteControls = "composer-slash-options";
+    autocompleteActiveOption = `composer-slash-option-${slashIndex}`;
+  } else if (mentionOptions.length) {
+    autocompleteControls = "composer-mention-options";
+    autocompleteActiveOption = `composer-mention-option-${mentionIndex}`;
+  }
 
   return (
     <>
@@ -140,8 +204,7 @@ export default function ChatComposer(props: Props) {
         aria-label={mode.value === "fresh" ? "New chat composer" : "Reply composer"}
         onSubmit={(event) => {
           event.preventDefault();
-          if (showStop.value) void stop();
-          else void submit();
+          submitOrRunCommand();
         }}
         onDragOver={(event) => {
           event.preventDefault();
@@ -153,6 +216,44 @@ export default function ChatComposer(props: Props) {
           .filter(Boolean)
           .join(" ")}
       >
+        {slashOptions.length > 0 && (
+          <div
+            className="composer-mentions composer-slash"
+            role="listbox"
+            id="composer-slash-options"
+            aria-label="Slash commands"
+          >
+            <div className="composer-mentions-heading">
+              Commands · ↑ ↓ to navigate · Enter to run
+            </div>
+            {slashOptions.map((option, index) => (
+              <button
+                type="button"
+                role="option"
+                id={`composer-slash-option-${index}`}
+                aria-selected={index === slashIndex}
+                className={index === slashIndex ? "selected" : ""}
+                key={option.id}
+                onPointerDown={(event) => event.preventDefault()}
+                onClick={() => chooseSlash(index)}
+              >
+                <span className="composer-mention-icon" aria-hidden="true">
+                  {option.icon}
+                </span>
+                <span className="composer-mention-label">
+                  <strong>/{option.name}</strong>
+                  <small>{option.description}</small>
+                </span>
+                <span className="composer-command-aliases">
+                  {option.aliases
+                    .slice(0, 2)
+                    .map((alias) => `/${alias}`)
+                    .join(" · ")}
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
         {mentionOptions.length > 0 && (
           <div
             className="composer-mentions"
@@ -251,6 +352,40 @@ export default function ChatComposer(props: Props) {
               updateMention(event.currentTarget, true);
             }}
             onKeyDown={(event) => {
+              if (slashOptions.length) {
+                if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+                  event.preventDefault();
+                  setSlashIndex(
+                    (previous) =>
+                      (previous + (event.key === "ArrowDown" ? 1 : -1) + slashOptions.length) %
+                      slashOptions.length,
+                  );
+                  return;
+                }
+                if (
+                  (event.key === "Enter" || event.key === "Tab") &&
+                  !event.nativeEvent.isComposing
+                ) {
+                  event.preventDefault();
+                  chooseSlash(slashIndex);
+                  return;
+                }
+              }
+              if (event.key === "Escape" && slashMatch !== null) {
+                event.preventDefault();
+                setSlashDismissed(true);
+                return;
+              }
+              if (
+                event.key === "Enter" &&
+                !event.shiftKey &&
+                !event.nativeEvent.isComposing &&
+                isCommandOnlyDraft(model.draft.peek())
+              ) {
+                event.preventDefault();
+                submitOrRunCommand();
+                return;
+              }
               if (mentionOptions.length) {
                 if (event.key === "ArrowDown" || event.key === "ArrowUp") {
                   event.preventDefault();
@@ -277,22 +412,23 @@ export default function ChatComposer(props: Props) {
               keydown(event);
             }}
             onSelect={(event) => {
-              if (!mentionDismissed) updateMention(event.currentTarget);
+              if (!mentionDismissed || !slashDismissed) updateMention(event.currentTarget);
             }}
             onKeyUp={(event) => {
               if (
                 !["Escape", "ArrowDown", "ArrowUp", "Enter", "Tab"].includes(event.key) &&
-                !mentionDismissed
+                (!mentionDismissed || !slashDismissed)
               )
                 updateMention(event.currentTarget);
             }}
-            onBlur={() => setMentionMatch(null)}
+            onBlur={() => {
+              setMentionMatch(null);
+              setSlashMatch(null);
+            }}
             aria-autocomplete="list"
-            aria-expanded={mentionOptions.length > 0}
-            aria-controls={mentionOptions.length ? "composer-mention-options" : undefined}
-            aria-activedescendant={
-              mentionOptions.length ? `composer-mention-option-${mentionIndex}` : undefined
-            }
+            aria-expanded={slashOptions.length > 0 || mentionOptions.length > 0}
+            aria-controls={autocompleteControls}
+            aria-activedescendant={autocompleteActiveOption}
             onPaste={pasted}
             rows={1}
             maxLength={32000}

@@ -1,4 +1,5 @@
 import type React from "react";
+import type { SlashCommandId } from "./slashCommands";
 import { signal, computed, effect, batch } from "@preact/signals-react";
 import { untracked as untrack } from "@preact/signals-core";
 import {
@@ -26,6 +27,7 @@ export type Props = {
   onSend: (text: string, images: string[]) => Promise<SendResult>;
   onFallbackSend?: (text: string, images: string[]) => Promise<SendResult>;
   onNewChat: () => void;
+  onCommand?: (command: SlashCommandId) => void | Promise<void>;
   onStop?: () => void | Promise<void>;
   active?: boolean;
   stopping?: boolean;

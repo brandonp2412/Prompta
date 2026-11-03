@@ -14,11 +14,18 @@ type SidebarRefs = {
 export default function ChatsSidebar({
   model,
   refs,
+  settingsOpen: controlledSettingsOpen,
+  setSettingsOpen: controlledSetSettingsOpen,
 }: {
   model: ReturnType<typeof createChatsPageController>;
   refs: SidebarRefs;
+  settingsOpen?: boolean;
+  setSettingsOpen?: React.Dispatch<React.SetStateAction<boolean>>;
 }) {
   useSignals();
+  const [localSettingsOpen, setLocalSettingsOpen] = useState(false);
+  const settingsOpen = controlledSettingsOpen ?? localSettingsOpen;
+  const setSettingsOpen = controlledSetSettingsOpen ?? setLocalSettingsOpen;
   const {
     queueSnapshot,
     items,
@@ -43,7 +50,7 @@ export default function ChatsSidebar({
   } = model;
 
   const [profileOpen, setProfileOpen] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
+
   const profileTriggerRef = useRef<HTMLButtonElement>(null);
   const profileMenuRef = useRef<HTMLDivElement>(null);
   const settingsCloseRef = useRef<HTMLButtonElement>(null);
