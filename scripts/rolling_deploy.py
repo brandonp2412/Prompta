@@ -63,8 +63,10 @@ def snapshot(repo: Path, revision: str, target: Path, archive_path: Path | None 
         archive.unlink(missing_ok=True)
     # Console entry points can point into an editable checkout. Always use -m
     # with this release's PYTHONPATH instead, including migrations.
-    run("buildq", "--wait", "--", "uv", "sync", "--frozen", "--no-dev",
-        "--project", str(target), cwd=target)
+    subprocess.run(
+        ["buildq", "--wait", "--", "uv", "sync", "--frozen", "--no-dev",
+         "--project", str(target)], cwd=target, check=True,
+    )
 
 
 def unit_definition(release: Path, worker: str, module: str) -> str:
@@ -140,7 +142,10 @@ def deploy(
     config = Path.home() / ".config/systemd/user"
     config.mkdir(parents=True, exist_ok=True)
     with (repo / ".git/prompta-main-merge.lock").open("a+b") as lock:
-        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+        try:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as exc:
+            raise RuntimeError("Another deployment or checkout sync is running") from exc
         run("git", "fetch", "origin", "main", cwd=repo)
         if run("git", "status", "--porcelain", "--untracked-files=no", cwd=repo):
             raise RuntimeError("Installed checkout has local modifications")

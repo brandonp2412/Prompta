@@ -26,8 +26,8 @@ def main() -> None:
         source.mkdir()
         with tarfile.open(archive) as contents:
             contents.extractall(source, filter="data")
-        run("buildq", "--wait", "--", "bun", "install", "--frozen-lockfile", cwd=source)
-        run("buildq", "--wait", "--", "bun", "run", "build", cwd=source)
+        for command in (("bun", "install", "--frozen-lockfile"), ("bun", "run", "build")):
+            subprocess.run(["buildq", "--wait", "--", *command], cwd=source, check=True)
         # Replace only the UI bundle in the tracked source archive.
         with tarfile.open(archive, "a") as contents:
             contents.add(source / "src/static/app.js", arcname="src/static/app.js")

@@ -152,3 +152,15 @@ def test_schema_startup_failure_keeps_admission_paused(rollout, monkeypatch):
     with pytest.raises(RuntimeError, match="failed startup"):
         rolling_deploy.deploy(repo, gate)
     assert gate.is_paused()
+
+
+def test_concurrent_deployment_fails_without_waiting(rollout):
+    import fcntl
+
+    repo, gate, commands = rollout
+    with (repo / ".git/prompta-main-merge.lock").open("a+b") as lock:
+        fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        with pytest.raises(RuntimeError, match="Another deployment"):
+            rolling_deploy.deploy(repo, gate)
+    assert commands == []
+    assert not gate.is_paused()

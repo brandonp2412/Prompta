@@ -17,7 +17,12 @@ From Glass, run `python -m scripts.deploy_release` after pushing `main`. It arch
 committed UI/backend source, builds the UI through `buildq`, and uploads the combined
 release to Nox. It invokes `scripts.deploy_guarded` using the uploaded code, so even
 the deployment logic belongs to the new release. The Nox deployer installs a release
-Python environment through `buildq` before interrupting service.
+Python environment through `buildq` before interrupting service. Build queue progress
+is streamed to the terminal. Run the deployment command directly: wrapping the entire
+deployer in `buildq` deadlocks Nox's single-slot queue when it enqueues its own build.
+If a build waits indefinitely, check whether the queue is paused with `buildq status`
+on the build host. Concurrent deployers fail immediately rather than waiting for
+the deployment lock.
 
 The deployer pauses admissions, records active sends and replies in
 `deployment-interrupted.json`, and immediately stops and kills all application workers.
