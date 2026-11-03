@@ -19,6 +19,7 @@ test("queued follow-up receipts require the exact user-clicked identity", () => 
   expect(queuedFollowupReceiptState(receipt, sendId, replyId, text)).toBe("accepted");
   for (const status of [
     "queued",
+    "merged",
     "prepared",
     "preflight_failed",
     "dispatching",

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import re
@@ -22,6 +23,7 @@ from .delivery_state import (
 )
 from .image_store import image_refs
 from .persistence import create_database, job_deliveries
+from .reply_tables import replies
 from .response_store import ResponseStore
 from .response_tables import results as response_records
 from .strict_types import float_value, int_value
@@ -441,8 +443,18 @@ class DeliveryQueueStore:
                 "created_at": time.time() if now is None else now,
             }
         )
+        initial_message_matches = receipt["message"] == prompt
+        if not initial_message_matches:
+            # Pending-chat follow-ups may have been merged into the first
+            # delivery since the original fresh-chat HTTP acknowledgement.
+            with self.results.engine.connect() as connection:
+                original_hash = connection.execute(select(replies.c.message_id).where(
+                    replies.c.send_id == receipt["send_id"],
+                    replies.c.status == "merged",
+                ).order_by(replies.c.created_at, replies.c.reply_id).limit(1)).scalar_one_or_none()
+            initial_message_matches = original_hash == hashlib.sha256(prompt.encode()).hexdigest()
         if (
-            receipt["message"] != prompt
+            not initial_message_matches
             or image_refs(receipt["images"]) != images
             or receipt["client_id"] != f"manual:{'once:' if pin_chat else ''}{request_id}"
         ):

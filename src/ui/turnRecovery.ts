@@ -48,6 +48,9 @@ export function recoverVisibleTurns(
   original: LocalTurn,
   sameRun: boolean,
 ): LocalTurn[] {
+  // Merged pending follow-ups are receipts, not separate ChatGPT turns.
+  stored = stored?.filter((turn) => turn.status !== "merged") ?? null;
+  previous = previous.filter((turn) => turn.status !== "merged");
   let confirmed: LocalTurn[];
   if (stored?.length) {
     confirmed = sameRun && previous.length ? mergeConfirmedTurns(stored, previous) : stored;

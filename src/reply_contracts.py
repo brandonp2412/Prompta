@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import re
 import time
 from collections.abc import Collection
@@ -38,7 +39,7 @@ from .web_models import ReplyRequest
 
 ReplyStatus = Literal[
     "queued", "prepared", "preflight_failed", "dispatching", "outcome_unknown", "accepted",
-    "generating", "completed", "interrupted", "stopped", "cancelled",
+    "generating", "completed", "interrupted", "stopped", "cancelled", "merged",
 ]
 
 
@@ -144,7 +145,7 @@ class ManualReplyStore(ReplyReadState):
                 replies.c.send_id == send_id
             ).order_by(replies.c.created_at, replies.c.reply_id)).mappings().all()
             for turn in previous:
-                if turn["status"] == "cancelled":
+                if turn["status"] in ("cancelled", "merged"):
                     continue
                 if turn["status"] not in ("completed", "interrupted", "stopped") or not turn["message_id"]:
                     raise ReplyConflict("An unresolved reply already occupies this branch")
@@ -194,11 +195,13 @@ class ManualReplyStore(ReplyReadState):
 
     def queue_followup(
         self, send_id: str, reply_id: str, text: str, *, now: float | None = None,
+        queue_path: Path | None = None,
     ) -> dict[str, object]:
-        """Persist a user-clicked follow-up before the preceding answer is available.
+        """Merge into an unclaimed first delivery; otherwise queue an ordered reply.
 
-        Queueing never infers a ChatGPT parent or performs a browser send. The
-        parent is bound transactionally only after the preceding turn resolves.
+        The queue and transcript are locked in the same SQLite transaction so
+        a delivery claim cannot race an edit to the prompt being dispatched.
+        A merged receipt is retained for retries but is not a ChatGPT turn.
         """
         if not re.fullmatch(r"[A-Za-z0-9_-]{16,200}", reply_id):
             raise ValueError("Invalid follow-up identifier")
@@ -206,6 +209,10 @@ class ManualReplyStore(ReplyReadState):
             raise ValueError("Invalid follow-up text")
         at = time.time() if now is None else now
         with self.engine.begin() as connection:
+            if queue_path is not None:
+                connection.exec_driver_sql(
+                    "ATTACH DATABASE ? AS pending_delivery_queue", (str(queue_path.expanduser()),)
+                )
             connection.exec_driver_sql("BEGIN IMMEDIATE")
             existing = connection.execute(select(replies).where(
                 replies.c.reply_id == reply_id,
@@ -216,9 +223,10 @@ class ManualReplyStore(ReplyReadState):
                 ):
                     raise ReplyConflict("Idempotency key already belongs to a different follow-up")
                 return self._public(dict(existing))
-            if connection.execute(select(results.c.send_id).where(
+            original = connection.execute(select(results).where(
                 results.c.send_id == send_id,
-            )).scalar_one_or_none() is None:
+            )).mappings().one_or_none()
+            if original is None:
                 raise ReplyConflict("A saved Prompta chat is required")
             outstanding = connection.execute(select(func.count()).select_from(replies).where(
                 replies.c.send_id == send_id,
@@ -227,6 +235,53 @@ class ManualReplyStore(ReplyReadState):
             )).scalar_one()
             if outstanding >= 20:
                 raise ReplyConflict("This chat already has 20 unresolved follow-ups")
+
+            # Only an untouched queued first send can be edited. Once a worker
+            # claims the delivery, its immutable payload must not change.
+            queued = None
+            if queue_path is not None and original["status"] == "queued":
+                queued = connection.exec_driver_sql(
+                    "SELECT message FROM pending_delivery_queue.job_deliveries "
+                    "WHERE send_id = ? AND status = 'queued' AND lease_owner = '' "
+                    "AND retry_attempt = 0",
+                    (send_id,),
+                ).mappings().one_or_none()
+            prior_reply = connection.execute(select(func.count()).select_from(replies).where(
+                replies.c.send_id == send_id, replies.c.status != "merged",
+            )).scalar_one()
+            if queued is not None and prior_reply == 0:
+                combined = str(queued["message"]) + "\n\n" + text
+                if len(combined) <= 32000:
+                    prior_merge = connection.execute(select(replies.c.message_id).where(
+                        replies.c.send_id == send_id, replies.c.status == "merged",
+                    ).order_by(replies.c.created_at, replies.c.reply_id).limit(1)).scalar_one_or_none()
+                    initial_hash = str(prior_merge) if prior_merge else hashlib.sha256(
+                        str(queued["message"]).encode()
+                    ).hexdigest()
+                    changed = connection.exec_driver_sql(
+                        "UPDATE pending_delivery_queue.job_deliveries "
+                        "SET message = ?, updated_at = ? "
+                        "WHERE send_id = ? AND status = 'queued' AND lease_owner = '' "
+                        "AND retry_attempt = 0",
+                        (combined, at, send_id),
+                    )
+                    if changed.rowcount != 1:
+                        raise ReplyConflict("The pending chat was claimed before its prompt changed")
+                    connection.execute(update(results).where(
+                        results.c.send_id == send_id, results.c.status == "queued",
+                    ).values(user_text=combined, updated_at=at))
+                    connection.execute(insert(replies).values(
+                        reply_id=reply_id, send_id=send_id,
+                        conversation_id="", parent_id="", user_text=text,
+                        assistant_text="", message_id=initial_hash, status="merged",
+                        queued_by_user=True, lease_owner="", lease_deadline=0,
+                        created_at=at, updated_at=at,
+                    ))
+                    saved = connection.execute(select(replies).where(
+                        replies.c.reply_id == reply_id,
+                    )).mappings().one()
+                    return self._public(dict(saved))
+
             connection.execute(insert(replies).values(
                 reply_id=reply_id, send_id=send_id,
                 conversation_id="", parent_id="", user_text=text,
@@ -259,6 +314,7 @@ class ManualReplyStore(ReplyReadState):
             .join(results, results.c.send_id == replies.c.send_id)
             .where(
                 replies.c.send_id.in_(queued_chats),
+                replies.c.status != "merged",
                 results.c.status.in_(("completed", "interrupted", "unavailable", "stopped")),
                 results.c.conversation_id != "",
                 results.c.message_id != "",
@@ -279,7 +335,7 @@ class ManualReplyStore(ReplyReadState):
             conversation_id = str(row["original_conversation_id"])
             parent_id = str(row["original_message_id"])
             for previous in by_send[send_id]:
-                if previous["status"] == "cancelled":
+                if previous["status"] in ("cancelled", "merged"):
                     continue
                 if previous["reply_id"] == reply_id:
                     if row["status"] == "queued" or (
@@ -352,7 +408,7 @@ class ManualReplyStore(ReplyReadState):
                     results.c.message_id.label("original_message_id"),
                 )
                 .join(results, results.c.send_id == replies.c.send_id)
-                .where(replies.c.send_id.in_(ids))
+                .where(replies.c.send_id.in_(ids), replies.c.status != "merged")
                 .order_by(replies.c.send_id, replies.c.created_at, replies.c.reply_id)
             ).mappings()
 

@@ -19,7 +19,7 @@ from patchright.sync_api import sync_playwright as sync_patchright
 
 from prompta.response_capture import CaptureResult
 from prompta.response_store import ResponseStore
-from prompta.strict_types import json_object
+from prompta.strict_types import json_object, string_object_dict
 
 _PNG = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLytQAAAABJRU5ErkJggg=="
@@ -105,6 +105,84 @@ def test_early_followup_http_queue_is_durable_and_idempotent(tmp_path: Path) -> 
         assert turns is not None
         assert [turn["status"] for turn in turns] == ["queued", "queued"]
         assert turns[1]["user_text"] == "Additional context"
+
+
+def test_unclaimed_chat_followups_append_to_first_prompt_once(tmp_path: Path) -> None:
+    from prompta.delivery_queue import DeliveryQueueStore
+    from prompta.reply_contracts import ManualReplyStore
+
+    with serve_test_ui(tmp_path) as port:
+        fresh: dict[str, object] = {"request_id": "c" * 32, "prompt": "First instruction", "images": []}
+        status, accepted = post(port, "/api/chats", fresh)
+        assert status == 202
+        send_id = str(accepted["send_id"])
+        first: dict[str, object] = {"reply_id": "merged-" + "a" * 32, "text": "Second instruction"}
+        second: dict[str, object] = {"reply_id": "merged-" + "b" * 32, "text": "Third instruction"}
+
+        for request in (first, first, second):
+            code, reply = post(port, f"/api/results/{send_id}/reply-queue", request)
+            assert code == 202
+            turn = string_object_dict(reply["turn"])
+            assert turn is not None
+            assert turn["status"] == "merged"
+            assert turn["user_text"] == request["text"]
+        assert post(port, f"/api/results/{send_id}/reply-queue",
+                    {**first, "text": "Replaced text"})[0] == 409
+
+        expected = "First instruction\n\nSecond instruction\n\nThird instruction"
+        queue = DeliveryQueueStore(tmp_path / "ui-send-jobs.sqlite3")
+        queued_delivery = queue.get(send_id)
+        assert queued_delivery is not None
+        assert queued_delivery["message"] == expected
+        results = ResponseStore(tmp_path / "chat-results.sqlite3")
+        saved_result = results.get(send_id)
+        assert saved_result is not None
+        assert saved_result["user_text"] == expected
+        replies = ManualReplyStore(results.path)
+        turns = replies.turns(send_id)
+        assert turns is not None
+        assert [turn["status"] for turn in turns] == ["queued", "merged", "merged"]
+        assert turns[0]["user_text"] == expected
+        assert replies.next_queued_intent() is None
+
+        # A retry of the original fresh-chat request remains idempotent after
+        # its queued delivery has been augmented.
+        assert post(port, "/api/chats", fresh)[0] == 202
+        assert post(port, "/api/chats", {**fresh, "prompt": "First"})[0] == 409
+
+        claimed = queue.claim_next("test-worker", lease_seconds=60)
+        assert claimed is not None
+        assert claimed["send_id"] == send_id
+        assert claimed["message"] == expected
+        after_claim: dict[str, object] = {"reply_id": "normal-" + "a" * 32, "text": "After dispatch"}
+        code, reply = post(port, f"/api/results/{send_id}/reply-queue", after_claim)
+        assert code == 202
+        turn = string_object_dict(reply["turn"])
+        assert turn is not None
+        assert turn["status"] == "queued"
+        queued_delivery = queue.get(send_id)
+        assert queued_delivery is not None
+        assert queued_delivery["message"] == expected
+
+        # Once the combined first run finishes, only the actual queued reply
+        # may enter the branch; merged receipt rows must not block lineage.
+        from sqlalchemy import update
+
+        from prompta.response_tables import results as response_rows
+
+        conversation_id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+        message_id = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+        with results.engine.begin() as connection:
+            connection.execute(update(response_rows).where(
+                response_rows.c.send_id == send_id,
+            ).values(
+                status="completed", conversation_id=conversation_id, message_id=message_id,
+            ))
+        ready = replies.next_queued_intent()
+        assert ready is not None
+        assert ready[0] == send_id
+        assert ready[1].text == "After dispatch"
+        assert ready[1].parent_id == message_id
 
 
 @pytest.mark.parametrize("saved_draft", ["", "Saved line\n" * 5])

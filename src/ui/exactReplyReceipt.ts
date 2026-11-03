@@ -37,6 +37,7 @@ export function queuedFollowupReceiptState(
   if (turn.status === "outcome_unknown") return "uncertain";
   return [
     "queued",
+    "merged",
     "prepared",
     "preflight_failed",
     "dispatching",

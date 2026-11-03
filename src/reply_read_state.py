@@ -75,7 +75,7 @@ class ReplyReadState:
                 str(send_id): (str(status), float(observed_at))
                 for send_id, status, observed_at in connection.execute(
                     select(replies.c.send_id, replies.c.status, replies.c.live_observed_at)
-                    .where(replies.c.send_id.in_(send_ids))
+                    .where(replies.c.send_id.in_(send_ids), replies.c.status != "merged")
                     .order_by(replies.c.created_at, replies.c.reply_id)
                 )
             }

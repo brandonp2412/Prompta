@@ -171,7 +171,9 @@ def register_chat_routes(app: FastAPI, local: WebServices) -> None:
     def followup(send_id: str, payload: FollowupRequest) -> dict[str, object]:
         return {
             "ok": True,
-            "turn": local.replies.queue_followup(send_id, payload.reply_id, payload.text),
+            "turn": local.replies.queue_followup(
+                send_id, payload.reply_id, payload.text, queue_path=local.queue.path,
+            ),
         }
 
     @app.post("/api/results/{send_id}/reply-intents", status_code=202)

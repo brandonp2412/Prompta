@@ -19,6 +19,26 @@ const reply: LocalTurn = {
   updated_at: 4,
 };
 
+test("merged pending follow-up receipts stay in the first prompt, not separate bubbles", () => {
+  const early = { ...original, status: "queued" as const, assistant_text: "" };
+  const combined = {
+    ...early,
+    user_text: "First\n\nFollow-up",
+    updated_at: 5,
+  };
+  const merged: LocalTurn = {
+    ...reply,
+    status: "merged",
+    assistant_text: "",
+  };
+  expect(recoverVisibleTurns([combined, merged], [early], combined, true)).toEqual([
+    combined,
+  ]);
+  expect(recoverVisibleTurns(null, [combined, merged], combined, true)).toEqual([
+    combined,
+  ]);
+});
+
 test("an unavailable local turns endpoint keeps the last confirmed transcript", () => {
   expect(recoverVisibleTurns(null, [original, reply], original, true)).toEqual([original, reply]);
   expect(recoverVisibleTurns(null, [], original, true)).toEqual([original]);
