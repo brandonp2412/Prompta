@@ -154,21 +154,32 @@ def test_settings_save_migrates_to_only_supported_toml_sections(
     with TestClient(create_app(services=services)) as client:
         loaded = client.get("/api/settings")
         assert loaded.status_code == 200
-        assert loaded.json()["parallelism"] == {"enabled": True, "max_workers": 3}
+        assert loaded.json()["concurrency"] == {"enabled": True, "max_workers": 3}
+
+        rejected = client.put(
+            "/api/settings",
+            json={
+                "concurrency": {"enabled": True, "max_workers": 3},
+                "parallelism": {"enabled": True, "max_workers": 99},
+                "connector_approval": {"enabled": True},
+            },
+        )
+        assert rejected.status_code == 400
+        assert "[parallelism]" in config_path.read_text(encoding="utf-8")
 
         saved = client.put(
             "/api/settings",
             json={
-                "parallelism": {"enabled": True, "max_workers": 3},
+                "concurrency": {"enabled": True, "max_workers": 3},
                 "connector_approval": {"enabled": True},
             },
         )
         assert saved.status_code == 200
-        assert saved.json()["parallelism"]["max_workers"] == 3
+        assert saved.json()["concurrency"]["max_workers"] == 3
 
     migrated = tomllib.loads(config_path.read_text(encoding="utf-8"))
     assert migrated == {
-        "parallelism": {"enabled": True, "max_workers": 3},
+        "concurrency": {"enabled": True, "max_workers": 3},
         "connector_approval": {"enabled": True},
     }
 

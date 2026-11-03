@@ -8,7 +8,7 @@ import random
 import time
 from pathlib import Path
 
-from .config import DEFAULT_CONFIG_PATH, ParallelismSettings
+from .config import DEFAULT_CONFIG_PATH, ConcurrencySettings
 from .delivery_queue import DeliveryQueueStore
 from .jobs import PromptJob, remove_job
 from .logging_config import configure_logging
@@ -46,9 +46,9 @@ class DurableSchedulerProducer:
         )
         self.concurrency_config_path = concurrency_config_path.expanduser()
         self._concurrency_signature: tuple[int, int, int] | None = None
-        self._concurrency_settings: ParallelismSettings | None = None
+        self._concurrency_settings: ConcurrencySettings | None = None
 
-    def _current_concurrency_settings(self) -> ParallelismSettings:
+    def _current_concurrency_settings(self) -> ConcurrencySettings:
         """Reload only on file replacement/change; invalid files never disable the cap."""
         try:
             stat = self.concurrency_config_path.stat()
@@ -56,7 +56,7 @@ class DurableSchedulerProducer:
         except FileNotFoundError:
             signature = None
         if self._concurrency_settings is None or signature != self._concurrency_signature:
-            settings = ParallelismSettings.load(self.concurrency_config_path)
+            settings = ConcurrencySettings.load(self.concurrency_config_path)
             self._concurrency_settings = settings
             self._concurrency_signature = signature
         return self._concurrency_settings

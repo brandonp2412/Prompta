@@ -75,7 +75,7 @@ From Glass, run `python -m scripts.deploy_release` after pushing main. It builds
 committed UI through `buildq`, packages it with the backend, uploads both to Nox, and
 runs `scripts.deploy_guarded` there. The guarded deploy inventories live chats, kills
 application workers, migrates, launches the new release, and resumes recovery while
-preserving each active chat's parallelism slot until completion or 15 idle minutes.
+preserving each active chat's concurrency slot until completion or 15 idle minutes.
 It preserves the browser service. See [deployment details](docs/service-architecture.md#guarded-production-deployments).
 Adding Python modules requires `buildq --wait -- uv sync --locked --reinstall-package prompta`
 to refresh strict editable imports.

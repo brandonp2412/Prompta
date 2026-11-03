@@ -23,7 +23,7 @@ The deployer pauses admissions, records active sends and replies in
 `deployment-interrupted.json`, and immediately stops and kills all application workers.
 The persistent browser service stays running. Only after every old owner stops does
 it migrate databases and transfer the recorded captures to recovery with their active
-statuses and parallelism slots intact. Recovery uses exact stored conversations and
+statuses and concurrency slots intact. Recovery uses exact stored conversations and
 branches; it never resends a prompt.
 
 New delivery and reply workers start behind the pause and publish readiness with their

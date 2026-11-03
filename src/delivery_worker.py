@@ -17,7 +17,7 @@ from typing import Protocol
 
 from sqlalchemy.exc import OperationalError
 
-from .config import ParallelismSettings
+from .config import ConcurrencySettings
 from .delivery_browser import (
     BrowserDeliverySender,
     DeliveryBackendUnavailableError,
@@ -450,7 +450,7 @@ def run(
                     record = queue.claim_next(
                         owner,
                         lease_seconds=_LEASE_SECONDS,
-                        max_active=ParallelismSettings.load().active_limit,
+                        max_active=ConcurrencySettings.load().active_limit,
                     )
                     if record is not None:
                         _deliver_one(queue, sender, runtime, health, owner, record)
@@ -464,7 +464,7 @@ def run(
                 )
                 time.sleep(1.0)
             except ValueError:
-                logger.exception("Invalid stage concurrency configuration; admission paused")
+                logger.exception("Invalid concurrency configuration; admission paused")
                 time.sleep(1.0)
     except KeyboardInterrupt:
         pass

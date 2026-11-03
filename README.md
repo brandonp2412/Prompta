@@ -65,7 +65,7 @@ After committing and pushing `main`, run `python -m scripts.deploy_release` from
 This builds the UI, packages it with the backend, uploads the release to Nox, and runs
 `scripts.deploy_guarded` there. Deployment records live work, kills application workers,
 starts the new release, and resumes exact-chat recovery. The browser service stays running.
-Recovering chats retain their parallelism slots until completion or 15 minutes without
+Recovering chats retain their concurrency slots until completion or 15 minutes without
 a successful verified recovery read. Verified generation and new response content
 also refresh the idle deadline. Failed startup leaves admissions paused.
 

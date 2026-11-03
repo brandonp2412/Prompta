@@ -18,6 +18,7 @@ PositiveInt = Annotated[int, Field(gt=0)]
 class SettingsSection(BaseModel):
     model_config = ConfigDict(strict=True, extra="forbid", frozen=True, hide_input_in_errors=True)
     section: ClassVar[str]
+    legacy_section: ClassVar[str | None] = None
     required_when_enabled: ClassVar[tuple[str, ...]] = ()
     enabled_by_default: ClassVar[bool] = False
 
@@ -25,7 +26,10 @@ class SettingsSection(BaseModel):
     def load(cls, path: Path = DEFAULT_CONFIG_PATH) -> Self:
         try:
             with path.expanduser().open("rb") as config_file:
-                section: object = tomllib.load(config_file).get(cls.section)
+                configuration = tomllib.load(config_file)
+                section: object = configuration.get(cls.section)
+                if section is None and cls.legacy_section is not None:
+                    section = configuration.get(cls.legacy_section)
         except FileNotFoundError:
             return cls()
         if section is None:
@@ -52,10 +56,11 @@ class SettingsSection(BaseModel):
         return {**value, "enabled": enabled}
 
 
-class ParallelismSettings(SettingsSection):
+class ConcurrencySettings(SettingsSection):
     """Single global fresh-chat concurrency cap; omission means unlimited."""
 
-    section = "parallelism"
+    section = "concurrency"
+    legacy_section = "parallelism"
     required_when_enabled = ("max_workers",)
     enabled_by_default = True
     enabled: bool = False

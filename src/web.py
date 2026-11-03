@@ -20,12 +20,12 @@ import uvicorn
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import HTMLResponse, JSONResponse, Response
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sse_starlette import EventSourceResponse, ServerSentEvent
 from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from .config import DEFAULT_CONFIG_PATH, ConnectorApproval, ParallelismSettings
+from .config import DEFAULT_CONFIG_PATH, ConcurrencySettings, ConnectorApproval
 from .core import DEFAULT_JOBS_PATH, DEFAULT_STATE_PATH
 from .delivery_queue import DeliveryQueueStore
 from .image_store import ImageStore
@@ -176,7 +176,9 @@ class _ApprovalUpdate(BaseModel):
 
 
 class _SettingsUpdate(BaseModel):
-    parallelism: _ConcurrencyUpdate
+    model_config = ConfigDict(extra="forbid")
+
+    concurrency: _ConcurrencyUpdate
     connector_approval: _ApprovalUpdate
 
 
@@ -342,7 +344,7 @@ def create_app(
     @app.get("/api/settings")
     def get_settings() -> dict[str, object]:
         return {
-            "parallelism": ParallelismSettings.load(DEFAULT_CONFIG_PATH).model_dump(),
+            "concurrency": ConcurrencySettings.load(DEFAULT_CONFIG_PATH).model_dump(),
             "connector_approval": ConnectorApproval.load(DEFAULT_CONFIG_PATH).model_dump(),
         }
 
@@ -354,9 +356,9 @@ def create_app(
         config_path = DEFAULT_CONFIG_PATH.expanduser()
         config_path.parent.mkdir(parents=True, exist_ok=True)
         original = (
-            f"[parallelism]\n"
-            f"enabled = {str(payload.parallelism.enabled).lower()}\n"
-            f"max_workers = {payload.parallelism.max_workers}\n\n"
+            f"[concurrency]\n"
+            f"enabled = {str(payload.concurrency.enabled).lower()}\n"
+            f"max_workers = {payload.concurrency.max_workers}\n\n"
             f"[connector_approval]\n"
             f"enabled = {str(payload.connector_approval.enabled).lower()}\n"
         )
