@@ -3,9 +3,11 @@
 from pathlib import Path
 
 import pytest
+from sqlalchemy import update
 
 from prompta import stop_jobs
 from prompta.reply_contracts import ReplyConflict, ReplyIntent
+from prompta.reply_tables import replies
 from prompta.response_capture import CaptureResult
 from prompta.stop_jobs import StopJobService
 
@@ -154,3 +156,65 @@ def test_stop_during_dispatch_reports_retry_without_requeuing(tmp_path: Path) ->
         service.stop(send_id)
     delivery = service.queue.get(send_id)
     assert delivery is not None and delivery["status"] == "running"
+
+
+def test_stop_ownerless_reply_verifies_saved_chat_and_revokes_capture(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = StopJobService(tmp_path / "runtime.sqlite3")
+    service.results.ensure_queued("run", "Original")
+    assert service.results.accept("run", "original", deadline=10**12)
+    assert service.results.write("run", "original", CaptureResult(
+        "sse", "complete", "Original answer", "chat", "parent", None,
+    ))
+    service.replies.prepare("run", ReplyIntent("reply", "chat", "parent", "Follow up"))
+    assert service.replies.claim("reply", "owner", deadline=10**12)
+    # Reproduce the ownerless generating receipt left by deployment recovery.
+    with service.results.engine.begin() as connection:
+        connection.execute(update(replies).where(replies.c.reply_id == "reply").values(
+            status="generating", lease_owner="",
+        ))
+
+    async def verify(
+        conversation: str, original: str, *, reply_text: str, parent_id: str,
+        allow_missing_reply: bool,
+    ) -> tuple[bool, bool]:
+        assert (conversation, original, reply_text, parent_id) == (
+            "chat", "Original", "Follow up", "parent",
+        )
+        assert allow_missing_reply
+        return True, False
+
+    monkeypatch.setattr(stop_jobs, "stop_saved_turn", verify)
+    assert service.stop("run")["browser_stopped"] is False
+    reply = service.replies.get("reply")
+    assert reply is not None and reply["status"] == "stopped"
+    assert not service.replies.observe("reply", "owner", CaptureResult(
+        "sse", "complete", "Late answer", "chat", "answer", "parent",
+    ))
+    assert service.stop("run")["ok"] is True
+
+
+def test_stop_interrupts_recovery_without_losing_saved_answer(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = StopJobService(tmp_path / "runtime.sqlite3")
+    service.results.ensure_queued("run", "Original")
+    assert service.results.accept("run", "original", deadline=10**12)
+    assert service.results.write("run", "original", CaptureResult(
+        "sse", "partial", "Saved answer", "chat", "parent", None,
+    ))
+    assert service.results.finish("run", "original", "interrupted")
+    service.results.queue_manual_recovery("run", ["run"])
+
+    async def stop(conversation: str, message: str) -> bool:
+        assert (conversation, message) == ("chat", "parent")
+        return True
+
+    monkeypatch.setattr(stop_jobs, "click_chatgpt_stop", stop)
+    assert service.stop("run")["ok"] is True
+    record = service.results.get("run")
+    assert record is not None and record["status"] == "stopped"
+    assert record["assistant_text"] == "Saved answer"
+    assert service.results.manual_recovery_pending("run") == 0
+    assert service.results.next_history_recovery() is None

@@ -3,20 +3,25 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import time
 from pathlib import Path
 from urllib.parse import urlparse
+from uuid import UUID
 
 from patchright.async_api import async_playwright
 from sqlalchemy import delete, select, update
 
+from .browser_script_loader import load_browser_script
 from .delivery_queue import DeliveryQueueStore
 from .reply_contracts import ManualReplyStore, ReplyConflict
 from .reply_tables import replies
 from .response_capture import conversation_id_from_path
 from .response_store import ResponseStore
-from .response_tables import local_chat_pins, results
+from .response_tables import local_chat_pins, manual_recovery_requests, results
+
+_STOP_LOOKUP_SECONDS = 20.0
 
 
 async def click_chatgpt_stop(conversation_id: str, message_id: str) -> bool:
@@ -90,6 +95,65 @@ async def click_chatgpt_stop(conversation_id: str, message_id: str) -> bool:
         return False
 
 
+async def stop_saved_turn(
+    conversation_id: str, original_prompt: str, *, reply_text: str = "", parent_id: str = "",
+    allow_missing_reply: bool = False,
+) -> tuple[bool, bool]:
+    """Reopen only the saved chat and verify its exact turn before stopping it."""
+    try:
+        if str(UUID(conversation_id)) != conversation_id.lower():
+            return False, False
+    except ValueError:
+        return False, False
+    script = load_browser_script(
+        "historical_reply_probe.js" if reply_text else "historical_response_probe.js"
+    ).replace("__CONVERSATION__", json.dumps(conversation_id)).replace(
+        "__ORIGINAL_PROMPT__", json.dumps(original_prompt)
+    ).replace("__REPLY_TEXT__", json.dumps(reply_text)).replace("__PARENT__", json.dumps(parent_id))
+    original = load_browser_script("historical_response_probe.js").replace(
+        "__CONVERSATION__", json.dumps(conversation_id)
+    ).replace("__ORIGINAL_PROMPT__", json.dumps(original_prompt))
+    address = os.environ.get("PROMPTA_CHROME_DEBUGGER_ADDRESS", "127.0.0.1:9222")
+    async with async_playwright() as runtime:
+        browser = await runtime.chromium.connect_over_cdp(f"http://{address}", timeout=5000)
+        page = await browser.contexts[0].new_page()
+        try:
+            await page.evaluate("window.name = 'prompta:stop'")
+            await page.goto("https://chatgpt.com/c/" + conversation_id, wait_until="domcontentloaded")
+            deadline = time.monotonic() + _STOP_LOOKUP_SECONDS
+            while time.monotonic() < deadline:
+                proof = await page.evaluate(script)
+                if isinstance(proof, dict) and proof.get("verified") is True:
+                    if proof.get("complete") is True:
+                        return True, False
+                    if proof.get("generating") is True:
+                        stop = page.locator(
+                            'button[data-testid="stop-button"], button[aria-label="Stop"], '
+                            'button[aria-label="Stop generating"], button[aria-label="Stop streaming"]'
+                        ).first
+                        if await stop.is_visible():
+                            await stop.click(timeout=3000)
+                            return True, True
+                if reply_text and allow_missing_reply:
+                    # An accepted receipt can survive without the reply ever
+                    # reaching ChatGPT. Only a completed, single original turn
+                    # proves there is no remote reply generation to stop.
+                    first = await page.evaluate(original)
+                    if (isinstance(first, dict) and first.get("complete") is True
+                            and first.get("branch_message_id") == parent_id
+                            and await page.locator(
+                                '[data-message-author-role="user"], '
+                                '[data-content-search-unit-key$=":user"]'
+                            ).evaluate_all("nodes => nodes.filter(n => "
+                                           "!n.parentElement.closest('[data-message-author-role=\"user\"], "
+                                           "[data-content-search-unit-key$=\":user\"]')).length") == 1):
+                        return True, False
+                await asyncio.sleep(0.5)
+            return False, False
+        finally:
+            await page.close()
+
+
 class StopJobService:
     def __init__(self, state_path: Path) -> None:
         root = state_path.expanduser().parent
@@ -121,30 +185,41 @@ class StopJobService:
             for row in pending_replies
             if row["status"] in ("dispatching", "accepted", "generating")
         ]
-        targets: set[tuple[str, str]] = set()
-        if record is not None and record["status"] in ("accepted", "generating"):
-            targets.add((str(record["conversation_id"]), str(record["message_id"])))
+        targets: dict[tuple[str, str], tuple[str, str, bool]] = {}
+        if record is not None and (
+            record["status"] in ("accepted", "generating")
+            or (record["conversation_id"] and record["status"] in ("interrupted", "unavailable"))
+        ):
+            targets[(str(record["conversation_id"]), str(record["message_id"]))] = ("", "", False)
         for row in active:
-            targets.add((str(row["conversation_id"]), str(row["message_id"])))
+            targets[(str(row["conversation_id"]), str(row["message_id"]))] = (
+                str(row["user_text"]), str(row["parent_id"]), not row["lease_owner"],
+            )
         if queued is not None and queued["status"] == "running" and not targets:
             raise ReplyConflict(
                 "This job is still starting. Try Stop again once ChatGPT accepts it."
             )
         browser_stopped = False
-        for conversation, message in targets:
+        for (conversation, message), (reply_text, parent_id, ownerless) in targets.items():
             if not conversation:
                 raise ReplyConflict(
                     "The ChatGPT conversation is not available yet. Try Stop again shortly."
                 )
             try:
-                clicked = asyncio.run(click_chatgpt_stop(conversation, message))
+                clicked = asyncio.run(click_chatgpt_stop(conversation, message)) if message else False
+                verified = clicked
+                if not verified and record is not None:
+                    verified, clicked = asyncio.run(stop_saved_turn(
+                        conversation, str(record["user_text"]),
+                        reply_text=reply_text, parent_id=parent_id, allow_missing_reply=ownerless,
+                    ))
             except Exception as exc:
                 raise ReplyConflict("Could not reach ChatGPT's Stop button. Try again.") from exc
-            if not clicked:
+            if not verified:
                 raise ReplyConflict(
                     "ChatGPT's Stop button was not available in the matching tab. Refresh and try again."
                 )
-            browser_stopped = True
+            browser_stopped = browser_stopped or clicked
         at = time.time()
         with self.results.engine.begin() as connection:
             # Stale capture owners cannot overwrite a deliberate stop.
@@ -152,10 +227,11 @@ class StopJobService:
                 update(results)
                 .where(
                     results.c.send_id == send_id,
-                    results.c.status.in_(("queued", "accepted", "generating", "unavailable")),
+                    results.c.status.in_(("queued", "accepted", "generating", "interrupted", "unavailable")),
                 )
                 .values(
                     status="stopped",
+                    live_observed_at=0,
                     capture_owner="",
                     capture_deadline=0,
                     updated_at=at,
@@ -174,9 +250,17 @@ class StopJobService:
                 update(replies)
                 .where(
                     replies.c.send_id == send_id,
-                    replies.c.status.in_(("dispatching", "accepted", "generating")),
+                    replies.c.status.in_(("dispatching", "accepted", "generating", "interrupted", "outcome_unknown")),
                 )
-                .values(status="stopped", lease_owner="", lease_deadline=0, updated_at=at)
+                .values(
+                    status="stopped", lease_owner="", lease_deadline=0,
+                    live_observed_at=0, updated_at=at, finished_at=at,
+                )
+            )
+            connection.execute(
+                delete(manual_recovery_requests).where(
+                    manual_recovery_requests.c.send_id == send_id
+                )
             )
             # Stopping a chat removes only its Prompta sidebar pin. Keep this
             # in the same transaction as the stopped status so it persists.

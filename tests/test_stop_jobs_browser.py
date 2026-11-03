@@ -97,3 +97,58 @@ async def test_stop_button_matches_modern_chatgpt_message_ids(
             assert not await click_chatgpt_stop(conversation, expected)
         finally:
             await browser.close()
+
+
+@pytest.mark.parametrize("reply_present,generating", [(False, False), (True, False), (True, True)])
+@pytest.mark.parametrize("verified", [False, True])
+async def test_stop_reopens_exact_saved_turn(
+    unused_tcp_port: int, monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+    reply_present: bool, generating: bool, verified: bool,
+) -> None:
+    from prompta import stop_jobs
+    from prompta.stop_jobs import stop_saved_turn
+
+    monkeypatch.setattr(stop_jobs, "_STOP_LOOKUP_SECONDS", 1.0)
+
+    chromium = Path(os.environ.get("PROMPTA_TEST_CHROMIUM", "/usr/bin/chromium"))
+    if not chromium.is_file():
+        pytest.skip("Chromium unavailable")
+    monkeypatch.setenv("PROMPTA_CHROME_DEBUGGER_ADDRESS", f"127.0.0.1:{unused_tcp_port}")
+    conversation = "12345678-1234-4123-8123-123456789abc"
+    parent = "aaaaaaaa-1234-4123-8123-123456789abc"
+    answer = "bbbbbbbb-1234-4123-8123-123456789abc"
+    async with async_playwright() as runtime:
+        context = await runtime.chromium.launch_persistent_context(
+            str(tmp_path / "profile"), executable_path=str(chromium), headless=True,
+            args=["--no-sandbox", f"--remote-debugging-port={unused_tcp_port}"],
+        )
+        try:
+            page = context.pages[0]
+            html = (
+                '<main><div data-message-author-role="user">Original</div>'
+                f'<article><div data-message-author-role="assistant" data-message-id="{parent}">'
+                '<div class="markdown">Original answer</div></div>'
+                '<button data-testid="copy-turn-action-button">Copy</button></article>'
+            )
+            if reply_present:
+                html += (
+                    '<div data-message-author-role="user">Follow up</div>'
+                    f'<article><div data-message-author-role="assistant" data-message-id="{answer}">'
+                    '<div class="markdown">Reply answer</div></div>'
+                    '<button data-testid="copy-turn-action-button">Copy</button></article>'
+                )
+            if generating:
+                html += '<button aria-label="Stop" onclick="window.stopped=true">Stop</button>'
+            await context.route("https://chatgpt.com/c/**", lambda route: route.fulfill(
+                content_type="text/html", body=html + '</main>',
+            ))
+            # The fallback must close only its own temporary tab.
+            assert await stop_saved_turn(
+                conversation, "Original" if verified else "Unrelated",
+                reply_text="Follow up", parent_id=parent,
+                allow_missing_reply=True,
+            ) == (verified, generating and verified)
+            assert not page.is_closed()
+            assert context.pages == [page]
+        finally:
+            await context.close()

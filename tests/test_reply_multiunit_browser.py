@@ -64,7 +64,7 @@ def test_recovery_accepts_new_final_id_only_with_saved_message_in_verified_turn(
                 ).replace('Original answer', 'First response') + f'''
                     <article><div data-chatgpt-search-unit-key="fallback-turn-0:3:assistant"
                         data-chatgpt-search-message-ids="{PART_B}">
-                      <div class="markdown"><p>Second response</p></div></div>
+                      <div class="markdown" data-talvt-turn-state="complete"><p>Second response</p></div></div>
                       <button data-testid="copy-turn-action-button">Copy</button>
                     </article></main></body></html>'''
                 await page.route("https://chatgpt.com/c/**", lambda route: route.fulfill(
@@ -139,11 +139,11 @@ def _delivery_script() -> str:
     )
 
 
-@pytest.mark.skipif(not Path("/usr/bin/chromium").exists(), reason="Chromium unavailable")
+@pytest.mark.skipif(not TEST_CHROMIUM.exists(), reason="Chromium unavailable")
 def test_multiunit_reply_historical_and_delivery_probes() -> None:
     async def check() -> None:
         async with async_patchright() as patchright:
-            browser = await patchright.chromium.launch(executable_path="/usr/bin/chromium", headless=True)
+            browser = await patchright.chromium.launch(executable_path=str(TEST_CHROMIUM), headless=True)
             try:
                 page = await browser.new_page()
                 await page.route(
@@ -169,6 +169,7 @@ def test_multiunit_reply_historical_and_delivery_probes() -> None:
                 assert await page.evaluate(tip_script) == PART_B
                 delivery = await page.evaluate(_delivery_script())
                 assert delivery == {
+                    "has_assistant": True, "generating": False, "error_visible": False,
                     "verified": True, "complete": True, "message_id": PART_B,
                     "text": "First response\n\nSecond response",
                 }
@@ -200,6 +201,7 @@ def test_multiunit_reply_historical_and_delivery_probes() -> None:
                 assert await page.evaluate(third_tip) == third_id
                 third_result = await page.evaluate(third_script)
                 assert third_result == {
+                    "has_assistant": True, "generating": False, "error_visible": False,
                     "verified": True, "complete": True,
                     "message_id": third_id, "text": "Third response",
                 }
@@ -265,11 +267,11 @@ def test_passive_observer_records_visible_commentary_before_tools() -> None:
     asyncio.run(check())
 
 
-@pytest.mark.skipif(not Path("/usr/bin/chromium").exists(), reason="Chromium unavailable")
+@pytest.mark.skipif(not TEST_CHROMIUM.exists(), reason="Chromium unavailable")
 def test_passive_observer_aggregates_new_reply_segments() -> None:
     async def check() -> None:
         async with async_patchright() as patchright:
-            browser = await patchright.chromium.launch(executable_path="/usr/bin/chromium", headless=True)
+            browser = await patchright.chromium.launch(executable_path=str(TEST_CHROMIUM), headless=True)
             try:
                 page = await browser.new_page()
                 await page.route(
@@ -315,4 +317,39 @@ def test_passive_observer_aggregates_new_reply_segments() -> None:
             finally:
                 await browser.close()
 
+    asyncio.run(check())
+
+
+@pytest.mark.skipif(not TEST_CHROMIUM.exists(), reason="Chromium unavailable")
+def test_rich_answer_source_id_overrides_aggregate_reference_ids() -> None:
+    async def check() -> None:
+        async with async_patchright() as runtime:
+            browser = await runtime.chromium.launch(executable_path=str(TEST_CHROMIUM), headless=True)
+            try:
+                page = await browser.new_page()
+                html = _html().replace(
+                    f'data-chatgpt-search-message-ids="{PART_B} {PART_B}"',
+                    f'data-chatgpt-search-message-ids="{PART_B} {PART_B} {PART_A}"',
+                ).replace(
+                    '<p>Second response</p>',
+                    f'<div data-dil-source-message-id="{PART_B}"><p>Second response</p></div>',
+                )
+                await page.route("https://chatgpt.com/c/**", lambda route: route.fulfill(
+                    content_type="text/html", body=html,
+                ))
+                await page.goto("https://chatgpt.com/c/" + CONVERSATION)
+                result = normalize_dom_snapshot(await page.evaluate(_historical_script()))
+                assert result.status == "complete"
+                assert result.message_id == PART_B
+                assert result.text == "First response\n\nSecond response"
+                # Multiple visible source messages remain ambiguous.
+                await page.locator('[data-dil-source-message-id]').evaluate(
+                    "(node, id) => node.insertAdjacentHTML('afterend', "
+                    "'<div data-dil-source-message-id=\"' + id + '\">Other</div>')", PART_A,
+                )
+                ambiguous = normalize_dom_snapshot(await page.evaluate(_historical_script()))
+                assert ambiguous.status != "complete"
+                assert ambiguous.message_id is None
+            finally:
+                await browser.close()
     asyncio.run(check())

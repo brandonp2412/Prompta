@@ -45,7 +45,7 @@ const assistant = visible({
     "data-content-search-unit-key": "unit:assistant",
     "data-content-search-message-ids": "87654321-4321-4321-8321-123456789abc",
   })[name] || "",
-  querySelectorAll: () => [root],
+  querySelectorAll: (selector) => selector === "[data-dil-source-message-id]" ? [] : [root],
   closest: () => turn,
 });
 const main = {

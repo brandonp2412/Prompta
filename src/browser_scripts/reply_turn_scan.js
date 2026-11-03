@@ -94,7 +94,7 @@ const scanExactReplyTurn = (conversation, originalPrompt, replyText, parent, all
     !!node.querySelector('[data-is-streaming="true"], .result-streaming')
   );
   const generating = [...document.querySelectorAll(
-    'button[data-testid="stop-button"], button[aria-label="Stop generating"], button[aria-label="Stop streaming"]'
+    'button[data-testid="stop-button"], button[aria-label="Stop"], button[aria-label="Stop generating"], button[aria-label="Stop streaming"]'
   )].some(visible);
   const finalNode = later.at(-1)?.node || null;
   const finalIds = finalNode ? ids(finalNode) : [];
