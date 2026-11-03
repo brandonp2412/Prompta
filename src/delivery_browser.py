@@ -28,7 +28,7 @@ from .rate_limit import (
     captured_retry_after,
     is_rate_limited_text,
 )
-from .response_capture import CaptureResult, conversation_id_from_path
+from .response_capture import CaptureResult, conversation_id_from_path, has_new_capture_activity
 from .response_store import ResponseStore
 from .scheduler_runtime import SchedulerRuntime
 from .send_outcome import SendOutcomeUnknownError
@@ -631,12 +631,12 @@ class BrowserDeliverySender:
                     pending = replace(pending, tool_calls=sse.tool_calls)
                 # Only distinct, branch-bound ChatGPT updates extend the idle lease.
                 # SSE progress includes reasoning/tool events without retaining their text.
-                progress = bool(update is not None and (
-                    update.verified_generating
-                    or (update.text and update.text != last_verified_text)
-                    or (update.tool_calls and update.tool_calls != last_verified_tools)
-                    or (update.display_blocks and update.display_blocks != last_verified_blocks)
-                ))
+                progress = has_new_capture_activity(
+                    update,
+                    previous_text=last_verified_text,
+                    previous_tools=last_verified_tools,
+                    previous_blocks=last_verified_blocks,
+                )
                 verified_branch = bool(update is not None and (
                     (update.source == "dom" and update.conversation_id
                      and update.message_id)

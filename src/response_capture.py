@@ -44,6 +44,28 @@ class CaptureResult:
     verified_loaded: bool = False
 
 
+def has_new_capture_activity(
+    update: CaptureResult | None,
+    *,
+    previous_text: str,
+    previous_tools: tuple[dict[str, object], ...],
+    previous_blocks: tuple[dict[str, str], ...],
+) -> bool:
+    """Only distinct content or an actual owned SSE event renews an idle lease.
+
+    A DOM observer may repeatedly report `generating=True` for the unchanged
+    spinner or a layout mutation. That is not new ChatGPT activity.
+    """
+    if update is None:
+        return False
+    return bool(
+        (update.source == "sse" and update.verified_generating)
+        or (update.text and update.text != previous_text)
+        or (update.tool_calls and update.tool_calls != previous_tools)
+        or (update.display_blocks and update.display_blocks != previous_blocks)
+    )
+
+
 def conversation_id_from_path(path: object) -> str | None:
     """Validate the new conversation route on this one owned tab."""
     if not isinstance(path, str):

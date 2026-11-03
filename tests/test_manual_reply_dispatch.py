@@ -513,6 +513,50 @@ def test_accepted_post_with_exact_dom_final_completes_without_sse_body(
     assert fake.calls == 1
 
 
+def test_unchanged_dom_generating_does_not_extend_manual_reply_idle_lease(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class UnchangedGeneratingDriver(FakeDriver):
+        def __init__(self) -> None:
+            super().__init__()
+            self.activity_calls = 0
+            self.observations = 0
+
+        def record_verified_activity(self) -> bool:
+            self.activity_calls += 1
+            return True
+
+        def captured_assistant_response(self, _capture: dict[str, object]) -> CaptureResult | None:
+            return None
+
+        async def wait_capture_update(self, *, timeout: float) -> CaptureResult | None:
+            await asyncio.sleep(min(timeout, 0.01))
+            self.observations += 1
+            if self.observations == 30:
+                self.is_connected = False  # Bound the broken implementation too.
+            return CaptureResult(
+                "dom", "unknown", "", CONVERSATION, "a" * 32, None,
+                verified_generating=True,
+            )
+
+    store, state = completed_store(tmp_path)
+    fake = UnchangedGeneratingDriver()
+    monkeypatch.setattr(dispatch, "PatchrightDriver", lambda **_kwargs: fake)
+    monkeypatch.setattr(dispatch, "BrowserDeliverySender", FakeSender)
+    monkeypatch.setattr(dispatch, "MAX_OWNED_TAB_AGE_SECONDS", 0.12)
+    service = dispatch.ManualReplyDispatcher(store, state)
+    intent = ReplyIntent(REPLY_ID, CONVERSATION, PARENT, "Synthetic explicit reply")
+    assert service.submit("send-1", intent)["status"] == "prepared"
+    until = time.monotonic() + 3.0
+    while time.monotonic() < until and REPLY_ID in service._active:
+        time.sleep(0.01)
+    assert REPLY_ID not in service._active
+    turns = store.turns("send-1")
+    assert turns is not None and turns[-1]["status"] == "interrupted"
+    assert fake.activity_calls == 1  # Accepted POST only; unchanged DOM isn't activity.
+    assert fake.observations < 30  # The idle deadline, not disconnect, ended capture.
+
+
 @pytest.mark.parametrize("failure", ["error_surface", "route_lost"])
 def test_accepted_reply_releases_broken_owned_page_for_read_only_recovery(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure: str,

@@ -243,6 +243,50 @@ def test_non_error_sse_events_are_activity_even_without_final_text() -> None:
     assert accumulator.snapshot().stream_error is False
 
 
+def test_unchanged_generating_dom_does_not_renew_idle_lease() -> None:
+    from prompta.response_capture import has_new_capture_activity
+
+    spinner = CaptureResult(
+        "dom", "partial", "Still working", CONVERSATION_ID,
+        CONVERSATION_ID, None, verified_generating=True,
+    )
+    assert not has_new_capture_activity(spinner, previous_text="Still working", previous_tools=(), previous_blocks=())
+    assert not has_new_capture_activity(spinner, previous_text="Still working", previous_tools=(), previous_blocks=())
+    assert has_new_capture_activity(
+        CaptureResult("dom", "partial", "New progress", CONVERSATION_ID, CONVERSATION_ID, None),
+        previous_text="Still working", previous_tools=(), previous_blocks=(),
+    )
+    assert has_new_capture_activity(
+        CaptureResult(
+            "dom", "partial", "Still working", CONVERSATION_ID, CONVERSATION_ID, None,
+            tool_calls=({"id": "new-tool"},),
+        ),
+        previous_text="Still working", previous_tools=(), previous_blocks=(),
+    )
+    assert has_new_capture_activity(
+        CaptureResult(
+            "dom", "partial", "Still working", CONVERSATION_ID, CONVERSATION_ID, None,
+            display_blocks=({"id": "commentary", "kind": "text", "text": "New commentary"},),
+        ),
+        previous_text="Still working", previous_tools=(), previous_blocks=(),
+    )
+
+
+def test_owned_sse_progress_counts_even_before_text() -> None:
+    from prompta.response_capture import has_new_capture_activity
+
+    progress = CaptureResult(
+        "sse", "unknown", "", CONVERSATION_ID, None, None,
+        verified_generating=True,
+    )
+    assert has_new_capture_activity(
+        progress, previous_text="", previous_tools=(), previous_blocks=(),
+    )
+    assert not has_new_capture_activity(
+        None, previous_text="", previous_tools=(), previous_blocks=(),
+    )
+
+
 def test_dom_error_signal_requires_explicit_flag() -> None:
     result = normalize_dom_snapshot({
         "message_id": "unit", "text": "", "complete": False,

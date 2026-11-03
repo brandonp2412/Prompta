@@ -304,3 +304,42 @@ async def test_tool_only_dom_activity_is_saved_before_capture_disconnects(tmp_pa
     assert detail["status"] == "interrupted"
     assert detail["tool_calls"] == list(calls)
     assert detail["assistant_text"] == ""
+
+
+@pytest.mark.asyncio
+async def test_unchanged_generating_dom_does_not_extend_fresh_chat_idle_lease(
+    tmp_path: Path,
+) -> None:
+    class UnchangedGeneratingDriver(FakeDriver):
+        def __init__(self) -> None:
+            super().__init__()
+            self.activity_calls = 0
+            self.observations = 0
+
+        def record_verified_activity(self) -> bool:
+            self.activity_calls += 1
+            return True
+
+        async def wait_capture_update(self, *, timeout: float) -> CaptureResult | None:
+            await asyncio.sleep(min(timeout, 0.01))
+            self.observations += 1
+            if self.observations == 30:
+                self.is_connected = False  # Bound the prior broken implementation.
+            return CaptureResult(
+                "dom", "unknown", "", "c" * 36, "a" * 32, None,
+                verified_generating=True,
+            )
+
+    driver = UnchangedGeneratingDriver()
+    sender = BrowserDeliverySender(tmp_path / "runtime.sqlite3", connector_approval=False)
+    sender.results.ensure_queued("stale-dom", "Do work")
+    owner = "100:stale"
+    assert sender.results.accept("stale-dom", owner, deadline=time.time() + 0.12)
+    await sender._capture_until_complete(
+        driver, driver.capture, "stale-dom", owner,
+        deadline=asyncio.get_running_loop().time() + 0.12,
+    )
+    row = sender.results.get("stale-dom")
+    assert row is not None and row["status"] == "interrupted"
+    assert driver.activity_calls == 0
+    assert driver.observations < 30
