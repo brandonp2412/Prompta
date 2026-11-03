@@ -9,11 +9,72 @@ export type ToastNotice = {
   tone: ToastTone;
   action?: ToastAction;
   duration: number;
+  outageSensitive?: boolean;
 };
 
 export const activeToast = signal<ToastNotice | null>(null);
 let nextToastId = 0;
 const waitingToasts: ToastNotice[] = [];
+const outageMessage = "Connection to Prompta interrupted. Reconnecting automatically.";
+const readRecoveryGraceMs = 8000;
+let readUnavailable = false;
+let streamDelayed = false;
+let outageNotified = false;
+let outageToastId: number | null = null;
+let recoveryTimer: ReturnType<typeof setTimeout> | undefined;
+
+function clearRecoveryTimer() {
+  if (recoveryTimer !== undefined) clearTimeout(recoveryTimer);
+  recoveryTimer = undefined;
+}
+
+function showOutage() {
+  if (outageNotified) return;
+  outageNotified = true;
+  // These all describe the same unavailable backend, not separate errors.
+  for (let i = waitingToasts.length - 1; i >= 0; i--) {
+    if (waitingToasts[i]?.outageSensitive) waitingToasts.splice(i, 1);
+  }
+  outageToastId = notify(outageMessage, "warning", undefined, 0, true);
+}
+
+function clearOutageIfHealthy() {
+  if (readUnavailable || streamDelayed || !outageNotified) return;
+  outageNotified = false;
+  if (outageToastId !== null) dismissToast(outageToastId);
+  outageToastId = null;
+}
+
+export function reportBackendReadFailure() {
+  clearRecoveryTimer();
+  readUnavailable = true;
+  showOutage();
+}
+
+export function reportBackendReadSuccess() {
+  if (!readUnavailable) return;
+  clearRecoveryTimer();
+  // A single successful request during a rolling deploy does not mean that
+  // the rest of the API is available. Require a short quiet recovery window.
+  recoveryTimer = setTimeout(() => {
+    recoveryTimer = undefined;
+    readUnavailable = false;
+    clearOutageIfHealthy();
+  }, readRecoveryGraceMs);
+}
+
+export function setLiveStreamDelayed(delayed: boolean) {
+  streamDelayed = delayed;
+  if (delayed) showOutage();
+  else clearOutageIfHealthy();
+}
+
+export function resetBackendOutage() {
+  clearRecoveryTimer();
+  readUnavailable = false;
+  streamDelayed = false;
+  clearOutageIfHealthy();
+}
 
 export function notify(
   message: string,
@@ -21,7 +82,9 @@ export function notify(
   action?: ToastAction,
   duration = tone === "error" ? 6500 : 2800,
   replaceCurrent = false,
+  outageSensitive = false,
 ): number {
+  if (outageNotified && outageSensitive) return outageToastId ?? 0;
   const current = activeToast.peek();
   if (current?.message === message && current.tone === tone) return current.id;
   const waiting = waitingToasts.find(
@@ -29,7 +92,7 @@ export function notify(
   );
   if (waiting) return waiting.id;
   const id = ++nextToastId;
-  const notice = { id, message, tone, action, duration };
+  const notice = { id, message, tone, action, duration, outageSensitive };
   if (!current) activeToast.value = notice;
   else if (tone === "success" || tone === "info") {
     // Direct user feedback (such as Copy) must appear immediately.
@@ -58,6 +121,7 @@ type SignalToastOptions = {
   when?: (message: string) => boolean;
   action?: ToastAction;
   immediate?: boolean;
+  outageSensitive?: boolean;
 };
 
 export function useToastSignal(
@@ -74,7 +138,14 @@ export function useToastSignal(
         const current = optionsRef.current;
         if (current.when && !current.when(message)) return;
         const tone = typeof current.tone === "function" ? current.tone(message) : current.tone;
-        notify(message, tone ?? "error", current.action, undefined, current.immediate);
+        notify(
+          message,
+          tone ?? "error",
+          current.action,
+          undefined,
+          current.immediate,
+          current.outageSensitive,
+        );
       }),
     [source],
   );

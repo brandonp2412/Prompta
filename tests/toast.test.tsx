@@ -4,7 +4,16 @@ import { signal } from "@preact/signals-core";
 import { act, cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import ToastHost from "../src/ui/ToastHost";
-import { activeToast, dismissToast, notify, useToastSignal } from "../src/ui/toast";
+import {
+  activeToast,
+  dismissToast,
+  notify,
+  reportBackendReadFailure,
+  reportBackendReadSuccess,
+  resetBackendOutage,
+  setLiveStreamDelayed,
+  useToastSignal,
+} from "../src/ui/toast";
 
 afterEach(() => {
   cleanup();
@@ -88,4 +97,53 @@ test("signal errors become retryable toasts with no inline boxes", async () => {
   await userEvent.setup().click(screen.getByRole("button", { name: "Retry" }));
   expect(retries).toBe(1);
   expect(screen.queryByRole("alert")).toBeNull();
+});
+
+test("one deploy outage suppresses independent read failures until recovery", () => {
+  resetBackendOutage();
+  const originalSetTimeout = globalThis.setTimeout;
+  const originalClearTimeout = globalThis.clearTimeout;
+  const timers = new Map<number, () => void>();
+  let nextTimer = 0;
+  globalThis.setTimeout = ((callback: () => void) => {
+    const id = ++nextTimer;
+    timers.set(id, callback);
+    return id;
+  }) as typeof setTimeout;
+  globalThis.clearTimeout = ((id: number) => {
+    timers.delete(id);
+  }) as typeof clearTimeout;
+  try {
+    render(<ToastHost chatView />);
+    act(() => {
+      notify("Chat list unavailable", "error", undefined, 6500, false, true);
+      reportBackendReadFailure();
+      reportBackendReadFailure();
+      setLiveStreamDelayed(true);
+      notify("Pinned chats unavailable", "error", undefined, 6500, false, true);
+      notify("Queue status unavailable", "error", undefined, 6500, false, true);
+      notify("Saved replies unavailable", "error", undefined, 6500, false, true);
+    });
+    const outage = activeToast.peek();
+    expect(outage?.message).toBe("Connection to Prompta interrupted. Reconnecting automatically.");
+    expect(outage?.duration).toBe(0);
+    expect(screen.getAllByRole("status")).toHaveLength(1);
+    act(() => {
+      reportBackendReadSuccess();
+      setLiveStreamDelayed(false);
+    });
+    expect(activeToast.peek()?.id).toBe(outage?.id); // A good GET alone cannot end a rolling outage.
+    act(() => {
+      for (const callback of [...timers.values()]) callback();
+    });
+    expect(activeToast.peek()).toBeNull();
+    act(() => {
+      notify("Could not copy message", "error");
+    });
+    expect(screen.getByRole("alert").textContent).toContain("Could not copy message");
+  } finally {
+    resetBackendOutage();
+    globalThis.setTimeout = originalSetTimeout;
+    globalThis.clearTimeout = originalClearTimeout;
+  }
 });

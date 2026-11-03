@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import ChatsPage from "./ChatsPage";
 import ToastHost from "./ToastHost";
-import { notify, dismissToast } from "./toast";
-import { retryLiveConnection, subscribeLiveStatus } from "./liveUpdates";
+import { setLiveStreamDelayed } from "./toast";
+import { subscribeLiveStatus } from "./liveUpdates";
 
 type View = "jobs" | "chats";
 type Route = { view: View; selectedRunId: string | null; newChatOpen: boolean };
@@ -32,17 +32,10 @@ export default function App({ serverName }: { serverName: string }) {
   }, []);
 
   useEffect(() => {
-    if (!updatesDelayed) return;
-    const id = notify(
-      "Live updates delayed. Checking automatically.",
-      "warning",
-      {
-        label: "Refresh now",
-        onClick: retryLiveConnection,
-      },
-      0,
-    );
-    return () => dismissToast(id);
+    setLiveStreamDelayed(updatesDelayed);
+    return () => {
+      if (updatesDelayed) setLiveStreamDelayed(false);
+    };
   }, [updatesDelayed]);
 
   function navigate(nextView: View, run: string | null = null) {

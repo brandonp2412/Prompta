@@ -1,3 +1,5 @@
+import { reportBackendReadFailure, reportBackendReadSuccess } from "./toast";
+
 // Local, read-only requests should fail visibly instead of leaving UI loading forever.
 // Mutating requests use their own durable receipt/reconciliation rules.
 export const localReadTimeoutMs = 12_000;
@@ -5,6 +7,12 @@ export const localReadTimeoutMs = 12_000;
 const transientGatewayStatuses = new Set([502, 503, 504]);
 const transientRetryDelayMs = 250;
 const firstAttemptTimeoutMs = 6000;
+
+function trackBackendResponse(response: Response): Response {
+  if (response.status >= 500) reportBackendReadFailure();
+  else if (response.ok) reportBackendReadSuccess();
+  return response;
+}
 
 export async function localGet(url: string, signal?: AbortSignal): Promise<Response> {
   const startedAt = Date.now();
@@ -26,24 +34,28 @@ export async function localGet(url: string, signal?: AbortSignal): Promise<Respo
     failure = error;
   }
   if (signal?.aborted) throw signal.reason;
-  if (response && !transientGatewayStatuses.has(response.status)) return response;
+  if (response && !transientGatewayStatuses.has(response.status))
+    return trackBackendResponse(response);
   const remainingBeforeDelay = localReadTimeoutMs - (Date.now() - startedAt);
   if (remainingBeforeDelay <= transientRetryDelayMs) {
-    if (response) return response;
+    if (response) return trackBackendResponse(response);
+    reportBackendReadFailure();
     throw failure;
   }
   await new Promise<void>((resolve) => setTimeout(resolve, transientRetryDelayMs));
   if (signal?.aborted) throw signal.reason;
   const remaining = localReadTimeoutMs - (Date.now() - startedAt);
   if (remaining <= 0) {
-    if (response) return response;
+    if (response) return trackBackendResponse(response);
+    reportBackendReadFailure();
     throw failure;
   }
   try {
-    return await request(remaining);
+    return trackBackendResponse(await request(remaining));
   } catch (error) {
     // A valid gateway response is more useful than losing its status after a failed retry.
-    if (response) return response;
+    if (response) return trackBackendResponse(response);
+    if (!signal?.aborted) reportBackendReadFailure();
     throw error;
   }
 }

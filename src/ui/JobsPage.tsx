@@ -10,10 +10,12 @@ export default function JobsPage(props: Props) {
   const model = useMemo(() => createJobsPageController(props), []);
   useSignals();
   useToastSignal(model.jobsLoadError, {
+    outageSensitive: true,
     action: { label: "Retry jobs", onClick: () => void model.load() },
   });
-  useToastSignal(model.deliveryHealthError);
+  useToastSignal(model.deliveryHealthError, { outageSensitive: true });
   useToastSignal(model.queueError, {
+    outageSensitive: true,
     action: { label: "Retry", onClick: () => void model.loadQueue() },
   });
   useToastSignal(model.status, {

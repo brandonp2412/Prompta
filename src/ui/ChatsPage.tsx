@@ -18,18 +18,22 @@ export default function ChatsPage(props: Props & { serverName: string }) {
     action: { label: "Retry", onClick: () => void model.retryReadSync() },
   });
   useToastSignal(model.queueError, {
+    outageSensitive: true,
     action: { label: "Retry", onClick: () => void model.loadQueue() },
   });
   useToastSignal(model.listError, {
+    outageSensitive: true,
     action: {
       label: "Retry",
       onClick: () => void (model.morePageFailed.peek() ? model.loadMore() : model.loadList()),
     },
   });
   useToastSignal(model.pinError, {
+    outageSensitive: true,
     action: { label: "Retry", onClick: () => model.retryPins() },
   });
   useToastSignal(model.detailError, {
+    outageSensitive: true,
     action: {
       label: "Retry chat",
       onClick: () => {
@@ -39,6 +43,7 @@ export default function ChatsPage(props: Props & { serverName: string }) {
     },
   });
   useToastSignal(model.turnsError, {
+    outageSensitive: true,
     action: {
       label: "Retry replies",
       onClick: () => {

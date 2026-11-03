@@ -12351,7 +12351,50 @@ function subscribeLiveStatus(listener) {
 var activeToast = y$2(null);
 var nextToastId = 0;
 var waitingToasts = [];
-function notify(message, tone = "info", action, duration = tone === "error" ? 6500 : 2800, replaceCurrent = false) {
+var outageMessage = "Connection to Prompta interrupted. Reconnecting automatically.";
+var readRecoveryGraceMs = 8e3;
+var readUnavailable = false;
+var streamDelayed = false;
+var outageNotified = false;
+var outageToastId = null;
+var recoveryTimer;
+function clearRecoveryTimer() {
+	if (recoveryTimer !== void 0) clearTimeout(recoveryTimer);
+	recoveryTimer = void 0;
+}
+function showOutage() {
+	if (outageNotified) return;
+	outageNotified = true;
+	for (let i = waitingToasts.length - 1; i >= 0; i--) if (waitingToasts[i]?.outageSensitive) waitingToasts.splice(i, 1);
+	outageToastId = notify(outageMessage, "warning", void 0, 0, true);
+}
+function clearOutageIfHealthy() {
+	if (readUnavailable || streamDelayed || !outageNotified) return;
+	outageNotified = false;
+	if (outageToastId !== null) dismissToast(outageToastId);
+	outageToastId = null;
+}
+function reportBackendReadFailure() {
+	clearRecoveryTimer();
+	readUnavailable = true;
+	showOutage();
+}
+function reportBackendReadSuccess() {
+	if (!readUnavailable) return;
+	clearRecoveryTimer();
+	recoveryTimer = setTimeout(() => {
+		recoveryTimer = void 0;
+		readUnavailable = false;
+		clearOutageIfHealthy();
+	}, readRecoveryGraceMs);
+}
+function setLiveStreamDelayed(delayed) {
+	streamDelayed = delayed;
+	if (delayed) showOutage();
+	else clearOutageIfHealthy();
+}
+function notify(message, tone = "info", action, duration = tone === "error" ? 6500 : 2800, replaceCurrent = false, outageSensitive = false) {
+	if (outageNotified && outageSensitive) return outageToastId ?? 0;
 	const current = activeToast.peek();
 	if (current?.message === message && current.tone === tone) return current.id;
 	const waiting = waitingToasts.find((notice) => notice.message === message && notice.tone === tone);
@@ -12362,7 +12405,8 @@ function notify(message, tone = "info", action, duration = tone === "error" ? 65
 		message,
 		tone,
 		action,
-		duration
+		duration,
+		outageSensitive
 	};
 	if (!current) activeToast.value = notice;
 	else if (tone === "success" || tone === "info") activeToast.value = notice;
@@ -12391,7 +12435,7 @@ function useToastSignal(source, options = {}) {
 		if (!message) return;
 		const current = optionsRef.current;
 		if (current.when && !current.when(message)) return;
-		notify(message, (typeof current.tone === "function" ? current.tone(message) : current.tone) ?? "error", current.action, void 0, current.immediate);
+		notify(message, (typeof current.tone === "function" ? current.tone(message) : current.tone) ?? "error", current.action, void 0, current.immediate, current.outageSensitive);
 	}), [source]);
 }
 function feedbackTone(message) {
@@ -12491,6 +12535,11 @@ var transientGatewayStatuses = /* @__PURE__ */ new Set([
 ]);
 var transientRetryDelayMs = 250;
 var firstAttemptTimeoutMs = 6e3;
+function trackBackendResponse(response) {
+	if (response.status >= 500) reportBackendReadFailure();
+	else if (response.ok) reportBackendReadSuccess();
+	return response;
+}
 async function localGet(url, signal) {
 	const startedAt = Date.now();
 	const request = (timeoutMs) => fetch(url, {
@@ -12505,22 +12554,25 @@ async function localGet(url, signal) {
 		failure = error;
 	}
 	if (signal?.aborted) throw signal.reason;
-	if (response && !transientGatewayStatuses.has(response.status)) return response;
+	if (response && !transientGatewayStatuses.has(response.status)) return trackBackendResponse(response);
 	if (12e3 - (Date.now() - startedAt) <= transientRetryDelayMs) {
-		if (response) return response;
+		if (response) return trackBackendResponse(response);
+		reportBackendReadFailure();
 		throw failure;
 	}
 	await new Promise((resolve) => setTimeout(resolve, transientRetryDelayMs));
 	if (signal?.aborted) throw signal.reason;
 	const remaining = localReadTimeoutMs - (Date.now() - startedAt);
 	if (remaining <= 0) {
-		if (response) return response;
+		if (response) return trackBackendResponse(response);
+		reportBackendReadFailure();
 		throw failure;
 	}
 	try {
-		return await request(remaining);
+		return trackBackendResponse(await request(remaining));
 	} catch (error) {
-		if (response) return response;
+		if (response) return trackBackendResponse(response);
+		if (!signal?.aborted) reportBackendReadFailure();
 		throw error;
 	}
 }
@@ -15847,15 +15899,21 @@ function JobsTable({ model }) {
 function JobsPage(props) {
 	const model = (0, import_react.useMemo)(() => createJobsPageController(props), []);
 	N$1();
-	useToastSignal(model.jobsLoadError, { action: {
-		label: "Retry jobs",
-		onClick: () => void model.load()
-	} });
-	useToastSignal(model.deliveryHealthError);
-	useToastSignal(model.queueError, { action: {
-		label: "Retry",
-		onClick: () => void model.loadQueue()
-	} });
+	useToastSignal(model.jobsLoadError, {
+		outageSensitive: true,
+		action: {
+			label: "Retry jobs",
+			onClick: () => void model.load()
+		}
+	});
+	useToastSignal(model.deliveryHealthError, { outageSensitive: true });
+	useToastSignal(model.queueError, {
+		outageSensitive: true,
+		action: {
+			label: "Retry",
+			onClick: () => void model.loadQueue()
+		}
+	});
 	useToastSignal(model.status, {
 		tone: feedbackTone,
 		when: (message) => /failed|could not|uncertain/i.test(message)
@@ -21987,32 +22045,47 @@ function ChatsPage(props) {
 		label: "Retry",
 		onClick: () => void model.retryReadSync()
 	} });
-	useToastSignal(model.queueError, { action: {
-		label: "Retry",
-		onClick: () => void model.loadQueue()
-	} });
-	useToastSignal(model.listError, { action: {
-		label: "Retry",
-		onClick: () => void (model.morePageFailed.peek() ? model.loadMore() : model.loadList())
-	} });
-	useToastSignal(model.pinError, { action: {
-		label: "Retry",
-		onClick: () => model.retryPins()
-	} });
-	useToastSignal(model.detailError, { action: {
-		label: "Retry chat",
-		onClick: () => {
-			const id = model.selectedRunId.peek();
-			if (id) model.loadDetail(id);
+	useToastSignal(model.queueError, {
+		outageSensitive: true,
+		action: {
+			label: "Retry",
+			onClick: () => void model.loadQueue()
 		}
-	} });
-	useToastSignal(model.turnsError, { action: {
-		label: "Retry replies",
-		onClick: () => {
-			const id = model.selectedRunId.peek();
-			if (id) model.loadDetail(id);
+	});
+	useToastSignal(model.listError, {
+		outageSensitive: true,
+		action: {
+			label: "Retry",
+			onClick: () => void (model.morePageFailed.peek() ? model.loadMore() : model.loadList())
 		}
-	} });
+	});
+	useToastSignal(model.pinError, {
+		outageSensitive: true,
+		action: {
+			label: "Retry",
+			onClick: () => model.retryPins()
+		}
+	});
+	useToastSignal(model.detailError, {
+		outageSensitive: true,
+		action: {
+			label: "Retry chat",
+			onClick: () => {
+				const id = model.selectedRunId.peek();
+				if (id) model.loadDetail(id);
+			}
+		}
+	});
+	useToastSignal(model.turnsError, {
+		outageSensitive: true,
+		action: {
+			label: "Retry replies",
+			onClick: () => {
+				const id = model.selectedRunId.peek();
+				if (id) model.loadDetail(id);
+			}
+		}
+	});
 	async function shareChat() {
 		const id = model.selectedRunId.peek();
 		if (!id) return;
@@ -22324,12 +22397,10 @@ function App({ serverName }) {
 		};
 	}, []);
 	(0, import_react.useEffect)(() => {
-		if (!updatesDelayed) return;
-		const id = notify("Live updates delayed. Checking automatically.", "warning", {
-			label: "Refresh now",
-			onClick: retryLiveConnection
-		}, 0);
-		return () => dismissToast(id);
+		setLiveStreamDelayed(updatesDelayed);
+		return () => {
+			if (updatesDelayed) setLiveStreamDelayed(false);
+		};
 	}, [updatesDelayed]);
 	function navigate(nextView, run = null) {
 		const url = new URL(window.location.href);
