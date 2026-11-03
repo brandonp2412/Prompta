@@ -8,6 +8,7 @@ import { ContinueChatIcon } from "./ChatActionIcons";
 import {
   activeMention,
   insertMention,
+  selectedDraftMentions,
   suggestedMentions,
   type MentionMatch,
 } from "./composerMentions";
@@ -80,6 +81,7 @@ export default function ChatComposer(props: Props) {
     mentionMatch && !mentionDismissed && !model.sending.value && !model.disabled.value
       ? suggestedMentions(mentionMatch.query)
       : [];
+  const selectedMentions = selectedDraftMentions(draft.value);
 
   function updateMention(element: HTMLTextAreaElement, edited = false) {
     if (edited) setMentionDismissed(false);
@@ -105,6 +107,19 @@ export default function ChatComposer(props: Props) {
       const element = model.textarea.peek();
       element?.focus();
       element?.setSelectionRange(next.cursor, next.cursor);
+    });
+  }
+
+  function removeSelectedMention(start: number, end: number) {
+    const text = model.draft.peek();
+    const removeEnd = text[end] === " " ? end + 1 : end;
+    model.setDraft(text.slice(0, start) + text.slice(removeEnd));
+    setMentionMatch(null);
+    setMentionDismissed(true);
+    requestAnimationFrame(() => {
+      const element = model.textarea.peek();
+      element?.focus();
+      element?.setSelectionRange(start, start);
     });
   }
 
@@ -205,6 +220,29 @@ export default function ChatComposer(props: Props) {
             </>
           ) : (
             <></>
+          )}
+          {selectedMentions.length > 0 && (
+            <div className="composer-selected-mentions" aria-label="Selected tools and connectors">
+              {selectedMentions.map(({ start, end, mention }) => (
+                <button
+                  key={`${start}-${mention.name}`}
+                  type="button"
+                  className="composer-selected-mention"
+                  aria-label={`Remove @${mention.name}`}
+                  title={`Remove @${mention.name}`}
+                  disabled={sending.value || disabled.value}
+                  onClick={() => removeSelectedMention(start, end)}
+                >
+                  <span className="composer-selected-mention-icon" aria-hidden="true">
+                    {mention.kind === "tool" ? "✦" : "@"}
+                  </span>
+                  <span className="composer-selected-mention-name">{mention.name}</span>
+                  <span className="composer-selected-mention-remove" aria-hidden="true">
+                    ×
+                  </span>
+                </button>
+              ))}
+            </div>
           )}
           <textarea
             ref={refs.textarea}

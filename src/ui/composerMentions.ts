@@ -2,8 +2,31 @@ import catalog from "../static/mention-catalog.json";
 
 export type Mention = (typeof catalog)[number];
 export type MentionMatch = { start: number; end: number; query: string };
+export type SelectedMention = { start: number; end: number; mention: Mention };
 
 export const mentionCatalog: Mention[] = catalog;
+const mentionsLongestFirst = [...mentionCatalog].sort((a, b) => b.name.length - a.name.length);
+
+// The composer sends its text as-is, so indicators must reflect mentions that
+// are still present in the draft (including drafts restored after navigation).
+export function selectedDraftMentions(text: string): SelectedMention[] {
+  const selected: SelectedMention[] = [];
+  for (let start = 0; start < text.length; start += 1) {
+    if (text[start] !== "@" || (start > 0 && !/[\s([{]/u.test(text[start - 1]))) continue;
+    const mention = mentionsLongestFirst.find(({ name }) => {
+      const end = start + name.length + 1;
+      return (
+        text.slice(start + 1, end).toLocaleLowerCase() === name.toLocaleLowerCase() &&
+        (end === text.length || !/[\p{L}\p{N}_-]/u.test(text[end]))
+      );
+    });
+    if (!mention) continue;
+    const end = start + mention.name.length + 1;
+    selected.push({ start, end, mention });
+    start = end - 1;
+  }
+  return selected;
+}
 
 export function activeMention(text: string, cursor: number): MentionMatch | null {
   if (cursor < 0 || cursor > text.length) return null;

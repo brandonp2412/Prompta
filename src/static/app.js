@@ -16593,6 +16593,26 @@ var mentionCatalog = [
 		"description": "Schedule recurring tasks"
 	}
 ];
+var mentionsLongestFirst = [...mentionCatalog].sort((a, b) => b.name.length - a.name.length);
+function selectedDraftMentions(text) {
+	const selected = [];
+	for (let start = 0; start < text.length; start += 1) {
+		if (text[start] !== "@" || start > 0 && !/[\s([{]/u.test(text[start - 1])) continue;
+		const mention = mentionsLongestFirst.find(({ name }) => {
+			const end = start + name.length + 1;
+			return text.slice(start + 1, end).toLocaleLowerCase() === name.toLocaleLowerCase() && (end === text.length || !/[\p{L}\p{N}_-]/u.test(text[end]));
+		});
+		if (!mention) continue;
+		const end = start + mention.name.length + 1;
+		selected.push({
+			start,
+			end,
+			mention
+		});
+		start = end - 1;
+	}
+	return selected;
+}
 function activeMention(text, cursor) {
 	if (cursor < 0 || cursor > text.length) return null;
 	const before = text.slice(0, cursor);
@@ -16655,6 +16675,7 @@ function ChatComposer(props) {
 		setMentionDismissed(false);
 	}, [props.chatId, props.mode]);
 	const mentionOptions = mentionMatch && !mentionDismissed && !model.sending.value && !model.disabled.value ? suggestedMentions(mentionMatch.query) : [];
+	const selectedMentions = selectedDraftMentions(draft.value);
 	function updateMention(element, edited = false) {
 		if (edited) setMentionDismissed(false);
 		if (element.selectionStart !== element.selectionEnd) {
@@ -16676,6 +16697,18 @@ function ChatComposer(props) {
 			const element = model.textarea.peek();
 			element?.focus();
 			element?.setSelectionRange(next.cursor, next.cursor);
+		});
+	}
+	function removeSelectedMention(start, end) {
+		const text = model.draft.peek();
+		const removeEnd = text[end] === " " ? end + 1 : end;
+		model.setDraft(text.slice(0, start) + text.slice(removeEnd));
+		setMentionMatch(null);
+		setMentionDismissed(true);
+		requestAnimationFrame(() => {
+			const element = model.textarea.peek();
+			element?.focus();
+			element?.setSelectionRange(start, start);
 		});
 	}
 	function sendLabel() {
@@ -16762,6 +16795,34 @@ function ChatComposer(props) {
 							})]
 						}) }, image.ref))
 					}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {}),
+					selectedMentions.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+						className: "composer-selected-mentions",
+						"aria-label": "Selected tools and connectors",
+						children: selectedMentions.map(({ start, end, mention }) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+							type: "button",
+							className: "composer-selected-mention",
+							"aria-label": `Remove @${mention.name}`,
+							title: `Remove @${mention.name}`,
+							disabled: sending.value || disabled.value,
+							onClick: () => removeSelectedMention(start, end),
+							children: [
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+									className: "composer-selected-mention-icon",
+									"aria-hidden": "true",
+									children: mention.kind === "tool" ? "✦" : "@"
+								}),
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+									className: "composer-selected-mention-name",
+									children: mention.name
+								}),
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+									className: "composer-selected-mention-remove",
+									"aria-hidden": "true",
+									children: "×"
+								})
+							]
+						}, `${start}-${mention.name}`))
+					}),
 					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("textarea", {
 						ref: refs.textarea,
 						onInput: (event) => {
