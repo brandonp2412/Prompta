@@ -300,6 +300,7 @@ export function createChatsPageController(initialProps: Props) {
       (item) =>
         item.status === "queued" &&
         !queuedWaitingChat(item) &&
+        !pinnedIds.value.includes(item.send_id) &&
         (!matchingIds || matchingIds.has(item.send_id)),
     );
   });
@@ -343,7 +344,7 @@ export function createChatsPageController(initialProps: Props) {
       .map((id) => byId.get(id))
       .filter((item): item is RunSummary => !!item)
       .filter((item) => !filtered || items.value.some((listed) => listed.send_id === item.send_id))
-      .filter((item) => item.status !== "queued");
+      .filter((item) => item.status !== "queued" || !queuedWaitingChat(item));
   });
   const replyBlockedReason = computed((): string => {
     const latest = turns.value.findLast((turn) => turn.status !== "cancelled");

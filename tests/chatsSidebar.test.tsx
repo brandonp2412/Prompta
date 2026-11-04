@@ -349,6 +349,7 @@ test("sidebar shows queued once jobs but hides repeating scheduled deliveries", 
       { ...run(2), title: "Due once chat", job_name: "due-once", status: "queued" },
       { ...run(3), title: "Manual once chat", status: "queued" },
     ];
+    model.pinnedIds.value = ["1"]; // Pinned repeating deliveries still stay hidden.
   });
   expect(model.visibleWaiting.value.map((job) => job.name)).toEqual(["due-once"]);
   expect(screen.getByText("due-once")).toBeTruthy();
@@ -400,7 +401,7 @@ test("scheduled once jobs stay out of the sidebar until their queue start is imm
   expect(screen.queryByText("Scheduled one-off chat")).toBeNull();
 });
 
-test("queued chats and imminent one-off jobs show longest ETA first regardless of pin order", async () => {
+test("pinned chats stay above queued work, which retains longest ETA first", async () => {
   const { model } = sidebar();
   const names = () =>
     Array.from(
@@ -470,16 +471,16 @@ test("queued chats and imminent one-off jobs show longest ETA first regardless o
   });
   expect(names()).toEqual([
     "Chat 12",
+    "Chat 11",
+    "Chat 20",
     "later-job",
     "Chat 10",
     "earlier-job",
-    "Chat 11",
     "Chat 15",
-    "Chat 20",
   ]);
   expect(screen.queryByText("repeating")).toBeNull();
   expect(screen.queryByText("far-job")).toBeNull();
-  expect(model.pinned.value.map((item) => item.send_id)).toEqual(["20"]);
+  expect(model.pinned.value.map((item) => item.send_id)).toEqual(["12", "11", "20"]);
 
   await act(async () => {
     model.items.value = model.items
@@ -488,12 +489,12 @@ test("queued chats and imminent one-off jobs show longest ETA first regardless o
   });
   expect(names()).toEqual([
     "Chat 12",
+    "Chat 11",
+    "Chat 20",
     "later-job",
     "Chat 10",
     "earlier-job",
-    "Chat 11",
     "Chat 15",
-    "Chat 20",
   ]);
 });
 
@@ -519,7 +520,7 @@ test("the next queued chat keeps its sidebar position when generation starts", a
       ],
     };
   });
-  expect(names()).toEqual(["Chat 7", "Chat 8", "Chat 6"]);
+  expect(names()).toEqual(["Chat 8", "Chat 6", "Chat 7"]);
 
   await act(async () => {
     model.items.value = model.items
@@ -530,7 +531,15 @@ test("the next queued chat keeps its sidebar position when generation starts", a
       waiting_runs: [{ send_id: "7", eta_seconds: 160 }],
     };
   });
-  expect(names()).toEqual(["Chat 7", "Chat 8", "Chat 6"]);
+  expect(names()).toEqual(["Chat 8", "Chat 6", "Chat 7"]);
+
+  await act(async () => {
+    model.pinnedIds.value = ["6"];
+    model.items.value = model.items
+      .peek()
+      .map((item) => (item.send_id === "8" ? { ...item, status: "queued" } : item));
+  });
+  expect(names()).toEqual(["Chat 6", "Chat 7", "Chat 8"]);
 });
 
 test("same-minute ETA changes do not shuffle queued chats across polls", async () => {

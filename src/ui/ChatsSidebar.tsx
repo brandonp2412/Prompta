@@ -270,6 +270,15 @@ export default function ChatsSidebar({
         <></>
       )}
       <div ref={refs.listPane} className="chats-list" onScroll={onListScroll}>
+        {pinned.value.length ? (
+          <>
+            {pinned.value.map((item) => (
+              <ChatRow key={item.send_id} item={item} model={model} />
+            ))}
+          </>
+        ) : (
+          <></>
+        )}
         {queueEntries.value.length ? (
           <>
             {queueEntries.value.map((entry) => {
@@ -308,15 +317,6 @@ export default function ChatsSidebar({
                 </div>
               );
             })}
-          </>
-        ) : (
-          <></>
-        )}
-        {pinned.value.length ? (
-          <>
-            {pinned.value.map((item) => (
-              <ChatRow key={item.send_id} item={item} model={model} />
-            ))}
           </>
         ) : (
           <></>
