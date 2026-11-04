@@ -15113,7 +15113,7 @@ function createJobsPageController(initialProps) {
 			}, delayMinutes ? `Scheduled once in ${delayMinutes} minutes.` : "Queued one fresh chat.", delayMinutes === 0 ? {
 				prompt: jobPrompt,
 				images: refs,
-				scope: "jobs:run-once"
+				scope: "jobs:run-once:false"
 			} : void 0)) {
 				initialForm.value = formSnapshot();
 				leaveEditor();
@@ -15884,7 +15884,7 @@ function JobsTable({ model }) {
 									}, "Queued one fresh chat for " + job.name + ".", {
 										prompt: job.prompt,
 										images: job.images.map((image) => image.ref),
-										scope: "jobs:fire:" + job.name
+										scope: "jobs:fire:" + job.name + ":" + job.pin_chat
 									}),
 									className: "row-action",
 									children: "Fire now"
@@ -21897,6 +21897,7 @@ function ChatTranscript({ model, refs, conversationUrl }) {
 		const preceding = turns.value[index - 1];
 		if (preceding?.status === "queued") return "Follow-up queued · waiting for earlier follow-up";
 		if (!preceding?.message_id) return "Follow-up queued · reviving chat";
+		if (preceding.status === "completed") return "Follow-up queued · waiting for dispatch";
 		return "Follow-up queued · waiting for the preceding response";
 	}
 	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
