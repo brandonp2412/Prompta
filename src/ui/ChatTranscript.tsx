@@ -245,7 +245,9 @@ export default function ChatTranscript({
                     {turn.status !== "generating" && turn.status !== "completed" && (
                       <div className="message-role response-header">
                         <span role="status" className="response-state">
-                          {responseBadge(turn.status)}
+                          {index > 0 && turn.status === "prepared" && turn.queued_by_user
+                            ? "Queued"
+                            : responseBadge(turn.status)}
                         </span>
                       </div>
                     )}
@@ -290,7 +292,9 @@ export default function ChatTranscript({
                       <>
                         {turn.status !== "generating" && (
                           <p className="no-response">
-                            {index > 0 && turn.status === "queued"
+                            {index > 0 &&
+                            (turn.status === "queued" ||
+                              (turn.status === "prepared" && turn.queued_by_user))
                               ? queuedFollowupLabel(index)
                               : turnStatus(turn.status)}
                           </p>

@@ -21984,7 +21984,7 @@ function ChatTranscript({ model, refs, conversationUrl }) {
 								children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
 									role: "status",
 									className: "response-state",
-									children: responseBadge(turn.status)
+									children: index > 0 && turn.status === "prepared" && turn.queued_by_user ? "Queued" : responseBadge(turn.status)
 								})
 							}),
 							turn.assistant_text || turn.tool_calls?.length || turn.display_blocks?.some((block) => block.kind === "text") ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
@@ -22013,7 +22013,7 @@ function ChatTranscript({ model, refs, conversationUrl }) {
 							] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
 								turn.status !== "generating" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
 									className: "no-response",
-									children: index > 0 && turn.status === "queued" ? queuedFollowupLabel(index) : turnStatus(turn.status)
+									children: index > 0 && (turn.status === "queued" || turn.status === "prepared" && turn.queued_by_user) ? queuedFollowupLabel(index) : turnStatus(turn.status)
 								}),
 								index === 0 && turn.status === "queued" && model.queueSnapshot.value.waiting_runs?.some((run) => run.send_id === detail.value?.send_id) && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(QueueFrontButton, {
 									endpoint: "./api/queue/" + encodeURIComponent(detail.value.send_id) + "/front",

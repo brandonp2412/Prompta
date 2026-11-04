@@ -51,7 +51,7 @@ test("queued follow-up no longer claims it is waiting for a completed response",
     { reply_id: "", user_text: "Original question", assistant_text: "Original answer",
       status: "completed", message_id: "original-message", created_at: 1, updated_at: 2 },
     { reply_id: "next", user_text: "Follow-up question", assistant_text: "",
-      status: "queued", created_at: 3, updated_at: 3 },
+      status: "prepared", queued_by_user: true, created_at: 3, updated_at: 3 },
   ];
   render(<ChatTranscript model={model} refs={{ scrollPane: () => {} }} conversationUrl={null} />);
   expect(screen.getByText("Follow-up queued · waiting for dispatch")).toBeTruthy();
