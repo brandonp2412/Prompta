@@ -519,9 +519,16 @@ def test_stopping_chat_in_ui_unpins_it_and_preserves_other_pins(
                 page.get_by_role("button", name="Stop generating").click()
                 expect(stopped_pin).to_have_attribute("aria-pressed", "false")
                 expect(other_pin).to_have_attribute("aria-pressed", "true")
+                stopped_dot = page.locator(".chat-entry").filter(has_text="Stoppable chat").locator(
+                    ".result-dot"
+                )
+                expect(stopped_dot).to_have_attribute("class", "result-dot status-stopped")
+                expect(stopped_dot).to_have_css("background-color", "rgba(0, 0, 0, 0)")
+                expect(stopped_dot).to_have_css("box-shadow", "rgb(119, 119, 119) 0px 0px 0px 1.5px inset")
                 page.reload()
                 expect(stopped_pin).to_have_attribute("aria-pressed", "false")
                 expect(other_pin).to_have_attribute("aria-pressed", "true")
+                expect(stopped_dot).to_have_css("background-color", "rgba(0, 0, 0, 0)")
                 assert pin_ids(get(port, "/api/local-chat-pins")[1]) == ["other"]
             finally:
                 browser.close()
