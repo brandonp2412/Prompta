@@ -36,7 +36,7 @@ export default function ChatsSidebar({
     loadingList,
     listError,
     pinned,
-    visibleWaiting,
+    queueEntries,
     unpinned,
     markAllRead,
     loadingMore,
@@ -268,38 +268,44 @@ export default function ChatsSidebar({
         <></>
       )}
       <div ref={refs.listPane} className="chats-list" onScroll={onListScroll}>
-        {visibleWaiting.value.length ? (
+        {queueEntries.value.length ? (
           <>
-            {visibleWaiting.value.map((waiting) => (
-              <div key={waiting.name} className="chat-entry queue-waiting">
-                <button
-                  type="button"
-                  onClick={showJobs}
-                  title={"Open Jobs for " + waiting.name}
-                  className="chat-row"
-                >
-                  <span className="chat-row-top">
-                    <strong>{waiting.name}</strong>
-                    <span className="queue-position">
-                      #{waiting.position} of {queueSnapshot.value.waiting.length}
-                    </span>
-                  </span>
-                  <span
-                    className="queue-subtitle"
-                    title={
-                      queueEtaText(waiting) ? queueEtaExplanation(queueSnapshot.value) : undefined
-                    }
+            {queueEntries.value.map((entry) => {
+              if (entry.kind === "chat") {
+                return <ChatRow key={entry.key} item={entry.item} model={model} />;
+              }
+              const waiting = entry.waiting;
+              return (
+                <div key={entry.key} className="chat-entry queue-waiting">
+                  <button
+                    type="button"
+                    onClick={showJobs}
+                    title={"Open Jobs for " + waiting.name}
+                    className="chat-row"
                   >
-                    {[
-                      queueEtaText(waiting),
-                      `${waiting.reason === "stage" ? "stage" : "global"} limit (${waiting.occupied}/${waiting.limit})`,
-                    ]
-                      .filter(Boolean)
-                      .join(" · ")}
-                  </span>
-                </button>
-              </div>
-            ))}
+                    <span className="chat-row-top">
+                      <strong>{waiting.name}</strong>
+                      <span className="queue-position">
+                        #{waiting.position} of {queueSnapshot.value.waiting.length}
+                      </span>
+                    </span>
+                    <span
+                      className="queue-subtitle"
+                      title={
+                        queueEtaText(waiting) ? queueEtaExplanation(queueSnapshot.value) : undefined
+                      }
+                    >
+                      {[
+                        queueEtaText(waiting),
+                        `${waiting.reason === "stage" ? "stage" : "global"} limit (${waiting.occupied}/${waiting.limit})`,
+                      ]
+                        .filter(Boolean)
+                        .join(" · ")}
+                    </span>
+                  </button>
+                </div>
+              );
+            })}
           </>
         ) : (
           <></>
@@ -319,7 +325,7 @@ export default function ChatsSidebar({
           </>
         ) : (
           <>
-            {!items.value.length && !pinned.value.length && !visibleWaiting.value.length ? (
+            {!items.value.length && !pinned.value.length && !queueEntries.value.length ? (
               <>
                 <p className="chats-empty">{emptyChatsLabel()}</p>
               </>

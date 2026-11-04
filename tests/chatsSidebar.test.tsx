@@ -364,6 +364,124 @@ test("scheduled once jobs stay out of the sidebar until their queue start is imm
   expect(screen.queryByText("Scheduled one-off chat")).toBeNull();
 });
 
+test("queued chats and imminent one-off jobs share ETA order regardless of activity or pin order", async () => {
+  const { model } = sidebar();
+  const names = () =>
+    Array.from(
+      document.querySelectorAll(".chats-list .chat-entry .chat-row-top strong"),
+      (node) => node.textContent,
+    );
+  await act(async () => {
+    model.queueSnapshot.value = {
+      max_workers: 2,
+      occupied_slots: 2,
+      estimated_run_seconds: 120,
+      estimate_samples: 5,
+      waiting: [
+        {
+          name: "later-job",
+          one_time: true,
+          position: 1,
+          reason: "global",
+          occupied: 2,
+          limit: 2,
+          eta_seconds: 240,
+        },
+        {
+          name: "repeating",
+          one_time: false,
+          position: 2,
+          reason: "global",
+          occupied: 2,
+          limit: 2,
+          eta_seconds: 20,
+        },
+        {
+          name: "earlier-job",
+          one_time: true,
+          position: 3,
+          reason: "global",
+          occupied: 2,
+          limit: 2,
+          eta_seconds: 80,
+        },
+        {
+          name: "far-job",
+          one_time: true,
+          position: 4,
+          reason: "global",
+          occupied: 2,
+          limit: 2,
+          eta_seconds: 360,
+        },
+      ],
+      waiting_runs: [
+        { send_id: "10", eta_seconds: 180 },
+        { send_id: "11", eta_seconds: 45 },
+        { send_id: "12", eta_seconds: 290 },
+      ],
+    };
+    model.items.value = [
+      { ...run(12), status: "queued", activity_at: 999 },
+      { ...run(10), status: "queued", activity_at: 1000 },
+      { ...run(11), status: "queued", activity_at: 1 },
+      { ...run(13), status: "queued", job_name: "repeating" },
+      { ...run(14), status: "queued", job_name: "far-job" },
+      run(20),
+    ];
+    model.pinnedIds.value = ["12", "11", "20"];
+  });
+  expect(names()).toEqual(["Chat 11", "earlier-job", "Chat 10", "later-job", "Chat 12", "Chat 20"]);
+  expect(screen.queryByText("repeating")).toBeNull();
+  expect(screen.queryByText("far-job")).toBeNull();
+  expect(model.pinned.value.map((item) => item.send_id)).toEqual(["20"]);
+
+  await act(async () => {
+    model.items.value = model.items
+      .peek()
+      .map((item) => (item.send_id === "11" ? { ...item, activity_at: 5000 } : item));
+  });
+  expect(names()).toEqual(["Chat 11", "earlier-job", "Chat 10", "later-job", "Chat 12", "Chat 20"]);
+});
+
+test("same-minute ETA changes do not shuffle queued chats across polls", async () => {
+  const { model } = sidebar();
+  const names = () =>
+    Array.from(
+      document.querySelectorAll(".chats-list .chat-entry .chat-row-top strong"),
+      (node) => node.textContent,
+    );
+  await act(async () => {
+    model.items.value = [
+      { ...run(8), status: "queued", activity_at: 900 },
+      { ...run(7), status: "queued", activity_at: 1 },
+      { ...run(9), status: "queued", activity_at: 500 },
+    ];
+    model.queueSnapshot.value = {
+      ...model.queueSnapshot.peek(),
+      waiting_runs: [
+        { send_id: "8", eta_seconds: 125 },
+        { send_id: "7", eta_seconds: 121 },
+        { send_id: "9", eta_seconds: 60 },
+      ],
+    };
+  });
+  expect(names()).toEqual(["Chat 9", "Chat 7", "Chat 8"]);
+  const row = screen.getByText("Chat 7").closest(".chat-entry");
+  await act(async () => {
+    model.queueSnapshot.value = {
+      ...model.queueSnapshot.peek(),
+      waiting_runs: [
+        { send_id: "7", eta_seconds: 125 },
+        { send_id: "9", eta_seconds: 55 },
+        { send_id: "8", eta_seconds: 121 },
+      ],
+    };
+  });
+  expect(names()).toEqual(["Chat 9", "Chat 7", "Chat 8"]);
+  expect(screen.getByText("Chat 7").closest(".chat-entry")).toBe(row);
+});
+
 test("settings cannot be saved before a successful load", async () => {
   let resolveSettings: ((response: Response) => void) | undefined;
   const saves: unknown[] = [];

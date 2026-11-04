@@ -4,7 +4,12 @@ import { signal, computed, effect, batch } from "@preact/signals-react";
 import { untracked as untrack } from "@preact/signals-core";
 import { subscribeLiveUpdates } from "./liveUpdates";
 import { notify } from "./toast";
-import { emptyQueueSnapshot, isQueueSnapshot, type QueueSnapshot } from "./queueStatus";
+import {
+  emptyQueueSnapshot,
+  isQueueSnapshot,
+  type QueueSnapshot,
+  type WaitingJob,
+} from "./queueStatus";
 import { recoverVisibleTurns } from "./turnRecovery";
 import { nextResultPageOffset, reconcileResultPage } from "./resultListRefresh";
 import { localGet, localReadTimeoutMs } from "./localRead";
@@ -37,6 +42,10 @@ export type Props = {
   onNewChat: () => void;
   onQueued: (sendId: string) => void;
 };
+type SidebarQueueEntry =
+  | { kind: "job"; waiting: WaitingJob; eta: number; key: string }
+  | { kind: "chat"; item: RunSummary; eta: number; key: string };
+
 export function createChatsPageController(initialProps: Props) {
   const tick = () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
 
@@ -267,17 +276,62 @@ export function createChatsPageController(initialProps: Props) {
   // belong in Jobs, even when a scheduled one-shot has already become due.
   const sidebarJobImminenceSeconds = 5 * 60;
   const visibleWaiting = computed(() =>
-    queueSnapshot.value.waiting.filter(
-      (job) =>
-        job.one_time &&
-        job.eta_seconds <= sidebarJobImminenceSeconds &&
-        (!appliedSearch.value ||
-          job.name.toLowerCase().includes(appliedSearch.value.toLowerCase())),
-    ),
+    queueSnapshot.value.waiting
+      .filter(
+        (job) =>
+          job.one_time &&
+          job.eta_seconds <= sidebarJobImminenceSeconds &&
+          (!appliedSearch.value ||
+            job.name.toLowerCase().includes(appliedSearch.value.toLowerCase())),
+      )
+      .sort((a, b) => a.eta_seconds - b.eta_seconds || a.name.localeCompare(b.name)),
   );
   const queuedWaitingChat = (item: RunSummary) =>
     item.status === "queued" &&
     queueSnapshot.value.waiting.some((job) => job.name === item.job_name);
+  const queuedItems = computed(() => {
+    const byId = new Map(
+      [...pinnedItems.value, ...items.value].map((item) => [item.send_id, item]),
+    );
+    const matchingIds = appliedSearch.value
+      ? new Set(items.value.map((item) => item.send_id))
+      : null;
+    return [...byId.values()].filter(
+      (item) =>
+        item.status === "queued" &&
+        !queuedWaitingChat(item) &&
+        (!matchingIds || matchingIds.has(item.send_id)),
+    );
+  });
+  const queueEntries = computed(() => {
+    const runEtas = new Map(
+      (queueSnapshot.value.waiting_runs ?? []).map((run) => [run.send_id, run.eta_seconds]),
+    );
+    const entries: SidebarQueueEntry[] = [
+      ...visibleWaiting.value.map((waiting) => ({
+        kind: "job" as const,
+        waiting,
+        eta: waiting.eta_seconds,
+        key: "job:" + waiting.name,
+      })),
+      ...queuedItems.value.map((item) => ({
+        kind: "chat" as const,
+        item,
+        eta: runEtas.get(item.send_id) ?? Number.POSITIVE_INFINITY,
+        key: "chat:" + item.send_id,
+      })),
+    ];
+    // ETAs are displayed in whole minutes. Keep same-minute ties stable even
+    // when estimates fluctuate by a few seconds between queue polls.
+    const etaMinute = (seconds: number) => Math.ceil(seconds / 60);
+    const kindOrder = { chat: 0, job: 1 };
+    return entries.sort(
+      (a, b) =>
+        etaMinute(a.eta) - etaMinute(b.eta) ||
+        kindOrder[a.kind] - kindOrder[b.kind] ||
+        a.key.localeCompare(b.key),
+    );
+  });
   const pinned = computed(() => {
     const byId = new Map(
       [...pinnedItems.value, ...items.value].map((item) => [item.send_id, item]),
@@ -287,7 +341,7 @@ export function createChatsPageController(initialProps: Props) {
       .map((id) => byId.get(id))
       .filter((item): item is RunSummary => !!item)
       .filter((item) => !filtered || items.value.some((listed) => listed.send_id === item.send_id))
-      .filter((item) => !queuedWaitingChat(item));
+      .filter((item) => item.status !== "queued");
   });
   const replyBlockedReason = computed((): string => {
     const latest = turns.value.findLast((turn) => turn.status !== "cancelled");
@@ -318,7 +372,7 @@ export function createChatsPageController(initialProps: Props) {
   });
   const unpinned = computed(() =>
     items.value
-      .filter((item) => !pinnedIds.value.includes(item.send_id) && !queuedWaitingChat(item))
+      .filter((item) => !pinnedIds.value.includes(item.send_id) && item.status !== "queued")
       .sort(newestFirst),
   );
   const switchingChat = computed(
@@ -1728,6 +1782,7 @@ export function createChatsPageController(initialProps: Props) {
     pinned,
     replyBlockedReason,
     visibleWaiting,
+    queueEntries,
     unpinned,
     switchingChat,
     selectedChatTitle,

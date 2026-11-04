@@ -21,7 +21,7 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 	enumerable: true
 }) : target, mod));
 //#endregion
-//#region node_modules/scheduler/cjs/scheduler.production.js
+//#region ../../prompta/node_modules/scheduler/cjs/scheduler.production.js
 /**
 * @license React
 * scheduler.production.js
@@ -276,12 +276,12 @@ var require_scheduler_production = /* @__PURE__ */ __commonJSMin(((exports) => {
 	};
 }));
 //#endregion
-//#region node_modules/scheduler/index.js
+//#region ../../prompta/node_modules/scheduler/index.js
 var require_scheduler = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_scheduler_production();
 }));
 //#endregion
-//#region node_modules/react/cjs/react.production.js
+//#region ../../prompta/node_modules/react/cjs/react.production.js
 /**
 * @license React
 * react.production.js
@@ -668,12 +668,12 @@ var require_react_production = /* @__PURE__ */ __commonJSMin(((exports) => {
 	exports.version = "19.3.1";
 }));
 //#endregion
-//#region node_modules/react/index.js
+//#region ../../prompta/node_modules/react/index.js
 var require_react = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_react_production();
 }));
 //#endregion
-//#region node_modules/react-dom/cjs/react-dom.production.js
+//#region ../../prompta/node_modules/react-dom/cjs/react-dom.production.js
 /**
 * @license React
 * react-dom.production.js
@@ -826,7 +826,7 @@ var require_react_dom_production = /* @__PURE__ */ __commonJSMin(((exports) => {
 	exports.version = "19.3.1";
 }));
 //#endregion
-//#region node_modules/react-dom/index.js
+//#region ../../prompta/node_modules/react-dom/index.js
 var require_react_dom = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	function checkDCE() {
 		if (typeof __REACT_DEVTOOLS_GLOBAL_HOOK__ === "undefined" || typeof __REACT_DEVTOOLS_GLOBAL_HOOK__.checkDCE !== "function") return;
@@ -840,7 +840,7 @@ var require_react_dom = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_react_dom_production();
 }));
 //#endregion
-//#region node_modules/react-dom/cjs/react-dom-client.production.js
+//#region ../../prompta/node_modules/react-dom/cjs/react-dom-client.production.js
 /**
 * @license React
 * react-dom-client.production.js
@@ -11415,7 +11415,7 @@ var require_react_dom_client_production = /* @__PURE__ */ __commonJSMin(((export
 	};
 }));
 //#endregion
-//#region node_modules/react-dom/client.js
+//#region ../../prompta/node_modules/react-dom/client.js
 var require_client = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	function checkDCE() {
 		if (typeof __REACT_DEVTOOLS_GLOBAL_HOOK__ === "undefined" || typeof __REACT_DEVTOOLS_GLOBAL_HOOK__.checkDCE !== "function") return;
@@ -11429,7 +11429,7 @@ var require_client = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_react_dom_client_production();
 }));
 //#endregion
-//#region node_modules/@preact/signals-core/dist/signals-core.module.js
+//#region ../../prompta/node_modules/@preact/signals-core/dist/signals-core.module.js
 var import_react = /* @__PURE__ */ __toESM(require_react());
 var import_client = require_client();
 var i$1 = Symbol.for("preact-signals");
@@ -11841,7 +11841,7 @@ function x$2(i, t) {
 	return n;
 }
 //#endregion
-//#region node_modules/use-sync-external-store/cjs/use-sync-external-store-shim.production.js
+//#region ../../prompta/node_modules/use-sync-external-store/cjs/use-sync-external-store-shim.production.js
 /**
 * @license React
 * use-sync-external-store-shim.production.js
@@ -11901,7 +11901,7 @@ var require_use_sync_external_store_shim_production = /* @__PURE__ */ __commonJS
 	exports.useSyncExternalStore = void 0 !== React.useSyncExternalStore ? React.useSyncExternalStore : shim;
 }));
 //#endregion
-//#region node_modules/@preact/signals-react/runtime/dist/runtime.module.js
+//#region ../../prompta/node_modules/@preact/signals-react/runtime/dist/runtime.module.js
 var import_shim = (/* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_use_sync_external_store_shim_production();
 })))();
@@ -13082,12 +13082,37 @@ function createChatsPageController(initialProps) {
 	let liveRefreshTimer;
 	const newestFirst = (a, b) => (b.activity_at ?? b.created_at) - (a.activity_at ?? a.created_at) || b.created_at - a.created_at || b.send_id.localeCompare(a.send_id);
 	const sidebarJobImminenceSeconds = 300;
-	const visibleWaiting = O(() => queueSnapshot.value.waiting.filter((job) => job.one_time && job.eta_seconds <= sidebarJobImminenceSeconds && (!appliedSearch.value || job.name.toLowerCase().includes(appliedSearch.value.toLowerCase()))));
+	const visibleWaiting = O(() => queueSnapshot.value.waiting.filter((job) => job.one_time && job.eta_seconds <= sidebarJobImminenceSeconds && (!appliedSearch.value || job.name.toLowerCase().includes(appliedSearch.value.toLowerCase()))).sort((a, b) => a.eta_seconds - b.eta_seconds || a.name.localeCompare(b.name)));
 	const queuedWaitingChat = (item) => item.status === "queued" && queueSnapshot.value.waiting.some((job) => job.name === item.job_name);
+	const queuedItems = O(() => {
+		const byId = new Map([...pinnedItems.value, ...items.value].map((item) => [item.send_id, item]));
+		const matchingIds = appliedSearch.value ? new Set(items.value.map((item) => item.send_id)) : null;
+		return [...byId.values()].filter((item) => item.status === "queued" && !queuedWaitingChat(item) && (!matchingIds || matchingIds.has(item.send_id)));
+	});
+	const queueEntries = O(() => {
+		const runEtas = new Map((queueSnapshot.value.waiting_runs ?? []).map((run) => [run.send_id, run.eta_seconds]));
+		const entries = [...visibleWaiting.value.map((waiting) => ({
+			kind: "job",
+			waiting,
+			eta: waiting.eta_seconds,
+			key: "job:" + waiting.name
+		})), ...queuedItems.value.map((item) => ({
+			kind: "chat",
+			item,
+			eta: runEtas.get(item.send_id) ?? Number.POSITIVE_INFINITY,
+			key: "chat:" + item.send_id
+		}))];
+		const etaMinute = (seconds) => Math.ceil(seconds / 60);
+		const kindOrder = {
+			chat: 0,
+			job: 1
+		};
+		return entries.sort((a, b) => etaMinute(a.eta) - etaMinute(b.eta) || kindOrder[a.kind] - kindOrder[b.kind] || a.key.localeCompare(b.key));
+	});
 	const pinned = O(() => {
 		const byId = new Map([...pinnedItems.value, ...items.value].map((item) => [item.send_id, item]));
 		const filtered = appliedSearch.value;
-		return pinnedIds.value.map((id) => byId.get(id)).filter((item) => !!item).filter((item) => !filtered || items.value.some((listed) => listed.send_id === item.send_id)).filter((item) => !queuedWaitingChat(item));
+		return pinnedIds.value.map((id) => byId.get(id)).filter((item) => !!item).filter((item) => !filtered || items.value.some((listed) => listed.send_id === item.send_id)).filter((item) => item.status !== "queued");
 	});
 	const replyBlockedReason = O(() => {
 		const latest = turns.value.findLast((turn) => turn.status !== "cancelled");
@@ -13106,7 +13131,7 @@ function createChatsPageController(initialProps) {
 		].includes(latest.status)) return "";
 		return "This reply is not yet ready to resend.";
 	});
-	const unpinned = O(() => items.value.filter((item) => !pinnedIds.value.includes(item.send_id) && !queuedWaitingChat(item)).sort(newestFirst));
+	const unpinned = O(() => items.value.filter((item) => !pinnedIds.value.includes(item.send_id) && item.status !== "queued").sort(newestFirst));
 	const switchingChat = O(() => view.value === "chats" && !!selectedRunId.value && (detail.value?.send_id !== selectedRunId.value || pendingRevealFor.value === selectedRunId.value));
 	const selectedChatTitle = O(() => {
 		if (detail.value?.send_id === selectedRunId.value) return detail.value.title || detail.value.job_name || detail.value.user_text.split("\n")[0].slice(0, 100) || "Untitled chat";
@@ -14151,6 +14176,7 @@ function createChatsPageController(initialProps) {
 		pinned,
 		replyBlockedReason,
 		visibleWaiting,
+		queueEntries,
 		unpinned,
 		switchingChat,
 		selectedChatTitle,
@@ -15246,7 +15272,7 @@ function createJobsPageController(initialProps) {
 	};
 }
 //#endregion
-//#region node_modules/react/cjs/react-jsx-runtime.production.js
+//#region ../../prompta/node_modules/react/cjs/react-jsx-runtime.production.js
 /**
 * @license React
 * react-jsx-runtime.production.js
@@ -17436,7 +17462,7 @@ function ChatsSidebar({ model, refs, settingsOpen: controlledSettingsOpen, setSe
 	const [localSettingsOpen, setLocalSettingsOpen] = (0, import_react.useState)(false);
 	const settingsOpen = controlledSettingsOpen ?? localSettingsOpen;
 	const setSettingsOpen = controlledSetSettingsOpen ?? setLocalSettingsOpen;
-	const { queueSnapshot, items, markingAllRead, drawerOpen, filtersOpen, searchActive, loadingList, listError, pinned, visibleWaiting, unpinned, markAllRead, loadingMore, morePageFailed, nextOffset, total, loadMore, toggleSearch, showJobs, createChat } = model;
+	const { queueSnapshot, items, markingAllRead, drawerOpen, filtersOpen, searchActive, loadingList, listError, pinned, queueEntries, unpinned, markAllRead, loadingMore, morePageFailed, nextOffset, total, loadMore, toggleSearch, showJobs, createChat } = model;
 	const [profileOpen, setProfileOpen] = (0, import_react.useState)(false);
 	const profileTriggerRef = (0, import_react.useRef)(null);
 	const profileMenuRef = (0, import_react.useRef)(null);
@@ -17642,31 +17668,38 @@ function ChatsSidebar({ model, refs, settingsOpen: controlledSettingsOpen, setSe
 				className: "chats-list",
 				onScroll: onListScroll,
 				children: [
-					visibleWaiting.value.length ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: visibleWaiting.value.map((waiting) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-						className: "chat-entry queue-waiting",
-						children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
-							type: "button",
-							onClick: showJobs,
-							title: "Open Jobs for " + waiting.name,
-							className: "chat-row",
-							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
-								className: "chat-row-top",
-								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("strong", { children: waiting.name }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
-									className: "queue-position",
-									children: [
-										"#",
-										waiting.position,
-										" of ",
-										queueSnapshot.value.waiting.length
-									]
+					queueEntries.value.length ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: queueEntries.value.map((entry) => {
+						if (entry.kind === "chat") return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ChatRow, {
+							item: entry.item,
+							model
+						}, entry.key);
+						const waiting = entry.waiting;
+						return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+							className: "chat-entry queue-waiting",
+							children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+								type: "button",
+								onClick: showJobs,
+								title: "Open Jobs for " + waiting.name,
+								className: "chat-row",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+									className: "chat-row-top",
+									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("strong", { children: waiting.name }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+										className: "queue-position",
+										children: [
+											"#",
+											waiting.position,
+											" of ",
+											queueSnapshot.value.waiting.length
+										]
+									})]
+								}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+									className: "queue-subtitle",
+									title: queueEtaText(waiting) ? queueEtaExplanation(queueSnapshot.value) : void 0,
+									children: [queueEtaText(waiting), `${waiting.reason === "stage" ? "stage" : "global"} limit (${waiting.occupied}/${waiting.limit})`].filter(Boolean).join(" · ")
 								})]
-							}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-								className: "queue-subtitle",
-								title: queueEtaText(waiting) ? queueEtaExplanation(queueSnapshot.value) : void 0,
-								children: [queueEtaText(waiting), `${waiting.reason === "stage" ? "stage" : "global"} limit (${waiting.occupied}/${waiting.limit})`].filter(Boolean).join(" · ")
-							})]
-						})
-					}, waiting.name)) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {}),
+							})
+						}, entry.key);
+					}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, {}),
 					pinned.value.length ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: pinned.value.map((item) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ChatRow, {
 						item,
 						model
@@ -17674,7 +17707,7 @@ function ChatsSidebar({ model, refs, settingsOpen: controlledSettingsOpen, setSe
 					loadingList.value && !items.value.length && !pinned.value.length ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
 						className: "chats-empty",
 						children: "Loading chats…"
-					}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: !items.value.length && !pinned.value.length && !visibleWaiting.value.length ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+					}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: !items.value.length && !pinned.value.length && !queueEntries.value.length ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
 						className: "chats-empty",
 						children: emptyChatsLabel()
 					}) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: unpinned.value.map((item) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ChatRow, {
@@ -17945,7 +17978,7 @@ function SidebarSearchField({ model, inputRef }) {
 	});
 }
 //#endregion
-//#region node_modules/marked/lib/marked.esm.js
+//#region ../../prompta/node_modules/marked/lib/marked.esm.js
 /**
 * marked v16.4.2 - a markdown parser
 * Copyright (c) 2018-2025, MarkedJS. (MIT License)
@@ -19486,7 +19519,7 @@ x.lex;
 * @public
 */
 //#endregion
-//#region node_modules/prismjs/components/prism-typescript.js
+//#region ../../prompta/node_modules/prismjs/components/prism-typescript.js
 var import_prism = /* @__PURE__ */ __toESM((/* @__PURE__ */ __commonJSMin(((exports, module) => {
 	var Prism = function(_self) {
 		var lang = /(?:^|\s)lang(?:uage)?-([\w-]+)(?=\s|$)/i;
@@ -20949,7 +20982,7 @@ highlight: function highlight(container) {
 	Prism.languages.ts = Prism.languages.typescript;
 })(Prism);
 //#endregion
-//#region node_modules/prismjs/components/prism-python.js
+//#region ../../prompta/node_modules/prismjs/components/prism-python.js
 Prism.languages.python = {
 	"comment": {
 		pattern: /(^|[^\\])#.*/,
@@ -21011,7 +21044,7 @@ Prism.languages.python = {
 Prism.languages.python["string-interpolation"].inside["interpolation"].inside.rest = Prism.languages.python;
 Prism.languages.py = Prism.languages.python;
 //#endregion
-//#region node_modules/prismjs/components/prism-bash.js
+//#region ../../prompta/node_modules/prismjs/components/prism-bash.js
 (function(Prism) {
 	var envVars = "\\b(?:BASH|BASHOPTS|BASH_ALIASES|BASH_ARGC|BASH_ARGV|BASH_CMDS|BASH_COMPLETION_COMPAT_DIR|BASH_LINENO|BASH_REMATCH|BASH_SOURCE|BASH_VERSINFO|BASH_VERSION|COLORTERM|COLUMNS|COMP_WORDBREAKS|DBUS_SESSION_BUS_ADDRESS|DEFAULTS_PATH|DESKTOP_SESSION|DIRSTACK|DISPLAY|EUID|GDMSESSION|GDM_LANG|GNOME_KEYRING_CONTROL|GNOME_KEYRING_PID|GPG_AGENT_INFO|GROUPS|HISTCONTROL|HISTFILE|HISTFILESIZE|HISTSIZE|HOME|HOSTNAME|HOSTTYPE|IFS|INSTANCE|JOB|LANG|LANGUAGE|LC_ADDRESS|LC_ALL|LC_IDENTIFICATION|LC_MEASUREMENT|LC_MONETARY|LC_NAME|LC_NUMERIC|LC_PAPER|LC_TELEPHONE|LC_TIME|LESSCLOSE|LESSOPEN|LINES|LOGNAME|LS_COLORS|MACHTYPE|MAILCHECK|MANDATORY_PATH|NO_AT_BRIDGE|OLDPWD|OPTERR|OPTIND|ORBIT_SOCKETDIR|OSTYPE|PAPERSIZE|PATH|PIPESTATUS|PPID|PS1|PS2|PS3|PS4|PWD|RANDOM|REPLY|SECONDS|SELINUX_INIT|SESSION|SESSIONTYPE|SESSION_MANAGER|SHELL|SHELLOPTS|SHLVL|SSH_AUTH_SOCK|TERM|UID|UPSTART_EVENTS|UPSTART_INSTANCE|UPSTART_JOB|UPSTART_SESSION|USER|WINDOWID|XAUTHORITY|XDG_CONFIG_DIRS|XDG_CURRENT_DESKTOP|XDG_DATA_DIRS|XDG_GREETER_DATA_DIR|XDG_MENU_PREFIX|XDG_RUNTIME_DIR|XDG_SEAT|XDG_SEAT_PATH|XDG_SESSION_DESKTOP|XDG_SESSION_ID|XDG_SESSION_PATH|XDG_SESSION_TYPE|XDG_VTNR|XMODIFIERS)\\b";
 	var commandAfterHeredoc = {
@@ -21192,7 +21225,7 @@ Prism.languages.py = Prism.languages.python;
 	Prism.languages.shell = Prism.languages.bash;
 })(Prism);
 //#endregion
-//#region node_modules/prismjs/components/prism-json.js
+//#region ../../prompta/node_modules/prismjs/components/prism-json.js
 Prism.languages.json = {
 	"property": {
 		pattern: /(^|[^\\])"(?:\\.|[^\\"\r\n])*"(?=\s*:)/,
