@@ -7,7 +7,7 @@ type Activity =
   | { kind: "tools"; id: string; calls: CapturedToolCall[] };
 
 /** Preserve the visible assistant/tool chronology, including commentary before calls. */
-export function orderedActivity(turn: LocalTurn): Activity[] {
+export function orderedActivity(turn: LocalTurn, captureSource = "dom"): Activity[] {
   const calls = turn.tool_calls ?? [];
   const blocks = turn.display_blocks ?? [];
   if (!blocks.some((block) => block.kind === "text")) {
@@ -26,6 +26,7 @@ export function orderedActivity(turn: LocalTurn): Activity[] {
   // Reconcile those actual event times instead of assigning one call per heading
   // and dumping all other calls together before the conclusion.
   const timedDom =
+    captureSource === "dom" &&
     textBlocks.length > 0 &&
     textBlocks.every(
       (block) =>
@@ -114,7 +115,7 @@ export default function TurnActivity({
 }) {
   return (
     <>
-      {orderedActivity(turn).map((item) =>
+      {orderedActivity(turn, captureSource).map((item) =>
         item.kind === "text" ? (
           <ResultMarkdown key={item.id} source={item.text} captureSource={captureSource} />
         ) : (

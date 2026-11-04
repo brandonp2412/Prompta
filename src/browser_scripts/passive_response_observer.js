@@ -11,6 +11,15 @@
   const copySelector = 'button[data-testid="copy-turn-action-button"], button[aria-label="Copy"]';
 
   const visible = (element) => element.isConnected && element.getClientRects().length > 0 && getComputedStyle(element).visibility !== "hidden";
+  const proseFirstSeen = new WeakMap();
+  const firstSeenAt = (node) => {
+    let at = proseFirstSeen.get(node);
+    if (!at) {
+      at = String(Date.now() / 1000);
+      proseFirstSeen.set(node, at);
+    }
+    return at;
+  };
   // Preserve visible response headings, lists, tables and code as Markdown.
   // Only newly owned, rendered response units are read; no history or HTTP requests.
   /* PROMPTA_MARKDOWN_FROM_DOM */
@@ -85,7 +94,7 @@
       return;
     }
     observedId = nextId;
-    const display_blocks = displayBlocksFromUnits(scope, visible, markdownSelector);
+    const display_blocks = displayBlocksFromUnits(scope, visible, markdownSelector, firstSeenAt);
     const text = display_blocks.filter((block) => block.kind === 'text')
       .map((block) => block.text).join("\n\n").trim();
     if (text !== lastText) {

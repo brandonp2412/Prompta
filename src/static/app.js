@@ -21816,7 +21816,7 @@ function ToolCalls({ calls, turnTimestamp }) {
 //#endregion
 //#region src/ui/TurnActivity.tsx
 /** Preserve the visible assistant/tool chronology, including commentary before calls. */
-function orderedActivity(turn) {
+function orderedActivity(turn, captureSource = "dom") {
 	const calls = turn.tool_calls ?? [];
 	const blocks = turn.display_blocks ?? [];
 	if (!blocks.some((block) => block.kind === "text")) return [...calls.length ? [{
@@ -21831,7 +21831,7 @@ function orderedActivity(turn) {
 	const claimed = /* @__PURE__ */ new Set();
 	const activity = [];
 	const textBlocks = blocks.filter((block) => block.kind === "text");
-	if (textBlocks.length > 0 && textBlocks.every((block) => block.id.startsWith("text-") && block.seen_at && Number.isFinite(Number(block.seen_at))) && calls.some((call) => !call.id.startsWith("dom-tool-")) && calls.every((call) => typeof call.observed_at === "number" && Number.isFinite(call.observed_at) && call.observed_at > 0)) {
+	if (captureSource === "dom" && textBlocks.length > 0 && textBlocks.every((block) => block.id.startsWith("text-") && block.seen_at && Number.isFinite(Number(block.seen_at))) && calls.some((call) => !call.id.startsWith("dom-tool-")) && calls.every((call) => typeof call.observed_at === "number" && Number.isFinite(call.observed_at) && call.observed_at > 0)) {
 		const chronologicalCalls = calls.map((call, index) => ({
 			call,
 			index
@@ -21913,7 +21913,7 @@ function orderedActivity(turn) {
 	return activity;
 }
 function TurnActivity({ turn, captureSource, turnTimestamp }) {
-	return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: orderedActivity(turn).map((item) => item.kind === "text" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ResultMarkdown, {
+	return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: orderedActivity(turn, captureSource).map((item) => item.kind === "text" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ResultMarkdown, {
 		source: item.text,
 		captureSource
 	}, item.id) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ToolCalls, {

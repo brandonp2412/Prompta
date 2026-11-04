@@ -194,7 +194,6 @@ test("tools remain visible when no assistant text has arrived", () => {
   expect(orderedActivity(turn).map((item) => item.kind)).toEqual(["tools"]);
 });
 
-
 test("every structured tool is interleaved using live DOM prose timestamps", () => {
   const start = 1_793_798_740;
   const call = (index: number, seconds: number) => ({
@@ -230,9 +229,44 @@ test("every structured tool is interleaved using live DOM prose timestamps", () 
   };
   const activity = orderedActivity(turn);
   expect(activity.map((item) => item.kind)).toEqual(["text", "tools", "text", "tools", "text"]);
-  expect(activity.filter((item) => item.kind === "tools").map((item) => item.calls.length))
-    .toEqual([5, 13]);
-  const ids = activity.filter((item) => item.kind === "tools")
+  expect(activity.filter((item) => item.kind === "tools").map((item) => item.calls.length)).toEqual(
+    [5, 13],
+  );
+  const ids = activity
+    .filter((item) => item.kind === "tools")
     .flatMap((item) => item.calls.map((call) => call.id));
   expect(ids).toEqual(Array.from({ length: 18 }, (_, i) => `invocation-${i}`));
+});
+
+test("historical DOM timestamps are not mistaken for original event times", () => {
+  const tool = (id: string, observed_at: number) => ({
+    id,
+    observed_at,
+    connector: "Python",
+    action: "exec",
+    status: "completed",
+    arguments: "",
+    result: "",
+    error: "",
+  });
+  const turn: LocalTurn = {
+    reply_id: "historical",
+    user_text: "Check",
+    assistant_text: "OPEN\n\nEND",
+    status: "completed",
+    created_at: 1,
+    updated_at: 2,
+    tool_calls: [tool("a", 1_793_798_000), tool("b", 1_793_798_100)],
+    display_blocks: [
+      { kind: "text", id: "text-0", text: "OPEN", seen_at: "1793799000" },
+      { kind: "tool", id: "dom-tool-0" },
+      { kind: "text", id: "text-1", text: "END", seen_at: "1793799000" },
+    ],
+  };
+  const activity = orderedActivity(turn, "history_dom");
+  expect(activity[0]).toMatchObject({ kind: "text", text: "OPEN" });
+  expect(activity.at(-1)).toMatchObject({ kind: "text", text: "END" });
+  expect(
+    activity.filter((item) => item.kind === "tools").flatMap((item) => item.calls),
+  ).toHaveLength(2);
 });

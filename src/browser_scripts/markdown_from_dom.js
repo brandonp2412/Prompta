@@ -191,11 +191,9 @@ const assistantDisplayScope = (unit) => {
   return turn?.getAttribute?.('data-content-search-turn-key') ? turn : unit;
 };
 
-const proseFirstSeen = new WeakMap();
-
 // Keep rendered assistant commentary, tool headings, and final text in DOM order.
 // Tertiary agent-activity summaries are not user-facing assistant prose.
-const displayBlocksFromUnits = (units, visible, markdownSelector) => {
+const displayBlocksFromUnits = (units, visible, markdownSelector, firstSeenAt = null) => {
   const excluded = '[data-testid*="reasoning"], [data-testid*="thought"], [data-testid*="thinking"], [data-testid*="tool-call"], [data-testid*="tool-result"]';
   const scopes = [...new Set(units.map(assistantDisplayScope))];
   const roots = [...new Set(scopes.flatMap((scope) => [...scope.querySelectorAll(markdownSelector)]
@@ -215,7 +213,7 @@ const displayBlocksFromUnits = (units, visible, markdownSelector) => {
     const value = markdownFromRoot(item.node).trim();
     const id = `text-${textIndex++}`;
     if (!value) return [];
-    if (!proseFirstSeen.has(item.node)) proseFirstSeen.set(item.node, String(Date.now() / 1000));
-    return [{ kind: 'text', id, text: value, seen_at: proseFirstSeen.get(item.node) }];
+    return [{ kind: 'text', id, text: value,
+      ...(firstSeenAt ? { seen_at: firstSeenAt(item.node) } : {}) }];
   }).slice(0, 256);
 };
