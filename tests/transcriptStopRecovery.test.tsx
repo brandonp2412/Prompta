@@ -23,6 +23,11 @@ test("an interrupted reply can be stopped after the live composer Stop disappear
   model.stopJob = async (id) => { stopped.push(id); };
   render(<ChatTranscript model={model} refs={{ scrollPane: () => {} }} conversationUrl="https://chatgpt.com/c/12345678-1234-4123-8123-123456789abc" />);
   expect(screen.getByRole("button", { name: "Recovery queued" }).hasAttribute("disabled")).toBe(true);
+  act(() => {
+    model.recoveryPauseSeconds.value = 600;
+    model.recoveryPauseReason.value = "account read cooldown";
+  });
+  expect(screen.getByText(/ChatGPT is rate-limiting history reads/)).toBeTruthy();
   await userEvent.setup().click(screen.getByRole("button", { name: "Stop recovery" }));
   expect(stopped).toEqual(["interrupted"]);
   act(() => { model.turns.value = model.turns.value.map((turn) => ({ ...turn, status: "stopped" })); });

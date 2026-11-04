@@ -651,7 +651,12 @@ def test_conversation_http_429_detection_is_exact(tmp_path: Path) -> None:
 def test_conversation_http_429_stops_recovery_and_persists_backoff(tmp_path: Path) -> None:
     store = ResponseStore(tmp_path / "chat-results.sqlite3")
     _expired(store)
-    driver = FakeHistoryDriver(http_limited=True)
+
+    class UnloadedHistory(FakeHistoryDriver):
+        async def eval(self, expression: str, *, main_world: bool = False) -> object:
+            return {"verified": False, "pathname": "/c/" + CONVERSATION}
+
+    driver = UnloadedHistory(http_limited=True)
     runtime = SchedulerRuntime(tmp_path / "runtime.sqlite3", tmp_path / "jobs.json")
     assert not HistoryRecovery(store, runtime, lambda: driver).recover_once(now=150)
     assert driver.closed and runtime.read_backoff_remaining() >= 299
@@ -660,6 +665,20 @@ def test_conversation_http_429_stops_recovery_and_persists_backoff(tmp_path: Pat
     row = store.get("manual-1")
     assert row is not None and row["status"] == "interrupted"
     assert driver.visited == ["connect", "https://chatgpt.com/c/" + CONVERSATION]
+
+
+def test_verified_exact_chat_recovers_despite_background_http_429(tmp_path: Path) -> None:
+    store = ResponseStore(tmp_path / "chat-results.sqlite3")
+    _expired(store)
+    driver = FakeHistoryDriver(http_limited=True)
+    runtime = SchedulerRuntime(tmp_path / "runtime.sqlite3", tmp_path / "jobs.json")
+
+    assert HistoryRecovery(store, runtime, lambda: driver).recover_once(now=150)
+    assert driver.closed
+    row = store.get("manual-1")
+    assert row is not None and row["status"] == "completed"
+    assert row["assistant_text"] == "Recovered from existing chat"
+    assert runtime.read_backoff_remaining() == 0
 
 
 def test_browser_context_error_after_429_still_persists_read_backoff(tmp_path: Path) -> None:

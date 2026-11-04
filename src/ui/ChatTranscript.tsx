@@ -38,6 +38,8 @@ export default function ChatTranscript({
     startingNewChatFromFailure: startingNewChat,
     requestingManualRecovery,
     requestManualRecovery,
+    recoveryPauseSeconds,
+    recoveryPauseReason,
     stopping,
     stopJob,
     detailError,
@@ -69,6 +71,19 @@ export default function ChatTranscript({
     if (requestingManualRecovery.value) return "Requesting recovery…";
     if ((detail.value?.manual_recovery_pending ?? 0) > 0) return "Recovery queued";
     return "Recover chat";
+  }
+
+  function manualRecoveryGuidance() {
+    if ((detail.value?.manual_recovery_pending ?? 0) <= 0) {
+      return "Last resort: check the saved ChatGPT transcript without resending messages.";
+    }
+    if (recoveryPauseSeconds.value > 0 && recoveryPauseReason.value === "account read cooldown") {
+      return `ChatGPT is rate-limiting history reads. Retrying automatically after the cooldown (~${Math.ceil(recoveryPauseSeconds.value / 60)} min).`;
+    }
+    if (recoveryPauseSeconds.value > 0 && recoveryPauseReason.value === "security cooldown") {
+      return "ChatGPT security verification is blocking reads; recovery will retry automatically.";
+    }
+    return "Waiting to check the saved chat and resume configured permissions.";
   }
 
   function copyLabel(id: string) {
@@ -405,11 +420,7 @@ export default function ChatTranscript({
                   >
                     {stopping.value ? "Stopping chat…" : "Stop recovery"}
                   </button>
-                  <span>
-                    {(detail.value.manual_recovery_pending ?? 0) > 0
-                      ? "Waiting to check the saved chat and resume configured permissions."
-                      : "Last resort: check the saved ChatGPT transcript without resending messages."}
-                  </span>
+                  <span>{manualRecoveryGuidance()}</span>
                 </div>
               )}
               {conversationUrl && (

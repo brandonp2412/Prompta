@@ -21826,7 +21826,7 @@ function TurnActivity({ turn, captureSource, turnTimestamp }) {
 //#region src/ui/ChatTranscript.tsx
 function ChatTranscript({ model, refs, conversationUrl }) {
 	N$1();
-	const { selectedRunId, expandedPrompts, detail, turns, startingNewChatFromFailure: startingNewChat, requestingManualRecovery, requestManualRecovery, stopping, stopJob, detailError, switchingChat, startFailedReplyInNewChat, continueUnverifiedInNewChat, retryFailedTurn, copyText, togglePrompt, copyState } = model;
+	const { selectedRunId, expandedPrompts, detail, turns, startingNewChatFromFailure: startingNewChat, requestingManualRecovery, requestManualRecovery, recoveryPauseSeconds, recoveryPauseReason, stopping, stopJob, detailError, switchingChat, startFailedReplyInNewChat, continueUnverifiedInNewChat, retryFailedTurn, copyText, togglePrompt, copyState } = model;
 	(0, import_react.useLayoutEffect)(() => {
 		model.revealSelectedChat();
 	}, [
@@ -21843,6 +21843,12 @@ function ChatTranscript({ model, refs, conversationUrl }) {
 		if (requestingManualRecovery.value) return "Requesting recovery…";
 		if ((detail.value?.manual_recovery_pending ?? 0) > 0) return "Recovery queued";
 		return "Recover chat";
+	}
+	function manualRecoveryGuidance() {
+		if ((detail.value?.manual_recovery_pending ?? 0) <= 0) return "Last resort: check the saved ChatGPT transcript without resending messages.";
+		if (recoveryPauseSeconds.value > 0 && recoveryPauseReason.value === "account read cooldown") return `ChatGPT is rate-limiting history reads. Retrying automatically after the cooldown (~${Math.ceil(recoveryPauseSeconds.value / 60)} min).`;
+		if (recoveryPauseSeconds.value > 0 && recoveryPauseReason.value === "security cooldown") return "ChatGPT security verification is blocking reads; recovery will retry automatically.";
+		return "Waiting to check the saved chat and resume configured permissions.";
 	}
 	function copyLabel(id) {
 		if (copyState.value === id) return "Copied";
@@ -22073,7 +22079,7 @@ function ChatTranscript({ model, refs, conversationUrl }) {
 								onClick: () => void stopJob(detail.value.send_id),
 								children: stopping.value ? "Stopping chat…" : "Stop recovery"
 							}),
-							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: (detail.value.manual_recovery_pending ?? 0) > 0 ? "Waiting to check the saved chat and resume configured permissions." : "Last resort: check the saved ChatGPT transcript without resending messages." })
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: manualRecoveryGuidance() })
 						]
 					}),
 					conversationUrl && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("a", {

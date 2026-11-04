@@ -211,11 +211,10 @@ class HistoryRecovery:
                     # without consuming another global navigation slot.
                     await asyncio.sleep(2.0)
                     continue
-                if (
-                    isinstance(driver, _HistoryRateLimitSignal)
-                    and driver.history_rate_limited()
-                ):
-                    raise RateLimitError("ChatGPT conversation read returned HTTP 429")
+                # A history request can return 429 even when the exact chat is
+                # already rendered from the browser's live state. Check the
+                # verified DOM before treating that network response as fatal.
+                # An unloaded or ambiguous page must still respect the 429.
                 limit_text = str(state.get("rate_limit_text") or "")
                 if is_rate_limited_text(limit_text):
                     raise RateLimitError.from_text(limit_text)
@@ -232,6 +231,14 @@ class HistoryRecovery:
                 if isinstance(payload, dict):
                     if payload.get("rate_limited") is True:
                         raise RateLimitError()
+                    exact_loaded = (
+                        payload.get("verified") is True
+                        and payload.get("ambiguous") is not True
+                        and payload.get("pathname") == "/c/" + conversation_id
+                    )
+                    if (not exact_loaded and isinstance(driver, _HistoryRateLimitSignal)
+                            and driver.history_rate_limited()):
+                        raise RateLimitError("ChatGPT conversation read returned HTTP 429")
                     if payload.get("ambiguous") is True:
                         complete_since = None
                         # Hydration and streaming can transiently render two
@@ -244,8 +251,7 @@ class HistoryRecovery:
                         return None
                     if payload.get("verified") is not True:
                         complete_since = None
-                    if (payload.get("verified") is True
-                            and payload.get("pathname") == "/c/" + conversation_id):
+                    if exact_loaded:
                         result = normalize_dom_snapshot(payload)
                         if not result.conversation_id:
                             # The exact user turn and parent can be verified even
@@ -308,6 +314,9 @@ class HistoryRecovery:
                                         continue
                                 return result
                             complete_since = None
+                elif (isinstance(driver, _HistoryRateLimitSignal)
+                      and driver.history_rate_limited()):
+                    raise RateLimitError("ChatGPT conversation read returned HTTP 429")
                 await asyncio.sleep(2.0)
             return last_partial or last_verified
         finally:
