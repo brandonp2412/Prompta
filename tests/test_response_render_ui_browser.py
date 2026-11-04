@@ -285,6 +285,13 @@ def test_multiple_local_responses_keep_distinct_turns_and_tool_activity(
             ).to_be_visible()
             expect(responses.nth(1).locator(".tool-call")).to_have_count(1)
             expect(responses.nth(1).locator(".tool-call-name")).to_contain_text("Search")
+            trace = responses.nth(1).locator(".work-trace")
+            expect(trace).to_have_count(1)
+            assert not trace.evaluate("element => element.open")
+            expect(responses.nth(1).get_by_text("Second final answer")).to_be_visible()
+            expect(responses.nth(1).locator(".tool-call-summary")).to_be_hidden()
+            trace.locator("summary").first.click()
+            expect(responses.nth(1).locator(".tool-type-group > summary")).to_be_visible()
             assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
             if screenshot_dir := os.environ.get("PROMPTA_RESPONSE_SCREENSHOT_DIR"):
                 page.screenshot(

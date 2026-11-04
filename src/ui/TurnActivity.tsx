@@ -108,20 +108,58 @@ export default function TurnActivity({
   turn,
   captureSource,
   turnTimestamp,
+  workedDuration,
 }: {
   turn: LocalTurn;
   captureSource: string;
   turnTimestamp: number;
+  workedDuration?: string | null;
 }) {
-  return (
+  const activity = orderedActivity(turn, captureSource);
+  const lastToolIndex = activity.findLastIndex((item) => item.kind === "tools");
+  const collapsible = turn.status === "completed" && lastToolIndex !== -1;
+  const calls = activity
+    .filter((item): item is Extract<Activity, { kind: "tools" }> => item.kind === "tools")
+    .flatMap((item) => item.calls);
+  const failures = calls.filter((call) => call.status === "error" || call.error).length;
+  const renderItem = (item: Activity) =>
+    item.kind === "text" ? (
+      <ResultMarkdown key={item.id} source={item.text} captureSource={captureSource} />
+    ) : (
+      <ToolCalls key={item.id} calls={item.calls} turnTimestamp={turnTimestamp} />
+    );
+
+  return collapsible ? (
     <>
-      {orderedActivity(turn, captureSource).map((item) =>
-        item.kind === "text" ? (
-          <ResultMarkdown key={item.id} source={item.text} captureSource={captureSource} />
-        ) : (
-          <ToolCalls key={item.id} calls={item.calls} turnTimestamp={turnTimestamp} />
-        ),
-      )}
+      <details className="work-trace">
+        <summary className="work-trace-summary">
+          <span className="work-trace-chevron" aria-hidden="true">
+            <svg
+              viewBox="0 0 24 24"
+              width="17"
+              height="17"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="m9 6 6 6-6 6" />
+            </svg>
+          </span>
+          <span className="work-trace-title">{workedDuration ?? "Work details"}</span>
+          <span className="work-trace-count">
+            {calls.length} {calls.length === 1 ? "call" : "calls"}
+          </span>
+          {failures > 0 && <span className="work-trace-failures">{failures} failed</span>}
+        </summary>
+        <div className="work-trace-content">
+          {activity.slice(0, lastToolIndex + 1).map(renderItem)}
+        </div>
+      </details>
+      {activity.slice(lastToolIndex + 1).map(renderItem)}
     </>
+  ) : (
+    <>{activity.map(renderItem)}</>
   );
 }

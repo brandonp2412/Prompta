@@ -259,16 +259,18 @@ export default function ChatTranscript({
                           turn={turn}
                           captureSource={index === 0 ? detail.value!.source : ""}
                           turnTimestamp={turn.created_at || detail.value!.created_at}
+                          workedDuration={workedDuration(turn, index)}
                         />
                         {turn.status !== "completed" && turn.status !== "generating" ? (
                           <p className="partial-note">{partialResponseLabel(turn.status)}</p>
                         ) : null}
                         <div className="response-actions">
-                          {workedDuration(turn, index) && (
-                            <span className="response-worked-duration">
-                              {workedDuration(turn, index)}
-                            </span>
-                          )}
+                          {!(turn.status === "completed" && turn.tool_calls?.length) &&
+                            workedDuration(turn, index) && (
+                              <span className="response-worked-duration">
+                                {workedDuration(turn, index)}
+                              </span>
+                            )}
                           <button
                             type="button"
                             aria-label={"Copy assistant reply " + (index + 1)}

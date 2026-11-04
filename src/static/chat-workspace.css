@@ -902,6 +902,65 @@
 .assistant-group .tool-call-body .token.comment { color: #8393a7; }
 .assistant-group .tool-call-body .token.function { color: #88c5f6; }
 
+/* Completed replies expose one compact worked-history disclosure, like ChatGPT. */
+.assistant-group .work-trace {
+  min-width: 0;
+  width: min(100%, 760px);
+  margin: 0 0 22px;
+}
+.assistant-group .work-trace > summary {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 9px;
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 1px solid #384251;
+  border-radius: 12px;
+  background: #222832;
+  color: #d9e2ed;
+  cursor: pointer;
+  list-style: none;
+  font-size: .86rem;
+}
+.assistant-group .work-trace > summary::-webkit-details-marker { display: none; }
+.assistant-group .work-trace > summary:hover { background: #2a3341; }
+.assistant-group .work-trace > summary:focus-visible {
+  outline: 2px solid #8ebcff;
+  outline-offset: 2px;
+}
+.assistant-group .work-trace-chevron { display: grid; place-items: center; color: #9cb0c8; transition: transform .18s ease; }
+.assistant-group .work-trace[open] .work-trace-chevron { transform: rotate(90deg); }
+.assistant-group .work-trace-title { font-weight: 650; }
+.assistant-group .work-trace-count {
+  margin-left: auto;
+  color: #aebdce;
+  font-size: .75rem;
+  white-space: nowrap;
+}
+.assistant-group .work-trace-failures { color: #ffb3ae; font-size: .75rem; }
+.assistant-group .work-trace-content {
+  min-width: 0;
+  margin: 12px 0 0 14px;
+  padding: 2px 0 0 18px;
+  border-left: 1px solid #3b4656;
+}
+.assistant-group .work-trace-content > .result-markdown { margin: 12px 0; color: #c3cedd; font-size: .91rem; }
+.assistant-group .work-trace-content > .tool-timeline {
+  width: 100%;
+  margin: 10px 0 16px;
+  padding: 9px;
+  background: #1c222b;
+  box-shadow: none;
+}
+@media (max-width: 680px) {
+  .assistant-group .work-trace > summary { padding: 11px; }
+  .assistant-group .work-trace-content { margin-left: 9px; padding-left: 12px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .assistant-group .work-trace-chevron { transition: none; }
+}
+
 @keyframes response-orbit { to { transform: rotate(360deg); } }
 @keyframes response-wave {
   0%, 65%, 100% { opacity: .42; transform: scaleY(.55); }
