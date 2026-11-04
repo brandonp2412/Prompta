@@ -54,10 +54,12 @@ def test_deploy_reply_recovers_without_releasing_chat_slot(tmp_path: Path) -> No
     candidate = store.next_history_reply_recovery(now=161)
     assert candidate is not None and candidate["reply_id"] == REPLY_ID
     assert store.observe_history_loaded(REPLY_ID, CONVERSATION, PARENT, now=900)
-    assert store.recover_orphans(now=1060) == 0
+    # A clean page alone cannot renew the lease. Actual new answer text can.
+    assert store.recover_orphans(now=999) == 0
     assert store.recover_historical_reply(
         REPLY_ID, CaptureResult(
-            "dom", "partial", "", CONVERSATION, MESSAGE, PARENT, verified_generating=True,
+            "dom", "partial", "New verified reply progress", CONVERSATION, MESSAGE,
+            PARENT, verified_generating=True,
         ), now=1000,
     )
     assert store.recover_orphans(now=1060) == 0

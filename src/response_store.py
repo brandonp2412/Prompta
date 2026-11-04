@@ -412,20 +412,37 @@ class ResponseStore:
     def prepare_deployment_recovery(
         self, send_ids: Collection[str], reply_ids: Collection[str], *, now: float | None = None,
     ) -> None:
-        """Transfer stopped owners to recovery without releasing their admission slots."""
+        """Detach only genuinely live owners; never resurrect stale history reads.
+
+        A deployment is not ChatGPT progress. Preserve the existing idle deadline
+        (capped at the normal budget) and keep ownerless/terminal rows untouched.
+        """
         at = time.time() if now is None else now
         with self.engine.begin() as connection:
             connection.execute(update(results).where(
                 results.c.send_id.in_(send_ids),
-                results.c.status.in_(("queued", "accepted", "generating", "partial",
-                                       "interrupted", "unavailable", "outcome_unknown")),
-            ).values(status="generating", capture_owner="",
-                     capture_deadline=at + MAX_OWNED_TAB_AGE_SECONDS, finished_at=0))
+                results.c.status.in_(("accepted", "generating", "partial")),
+                results.c.capture_owner != "",
+                results.c.capture_deadline > at,
+            ).values(
+                status="generating", capture_owner="",
+                capture_deadline=func.min(
+                    results.c.capture_deadline, at + MAX_OWNED_TAB_AGE_SECONDS,
+                ),
+                finished_at=0,
+            ))
             connection.execute(update(replies).where(
                 replies.c.reply_id.in_(reply_ids),
-                replies.c.status.in_(("dispatching", "accepted", "generating", "interrupted", "outcome_unknown")),
-            ).values(status="generating", lease_owner="",
-                     lease_deadline=at + MAX_OWNED_TAB_AGE_SECONDS, finished_at=0))
+                replies.c.status.in_(("accepted", "generating")),
+                replies.c.lease_owner != "",
+                replies.c.lease_deadline > at,
+            ).values(
+                status="generating", lease_owner="",
+                lease_deadline=func.min(
+                    replies.c.lease_deadline, at + MAX_OWNED_TAB_AGE_SECONDS,
+                ),
+                finished_at=0,
+            ))
 
     def recover_orphans(self, *, now: float | None = None) -> int:
         at = time.time() if now is None else now

@@ -73,7 +73,7 @@ def test_verified_running_followup_overrides_old_interruption_and_expires(tmp_pa
     # A dead orphan cannot remain 'Generating' after the verified signal ages out.
     with replies.engine.begin() as connection:
         connection.execute(update(reply_table).where(reply_table.c.reply_id == FOLLOWUP).values(
-            live_observed_at=now - 601,
+            live_observed_at=now - 901,
         ))
     expired = replies.get(FOLLOWUP)
     assert expired is not None and expired["status"] == "interrupted"
@@ -177,7 +177,7 @@ def test_recovered_original_is_generating_until_observation_expires(tmp_path: Pa
     with responses.engine.begin() as connection:
         connection.execute(update(result_table).where(
             result_table.c.send_id == "original-live",
-        ).values(live_observed_at=now - 601))
+        ).values(live_observed_at=now - 901))
     items = responses.page()["items"]
     replies.annotate_response_markers(items)
     assert items[0]["status"] == "interrupted"

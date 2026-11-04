@@ -260,6 +260,30 @@ def test_history_rechecks_do_not_reanimate_or_renew_idle_capture(tmp_path: Path)
     assert row["live_observed_at"] == 810
 
 
+def test_repeated_deploy_preserves_ownerless_idle_deadline_and_terminal_status(
+    tmp_path: Path,
+) -> None:
+    from prompta.response_store import ResponseStore
+
+    store = ResponseStore(tmp_path / "chat-results.sqlite3")
+    store.ensure_queued("stalled", "Prompt", now=10)
+    assert store.accept("stalled", "999999999:dead", deadline=10000, now=11)
+    store.prepare_deployment_recovery(("stalled",), (), now=20)
+    first = store.get("stalled")
+    assert first is not None and first["capture_deadline"] == 920
+    assert first["capture_owner"] == ""
+
+    # Old deploy inventories still list this as generating. It is not owned.
+    store.prepare_deployment_recovery(("stalled",), (), now=850)
+    unchanged = store.get("stalled")
+    assert unchanged is not None and unchanged["capture_deadline"] == 920
+    assert store.recover_orphans(now=920) == 1
+    store.prepare_deployment_recovery(("stalled",), (), now=1000)
+    terminal = store.get("stalled")
+    assert terminal is not None and terminal["status"] == "interrupted"
+    assert terminal["capture_deadline"] == 920
+
+
 def test_repeated_partial_snapshot_does_not_extend_recovery_slot(tmp_path: Path) -> None:
     from prompta.response_capture import CaptureResult
     from prompta.response_store import ResponseStore

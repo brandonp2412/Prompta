@@ -102,6 +102,8 @@ def test_read_only_reply_checks_do_not_extend_unchanged_generation(tmp_path: Pat
 
     assert replies.observe_history_loaded("reply-id", CONVERSATION, PARENT, now=at)
     assert replies.observe_history_loaded("reply-id", CONVERSATION, PARENT, now=at + 400)
+    # Deploying again must not reclassify this ownerless history read as new work.
+    responses.prepare_deployment_recovery((), ("reply-id",), now=at + 400)
     with replies.engine.connect() as connection:
         first = connection.execute(
             replies_table.select().where(replies_table.c.reply_id == "reply-id")
