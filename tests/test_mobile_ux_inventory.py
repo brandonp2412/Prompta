@@ -310,6 +310,38 @@ def test_mobile_ux_inventory_atlas(tmp_path: Path, width: int, height: int) -> N
     (root / "measurements.txt").write_text("\n".join(notes) + "\n")
 
 
+def test_mobile_prompt_expand_is_subtle_and_tappable(tmp_path: Path) -> None:
+    chromium = os.environ.get("PROMPTA_TEST_CHROMIUM", "/usr/bin/chromium")
+    if not Path(chromium).exists():
+        pytest.skip("Chromium unavailable")
+
+    with server(tmp_path) as (app, port), sync_patchright() as patchright:
+        populate(app)
+        browser = patchright.chromium.launch(
+            executable_path=chromium, headless=True, args=["--no-sandbox", "--no-zygote"]
+        )
+        try:
+            context = browser.new_context(
+                viewport={"width": 390, "height": 844}, is_mobile=True, has_touch=True
+            )
+            page = context.new_page()
+            page.goto(f"http://127.0.0.1:{port}/?view=chats", wait_until="networkidle")
+            page.locator(".chat-row").filter(has_text="Synthetic long prompt").click()
+            expand_button = page.get_by_role("button", name="Show full prompt")
+            expect(expand_button).to_be_visible()
+            expect(expand_button).to_have_css("background-color", "rgb(48, 48, 48)")
+            expect(expand_button).to_have_css("color", "rgb(181, 181, 181)")
+            expand_box = expand_button.bounding_box()
+            assert expand_box is not None and expand_box["height"] >= 44
+            expand_button.click()
+            expect(page.get_by_role("button", name="Show less")).to_have_attribute(
+                "aria-expanded", "true"
+            )
+            context.close()
+        finally:
+            browser.close()
+
+
 @pytest.mark.parametrize(("width", "height"), [(390, 844), (1440, 900)])
 def test_mobile_ux_empty_and_error_states(tmp_path: Path, width: int, height: int) -> None:
     output = Path(os.environ.get("PROMPTA_ATLAS_OUTPUT", str(tmp_path))) / f"{width}x{height}"

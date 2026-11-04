@@ -656,6 +656,16 @@
 .prompt-bubble .prompt-expand { margin: 8px 0 0 auto; }
 @media (max-width: 680px) {
   .prompt-bubble { padding: 10px 14px; }
+  .prompt-bubble .prompt-expand {
+    gap: 4px;
+    background: #303030;
+    color: #b5b5b5;
+    font-size: .74rem;
+    font-weight: 450;
+  }
+  .prompt-bubble .prompt-expand:hover { background: #303030; color: #d0d0d0; }
+  .prompt-bubble .prompt-expand:focus-visible { outline: 2px solid #b8caff; outline-offset: -2px; }
+  .prompt-bubble .prompt-expand svg { width: 13px; height: 13px; opacity: .8; }
 }
 
 /* Keep the last preview lines beside the expansion control. */
