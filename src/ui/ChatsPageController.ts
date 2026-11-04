@@ -321,13 +321,15 @@ export function createChatsPageController(initialProps: Props) {
         key: "chat:" + item.send_id,
       })),
     ];
-    // ETAs are displayed in whole minutes. Keep same-minute ties stable even
-    // when estimates fluctuate by a few seconds between queue polls.
-    const etaMinute = (seconds: number) => Math.ceil(seconds / 60);
+    // Put the furthest-away queue item first, so the next to dispatch sits
+    // beside the active chats. Preserve ties within the displayed ETA minute.
+    // Unknown ETAs belong below known queued work.
+    const etaMinute = (seconds: number) =>
+      Number.isFinite(seconds) ? Math.ceil(seconds / 60) : -1;
     const kindOrder = { chat: 0, job: 1 };
     return entries.sort(
       (a, b) =>
-        etaMinute(a.eta) - etaMinute(b.eta) ||
+        etaMinute(b.eta) - etaMinute(a.eta) ||
         kindOrder[a.kind] - kindOrder[b.kind] ||
         a.key.localeCompare(b.key),
     );

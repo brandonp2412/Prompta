@@ -400,7 +400,7 @@ test("scheduled once jobs stay out of the sidebar until their queue start is imm
   expect(screen.queryByText("Scheduled one-off chat")).toBeNull();
 });
 
-test("queued chats and imminent one-off jobs share ETA order regardless of activity or pin order", async () => {
+test("queued chats and imminent one-off jobs show longest ETA first regardless of pin order", async () => {
   const { model } = sidebar();
   const names = () =>
     Array.from(
@@ -463,11 +463,20 @@ test("queued chats and imminent one-off jobs share ETA order regardless of activ
       { ...run(11), status: "queued", activity_at: 1 },
       { ...run(13), status: "queued", job_name: "repeating" },
       { ...run(14), status: "queued", job_name: "far-job" },
+      { ...run(15), status: "queued" },
       run(20),
     ];
     model.pinnedIds.value = ["12", "11", "20"];
   });
-  expect(names()).toEqual(["Chat 11", "earlier-job", "Chat 10", "later-job", "Chat 12", "Chat 20"]);
+  expect(names()).toEqual([
+    "Chat 12",
+    "later-job",
+    "Chat 10",
+    "earlier-job",
+    "Chat 11",
+    "Chat 15",
+    "Chat 20",
+  ]);
   expect(screen.queryByText("repeating")).toBeNull();
   expect(screen.queryByText("far-job")).toBeNull();
   expect(model.pinned.value.map((item) => item.send_id)).toEqual(["20"]);
@@ -477,7 +486,51 @@ test("queued chats and imminent one-off jobs share ETA order regardless of activ
       .peek()
       .map((item) => (item.send_id === "11" ? { ...item, activity_at: 5000 } : item));
   });
-  expect(names()).toEqual(["Chat 11", "earlier-job", "Chat 10", "later-job", "Chat 12", "Chat 20"]);
+  expect(names()).toEqual([
+    "Chat 12",
+    "later-job",
+    "Chat 10",
+    "earlier-job",
+    "Chat 11",
+    "Chat 15",
+    "Chat 20",
+  ]);
+});
+
+test("the next queued chat keeps its sidebar position when generation starts", async () => {
+  const { model } = sidebar();
+  const names = () =>
+    Array.from(
+      document.querySelectorAll(".chats-list .chat-entry .chat-row-top strong"),
+      (node) => node.textContent,
+    );
+  await act(async () => {
+    model.items.value = [
+      { ...run(7), status: "queued" },
+      { ...run(8), status: "queued" },
+      { ...run(6), status: "generating" },
+    ];
+    model.pinnedIds.value = ["8", "6"];
+    model.queueSnapshot.value = {
+      ...model.queueSnapshot.peek(),
+      waiting_runs: [
+        { send_id: "7", eta_seconds: 180 },
+        { send_id: "8", eta_seconds: 60 },
+      ],
+    };
+  });
+  expect(names()).toEqual(["Chat 7", "Chat 8", "Chat 6"]);
+
+  await act(async () => {
+    model.items.value = model.items
+      .peek()
+      .map((item) => (item.send_id === "8" ? { ...item, status: "generating" } : item));
+    model.queueSnapshot.value = {
+      ...model.queueSnapshot.peek(),
+      waiting_runs: [{ send_id: "7", eta_seconds: 160 }],
+    };
+  });
+  expect(names()).toEqual(["Chat 7", "Chat 8", "Chat 6"]);
 });
 
 test("same-minute ETA changes do not shuffle queued chats across polls", async () => {
@@ -502,7 +555,7 @@ test("same-minute ETA changes do not shuffle queued chats across polls", async (
       ],
     };
   });
-  expect(names()).toEqual(["Chat 9", "Chat 7", "Chat 8"]);
+  expect(names()).toEqual(["Chat 7", "Chat 8", "Chat 9"]);
   const row = screen.getByText("Chat 7").closest(".chat-entry");
   await act(async () => {
     model.queueSnapshot.value = {
@@ -514,7 +567,7 @@ test("same-minute ETA changes do not shuffle queued chats across polls", async (
       ],
     };
   });
-  expect(names()).toEqual(["Chat 9", "Chat 7", "Chat 8"]);
+  expect(names()).toEqual(["Chat 7", "Chat 8", "Chat 9"]);
   expect(screen.getByText("Chat 7").closest(".chat-entry")).toBe(row);
 });
 
