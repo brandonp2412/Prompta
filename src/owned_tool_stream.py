@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from patchright.async_api import CDPSession, Page
 from patchright.async_api import Error as PatchrightError
 
+from .display_blocks_store import deserialize_display_blocks, merge_display_blocks
 from .response_capture import CaptureResult, SseResponseAccumulator
 from .tool_call_store import deserialize_tool_calls, merge_tool_calls
 from .tool_events import ToolEventCollector, summarize_stream_tool_calls
@@ -53,6 +54,7 @@ class OwnedToolStream:
         self.streams: dict[str, _Stream] = {}
         self.tasks: set[asyncio.Task[None]] = set()
         self.calls_json = "[]"
+        self.blocks_json = "[]"
         self.collector = ToolEventCollector()
         self.conversation_id: str | None = None
         self.stopped = False
@@ -167,23 +169,27 @@ class OwnedToolStream:
         if result.stream_error:
             self.publish(result)
             return
-        if not result.tool_calls:
-            self.publish(CaptureResult("sse", "unknown", "", result.conversation_id, None, None, verified_generating=True))
-            return
         conversation = result.conversation_id
         if conversation and self.conversation_id and conversation != self.conversation_id:
             return
         if conversation:
             self.conversation_id = conversation
         safe = summarize_stream_tool_calls(result.tool_calls)
-        merged = merge_tool_calls(self.calls_json, safe)
-        if merged == self.calls_json:
-            self.publish(CaptureResult("sse", "unknown", "", conversation, None, None, verified_generating=True))
+        merged_calls = merge_tool_calls(self.calls_json, safe)
+        merged_blocks = merge_display_blocks(self.blocks_json, result.display_blocks)
+        if merged_calls == self.calls_json and merged_blocks == self.blocks_json:
+            self.publish(CaptureResult(
+                "sse", "unknown", "", conversation, None, None, verified_generating=True,
+            ))
             return
-        self.calls_json = merged
+        self.calls_json = merged_calls
+        self.blocks_json = merged_blocks
+        # Continuation POSTs may contain commentary before or between calls.
+        # Publish their visible blocks as well as tool details, in stream order.
         self.publish(CaptureResult(
             "sse", "unknown", "", self.conversation_id, None, None,
-            tool_calls=tuple(deserialize_tool_calls(merged)),
+            tool_calls=tuple(deserialize_tool_calls(merged_calls)),
+            display_blocks=tuple(deserialize_display_blocks(merged_blocks)),
         ))
 
     def on_finished(self, event: dict[str, object]) -> None:

@@ -20,21 +20,61 @@ export function orderedActivity(turn: LocalTurn): Activity[] {
   }
   const claimed = new Set<string>();
   const activity: Activity[] = [];
-  for (const block of blocks) {
-    if (block.kind === "text") {
+  const textBlocks = blocks.filter((block) => block.kind === "text");
+  // DOM headings can summarize dozens of invocations. Structured tool events
+  // have stable timestamps; live prose blocks retain their first-seen time.
+  // Reconcile those actual event times instead of assigning one call per heading
+  // and dumping all other calls together before the conclusion.
+  const timedDom =
+    textBlocks.length > 0 &&
+    textBlocks.every(
+      (block) =>
+        block.id.startsWith("text-") && block.seen_at && Number.isFinite(Number(block.seen_at)),
+    ) &&
+    calls.some((call) => !call.id.startsWith("dom-tool-")) &&
+    calls.every(
+      (call) =>
+        typeof call.observed_at === "number" &&
+        Number.isFinite(call.observed_at) &&
+        call.observed_at > 0,
+    );
+  if (timedDom) {
+    const chronologicalCalls = calls
+      .map((call, index) => ({ call, index }))
+      .sort((a, b) => (a.call.observed_at ?? 0) - (b.call.observed_at ?? 0) || a.index - b.index);
+    let next = 0;
+    const addCall = (call: CapturedToolCall) => {
+      claimed.add(call.id);
+      const last = activity.at(-1);
+      if (last?.kind === "tools") last.calls.push(call);
+      else activity.push({ kind: "tools", id: `tools-${call.id}`, calls: [call] });
+    };
+    for (const block of textBlocks) {
+      while (
+        next < chronologicalCalls.length &&
+        (chronologicalCalls[next].call.observed_at ?? 0) < Number(block.seen_at)
+      ) {
+        addCall(chronologicalCalls[next++].call);
+      }
       activity.push({ kind: "text", id: block.id, text: block.text });
-      continue;
     }
-    const index = Number(block.id.replace(/^dom-tool-/, ""));
-    const call =
-      calls.find((candidate) => candidate.id === (block.tool_id ?? block.id)) ??
-      (block.id.startsWith("dom-tool-") ? calls[index] : undefined);
-    if (!call || claimed.has(call.id)) continue;
-    claimed.add(call.id);
-    const last = activity.at(-1);
-    if (last?.kind === "tools") last.calls.push(call);
-    else activity.push({ kind: "tools", id: block.id, calls: [call] });
-  }
+    while (next < chronologicalCalls.length) addCall(chronologicalCalls[next++].call);
+  } else
+    for (const block of blocks) {
+      if (block.kind === "text") {
+        activity.push({ kind: "text", id: block.id, text: block.text });
+        continue;
+      }
+      const index = Number(block.id.replace(/^dom-tool-/, ""));
+      const call =
+        calls.find((candidate) => candidate.id === (block.tool_id ?? block.id)) ??
+        (block.id.startsWith("dom-tool-") ? calls[index] : undefined);
+      if (!call || claimed.has(call.id)) continue;
+      claimed.add(call.id);
+      const last = activity.at(-1);
+      if (last?.kind === "tools") last.calls.push(call);
+      else activity.push({ kind: "tools", id: block.id, calls: [call] });
+    }
   const remaining = calls.filter((call) => !claimed.has(call.id));
   if (remaining.length) {
     const lastText = activity.findLastIndex((item) => item.kind === "text");

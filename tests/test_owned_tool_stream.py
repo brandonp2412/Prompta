@@ -156,3 +156,47 @@ async def test_incomplete_event_and_non_sse_response_do_not_publish_data() -> No
     assert updates[0].tool_calls[0]["status"] == "running"
     assert "PRIVATE_KEY" not in str(updates)
     await stream.stop()
+
+
+@pytest.mark.asyncio
+async def test_continuation_post_retains_commentary_between_each_tool() -> None:
+    session = Mock(spec=CDPSession)
+    session.send = AsyncMock(return_value={"bufferedData": ""})
+    updates: list[CaptureResult] = []
+    stream = OwnedToolStream(session, lambda: True, lambda _url: True, updates.append)
+
+    async def post(identity: str, messages: list[dict[str, object]]) -> None:
+        stream.on_request({"requestId": identity, "request": {"method": "POST", "url": "/api"}})
+        stream.on_response({"requestId": identity, "response": {
+            "status": 200, "mimeType": "text/event-stream",
+        }})
+        await asyncio.gather(*stream.tasks)
+        for message in messages:
+            stream.on_data({"requestId": identity, "data": encoded(frame(message))})
+        stream.on_finished({"requestId": identity})
+
+    def prose(identity: str, channel: str, value: str) -> dict[str, object]:
+        return {"id": identity, "author": {"role": "assistant"}, "recipient": "all",
+                "channel": channel, "content": {"content_type": "text", "parts": [value]}}
+
+    def tool(identity: str) -> dict[str, object]:
+        return {"id": identity, "author": {"role": "assistant"}, "recipient": "python",
+                "content": {"content_type": "code", "parts": ["print('okay')"]}}
+
+    await post("post-1", [prose("start", "commentary", "OPEN"), tool("call-1")])
+    await post("post-2", [prose("middle", "commentary", "MIDDLE"), tool("call-2")])
+    await post("post-3", [prose("private", "analysis", "HIDDEN"),
+                           prose("final", "final", "FINISH")])
+    last = updates[-1]
+    assert [block["kind"] for block in last.display_blocks] == [
+        "text", "tool", "text", "tool", "text",
+    ]
+    assert [block["text"] for block in last.display_blocks if block["kind"] == "text"] == [
+        "OPEN", "MIDDLE", "FINISH",
+    ]
+    assert [block["tool_id"] for block in last.display_blocks if block["kind"] == "tool"] == [
+        "call-1", "call-2",
+    ]
+    assert len(last.tool_calls) == 2
+    assert "HIDDEN" not in str(last)
+    await stream.stop()

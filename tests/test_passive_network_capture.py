@@ -179,3 +179,37 @@ async def test_native_completed_sse_persists_bounded_redacted_tool_details(tmp_p
     assert result.tool_calls[0]["result"] == ""
     assert "PRIVATE_SECRET" not in str(result.tool_calls)
     await driver.close()
+
+
+def test_owned_continuation_blocks_are_combined_before_original_answer() -> None:
+    from prompta.response_capture import CaptureResult
+
+    primary = CaptureResult(
+        "sse", "complete", "FINAL", "chat-1", "final", None,
+        display_blocks=({"kind": "text", "id": "sse-text-000000000000000000000003",
+                         "text": "FINAL"},),
+    )
+    continuation = CaptureResult(
+        "sse", "unknown", "", "chat-1", None, None,
+        tool_calls=({"id": "call-1", "connector": "python", "action": "execute",
+                     "status": "completed", "arguments": "", "result": "", "error": ""},),
+        display_blocks=(
+            {"kind": "text", "id": "sse-text-000000000000000000000001",
+             "text": "OPEN"},
+            {"kind": "tool", "id": "sse-tool-000000000000000000000001",
+             "tool_id": "call-1"},
+            {"kind": "text", "id": "sse-text-000000000000000000000002",
+             "text": "MIDDLE"},
+        ),
+    )
+    combined = PatchrightDriver.captured_assistant_response({
+        "assistant_result": primary, "tool_capture": continuation,
+    })
+    assert combined is not None and combined.status == "complete"
+    assert [block["kind"] for block in combined.display_blocks] == [
+        "text", "tool", "text", "text",
+    ]
+    assert [block["text"] for block in combined.display_blocks if block["kind"] == "text"] == [
+        "OPEN", "MIDDLE", "FINAL",
+    ]
+    assert [call["id"] for call in combined.tool_calls] == ["call-1"]

@@ -64,7 +64,7 @@ export type CapturedToolCall = {
 };
 
 export type DisplayBlock =
-  | { kind: "text"; id: string; text: string }
+  | { kind: "text"; id: string; text: string; seen_at?: string }
   | { kind: "tool"; id: string; tool_id?: string };
 
 export type LocalTurn = {

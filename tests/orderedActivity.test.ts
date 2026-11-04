@@ -193,3 +193,46 @@ test("tools remain visible when no assistant text has arrived", () => {
   };
   expect(orderedActivity(turn).map((item) => item.kind)).toEqual(["tools"]);
 });
+
+
+test("every structured tool is interleaved using live DOM prose timestamps", () => {
+  const start = 1_793_798_740;
+  const call = (index: number, seconds: number) => ({
+    id: `invocation-${index}`,
+    observed_at: start + seconds,
+    connector: "Nox",
+    action: `execute-${index}`,
+    status: "completed",
+    arguments: "",
+    result: "",
+    error: "",
+  });
+  const turn: LocalTurn = {
+    reply_id: "timestamped-dom",
+    user_text: "Check the ordering",
+    assistant_text: "Opening\n\nIntermediate\n\nConclusion",
+    status: "completed",
+    created_at: start,
+    updated_at: start + 200,
+    tool_calls: [
+      ...Array.from({ length: 5 }, (_, i) => call(i, 5 + i)),
+      ...Array.from({ length: 6 }, (_, i) => call(5 + i, 45 + i)),
+      ...Array.from({ length: 7 }, (_, i) => call(11 + i, 95 + i)),
+    ],
+    // The browser exposes only two generic tool headings for 18 calls.
+    display_blocks: [
+      { kind: "text", id: "text-0", text: "Opening", seen_at: `${start}` },
+      { kind: "tool", id: "dom-tool-0" },
+      { kind: "text", id: "text-1", text: "Intermediate", seen_at: `${start + 30}` },
+      { kind: "tool", id: "dom-tool-1" },
+      { kind: "text", id: "text-2", text: "Conclusion", seen_at: `${start + 160}` },
+    ],
+  };
+  const activity = orderedActivity(turn);
+  expect(activity.map((item) => item.kind)).toEqual(["text", "tools", "text", "tools", "text"]);
+  expect(activity.filter((item) => item.kind === "tools").map((item) => item.calls.length))
+    .toEqual([5, 13]);
+  const ids = activity.filter((item) => item.kind === "tools")
+    .flatMap((item) => item.calls.map((call) => call.id));
+  expect(ids).toEqual(Array.from({ length: 18 }, (_, i) => `invocation-${i}`));
+});

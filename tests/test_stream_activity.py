@@ -123,3 +123,34 @@ def test_distinct_commentary_messages_with_same_prose_are_not_deduplicated() -> 
     )
     assert [block["kind"] for block in result.display_blocks] == ["text", "tool", "text"]
     assert result.display_blocks[0]["id"] != result.display_blocks[2]["id"]
+
+
+def test_dom_prose_first_seen_survives_hydration_and_tool_interleaving() -> None:
+    opening = "Starting investigation: " + "details " * 25
+    grown = opening + "more details after refresh"
+    first = ({"kind": "text", "id": "text-0", "text": opening,
+              "seen_at": "1793798740.125"},)
+    merged = merge_display_blocks("[]", first)
+    merged = merge_display_blocks(merged, (
+        {"kind": "tool", "id": "dom-tool-0"},
+        {"kind": "text", "id": "text-0", "text": grown,
+         "seen_at": "1793798760.222"},
+        {"kind": "text", "id": "text-1", "text": "Conclusion",
+         "seen_at": "1793798900.222"},
+    ))
+    blocks = deserialize_display_blocks(merged)
+    assert [block["kind"] for block in blocks] == ["text", "tool", "text"]
+    assert blocks[0]["text"] == grown
+    assert blocks[0]["seen_at"] == "1793798740.125"
+    assert blocks[2]["seen_at"] == "1793798900.222"
+
+    merged = merge_display_blocks("[]", (
+        {"kind": "text", "id": "text-0", "text": opening,
+         "seen_at": "1793798740.125"},
+        {"kind": "tool", "id": "dom-tool-0"},
+        {"kind": "text", "id": "text-1", "text": grown,
+         "seen_at": "1793798760.222"},
+    ))
+    normalized = deserialize_display_blocks(merged)
+    assert [block["kind"] for block in normalized] == ["text", "tool"]
+    assert normalized[0]["seen_at"] == "1793798740.125"

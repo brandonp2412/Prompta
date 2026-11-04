@@ -191,6 +191,8 @@ const assistantDisplayScope = (unit) => {
   return turn?.getAttribute?.('data-content-search-turn-key') ? turn : unit;
 };
 
+const proseFirstSeen = new WeakMap();
+
 // Keep rendered assistant commentary, tool headings, and final text in DOM order.
 // Tertiary agent-activity summaries are not user-facing assistant prose.
 const displayBlocksFromUnits = (units, visible, markdownSelector) => {
@@ -212,6 +214,8 @@ const displayBlocksFromUnits = (units, visible, markdownSelector) => {
     if (item.kind === 'tool') return [{ kind: 'tool', id: item.id }];
     const value = markdownFromRoot(item.node).trim();
     const id = `text-${textIndex++}`;
-    return value ? [{ kind: 'text', id, text: value }] : [];
+    if (!value) return [];
+    if (!proseFirstSeen.has(item.node)) proseFirstSeen.set(item.node, String(Date.now() / 1000));
+    return [{ kind: 'text', id, text: value, seen_at: proseFirstSeen.get(item.node) }];
   }).slice(0, 256);
 };

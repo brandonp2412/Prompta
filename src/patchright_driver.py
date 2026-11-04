@@ -47,6 +47,7 @@ from .browser_ownership import (
 from .browser_script_loader import load_browser_script, passive_observer_init_script
 from .composer_mentions import NativeMention, expected_native_text, split_native_mentions
 from .connector_approval_supervisor import trusted_approval_retry
+from .display_blocks_store import deserialize_display_blocks, merge_display_blocks
 from .flaresolverr_client import solve_cloudflare
 from .model_picker import (
     BrowserSecurityChallengeError,
@@ -467,11 +468,21 @@ class PatchrightDriver(ModelPickerMixin):
         result = capture.get("assistant_result")
         tools = capture.get("tool_capture")
         if isinstance(result, CaptureResult):
-            if isinstance(tools, CaptureResult) and tools.tool_calls:
-                combined = merge_tool_calls(
+            if isinstance(tools, CaptureResult) and (tools.tool_calls or tools.display_blocks):
+                combined_calls = merge_tool_calls(
                     serialize_tool_calls(result.tool_calls), tools.tool_calls
                 )
-                return replace(result, tool_calls=tuple(deserialize_tool_calls(combined)))
+                # The passive stream spans connector continuation POSTs, while
+                # assistant_result describes only the original dispatch POST.
+                # Keep its complete chronology and merge the original answer in.
+                combined_blocks = merge_display_blocks(
+                    json.dumps(list(tools.display_blocks)), result.display_blocks
+                )
+                return replace(
+                    result,
+                    tool_calls=tuple(deserialize_tool_calls(combined_calls)),
+                    display_blocks=tuple(deserialize_display_blocks(combined_blocks)),
+                )
             return result
         if isinstance(tools, CaptureResult):
             return tools

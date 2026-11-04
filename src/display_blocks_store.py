@@ -10,6 +10,7 @@ _MAX_BLOCKS = 256
 _MAX_CHARS = 2 * 1024 * 1024
 _ID_PATTERN = re.compile(r"^(?:(?:text|dom-tool)-[0-9]{1,3}|sse-(?:text|tool)-[0-9a-f]{24})$")
 _CALL_ID_PATTERN = re.compile(r"^[A-Za-z0-9_.:-]{1,100}$")
+_SEEN_AT_PATTERN = re.compile(r"^\d{10}(?:\.\d{1,6})?$")
 
 
 def _progressive_versions(first: str, second: str) -> bool:
@@ -42,13 +43,18 @@ def _collapse_progressive_versions(items: list[dict[str, str]]) -> tuple[dict[st
             continue
         best = max((visible[index] for index in matches), key=lambda item: len(item["text"]))
         # A truncated hydration frame must not replace a longer verified one.
-        # A growing version moves to its latest observed position, including
-        # after tool calls that occurred while the answer was being written.
+        # A re-rendered earlier commentary block stays at its first position;
+        # moving it after intervening calls reverses the actual chronology.
         if len(block["text"]) <= len(best["text"]):
             continue
+        first = min(matches)
+        original = visible[first]
+        replacement = {**block, "id": original["id"]}
+        if "seen_at" in original:
+            replacement["seen_at"] = original["seen_at"]
         for index in reversed(matches):
             del visible[index]
-        visible.append(block)
+        visible.insert(first, replacement)
     return tuple(visible)
 
 
@@ -83,7 +89,13 @@ def normalize_display_blocks(value: object) -> tuple[dict[str, str], ...]:
         if not text or length + len(text) > _MAX_CHARS:
             continue
         length += len(text)
-        items.append({"kind": "text", "id": identity, "text": text})
+        seen_at = candidate.get("seen_at")
+        timing = (
+            {"seen_at": seen_at}
+            if isinstance(seen_at, str) and _SEEN_AT_PATTERN.fullmatch(seen_at)
+            else {}
+        )
+        items.append({"kind": "text", "id": identity, "text": text, **timing})
     return _collapse_progressive_versions(items)
 
 
@@ -208,7 +220,10 @@ def merge_display_blocks(previous: object, incoming: tuple[dict[str, str], ...])
             if index is not None:
                 matched.add(index)
                 if len(incoming_text) >= len(merged[index]["text"]):
-                    merged[index] = {**block, "id": merged[index]["id"]}
+                    old = merged[index]
+                    merged[index] = {**block, "id": old["id"]}
+                    if "seen_at" in old:
+                        merged[index]["seen_at"] = old["seen_at"]
                 continue
         if len(merged) >= _MAX_BLOCKS:
             continue
