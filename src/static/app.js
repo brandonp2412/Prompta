@@ -12930,6 +12930,7 @@ function createChatsPageController(initialProps) {
 	const readError = y$2("");
 	const markingAllRead = y$2(false);
 	const baselineAt = y$2(0);
+	const unreadFirst = y$2(false);
 	const drawerOpen = y$2(false);
 	const drawerProgress = y$2(null);
 	const filtersOpen = y$2(false);
@@ -13132,7 +13133,7 @@ function createChatsPageController(initialProps) {
 		].includes(latest.status)) return "";
 		return "This reply is not yet ready to resend.";
 	});
-	const unpinned = O(() => items.value.filter((item) => !pinnedIds.value.includes(item.send_id) && item.status !== "queued").sort(newestFirst));
+	const unpinned = O(() => items.value.filter((item) => !pinnedIds.value.includes(item.send_id) && item.status !== "queued").sort((a, b) => unreadFirst.value ? Number(isUnread(b)) - Number(isUnread(a)) || newestFirst(a, b) : newestFirst(a, b)));
 	const switchingChat = O(() => view.value === "chats" && !!selectedRunId.value && (detail.value?.send_id !== selectedRunId.value || pendingRevealFor.value === selectedRunId.value));
 	const selectedChatTitle = O(() => {
 		if (detail.value?.send_id === selectedRunId.value) return detail.value.title || detail.value.job_name || detail.value.user_text.split("\n")[0].slice(0, 100) || "Untitled chat";
@@ -13148,6 +13149,7 @@ function createChatsPageController(initialProps) {
 				legacyPinIds = Array.isArray(prefs.pinnedIds) ? prefs.pinnedIds.filter((id) => typeof id === "string").slice(0, 24) : [];
 				readAt.value = prefs.readAt && typeof prefs.readAt === "object" ? prefs.readAt : {};
 				readRevisions.value = prefs.readRevisions && typeof prefs.readRevisions === "object" ? prefs.readRevisions : {};
+				unreadFirst.value = prefs.unreadFirst === true;
 			} else baselineAt.value = Date.now() / 1e3;
 		} catch {
 			baselineAt.value = Date.now() / 1e3;
@@ -13160,11 +13162,16 @@ function createChatsPageController(initialProps) {
 			const recentIds = new Set(recent.map(([id]) => id));
 			localStorage.setItem(preferencesKey, JSON.stringify({
 				baselineAt: baselineAt.value,
+				unreadFirst: unreadFirst.value,
 				readAt: Object.fromEntries(recent),
 				...legacyPinIds.length ? { pinnedIds: legacyPinIds } : {},
 				readRevisions: Object.fromEntries(Object.entries(readRevisions.value).filter(([id]) => recentIds.has(id)))
 			}));
 		} catch {}
+	}
+	function toggleUnreadFirst() {
+		unreadFirst.value = !unreadFirst.value;
+		savePreferences();
 	}
 	function isUnread(item) {
 		if (!item.last_reply_revision) return false;
@@ -14160,6 +14167,8 @@ function createChatsPageController(initialProps) {
 		stopError,
 		stopJob,
 		markingAllRead,
+		unreadFirst,
+		toggleUnreadFirst,
 		drawerOpen,
 		drawerProgress,
 		filtersOpen,
@@ -17460,7 +17469,7 @@ function ChatsSidebar({ model, refs, settingsOpen: controlledSettingsOpen, setSe
 	const [localSettingsOpen, setLocalSettingsOpen] = (0, import_react.useState)(false);
 	const settingsOpen = controlledSettingsOpen ?? localSettingsOpen;
 	const setSettingsOpen = controlledSetSettingsOpen ?? setLocalSettingsOpen;
-	const { queueSnapshot, items, markingAllRead, drawerOpen, filtersOpen, searchActive, loadingList, listError, pinned, queueEntries, unpinned, markAllRead, loadingMore, morePageFailed, nextOffset, total, loadMore, toggleSearch, showJobs, createChat } = model;
+	const { queueSnapshot, items, markingAllRead, unreadFirst, toggleUnreadFirst, drawerOpen, filtersOpen, searchActive, loadingList, listError, pinned, queueEntries, unpinned, markAllRead, loadingMore, morePageFailed, nextOffset, total, loadMore, toggleSearch, showJobs, createChat } = model;
 	const [profileOpen, setProfileOpen] = (0, import_react.useState)(false);
 	const profileTriggerRef = (0, import_react.useRef)(null);
 	const profileMenuRef = (0, import_react.useRef)(null);
@@ -17815,6 +17824,34 @@ function ChatsSidebar({ model, refs, settingsOpen: controlledSettingsOpen, setSe
 									"aria-hidden": "true",
 									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: "M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8Z" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: "M19.4 15a1.8 1.8 0 0 0 .36 1.98l.06.06-1.8 1.8-.06-.06A1.8 1.8 0 0 0 16 18.4a1.8 1.8 0 0 0-1.26 1.64V21h-2.54v-.96a1.8 1.8 0 0 0-1.26-1.64 1.8 1.8 0 0 0-1.97.38l-.06.06-1.8-1.8.06-.06A1.8 1.8 0 0 0 7.55 15a1.8 1.8 0 0 0-1.65-1.26H5v-2.54h.9a1.8 1.8 0 0 0 1.65-1.26 1.8 1.8 0 0 0-.38-1.97l-.06-.06 1.8-1.8.06.06A1.8 1.8 0 0 0 10.94 6.55a1.8 1.8 0 0 0 1.26-1.65V4h2.54v.9A1.8 1.8 0 0 0 16 6.55a1.8 1.8 0 0 0 1.97-.38l.06-.06 1.8 1.8-.06.06a1.8 1.8 0 0 0-.37 1.97 1.8 1.8 0 0 0 1.64 1.26H22v2.54h-.96A1.8 1.8 0 0 0 19.4 15Z" })]
 								}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Settings" })]
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+								type: "button",
+								role: "switch",
+								"aria-checked": unreadFirst.value,
+								onClick: toggleUnreadFirst,
+								title: "Show unread unpinned chats before read chats",
+								children: [
+									/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("svg", {
+										viewBox: "0 0 24 24",
+										fill: "none",
+										stroke: "currentColor",
+										strokeWidth: "1.8",
+										strokeLinecap: "round",
+										strokeLinejoin: "round",
+										"aria-hidden": "true",
+										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: "M4 6h16M4 12h11M4 18h7" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("circle", {
+											cx: "19",
+											cy: "17",
+											r: "2"
+										})]
+									}),
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Unread first" }),
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+										className: "sidebar-menu-switch" + (unreadFirst.value ? " on" : ""),
+										"aria-hidden": "true"
+									})
+								]
 							}),
 							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
 								type: "button",

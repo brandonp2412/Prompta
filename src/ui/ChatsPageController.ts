@@ -93,6 +93,7 @@ export function createChatsPageController(initialProps: Props) {
   const readError = signal("");
   const markingAllRead = signal(false);
   const baselineAt = signal(0);
+  const unreadFirst = signal(false);
   const drawerOpen = signal(false);
   const drawerProgress = signal<number | null>(null);
   const filtersOpen = signal(false);
@@ -372,7 +373,11 @@ export function createChatsPageController(initialProps: Props) {
   const unpinned = computed(() =>
     items.value
       .filter((item) => !pinnedIds.value.includes(item.send_id) && item.status !== "queued")
-      .sort(newestFirst),
+      .sort((a, b) =>
+        unreadFirst.value
+          ? Number(isUnread(b)) - Number(isUnread(a)) || newestFirst(a, b)
+          : newestFirst(a, b),
+      ),
   );
   const switchingChat = computed(
     () =>
@@ -404,6 +409,7 @@ export function createChatsPageController(initialProps: Props) {
           pinnedIds?: string[];
           readAt?: Record<string, number>;
           readRevisions?: Record<string, string>;
+          unreadFirst?: boolean;
         } = JSON.parse(saved);
         baselineAt.value = Number.isFinite(prefs.baselineAt)
           ? Number(prefs.baselineAt)
@@ -414,6 +420,7 @@ export function createChatsPageController(initialProps: Props) {
         readAt.value = prefs.readAt && typeof prefs.readAt === "object" ? prefs.readAt : {};
         readRevisions.value =
           prefs.readRevisions && typeof prefs.readRevisions === "object" ? prefs.readRevisions : {};
+        unreadFirst.value = prefs.unreadFirst === true;
       } else baselineAt.value = Date.now() / 1000;
     } catch {
       baselineAt.value = Date.now() / 1000;
@@ -432,6 +439,7 @@ export function createChatsPageController(initialProps: Props) {
         preferencesKey,
         JSON.stringify({
           baselineAt: baselineAt.value,
+          unreadFirst: unreadFirst.value,
           readAt: Object.fromEntries(recent),
           ...(legacyPinIds.length ? { pinnedIds: legacyPinIds } : {}),
           readRevisions: Object.fromEntries(
@@ -442,6 +450,11 @@ export function createChatsPageController(initialProps: Props) {
     } catch {
       // Private browsing and disabled storage still allow in-memory navigation.
     }
+  }
+
+  function toggleUnreadFirst() {
+    unreadFirst.value = !unreadFirst.value;
+    savePreferences();
   }
 
   function isUnread(item: RunSummary) {
@@ -1769,6 +1782,8 @@ export function createChatsPageController(initialProps: Props) {
     stopError,
     stopJob,
     markingAllRead,
+    unreadFirst,
+    toggleUnreadFirst,
     drawerOpen,
     drawerProgress,
     filtersOpen,

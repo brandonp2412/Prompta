@@ -71,7 +71,23 @@ def test_profile_menu_dismissal_and_footer_single_line(
                         && Math.abs((icon.top + icon.bottom) / 2 - (text.top + text.bottom) / 2) < 2;
                     }"""
                 )
+            toggle = menu.get_by_role("switch", name="Unread first")
+            expect(toggle).to_have_attribute("aria-checked", "false")
+            toggle.click()
+            expect(toggle).to_have_attribute("aria-checked", "true")
+            assert page.evaluate(
+                "JSON.parse(localStorage.getItem('prompta.local-sidebar.v1')).unreadFirst"
+            )
             assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+            page.keyboard.press("Escape")
+            expect(menu).to_have_count(0)
+            page.reload(wait_until="domcontentloaded")
+            profile = page.get_by_role("button", name="Profile")
+            profile.click()
+            toggle = page.get_by_role("switch", name="Unread first")
+            expect(toggle).to_have_attribute("aria-checked", "true")
+            toggle.click()
+            expect(toggle).to_have_attribute("aria-checked", "false")
             page.keyboard.press("Escape")
             expect(menu).to_have_count(0)
             expect(profile).to_be_focused()

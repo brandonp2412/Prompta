@@ -944,6 +944,11 @@
 .sidebar-profile-menu { position:absolute; bottom:calc(100% + 6px); left:10px; right:10px; z-index:20; padding:7px; border:1px solid #424242; border-radius:14px; background:#282828; box-shadow:0 12px 35px #0008; }
 .sidebar-profile-menu button { display:flex; align-items:center; gap:12px; width:100%; min-height:44px; padding:10px 14px; border:0; border-radius:9px; color:#eee; background:transparent; text-align:left; font:inherit; cursor:pointer; }
 .sidebar-profile-menu button svg { width:19px; height:19px; flex:none; }
+.sidebar-menu-switch { margin-left:auto; width:34px; height:20px; flex:none; border:1px solid #888; border-radius:999px; background:#444; position:relative; transition:background .16s ease; }
+.sidebar-menu-switch::after { content:""; position:absolute; top:2px; left:2px; width:14px; height:14px; border-radius:50%; background:#ddd; transition:transform .16s ease; }
+.sidebar-menu-switch.on { border-color:#9fc3ff; background:#4879c5; }
+.sidebar-menu-switch.on::after { transform:translateX(14px); background:#fff; }
+@media (prefers-reduced-motion: reduce) { .sidebar-menu-switch,.sidebar-menu-switch::after { transition:none; } }
 .sidebar-footer > button:focus-visible, .sidebar-profile-menu button:focus-visible, .settings-dialog button:focus-visible, .settings-dialog input:focus-visible, .settings-dialog textarea:focus-visible { outline:2px solid #a9c4ff; outline-offset:-2px; }
 .settings-backdrop { position:fixed; inset:0; z-index:100; display:flex; align-items:center; justify-content:center; padding:16px; background:#000a; }
 .settings-dialog { width:min(100%,440px); max-height:90dvh; overflow:auto; padding:22px; border:1px solid #484848; border-radius:18px; background:#242424; color:#eee; box-shadow:0 20px 65px #0009; }

@@ -10,6 +10,7 @@ const originalFetch = globalThis.fetch;
 afterEach(() => {
   cleanup();
   globalThis.fetch = originalFetch;
+  localStorage.removeItem("prompta.local-sidebar.v1");
 });
 const run = (index: number): RunSummary => ({
   send_id: String(index),
@@ -65,6 +66,39 @@ test("profile actions show distinct decorative icons without changing accessible
     paths.add(icon?.innerHTML ?? "");
   }
   expect(paths.size).toBe(labels.length);
+});
+
+test("profile unread-first switch reorders only unpinned chats and persists its choice", async () => {
+  const { model } = sidebar();
+  const olderUnread = {
+    ...run(2),
+    last_reply_revision: "new-reply",
+    last_read_revision: "older-reply",
+  };
+  await act(async () => {
+    model.items.value = [run(3), olderUnread, run(1)];
+    model.pinnedIds.value = ["1"];
+  });
+  const titles = () =>
+    Array.from(document.querySelectorAll(".chat-row-top strong"), (element) => element.textContent);
+  expect(titles()).toEqual(["Chat 1", "Chat 3", "Chat 2"]);
+
+  await userEvent.setup().click(screen.getByRole("button", { name: "Profile" }));
+  const toggle = screen.getByRole("switch", { name: "Unread first" });
+  expect(toggle.getAttribute("aria-checked")).toBe("false");
+  await userEvent.setup().click(toggle);
+  expect(toggle.getAttribute("aria-checked")).toBe("true");
+  expect(titles()).toEqual(["Chat 1", "Chat 2", "Chat 3"]);
+  expect(JSON.parse(localStorage.getItem("prompta.local-sidebar.v1") ?? "{}").unreadFirst).toBe(
+    true,
+  );
+
+  await userEvent.setup().click(toggle);
+  expect(toggle.getAttribute("aria-checked")).toBe("false");
+  expect(titles()).toEqual(["Chat 1", "Chat 3", "Chat 2"]);
+  expect(JSON.parse(localStorage.getItem("prompta.local-sidebar.v1") ?? "{}").unreadFirst).toBe(
+    false,
+  );
 });
 
 test("loads older chats as the reader approaches the end of the sidebar", async () => {
@@ -262,7 +296,9 @@ test("queued follow-ups show their ETA instead of a stale answer preview", async
       ...model.queueSnapshot.peek(),
       waiting_runs: [{ send_id: "7", eta_seconds: 120 }],
     };
-    model.items.value = [{ ...run(7), status: "queued", queued_followup: true, preview: "Older completed answer" }];
+    model.items.value = [
+      { ...run(7), status: "queued", queued_followup: true, preview: "Older completed answer" },
+    ];
   });
   expect(screen.getByText("Queued · ETA ~2 min")).toBeTruthy();
   expect(screen.queryByText("Older completed answer")).toBeNull();
