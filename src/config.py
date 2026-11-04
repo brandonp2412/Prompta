@@ -57,7 +57,7 @@ class SettingsSection(BaseModel):
 
 
 class ConcurrencySettings(SettingsSection):
-    """Single global fresh-chat concurrency cap; omission means unlimited."""
+    """Single global chat and reply concurrency cap; omission means unlimited."""
 
     section = "concurrency"
     legacy_section = "parallelism"

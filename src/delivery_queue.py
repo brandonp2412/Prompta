@@ -23,6 +23,7 @@ from .delivery_state import (
 )
 from .image_store import image_refs
 from .persistence import create_database, job_deliveries
+from .reply_contracts import ManualReplyStore
 from .reply_tables import replies
 from .response_store import ResponseStore
 from .response_tables import results as response_records
@@ -290,7 +291,7 @@ class DeliveryQueueStore:
         ]
 
     def active_delivery_send_ids(self, *, now: float) -> set[str]:
-        """Count in-flight queue claims and owned fresh-chat captures once each."""
+        """Count in-flight queue claims and all live chat/reply captures once each."""
         active = self.results.active_capture_send_ids(now=now)
         with self.engine.connect() as connection:
             running = connection.execute(
@@ -300,6 +301,42 @@ class DeliveryQueueStore:
             ).scalars().all()
         active.update(str(send_id) for send_id in running)
         return active
+
+    def has_capacity(self, *, max_active: int | None, now: float | None = None) -> bool:
+        """Advisory capacity check; the final claim always rechecks atomically."""
+        if max_active is None:
+            return True
+        at = time.time() if now is None else float(now)
+        return len(self.active_delivery_send_ids(now=at)) < max_active
+
+    def claim_reply(
+        self,
+        store: ManualReplyStore,
+        reply_id: str,
+        owner: str,
+        *,
+        deadline: float,
+        now: float | None = None,
+        max_active: int | None = None,
+    ) -> bool:
+        """Claim a reply under the same SQLite writer mutex as fresh-chat claims.
+
+        The lock on the fresh-chat queue serializes both paths, including across
+        web and delivery-worker processes. Persist the reply lease before the
+        queue transaction releases that lock.
+        """
+        if store.responses.path != self.results.path:
+            raise ValueError("Reply and delivery stores must share a response database")
+        at = time.time() if now is None else float(now)
+        with self.engine.begin() as connection:
+            connection.exec_driver_sql("BEGIN IMMEDIATE")
+            running = set(str(send_id) for send_id in connection.execute(
+                select(job_deliveries.c.send_id).where(job_deliveries.c.status == "running")
+            ).scalars())
+            active = self.results.active_capture_send_ids(now=at)
+            if max_active is not None and len(running | active) >= max_active:
+                return False
+            return store.claim(reply_id, owner, deadline=deadline, now=at)
 
     def health_metrics(self, *, now: float | None = None) -> dict[str, object]:
         at = time.time() if now is None else float(now)

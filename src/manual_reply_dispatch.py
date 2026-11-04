@@ -16,7 +16,9 @@ from patchright.async_api import Error as PatchrightError
 
 from .browser_ownership import MAX_OWNED_TAB_AGE_SECONDS
 from .browser_script_loader import load_browser_script
+from .config import DEFAULT_CONFIG_PATH, ConcurrencySettings
 from .delivery_browser import BrowserDeliverySender
+from .delivery_queue import DeliveryQueueStore
 from .deployment_gate import DeploymentGate
 from .patchright_driver import PatchrightDriver, _expected_composer_text, _normalise_composer_text
 from .rate_limit import RateLimitError
@@ -111,9 +113,17 @@ def _capture_surface_failure_probe(conversation_id: str) -> str:
 
 
 class ManualReplyDispatcher:
-    def __init__(self, store: ManualReplyStore, state_path: Path) -> None:
+    def __init__(
+        self,
+        store: ManualReplyStore,
+        state_path: Path,
+        *,
+        concurrency_config_path: Path = DEFAULT_CONFIG_PATH,
+    ) -> None:
         self.store = store
         self.state_path = state_path
+        self.concurrency_config_path = concurrency_config_path
+        self.queue = DeliveryQueueStore(store.responses.path.parent / "ui-send-jobs.sqlite3")
         self._active: set[str] = set()
         self._recovering: set[str] = set()
         self._recovery_scheduled: set[str] = set()
@@ -167,6 +177,10 @@ class ManualReplyDispatcher:
         """
         if (DeploymentGate(self.state_path).is_paused()
                 or self.runtime.read_backoff_remaining() > 0):
+            return
+        if not self.queue.has_capacity(
+            max_active=ConcurrencySettings.load(self.concurrency_config_path).active_limit
+        ):
             return
         selected: set[str] = set()
         for _ in range(_MAX_QUEUED_REPLY_DISPATCHES):
@@ -468,12 +482,17 @@ class ManualReplyDispatcher:
             if sender.runtime.account_state(strict=True).get("resource_blocked") is True:
                 return
             preflight_stage = "irreversible_claim"
-            claimed = self.store.claim(
+            claimed = self.queue.claim_reply(
+                self.store,
                 reply_id,
                 owner,
                 deadline=time.time() + MAX_OWNED_TAB_AGE_SECONDS,
+                max_active=ConcurrencySettings.load(self.concurrency_config_path).active_limit,
             )
             if not claimed:
+                # The final slot can fill while this branch is being verified.
+                # Preserve the user's durable queued intent for the next pump.
+                preflight_stage = "admission_deferred"
                 return
             capture = driver.arm_send_capture()
             try:
@@ -767,7 +786,9 @@ class ManualReplyDispatcher:
                 raise
         finally:
             if not claimed:
-                if driver.history_rate_limited():
+                if preflight_stage == "admission_deferred":
+                    logger.info("Explicit reply waiting for shared dispatch capacity")
+                elif driver.history_rate_limited():
                     sender.runtime.record_read_rate_limit(
                         RateLimitError("ChatGPT exact conversation read returned HTTP 429"),
                         extend_only=True,

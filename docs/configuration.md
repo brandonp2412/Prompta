@@ -18,6 +18,7 @@ Existing per-job mutex groups still apply. Jobs are admitted in queue order,
 with manually requested chats prioritized.
 Explicit replies do not consume fresh-chat slots.
 
+The cap includes fresh chats, scheduled jobs, and explicitly submitted follow-ups.
 Omitting `[concurrency]` disables the cap (unlimited concurrency). A present
 `[concurrency]` table defaults to enabled for compatibility with existing
 `max_workers`-only files. Legacy `[parallelism]` is read if `[concurrency]` is

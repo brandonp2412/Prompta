@@ -470,7 +470,7 @@ class ResponseStore:
         return int(changed.rowcount)
 
     def active_capture_send_ids(self, *, now: float) -> set[str]:
-        """Live owned fresh-chat captures, including one-offs and scheduled jobs.
+        """Live owned chat captures, including fresh sends and explicit replies.
 
         Explicit replies have different send identifiers and are not queued
         fresh chats. Never inspect private response bodies.
@@ -486,11 +486,11 @@ class ResponseStore:
                     ),
                 )
             ).scalars().all()
-            recovering_replies = connection.execute(select(replies.c.send_id).where(
-                replies.c.status.in_(("accepted", "generating")),
-                replies.c.lease_owner == "", replies.c.lease_deadline > now,
+            live_replies = connection.execute(select(replies.c.send_id).where(
+                replies.c.status.in_(("dispatching", "accepted", "generating")),
+                replies.c.lease_deadline > now,
             )).scalars().all()
-        return {str(send_id) for send_id in (*rows, *recovering_replies)}
+        return {str(send_id) for send_id in (*rows, *live_replies)}
 
     @staticmethod
     def _valid_local_read(send_id: str, revision: str) -> bool:

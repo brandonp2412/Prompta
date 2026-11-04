@@ -8,6 +8,8 @@ from sqlalchemy import inspect
 from sqlalchemy.exc import SQLAlchemyError
 
 from prompta.delivery_queue import DeliveryQueueStore
+from prompta.reply_contracts import ManualReplyStore, ReplyIntent
+from prompta.response_capture import CaptureResult
 
 
 def _queued_record(send_id: str = "send-1", *, client_id: str = "client-1") -> dict[str, object]:
@@ -18,6 +20,63 @@ def _queued_record(send_id: str = "send-1", *, client_id: str = "client-1") -> d
         "status": "queued",
         "created_at": 10.0,
     }
+
+
+def _prepared_reply(tmp_path: Path) -> ManualReplyStore:
+    store = ManualReplyStore(tmp_path / "chat-results.sqlite3")
+    store.responses.ensure_queued("original", "Original prompt", now=100)
+    assert store.responses.accept("original", "capture-owner", deadline=500, now=101)
+    assert store.responses.write(
+        "original", "capture-owner",
+        CaptureResult("sse", "complete", "Original answer", "conversation", "parent", "user"),
+        now=102,
+    )
+    store.prepare("original", ReplyIntent("reply-1", "conversation", "parent", "Follow-up"), now=103)
+    return store
+
+
+def test_fresh_chats_and_explicit_replies_share_global_slots(tmp_path: Path) -> None:
+    queue = DeliveryQueueStore(tmp_path / "ui-send-jobs.sqlite3")
+    replies = _prepared_reply(tmp_path)
+    queue.upsert(_queued_record("fresh-1", client_id="client-1"))
+    queue.upsert(_queued_record("fresh-2", client_id="client-2"))
+
+    assert queue.claim_next("fresh-owner", now=110, lease_seconds=60, max_active=2)
+    assert queue.claim_reply(
+        replies, "reply-1", "reply-owner", now=110, deadline=500, max_active=2,
+    )
+    assert queue.active_delivery_send_ids(now=111) == {"fresh-1", "original"}
+    assert queue.claim_next("fresh-owner", now=111, lease_seconds=60, max_active=2) is None
+    assert not queue.claim_reply(
+        replies, "reply-1", "another-owner", now=111, deadline=500, max_active=2,
+    )
+
+    assert replies.finish("reply-1", "reply-owner", uncertain=True, now=112)
+    assert queue.active_delivery_send_ids(now=113) == {"fresh-1"}
+    assert queue.claim_next("fresh-owner", now=113, lease_seconds=60, max_active=2)
+
+
+def test_last_global_slot_is_atomic_between_reply_and_fresh_claim(tmp_path: Path) -> None:
+    queue_path = tmp_path / "ui-send-jobs.sqlite3"
+    queue = DeliveryQueueStore(queue_path)
+    replies = _prepared_reply(tmp_path)
+    queue.upsert(_queued_record("fresh-1"))
+
+    def claim_fresh() -> bool:
+        return DeliveryQueueStore(queue_path).claim_next(
+            "fresh-owner", now=110, lease_seconds=60, max_active=1,
+        ) is not None
+
+    def claim_reply() -> bool:
+        return DeliveryQueueStore(queue_path).claim_reply(
+            replies, "reply-1", "reply-owner", now=110, deadline=500, max_active=1,
+        )
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+        fresh_future = executor.submit(claim_fresh)
+        reply_future = executor.submit(claim_reply)
+        assert int(fresh_future.result()) + int(reply_future.result()) == 1
+    assert len(queue.active_delivery_send_ids(now=111)) == 1
 
 
 def test_deploy_recovery_blocks_new_claim_until_idle_deadline(tmp_path: Path) -> None:

@@ -224,6 +224,65 @@ def test_ready_reply_precedes_missing_parent_recovery(tmp_path: Path, monkeypatc
     assert submitted == [REPLY_ID]
 
 
+def test_ready_reply_waits_for_global_capacity_without_consuming_a_read(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store, state = completed_store(tmp_path)
+    config = tmp_path / "config.toml"
+    config.write_text("[concurrency]\nenabled = true\nmax_workers = 1\n")
+    service = dispatch.ManualReplyDispatcher(store, state, concurrency_config_path=config)
+    store.queue_explicit_send(
+        "send-1", ReplyIntent(REPLY_ID, CONVERSATION, PARENT, "Saved reply"),
+    )
+    service.queue.upsert({
+        "send_id": "fresh-busy", "message": "Another chat", "status": "queued", "created_at": 100,
+    })
+    assert service.queue.claim_next("fresh-owner", now=time.time(), lease_seconds=60)
+    dispatched: list[str] = []
+
+    def submit(_send_id: str, intent: ReplyIntent) -> dict[str, object]:
+        dispatched.append(intent.reply_id)
+        saved = store.get(intent.reply_id)
+        assert saved is not None
+        return saved
+
+    monkeypatch.setattr(service, "submit", submit)
+    service.pump_queued()
+    assert dispatched == []
+
+    assert service.queue.complete_claim("fresh-busy", "fresh-owner")
+    service.pump_queued()
+    assert dispatched == [REPLY_ID]
+
+
+def test_reply_losing_last_slot_remains_prepared_for_later_dispatch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store, state = completed_store(tmp_path)
+    config = tmp_path / "config.toml"
+    config.write_text("[concurrency]\nenabled = true\nmax_workers = 1\n")
+    fake = FakeDriver()
+    monkeypatch.setattr(dispatch, "PatchrightDriver", lambda **_kwargs: fake)
+    monkeypatch.setattr(dispatch, "BrowserDeliverySender", FakeSender)
+    service = dispatch.ManualReplyDispatcher(store, state, concurrency_config_path=config)
+    turn = store.queue_explicit_send(
+        "send-1", ReplyIntent(REPLY_ID, CONVERSATION, PARENT, "Saved explicit reply"),
+    )
+    service.queue.upsert({
+        "send_id": "fresh-busy", "message": "Another chat", "status": "queued", "created_at": 100,
+    })
+    assert service.queue.claim_next("fresh-owner", now=time.time(), lease_seconds=60)
+
+    asyncio.run(service._dispatch(turn))
+
+    saved = store.get(REPLY_ID)
+    assert saved is not None and saved["status"] == "prepared"
+    assert saved["queued_by_user"] is True
+    assert fake.calls == 0
+    assert service.queue.complete_claim("fresh-busy", "fresh-owner")
+    assert store.next_queued_intent() is not None
+
+
 def test_ready_reply_shares_history_read_budget(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     store, state = completed_store(tmp_path)
     fake = FakeDriver()
