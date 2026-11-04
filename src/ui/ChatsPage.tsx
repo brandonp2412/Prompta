@@ -368,7 +368,6 @@ function DrawerLayout({
   children: React.ReactNode;
 }) {
   useSignals();
-  const progress = model.visibleDrawerProgress.value;
   return (
     <section
       aria-label="Prompta local chats and jobs"
@@ -382,12 +381,6 @@ function DrawerLayout({
       ]
         .filter(Boolean)
         .join(" ")}
-      style={
-        {
-          "--drawer-offset": `${(progress - 1) * 100}%`,
-          "--drawer-opacity": progress * 0.6,
-        } as React.CSSProperties
-      }
     >
       {children}
     </section>

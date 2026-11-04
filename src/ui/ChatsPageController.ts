@@ -95,7 +95,6 @@ export function createChatsPageController(initialProps: Props) {
   const baselineAt = signal(0);
   const drawerOpen = signal(false);
   const drawerProgress = signal<number | null>(null);
-  const visibleDrawerProgress = computed(() => drawerProgress.value ?? (drawerOpen.value ? 1 : 0));
   const filtersOpen = signal(false);
   const expandedPrompts = signal<Record<string, boolean>>({});
   const total = signal(0);
@@ -1584,6 +1583,23 @@ export function createChatsPageController(initialProps: Props) {
     },
     drawerWidth: () =>
       sidebarPane.value?.getBoundingClientRect().width || Math.min(340, innerWidth - 44),
+    onProgress: (progress, width) => {
+      const sidebar = sidebarPane.peek();
+      if (!sidebar) {
+        drawerProgress.value = progress;
+        return;
+      }
+      // Only the start and end of the gesture enter React. Touch positions
+      // update compositor-friendly properties directly on the animated layers.
+      const pixelRatio = window.devicePixelRatio || 1;
+      const offset = Math.round((progress - 1) * width * pixelRatio) / pixelRatio;
+      sidebar.style.setProperty("--drawer-offset", `${offset}px`);
+      (sidebar.previousElementSibling as HTMLElement | null)?.style.setProperty(
+        "--drawer-opacity",
+        String(progress * 0.6),
+      );
+      if (drawerProgress.peek() === null) drawerProgress.value = progress;
+    },
   });
 
   function selectRun(item: RunSummary) {
@@ -1755,7 +1771,6 @@ export function createChatsPageController(initialProps: Props) {
     markingAllRead,
     drawerOpen,
     drawerProgress,
-    visibleDrawerProgress,
     filtersOpen,
     expandedPrompts,
     search,

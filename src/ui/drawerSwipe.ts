@@ -20,6 +20,7 @@ export function createDrawerSwipe({
   isList,
   drawerWidth,
   drawerPosition,
+  onProgress,
   clock = performance,
 }: {
   drawerOpen: { value: boolean };
@@ -27,6 +28,7 @@ export function createDrawerSwipe({
   isList: () => boolean;
   drawerWidth: () => number;
   drawerPosition?: () => number;
+  onProgress?: (progress: number, width: number) => void;
   clock?: { now: () => number };
 }) {
   let swipe: Swipe | null = null;
@@ -101,7 +103,11 @@ export function createDrawerSwipe({
     }
     gesture.lastX = touch.clientX;
     gesture.lastTime = now;
-    drawerProgress.value = clampDrawer(gesture.progress + dx / gesture.width);
+    const progress = clampDrawer(gesture.progress + dx / gesture.width);
+    // The UI can paint touch positions directly without re-rendering the page
+    // on every event. Keep the signal path for consumers without a painter.
+    if (onProgress) onProgress(progress, gesture.width);
+    else drawerProgress.value = progress;
   }
 
   function finishSwipe(event: TouchEvent) {

@@ -13,7 +13,9 @@ from web_results_support import completed_run, server
 def serve_current_assets(monkeypatch: pytest.MonkeyPatch) -> None:
     import prompta.web as web_module
 
-    monkeypatch.setattr(web_module, "_STATIC_ROOT", Path(__file__).resolve().parents[1] / "src/static")
+    monkeypatch.setattr(
+        web_module, "_STATIC_ROOT", Path(__file__).resolve().parents[1] / "src/static"
+    )
 
 
 def test_touch_swipes_open_and_close_sidebar_without_network_mutation(tmp_path: Path) -> None:
@@ -33,10 +35,12 @@ def test_touch_swipes_open_and_close_sidebar_without_network_mutation(tmp_path: 
             posts: list[str] = []
             page.on(
                 "request",
-                lambda request: posts.append(request.url)
-                if request.method == "POST"
-                and ("/api/chats" in request.url or "/reply-" in request.url)
-                else None,
+                lambda request: (
+                    posts.append(request.url)
+                    if request.method == "POST"
+                    and ("/api/chats" in request.url or "/reply-" in request.url)
+                    else None
+                ),
             )
             page.goto(f"http://127.0.0.1:{port}/?view=chats&run=swipe-alpha")
             expect(page.get_by_role("button", name="Open chat sidebar")).to_be_visible()
@@ -46,17 +50,45 @@ def test_touch_swipes_open_and_close_sidebar_without_network_mutation(tmp_path: 
             expect(page.locator(".chats-layout.drawer-open")).to_have_count(0)
             cdp = page.context.new_cdp_session(page)
 
-            def swipe(xs: tuple[int, ...]) -> None:
+            def swipe(xs: tuple[int, ...]) -> list[float]:
+                offsets: list[float] = []
                 for index, x in enumerate(xs):
                     mode = "touchStart" if index == 0 else "touchMove"
-                    cdp.send("Input.dispatchTouchEvent", {
-                        "type": mode, "touchPoints": [{"x": x, "y": 450}],
-                    })
+                    cdp.send(
+                        "Input.dispatchTouchEvent",
+                        {
+                            "type": mode,
+                            "touchPoints": [{"x": x, "y": 450}],
+                        },
+                    )
                     page.wait_for_timeout(30)
+                    if index > 0:
+                        offsets.append(
+                            float(
+                                page.locator(".chats-sidebar").evaluate(
+                                    "(element) => parseFloat(element.style.getPropertyValue('--drawer-offset'))"
+                                )
+                            )
+                        )
                 cdp.send("Input.dispatchTouchEvent", {"type": "touchEnd", "touchPoints": []})
+                return offsets
 
-            swipe((20, 80, 150, 230))
+            opening_offsets = swipe((20, 80, 150, 230))
+            assert opening_offsets == sorted(opening_offsets)
+            assert all(offset < 0 for offset in opening_offsets)
+            pixel_ratio = page.evaluate("window.devicePixelRatio")
+            assert all(
+                abs(offset * pixel_ratio - round(offset * pixel_ratio)) < 0.001
+                for offset in opening_offsets
+            )
             expect(page.locator(".chats-layout.drawer-open")).to_be_visible()
+            page.wait_for_timeout(300)
+            assert (
+                page.locator(".drawer-backdrop").evaluate(
+                    "(element) => getComputedStyle(element).opacity"
+                )
+                == "0.6"
+            )
             search = page.get_by_role("button", name="Search chats")
             expect(search).to_be_visible()
             bounds = search.bounding_box()

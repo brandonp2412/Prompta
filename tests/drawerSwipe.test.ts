@@ -33,7 +33,12 @@ function event(
   };
 }
 
-function setup(open = false, list = false, position?: number) {
+function setup(
+  open = false,
+  list = false,
+  position?: number,
+  onProgress?: (progress: number, width: number) => void,
+) {
   let time = 0;
   const drawerOpen = { value: open };
   const drawerProgress = { value: null as number | null };
@@ -43,6 +48,7 @@ function setup(open = false, list = false, position?: number) {
     isList: () => list,
     drawerWidth: () => 320,
     drawerPosition: () => position ?? (drawerOpen.value ? 1 : 0),
+    onProgress,
     clock: { now: () => time },
   });
   return {
@@ -68,6 +74,23 @@ describe("drawer swipe", () => {
     ui.finishSwipe(event(150).value);
     expect(ui.drawerOpen.value).toBe(true);
     expect(ui.drawerProgress.value).toBeNull();
+  });
+
+  test("touch painting bypasses per-move signal updates", () => {
+    const painted: { progress: number; width: number }[] = [];
+    const ui = setup(false, false, undefined, (progress, width) => {
+      painted.push({ progress, width });
+    });
+    ui.startSwipe(event(20).value);
+    ui.moveSwipe(event(80).value);
+    ui.moveSwipe(event(160).value);
+    expect(painted).toEqual([
+      { progress: 60 / 320, width: 320 },
+      { progress: 140 / 320, width: 320 },
+    ]);
+    expect(ui.drawerProgress.value).toBeNull();
+    ui.finishSwipe(event(160).value);
+    expect(ui.drawerOpen.value).toBe(true);
   });
 
   test("blocks scrolling from the first horizontal movement through vertical drift", () => {

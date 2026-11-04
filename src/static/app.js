@@ -12042,7 +12042,7 @@ function N$1(n, t) {
 }
 //#endregion
 //#region src/ui/drawerSwipe.ts
-function createDrawerSwipe({ drawerOpen, drawerProgress, isList, drawerWidth, drawerPosition, clock = performance }) {
+function createDrawerSwipe({ drawerOpen, drawerProgress, isList, drawerWidth, drawerPosition, onProgress, clock = performance }) {
 	let swipe = null;
 	const clampDrawer = (value) => Math.max(0, Math.min(1, value));
 	function cancelSwipe() {
@@ -12098,7 +12098,9 @@ function createDrawerSwipe({ drawerOpen, drawerProgress, isList, drawerWidth, dr
 		}
 		gesture.lastX = touch.clientX;
 		gesture.lastTime = now;
-		drawerProgress.value = clampDrawer(gesture.progress + dx / gesture.width);
+		const progress = clampDrawer(gesture.progress + dx / gesture.width);
+		if (onProgress) onProgress(progress, gesture.width);
+		else drawerProgress.value = progress;
 	}
 	function finishSwipe(event) {
 		const gesture = swipe;
@@ -12930,7 +12932,6 @@ function createChatsPageController(initialProps) {
 	const baselineAt = y$2(0);
 	const drawerOpen = y$2(false);
 	const drawerProgress = y$2(null);
-	const visibleDrawerProgress = O(() => drawerProgress.value ?? (drawerOpen.value ? 1 : 0));
 	const filtersOpen = y$2(false);
 	const expandedPrompts = y$2({});
 	const total = y$2(0);
@@ -13994,7 +13995,19 @@ function createChatsPageController(initialProps) {
 			if (bounds?.width) return 1 + bounds.x / bounds.width;
 			return drawerOpen.value ? 1 : 0;
 		},
-		drawerWidth: () => sidebarPane.value?.getBoundingClientRect().width || Math.min(340, innerWidth - 44)
+		drawerWidth: () => sidebarPane.value?.getBoundingClientRect().width || Math.min(340, innerWidth - 44),
+		onProgress: (progress, width) => {
+			const sidebar = sidebarPane.peek();
+			if (!sidebar) {
+				drawerProgress.value = progress;
+				return;
+			}
+			const pixelRatio = window.devicePixelRatio || 1;
+			const offset = Math.round((progress - 1) * width * pixelRatio) / pixelRatio;
+			sidebar.style.setProperty("--drawer-offset", `${offset}px`);
+			sidebar.previousElementSibling?.style.setProperty("--drawer-opacity", String(progress * .6));
+			if (drawerProgress.peek() === null) drawerProgress.value = progress;
+		}
 	});
 	function selectRun(item) {
 		markRead(item);
@@ -14149,7 +14162,6 @@ function createChatsPageController(initialProps) {
 		markingAllRead,
 		drawerOpen,
 		drawerProgress,
-		visibleDrawerProgress,
 		filtersOpen,
 		expandedPrompts,
 		search,
@@ -22436,7 +22448,6 @@ function ChatsPage(props) {
 }
 function DrawerLayout({ model, children }) {
 	N$1();
-	const progress = model.visibleDrawerProgress.value;
 	return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("section", {
 		"aria-label": "Prompta local chats and jobs",
 		className: [
@@ -22445,10 +22456,6 @@ function DrawerLayout({ model, children }) {
 			model.drawerProgress.value !== null ? "drawer-interacting" : "",
 			model.view.value === "chats" && !model.selectedRunId.value && !model.newChatOpen.value ? "show-list" : ""
 		].filter(Boolean).join(" "),
-		style: {
-			"--drawer-offset": `${(progress - 1) * 100}%`,
-			"--drawer-opacity": progress * .6
-		},
 		children
 	});
 }
