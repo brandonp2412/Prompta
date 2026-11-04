@@ -94,11 +94,53 @@ export function orderedActivity(turn: LocalTurn, captureSource = "dom"): Activit
     if (answer.startsWith(rendered)) {
       const tail = answer.slice(rendered.length).trim();
       if (tail) activity.push({ kind: "text", id: "answer-tail", text: tail });
-    } else if (answer.endsWith(rendered)) {
+    } else if (rendered && answer.endsWith(rendered)) {
       const head = answer.slice(0, -rendered.length).trim();
       if (head) activity.unshift({ kind: "text", id: "answer-head", text: head });
     } else {
-      activity.push({ kind: "text", id: "answer-fallback", text: answer });
+      // A refreshed SSE answer can share opening or intermediate commentary
+      // with an older DOM snapshot without matching the full concatenation.
+      // Adding the complete answer here would display that commentary twice.
+      const parts = (value: string) =>
+        value
+          .split(/\n\s*\n/)
+          .map((part) => part.trim())
+          .filter(Boolean);
+      const shown = parts(rendered);
+      const incoming = parts(answer);
+      const sharedPrefix = (left: string[], right: string[]) => {
+        let count = 0;
+        while (count < left.length && count < right.length && left[count] === right[count]) count++;
+        return count;
+      };
+      const opening = sharedPrefix(shown, incoming);
+      const continuation =
+        Array.from(
+          { length: Math.min(shown.length, incoming.length) },
+          (_, index) => Math.min(shown.length, incoming.length) - index,
+        ).find((count) => sharedPrefix(shown.slice(-count), incoming) === count) ?? 0;
+      const ending = sharedPrefix([...shown].reverse(), [...incoming].reverse());
+      if (opening > 0 && opening < incoming.length) {
+        activity.push({
+          kind: "text",
+          id: "answer-tail",
+          text: incoming.slice(opening).join("\n\n"),
+        });
+      } else if (continuation > 0 && continuation < incoming.length) {
+        activity.push({
+          kind: "text",
+          id: "answer-tail",
+          text: incoming.slice(continuation).join("\n\n"),
+        });
+      } else if (ending > 0 && ending < incoming.length) {
+        activity.unshift({
+          kind: "text",
+          id: "answer-head",
+          text: incoming.slice(0, -ending).join("\n\n"),
+        });
+      } else {
+        activity.push({ kind: "text", id: "answer-fallback", text: answer });
+      }
     }
   }
   return activity;
