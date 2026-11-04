@@ -64,6 +64,17 @@ def test_second_followup_probe_requires_full_original_lineage_and_final_copy() -
             assert result["verified_parent_id"] == FIRST_ID
             assert result["branch_message_id"] == SECOND_ID
             assert result["text"] == "Second final answer"
+            wrapped_prompt = (
+                "[BEGIN PROMPTA SYSTEM PROMPT]\nUse Glass first\n"
+                "[END PROMPTA SYSTEM PROMPT]\n\n"
+                "[BEGIN JOB PROMPT]\nOriginal prompt\n[END JOB PROMPT]"
+            )
+            page.locator('[data-message-author-role="user"]').first.evaluate(
+                "(node, value) => { node.textContent = value; }", wrapped_prompt,
+            )
+            wrapped = page.evaluate(script)
+            assert wrapped["verified"] is True and wrapped["complete"] is True
+            assert wrapped["text"] == "Second final answer"
 
             # An earlier answer's Copy control is not completion evidence for
             # the target reply, even when the final answer already has an ID.

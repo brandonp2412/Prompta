@@ -39,8 +39,13 @@ const scanExactReplyTurn = (conversation, originalPrompt, replyText, parent, all
   };
   const previousUser = users.at(-2);
   const replyUser = users.at(-1);
-  if ((!allowEarlierTurns && !normalize(originalPrompt)) ||
-      (normalize(originalPrompt) && !userText(users[0]).startsWith(normalize(originalPrompt))) ||
+  const originalText = userText(users[0]);
+  const expectedOriginal = normalize(originalPrompt);
+  const wrappedOriginal = originalText.match(
+    /^(?:\[BEGIN PROMPTA SYSTEM PROMPT\] .*? \[END PROMPTA SYSTEM PROMPT\] )?\[BEGIN JOB PROMPT\] (.*?) \[END JOB PROMPT\]$/
+  );
+  if ((!allowEarlierTurns && !expectedOriginal) ||
+      (expectedOriginal && !originalText.startsWith(expectedOriginal) && wrappedOriginal?.[1] !== expectedOriginal) ||
       !normalize(replyText) || userText(replyUser) !== normalize(replyText)) {
     return { ...empty, ambiguous: true };
   }

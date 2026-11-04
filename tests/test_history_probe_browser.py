@@ -62,8 +62,18 @@ def test_historical_probe_real_chromium_dom() -> None:
                     {"action": "Used Calendar", "status": "completed"},
                 ]
                 assert result["branch_message_id"] == "87654321-4321-4321-8321-123456789abc"
+                wrapped_prompt = (
+                    "[BEGIN PROMPTA SYSTEM PROMPT]\nUse Glass first\n"
+                    "[END PROMPTA SYSTEM PROMPT]\n\n"
+                    "[BEGIN JOB PROMPT]\nOriginal prompt\n[END JOB PROMPT]"
+                )
                 await page.locator('[data-message-author-role="user"] p').evaluate(
-                    "element => element.textContent = 'Wrong prompt'",
+                    "(element, value) => { element.textContent = value; }", wrapped_prompt,
+                )
+                wrapped = await page.evaluate(script, isolated_context=False)
+                assert wrapped["verified"] is True and wrapped["complete"] is True
+                await page.locator('[data-message-author-role="user"] p').evaluate(
+                    "element => element.textContent = '[BEGIN JOB PROMPT] Wrong prompt [END JOB PROMPT]'",
                 )
                 mismatched = await page.evaluate(script, isolated_context=False)
                 assert isinstance(mismatched, dict)

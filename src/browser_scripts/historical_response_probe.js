@@ -26,8 +26,13 @@
   const userBody = users[0].querySelector?.(".whitespace-pre-wrap") || users[0];
   const userText = normalize(userBody.innerText || userBody.textContent || "");
   const expected = normalize(originalPrompt);
-  // Controls may append labels to the original user text, but must not replace it.
-  if (!expected || (!userText.startsWith(expected) && userText !== expected)) {
+  // Prompta sends scheduled jobs inside a marked prompt block, but stores only
+  // the job text. Verify the complete block, never an arbitrary substring.
+  const wrapped = userText.match(
+    /^(?:\[BEGIN PROMPTA SYSTEM PROMPT\] .*? \[END PROMPTA SYSTEM PROMPT\] )?\[BEGIN JOB PROMPT\] (.*?) \[END JOB PROMPT\]$/
+  );
+  // Controls may append labels to ordinary user text, but must not replace it.
+  if (!expected || (!userText.startsWith(expected) && wrapped?.[1] !== expected)) {
     return { ...empty, ambiguous: true };
   }
   const assistantSelector = '[data-message-author-role="assistant"][data-message-id], [data-chatgpt-search-unit-key$=":assistant"][data-chatgpt-search-message-ids], [data-content-search-unit-key$=":assistant"]';
