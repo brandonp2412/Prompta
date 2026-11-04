@@ -13104,12 +13104,12 @@ function createChatsPageController(initialProps) {
 			eta: runEtas.get(item.send_id) ?? Number.POSITIVE_INFINITY,
 			key: "chat:" + item.send_id
 		}))];
-		const etaMinute = (seconds) => Math.ceil(seconds / 60);
+		const etaMinute = (seconds) => Number.isFinite(seconds) ? Math.ceil(seconds / 60) : -1;
 		const kindOrder = {
 			chat: 0,
 			job: 1
 		};
-		return entries.sort((a, b) => etaMinute(a.eta) - etaMinute(b.eta) || kindOrder[a.kind] - kindOrder[b.kind] || a.key.localeCompare(b.key));
+		return entries.sort((a, b) => etaMinute(b.eta) - etaMinute(a.eta) || kindOrder[a.kind] - kindOrder[b.kind] || a.key.localeCompare(b.key));
 	});
 	const pinned = O(() => {
 		const byId = new Map([...pinnedItems.value, ...items.value].map((item) => [item.send_id, item]));
@@ -21626,7 +21626,10 @@ function title(call) {
 	if (connector.toLowerCase() === "web") return `Web · ${call.status === "running" ? "Searching" : "Searched"} the web`;
 	if (connector.toLowerCase() === "python") return `Python · ${call.status === "running" ? "Analyzing" : "Analyzed"} data`;
 	const action = call.action.trim().replace(/([a-z])([A-Z])/g, "$1 $2").replace(/[_-]+/g, " ").replace(/\s+/g, " ").replace(/^\w/, (initial) => initial.toUpperCase()).replace(/\bpython\b/gi, "Python");
-	return [connector || (action === "Execute Python" ? "Unknown device" : ""), action].filter(Boolean).join(" · ") || "Tool call";
+	let source = connector.toLowerCase() === "tool" ? "" : connector;
+	if (!source && action === "Execute Python") source = "Unknown device";
+	else if (!source && connector) source = "Unknown connector";
+	return [source, action].filter(Boolean).join(" · ") || "Tool call";
 }
 function status(call) {
 	if (call.status === "error" || call.error) return "Failed";
