@@ -13350,6 +13350,8 @@ function createChatsPageController(initialProps) {
 				const longest = delays.reduce((selected, current) => current.seconds > selected.seconds ? current : selected);
 				recoveryPauseSeconds.value = Math.ceil(longest.seconds);
 				recoveryPauseReason.value = longest.reason;
+				if ((body.recovery?.account_read_backoff_seconds ?? 0) > 0) recoveryPauseReason.value = "account read cooldown";
+				else if ((body.recovery?.security_pause_seconds ?? 0) > 0) recoveryPauseReason.value = "security cooldown";
 			}
 			const attention = body.recovery?.attention_chats;
 			const backlog = body.recovery?.recoverable;

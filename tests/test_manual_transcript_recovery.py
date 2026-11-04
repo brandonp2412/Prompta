@@ -149,7 +149,7 @@ def test_requested_chat_is_next_without_local_delay_and_is_consumed_once(
     worker = HistoryRecovery(store, runtime, FakeHistoryDriver)
     seen: list[str] = []
 
-    async def read(_conversation_id: str, _prompt: str) -> CaptureResult:
+    async def read(_conversation_id: str, _prompt: str, **_kwargs: object) -> CaptureResult:
         seen.append("read")
         return CaptureResult("dom", "complete", "Recovered", CONVERSATION, None, None, "observer")
 
@@ -222,7 +222,7 @@ def test_failed_requested_probe_remains_queued_for_eventual_recovery(
     runtime = SchedulerRuntime(tmp_path / "runtime.sqlite3", tmp_path / "jobs.json")
     worker = HistoryRecovery(store, runtime, FakeHistoryDriver)
 
-    async def no_response(_conversation_id: str, _prompt: str) -> None:
+    async def no_response(_conversation_id: str, _prompt: str, **_kwargs: object) -> None:
         return None
 
     monkeypatch.setattr(worker, "_read_original_response", no_response)
@@ -231,7 +231,7 @@ def test_failed_requested_probe_remains_queued_for_eventual_recovery(
     assert store.manual_recovery_pending("incomplete-target") == 1
     assert store.history_recovery_global_attempt_count() == 1
 
-    async def recovered(_conversation_id: str, _prompt: str) -> CaptureResult:
+    async def recovered(_conversation_id: str, _prompt: str, **_kwargs: object) -> CaptureResult:
         return CaptureResult("dom", "complete", "Recovered", CONVERSATION, None, None, "observer")
 
     monkeypatch.setattr(worker, "_read_original_response", recovered)
@@ -284,7 +284,7 @@ def test_failed_requested_probe_moves_behind_other_manual_requests(
     worker = HistoryRecovery(store, runtime, FakeHistoryDriver)
     attempts: list[str] = []
 
-    async def read(_conversation_id: str, prompt: str) -> CaptureResult | None:
+    async def read(_conversation_id: str, prompt: str, **_kwargs: object) -> CaptureResult | None:
         attempts.append(prompt)
         if len(attempts) == 1:
             return None

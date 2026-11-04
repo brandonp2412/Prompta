@@ -683,6 +683,13 @@ export function createChatsPageController(initialProps: Props) {
         );
         recoveryPauseSeconds.value = Math.ceil(longest.seconds);
         recoveryPauseReason.value = longest.reason;
+        // The longest wait is the ETA, but an actual read-rate limit is the
+        // useful explanation even when the shared pacing slot ends later.
+        if ((body.recovery?.account_read_backoff_seconds ?? 0) > 0) {
+          recoveryPauseReason.value = "account read cooldown";
+        } else if ((body.recovery?.security_pause_seconds ?? 0) > 0) {
+          recoveryPauseReason.value = "security cooldown";
+        }
       }
       const attention = body.recovery?.attention_chats;
       const backlog = body.recovery?.recoverable;
