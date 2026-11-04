@@ -9,6 +9,17 @@ from patchright.async_api import async_playwright as async_patchright
 from prompta.browser_script_loader import load_browser_script, passive_observer_init_script
 
 
+def _without_seen_at(blocks: list[dict[str, object]]) -> list[dict[str, object]]:
+    """Check passive prose timestamps before comparing chronological blocks."""
+    for block in blocks:
+        if block.get("kind") != "text":
+            continue
+        seen_at = block.get("seen_at")
+        assert isinstance(seen_at, str)
+        assert float(seen_at) > 0
+    return [{key: value for key, value in block.items() if key != "seen_at"} for block in blocks]
+
+
 @pytest.mark.skipif(not (Path.home() / ".cache/ms-playwright/chromium-1228/chrome-linux64/chrome").exists(), reason="Bundled Chromium unavailable")
 def test_passive_observer_records_visible_commentary_before_tools() -> None:
     async def check() -> None:
@@ -33,7 +44,7 @@ def test_passive_observer_records_visible_commentary_before_tools() -> None:
                 """)
                 observed = await page.evaluate("window.__promptaPassiveResponseObserver.read()")
                 assert observed["text"] == "I'll check the source first.\n\nHere is what I found."
-                assert observed["display_blocks"] == [
+                assert _without_seen_at(observed["display_blocks"]) == [
                     {"kind": "text", "id": "text-0", "text": "I'll check the source first."},
                     {"kind": "tool", "id": "dom-tool-0"},
                     {"kind": "text", "id": "text-1", "text": "Here is what I found."},
@@ -93,7 +104,7 @@ def test_passive_observer_survives_full_chat_navigation() -> None:
                     "window.__promptaPassiveResponseObserver.read()", isolated_context=False
                 )
                 assert observed["text"] == "Beginning text.\n\nIntermediate text."
-                assert observed["display_blocks"] == [
+                assert _without_seen_at(observed["display_blocks"]) == [
                     {"kind": "text", "id": "text-0", "text": "Beginning text."},
                     {"kind": "tool", "id": "dom-tool-0"},
                     {"kind": "text", "id": "text-1", "text": "Intermediate text."},
@@ -116,7 +127,7 @@ def test_passive_observer_survives_full_chat_navigation() -> None:
                     "window.__promptaPassiveResponseObserver.read()", isolated_context=False
                 )
                 assert observed["text"] == "Beginning text.\n\nIntermediate text.\n\nFinal text."
-                assert observed["display_blocks"][-1] == {
+                assert _without_seen_at(observed["display_blocks"])[-1] == {
                     "kind": "text", "id": "text-2", "text": "Final text."
                 }
                 assert observed["branch_message_id"] == "59188b32-a6b2-5b6d-9f58-59ed1ebaba53"
