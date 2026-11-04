@@ -43,10 +43,7 @@ function title(call: CapturedToolCall): string {
     .replace(/^\w/, (initial) => initial.toUpperCase())
     .replace(/\bpython\b/gi, "Python");
   const knownConnector = connector.toLowerCase() === "tool" ? "" : connector;
-  let source = knownConnector;
-  if (!source && action === "Execute Python") source = "Unknown device";
-  else if (!source && connector) source = "Unknown connector";
-  return [source, action].filter(Boolean).join(" · ") || "Tool call";
+  return [knownConnector, action].filter(Boolean).join(" · ") || "Tool call";
 }
 
 function status(call: CapturedToolCall): string {

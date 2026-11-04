@@ -59,9 +59,9 @@ test("built-in and missing connectors are not confused with a device", () => {
   ).toEqual([
     "Web · Searched the web",
     "Python · Analyzed data",
-    "Unknown device · Execute Python",
-    "Unknown device · Execute Python",
-    "Unknown connector · Replace content",
+    "Execute Python",
+    "Execute Python",
+    "Replace content",
   ]);
   unmount();
 });

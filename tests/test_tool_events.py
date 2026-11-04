@@ -44,6 +44,117 @@ def test_stream_calls_recover_device_from_nonopaque_tool_namespace() -> None:
     ]
 
 
+def test_result_resource_identifies_opaque_device_without_guessing_other_calls() -> None:
+    collector = ToolEventCollector()
+    for identifier in ("glass", "nox"):
+        assert collector.observe({
+            "id": identifier,
+            "author": {"role": "assistant"},
+            "recipient": "api_tool.call_tool",
+            "content": {"content_type": "text", "parts": [json.dumps({
+                "path": f"/asdk_app_{identifier}/link_{identifier}/execute_python",
+                "args": {"code": "print(1)"},
+            })]},
+        })
+    assert [call["connector"] for call in collector.snapshot()] == ["Tool", "Tool"]
+
+    # Same action is pending on both devices: use the exact call id.
+    assert collector.observe({
+        "id": "result-nox",
+        "author": {"role": "tool"},
+        "invoked_resource": {
+            "app_name": "Nox Python MCP",
+            "resource_uri": "/Nox Python MCP/link_nox/execute_python",
+        },
+        "content": {"parts": ["1"]},
+    })
+    assert [(call["connector"], call["status"]) for call in collector.snapshot()] == [
+        ("Tool", "running"), ("Nox Python MCP", "completed"),
+    ]
+
+    assert collector.observe({
+        "id": "result-glass",
+        "author": {"role": "tool"},
+        "invoked_resource": {
+            "app_name": "Glass",
+            "resource_uri": "/asdk_app_glass/link_glass/execute_python",
+        },
+        "content": {"parts": ["1"]},
+    })
+    assert [(call["connector"], call["status"]) for call in collector.snapshot()] == [
+        ("Glass", "completed"), ("Nox Python MCP", "completed"),
+    ]
+
+
+def test_completed_call_is_upgraded_only_by_exact_result_identity() -> None:
+    collector = ToolEventCollector()
+    assert collector.observe({
+        "id": "completed-call",
+        "author": {"role": "assistant"},
+        "recipient": "api_tool.call_tool",
+        "content": {"content_type": "text", "parts": [json.dumps({
+            "path": "/asdk_app_opaque/link_opaque/execute_python",
+            "args": {"code": "print(1)"}, "status": "completed", "result": "1",
+        })]},
+    })
+    assert collector.snapshot()[0]["connector"] == "Tool"
+    assert collector.observe({
+        "id": "later-result",
+        "author": {"role": "tool"},
+        "metadata": {"tool_call_id": "completed-call"},
+        "invoked_resource": {
+            "app_name": "Pi Python MCP",
+            "resource_uri": "/asdk_app_opaque/link_opaque/execute_python",
+        },
+        "content": {"parts": ["1"]},
+    })
+    assert collector.snapshot()[0]["connector"] == "Pi Python MCP"
+
+
+def test_result_from_different_resource_cannot_relabel_pending_call() -> None:
+    collector = ToolEventCollector()
+    assert collector.observe({
+        "id": "glass-call",
+        "author": {"role": "assistant"},
+        "recipient": "api_tool.call_tool",
+        "content": {"content_type": "text", "parts": [json.dumps({
+            "path": "/asdk_app_glass/link_glass/execute_python", "args": {"code": "print(1)"},
+        })]},
+    })
+    assert collector.observe({
+        "id": "unrelated-result",
+        "author": {"role": "tool"},
+        "invoked_resource": {
+            "app_name": "Nox Python MCP",
+            "resource_uri": "/asdk_app_nox/link_nox/execute_python",
+        },
+        "content": {"parts": ["1"]},
+    })
+    assert collector.snapshot()[0]["connector"] == "Tool"
+    assert collector.snapshot()[0]["status"] == "running"
+
+
+def test_ambiguous_result_does_not_guess_device() -> None:
+    collector = ToolEventCollector()
+    for identifier in ("first", "second"):
+        assert collector.observe({
+            "id": identifier,
+            "author": {"role": "assistant"},
+            "recipient": "api_tool.call_tool",
+            "content": {"content_type": "text", "parts": [json.dumps({
+                "path": "/asdk_app_opaque/link_opaque/execute_python",
+                "args": {"code": "print(1)"},
+            })]},
+        })
+    assert collector.observe({
+        "id": "unmatched-result",
+        "author": {"role": "tool"},
+        "invoked_resource": {"app_name": "Glass", "resource_uri": "/asdk_app_opaque/link_opaque/execute_python"},
+        "content": {"parts": ["1"]},
+    })
+    assert [call["connector"] for call in collector.snapshot()] == ["Tool", "Tool"]
+
+
 def test_stream_tool_evidence_replaces_dom_summary_without_duplicates() -> None:
     dom: tuple[dict[str, object], ...] = (
         {"id": "dom-tool-0", "connector": "", "action": "Used search", "status": "observed"},

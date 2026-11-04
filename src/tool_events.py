@@ -123,6 +123,15 @@ def summarize_stream_tool_calls(
     return tuple(summaries)
 
 
+def _resource_key(value: object) -> str:
+    """Match a link across readable invocation and opaque result resource paths."""
+    path = _text(value).strip("/")
+    parts = path.split("/")
+    if len(parts) >= 2 and parts[-2].startswith("link_"):
+        return "/".join(parts[-2:])
+    return path
+
+
 def _connector_name(value: object) -> str:
     """Use a real connector identity, not an opaque app ID or the assistant role."""
     name = _text(value).strip().strip("/")
@@ -154,6 +163,7 @@ class ToolEventCollector:
         self._pending: list[str] = []
         self._results: dict[str, str] = {}
         self._recipients: dict[str, str] = {}
+        self._resources: dict[str, str] = {}
 
     def observe(self, message: dict[str, object]) -> bool:
         author = _record(message.get("author"))
@@ -238,6 +248,8 @@ class ToolEventCollector:
                     entry[field] = existing[field]
         self._calls[identifier] = entry
         self._recipients[identifier] = recipient
+        if resource := _resource_key(path):
+            self._resources[identifier] = resource
         if status == "running" and identifier not in self._pending:
             self._pending.append(identifier)
         if status != "running" and identifier in self._pending:
@@ -247,34 +259,54 @@ class ToolEventCollector:
     def _result(self, message: dict[str, object]) -> None:
         result_id = _text(message.get("id"))
         known = self._results.get(result_id) if result_id else None
-        if not self._pending and known is None:
-            return
         invoked = _record(message.get("invoked_resource"))
         action = (_name_from_path(invoked.get("resource_uri"))
                   or _text(_record(message.get("author")).get("name"))).rsplit(".", 1)[-1]
         metadata = _record(message.get("metadata"))
         target = _text(metadata.get("tool_call_id"))
-        if target in self._pending:
+        if not self._pending and known is None and target not in self._calls:
+            return
+        if target in self._calls:
             action = _text(self._calls[target].get("action"))
+        resource_key = _resource_key(invoked.get("resource_uri"))
+        same_resource = [key for key in self._pending if (
+            resource_key and self._resources.get(key) == resource_key
+        )]
         author_name = _text(_record(message.get("author")).get("name"))
         matching = [key for key in self._pending if (
             not action or self._calls[key]["action"] == action
             or (author_name and (self._recipients.get(key) == author_name
                                  or self._recipients.get(key, "").split(".", 1)[0] == author_name))
         )]
-        if not matching and known is None:
+        if not matching and not same_resource and known is None and target not in self._calls:
             return
         if known is not None:
             key = known
-        elif target in self._pending:
+        elif target in self._calls:
             key = target
-        elif len(matching) == 1:
+        elif len(same_resource) == 1:
+            key = same_resource[0]
+        elif len(matching) == 1 and (
+            not resource_key or not self._resources.get(matching[0])
+            or self._resources[matching[0]] == resource_key
+        ):
             key = matching[0]
         else:
             return
         if result_id and len(self._results) < _MAX_TOOLS:
             self._results[result_id] = key
         entry = self._calls[key]
+        # Tool result messages can identify the source even when the invocation
+        # used an opaque app/link path. Only upgrade the matched invocation:
+        # unrelated concurrent calls may use the same action name.
+        if not _connector_name(entry.get("connector")):
+            resource_path = _text(invoked.get("resource_uri")).strip("/")
+            connector = next((name for candidate in (
+                invoked.get("app_name"), invoked.get("display_name"),
+                metadata.get("app_name"), resource_path.split("/", 1)[0],
+            ) if (name := _connector_name(candidate)) and name != action), "")
+            if connector:
+                entry["connector"] = connector[:100]
         content = _record(message.get("content"))
         parts = content.get("parts")
         value = parts[0] if isinstance(parts, list) and parts else content.get("text")
