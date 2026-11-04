@@ -9,6 +9,8 @@ function mergeConfirmedTurn(previous: LocalTurn, incoming: LocalTurn): LocalTurn
   const older = latest === incoming ? previous : incoming;
   const latestCalls = latest.tool_calls?.length ?? 0;
   const olderCalls = older.tool_calls?.length ?? 0;
+  const latestBlocks = latest.display_blocks?.length ?? 0;
+  const olderBlocks = older.display_blocks?.length ?? 0;
   return {
     ...latest,
     ...(older.conversation_id && !latest.conversation_id
@@ -21,6 +23,7 @@ function mergeConfirmedTurn(previous: LocalTurn, incoming: LocalTurn): LocalTurn
         ? latest.assistant_text
         : older.assistant_text,
     ...(olderCalls > latestCalls ? { tool_calls: older.tool_calls } : {}),
+    ...(olderBlocks > latestBlocks ? { display_blocks: older.display_blocks } : {}),
     status:
       latest.status === "completed" || older.status !== "completed" ? latest.status : "completed",
   };
@@ -71,6 +74,7 @@ export function recoverVisibleTurns(
     current.status === first.status &&
     current.assistant_text === first.assistant_text &&
     current.tool_calls === first.tool_calls &&
+    current.display_blocks === first.display_blocks &&
     current.user_text === first.user_text &&
     current.message_id === first.message_id &&
     current.conversation_id === first.conversation_id

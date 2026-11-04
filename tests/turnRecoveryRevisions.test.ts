@@ -92,3 +92,14 @@ test("primary detail hydration preserves the verified exact-reply branch", () =>
     reply,
   ]);
 });
+
+test("newer detail cannot erase ordered prose and tool positions from a saved turn", () => {
+  const blocks = [
+    { kind: "text" as const, id: "text-0", text: "Opening" },
+    { kind: "tool" as const, id: "dom-tool-0" },
+    { kind: "text" as const, id: "text-1", text: "Final" },
+  ];
+  const stored = { ...first, display_blocks: blocks };
+  const detail = { ...first, updated_at: 3 };
+  expect(recoverVisibleTurns([stored], [], detail, false)[0]?.display_blocks).toEqual(blocks);
+});

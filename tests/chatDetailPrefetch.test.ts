@@ -14,6 +14,11 @@ const detail = (id: string): RunDetail => ({
   preview: "Answer " + id,
   user_text: "Prompt " + id,
   assistant_text: "Answer " + id,
+  display_blocks: [
+    { kind: "text", id: "text-0", text: "Opening " + id },
+    { kind: "tool", id: "dom-tool-0" },
+    { kind: "text", id: "text-1", text: "Answer " + id },
+  ],
   source: "test",
   images: [],
   status: "completed",
@@ -69,6 +74,7 @@ test("hover prefetch is coalesced and makes selected chat content available imme
   model.syncProps({ ...props, selectedRunId: "recent" });
   expect(model.detail.value?.send_id).toBe("recent");
   expect(model.turns.value[0]?.assistant_text).toBe("Answer recent");
+  expect(model.turns.value[0]?.display_blocks).toEqual(detail("recent").display_blocks);
   expect(model.switchingChat.value).toBe(true);
   expect(requests).toHaveLength(2);
 });
