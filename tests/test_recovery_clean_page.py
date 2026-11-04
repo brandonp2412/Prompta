@@ -92,6 +92,42 @@ def test_clean_page_without_reply_updates_goes_green_then_stale(
     assert turns is not None and turns[-1]["status"] == "interrupted"
 
 
+def test_read_only_reply_checks_do_not_extend_unchanged_generation(tmp_path: Path) -> None:
+    responses, replies, _worker = _interrupted_reply(tmp_path)
+    at = time.time()
+    with replies.engine.begin() as connection:
+        connection.execute(update(replies_table).where(
+            replies_table.c.reply_id == "reply-id",
+        ).values(status="generating", lease_owner="", lease_deadline=at + 900))
+
+    assert replies.observe_history_loaded("reply-id", CONVERSATION, PARENT, now=at)
+    assert replies.observe_history_loaded("reply-id", CONVERSATION, PARENT, now=at + 400)
+    with replies.engine.connect() as connection:
+        first = connection.execute(
+            replies_table.select().where(replies_table.c.reply_id == "reply-id")
+        ).mappings().one()
+        assert first["live_observed_at"] == at
+        assert first["lease_deadline"] == at + 900
+
+    partial = CaptureResult(
+        "dom", "partial", "Real follow-up activity", CONVERSATION, None, PARENT,
+        "turn", verified_generating=True, verified_loaded=True,
+    )
+    assert replies.recover_historical_reply("reply-id", partial, now=at + 410)
+    assert replies.recover_historical_reply("reply-id", partial, now=at + 1200)
+    assert replies.observe_history_loaded(
+        "reply-id", CONVERSATION, PARENT, now=at + 1201,
+    )
+    with replies.engine.connect() as connection:
+        last = connection.execute(
+            replies_table.select().where(replies_table.c.reply_id == "reply-id")
+        ).mappings().one()
+        assert last["live_observed_at"] == at + 410
+        assert last["lease_deadline"] == at + 1310
+    assert replies.recover_orphans(now=at + 1310) == 1
+    assert responses.get("original") is not None
+
+
 def test_clean_page_does_not_green_wrong_reply_parent(tmp_path: Path) -> None:
     _, replies, worker = _interrupted_reply(tmp_path)
     assert not replies.observe_history_loaded(

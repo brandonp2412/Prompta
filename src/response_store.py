@@ -849,10 +849,10 @@ class ResponseStore:
     def observe_history_generating(
         self, send_id: str, conversation_id: str, *, now: float | None = None,
     ) -> bool:
-        """Temporarily clear attention after a clean read of the exact conversation.
+        """Show one brief healthy observation of an exact branch without renewing idle time.
 
-        Interrupted captures stay eligible for completion recovery. Active
-        deployment captures also retain their slot for 15 minutes after this read.
+        Read-only probes are not generation progress. A second clean read cannot
+        restart the observation window or keep a detached capture admitted.
         """
         if not conversation_id:
             return False
@@ -864,10 +864,9 @@ class ResponseStore:
                 results.c.capture_owner == "",
                 results.c.status.in_(("interrupted", "unavailable", "accepted", "generating")),
             ).values(
-                live_observed_at=at,
-                capture_deadline=case(
-                    (results.c.status.in_(("accepted", "generating")), at + MAX_OWNED_TAB_AGE_SECONDS),
-                    else_=results.c.capture_deadline,
+                live_observed_at=case(
+                    (results.c.live_observed_at == 0, at),
+                    else_=results.c.live_observed_at,
                 ),
             ))
             return changed.rowcount == 1
@@ -912,6 +911,11 @@ class ResponseStore:
                 if not capture.tool_calls and not capture.verified_generating:
                     return False
                 text = saved_text
+            tools_json = merge_tool_calls(row["tool_calls_json"], capture.tool_calls)
+            progressed = (
+                text != saved_text or tools_json != row["tool_calls_json"]
+                or blocks_json != row["display_blocks_json"]
+            )
             changed = connection.execute(update(results).where(
                 results.c.send_id == send_id,
                 results.c.status.in_(("interrupted", "unavailable", "accepted", "generating")),
@@ -919,19 +923,19 @@ class ResponseStore:
                 results.c.capture_owner == "",
             ).values(
                 assistant_text=text, source="history_dom",
-                tool_calls_json=merge_tool_calls(row["tool_calls_json"], capture.tool_calls),
+                tool_calls_json=tools_json,
                 display_blocks_json=blocks_json,
                 message_id=capture.message_id or row["message_id"],
                 parent_id=capture.parent_id or row["parent_id"],
                 status="completed" if complete else row["status"],
-                live_observed_at=at if (capture.verified_generating or capture.verified_loaded) and not complete else 0,
-                updated_at=at,
+                live_observed_at=0 if complete else (
+                    at if progressed else row["live_observed_at"]
+                ),
+                updated_at=at if progressed or complete else row["updated_at"],
                 capture_deadline=(
                     at + MAX_OWNED_TAB_AGE_SECONDS
-                    if not complete and row["status"] in ("accepted", "generating")
-                    and (capture.verified_generating or text != saved_text
-                         or merge_tool_calls(row["tool_calls_json"], capture.tool_calls) != row["tool_calls_json"]
-                         or merge_display_blocks(row["display_blocks_json"], capture.display_blocks) != row["display_blocks_json"])
+                    if not complete and progressed
+                    and row["status"] in ("accepted", "generating")
                     else row["capture_deadline"]
                 ),
                 finished_at=at if complete else row["finished_at"],

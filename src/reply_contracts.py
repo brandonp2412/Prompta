@@ -809,9 +809,10 @@ class ManualReplyStore(ReplyReadState):
         self, reply_id: str, conversation_id: str, parent_id: str | None,
         *, now: float | None = None,
     ) -> bool:
-        """A clean, exact-branch read suppresses attention for 15 minutes.
+        """A first exact-branch read briefly suppresses attention, without renewal.
 
-        This is not completion and does not resend the saved reply.
+        Repeated history reads cannot extend the original idle lease or the
+        observation window; only genuinely new answer content can do that.
         """
         if not conversation_id or not parent_id:
             return False
@@ -824,10 +825,9 @@ class ManualReplyStore(ReplyReadState):
                 replies.c.lease_owner == "",
                 replies.c.status.in_(("interrupted", "outcome_unknown", "accepted", "generating")),
             ).values(
-                live_observed_at=at,
-                lease_deadline=case(
-                    (replies.c.status.in_(("accepted", "generating")), at + MAX_OWNED_TAB_AGE_SECONDS),
-                    else_=replies.c.lease_deadline,
+                live_observed_at=case(
+                    (replies.c.live_observed_at == 0, at),
+                    else_=replies.c.live_observed_at,
                 ),
             ))
             return changed.rowcount == 1
@@ -884,25 +884,31 @@ class ManualReplyStore(ReplyReadState):
                 capture.status == "complete" and bool(captured_text)
                 and len(captured_text) >= len(str(row["assistant_text"]))
             )
+            tools_json = merge_tool_calls(row["tool_calls_json"], capture.tool_calls)
+            blocks_json = merge_display_blocks(row["display_blocks_json"], capture.display_blocks)
+            progressed = (
+                text != str(row["assistant_text"]) or tools_json != row["tool_calls_json"]
+                or blocks_json != row["display_blocks_json"]
+            )
             changed = connection.execute(update(replies).where(
                 replies.c.reply_id == reply_id,
                 replies.c.status.in_(("outcome_unknown", "interrupted", "accepted", "generating")),
                 replies.c.lease_owner == "",
             ).values(
                 assistant_text=text,
-                tool_calls_json=merge_tool_calls(row["tool_calls_json"], capture.tool_calls),
-                display_blocks_json=merge_display_blocks(row["display_blocks_json"], capture.display_blocks),
+                tool_calls_json=tools_json,
+                display_blocks_json=blocks_json,
                 message_id=capture.message_id or row["message_id"],
                 status="completed" if complete else row["status"],
-                live_observed_at=at if (capture.verified_generating or capture.verified_loaded) and not complete else 0,
-                updated_at=at,
+                live_observed_at=0 if complete else (
+                    at if progressed else row["live_observed_at"]
+                ),
+                updated_at=at if progressed or complete else row["updated_at"],
                 finished_at=at if complete else row["finished_at"],
                 lease_deadline=(
                     at + MAX_OWNED_TAB_AGE_SECONDS
-                    if not complete and row["status"] in ("accepted", "generating")
-                    and (capture.verified_generating or text != str(row["assistant_text"])
-                         or merge_tool_calls(row["tool_calls_json"], capture.tool_calls) != row["tool_calls_json"]
-                         or merge_display_blocks(row["display_blocks_json"], capture.display_blocks) != row["display_blocks_json"])
+                    if not complete and progressed
+                    and row["status"] in ("accepted", "generating")
                     else row["lease_deadline"]
                 ),
             ))

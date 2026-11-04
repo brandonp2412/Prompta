@@ -205,18 +205,59 @@ def test_deploy_recovery_holds_capacity_until_idle_timeout(tmp_path: Path) -> No
     assert store.active_capture_send_ids(now=919) == {send_id}
     candidate = store.next_history_recovery(now=21)
     assert candidate is not None and candidate["send_id"] == send_id
-    # Verified live generation renews the same 15-minute idle lease.
+    # A clean read, even if a spinner is visible, is not new progress.
     store.observe_history_generating(send_id, conversation, now=900)
-    assert store.recover_orphans(now=920) == 0
-    assert store.active_capture_send_ids(now=1799) == {send_id}
-    assert store.recover_orphans(now=1800) == 1
-    assert store.active_capture_send_ids(now=1800) == set()
+    assert store.active_capture_send_ids(now=919) == {send_id}
+    assert store.recover_orphans(now=920) == 1
+    assert store.active_capture_send_ids(now=920) == set()
     record = store.get(send_id)
     assert record is not None and record["status"] == "interrupted"
     assert store.recover_historical_response(
         send_id, CaptureResult("dom", "complete", "Recovered", conversation, None, None, "turn"),
         now=1801,
     )
+
+
+def test_history_rechecks_do_not_reanimate_or_renew_idle_capture(tmp_path: Path) -> None:
+    from prompta.response_capture import CaptureResult
+    from prompta.response_store import ResponseStore
+
+    store = ResponseStore(tmp_path / "chat-results.sqlite3")
+    send_id = "manual-stuck"
+    conversation = "12345678-1234-4123-8123-123456789abc"
+    store.ensure_queued(send_id, "Original prompt", now=10)
+    assert store.accept(send_id, "999999999:dead", deadline=10000, now=11)
+    assert store.bind_conversation_route(
+        send_id, "999999999:dead", "/c/" + conversation, now=12,
+    )
+    store.prepare_deployment_recovery((send_id,), (), now=20)
+
+    # Initial verified history read may record one short-lived observation.
+    assert store.observe_history_generating(send_id, conversation, now=100)
+    # The same loaded page cannot keep extending it or the capture lease.
+    assert store.observe_history_generating(send_id, conversation, now=800)
+    row = store.get(send_id)
+    assert row is not None and row["live_observed_at"] == 100
+    assert row["capture_deadline"] == 920
+
+    partial = CaptureResult(
+        "dom", "partial", "Actual new text", conversation, None, None, "turn",
+        verified_generating=True, verified_loaded=True,
+    )
+    assert store.recover_historical_response(send_id, partial, now=810)
+    row = store.get(send_id)
+    assert row is not None and row["capture_deadline"] == 1710
+    assert row["live_observed_at"] == 810
+    assert store.recover_historical_response(send_id, partial, now=1600)
+    assert store.observe_history_generating(send_id, conversation, now=1601)
+    row = store.get(send_id)
+    assert row is not None and row["capture_deadline"] == 1710
+    assert row["live_observed_at"] == 810
+    assert store.recover_orphans(now=1710) == 1
+    assert store.observe_history_generating(send_id, conversation, now=1800)
+    row = store.get(send_id)
+    assert row is not None and row["status"] == "interrupted"
+    assert row["live_observed_at"] == 810
 
 
 def test_repeated_partial_snapshot_does_not_extend_recovery_slot(tmp_path: Path) -> None:

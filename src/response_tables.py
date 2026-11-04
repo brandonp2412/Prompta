@@ -56,7 +56,7 @@ _latest_live_at = (select(_reply_attention.c.live_observed_at)
                    .order_by(_reply_attention.c.created_at.desc(),
                              _reply_attention.c.reply_id.desc())
                    .limit(1).scalar_subquery())
-_live_cutoff = cast(func.strftime("%s", "now"), Float) - 10 * 60
+_live_cutoff = cast(func.strftime("%s", "now"), Float) - 15 * 60
 _attention_filter = or_(
     and_(_latest_reply.is_(None),
          results.c.status.in_(("interrupted", "unavailable", "outcome_unknown")),
