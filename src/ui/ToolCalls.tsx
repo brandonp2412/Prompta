@@ -42,11 +42,11 @@ function title(call: CapturedToolCall): string {
     .replace(/\s+/g, " ")
     .replace(/^\w/, (initial) => initial.toUpperCase())
     .replace(/\bpython\b/gi, "Python");
-  return (
-    [connector || (action === "Execute Python" ? "Unknown device" : ""), action]
-      .filter(Boolean)
-      .join(" · ") || "Tool call"
-  );
+  const knownConnector = connector.toLowerCase() === "tool" ? "" : connector;
+  let source = knownConnector;
+  if (!source && action === "Execute Python") source = "Unknown device";
+  else if (!source && connector) source = "Unknown connector";
+  return [source, action].filter(Boolean).join(" · ") || "Tool call";
 }
 
 function status(call: CapturedToolCall): string {

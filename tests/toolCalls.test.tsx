@@ -50,6 +50,8 @@ test("built-in and missing connectors are not confused with a device", () => {
     { ...call("web"), connector: "web", action: "search" },
     { ...call("python"), connector: "python", action: "execute_python" },
     { ...call("unknown"), connector: "", action: "execute_python" },
+    { ...call("generic"), connector: "Tool", action: "execute_python" },
+    { ...call("unidentified"), connector: "Tool", action: "replace_content" },
   ];
   const { container, unmount } = render(<ToolCalls calls={calls} />);
   expect(
@@ -58,6 +60,8 @@ test("built-in and missing connectors are not confused with a device", () => {
     "Web · Searched the web",
     "Python · Analyzed data",
     "Unknown device · Execute Python",
+    "Unknown device · Execute Python",
+    "Unknown connector · Replace content",
   ]);
   unmount();
 });

@@ -123,6 +123,29 @@ def summarize_stream_tool_calls(
     return tuple(summaries)
 
 
+def _connector_name(value: object) -> str:
+    """Use a real connector identity, not an opaque app ID or the assistant role."""
+    name = _text(value).strip().strip("/")
+    if name.startswith("mcp__codex_apps__"):
+        name = name.removeprefix("mcp__codex_apps__")
+    if not name or name.casefold() in {"assistant", "tool", "api_tool", "call_tool"}:
+        return ""
+    if name.startswith(("asdk_app_", "plugin_", "link_", "connector_")):
+        return ""
+    labels = {
+        "glass": "Glass",
+        "glass_execute_python": "Glass",
+        "glass_serena": "Glass Serena",
+        "nox": "Nox",
+        "nox_python_mcp": "Nox Python MCP",
+        "nox_serena": "Nox Serena",
+        "pi": "Pi",
+        "pi_python_mcp": "Pi Python MCP",
+        "patchright_brave": "Patchright Brave",
+    }
+    return labels.get(name.casefold(), name)
+
+
 class ToolEventCollector:
     """Deduplicates invocation snapshots and pairs tool results without recording thoughts."""
 
@@ -177,15 +200,22 @@ class ToolEventCollector:
         existing = self._calls.get(identifier)
         if existing is None and len(self._calls) >= _MAX_TOOLS:
             return True
-        connector = (
-            _text(app.get("appName")) or _text(invoked.get("app_name"))
-            or _text(author.get("name")) or _text(parsed.get("tool")).split(".", 1)[0]
-            or (_text(path).strip("/").split("/", 1)[0] if path else "")
+        tool_name = _text(parsed.get("tool"))
+        tool_namespace = (
+            tool_name.removesuffix("_" + action)
+            if tool_name.startswith("mcp__codex_apps__") and tool_name.endswith("_" + action)
+            else tool_name.split(".", 1)[0]
         )
-        if connector.startswith(("asdk_app_", "plugin_", "link_")):
-            connector = ""
-        if not connector or connector == action:
-            connector = recipient.split(".", 1)[0].replace("api_tool", "Tool")
+        resource_path = _text(invoked.get("resource_uri")).strip("/")
+        path_namespace = _text(path).strip("/").split("/", 1)[0]
+        connector = next((name for candidate in (
+            app.get("appName"), app.get("displayName"), app.get("name"),
+            invoked.get("app_name"), invoked.get("display_name"),
+            metadata.get("app_name"), tool_namespace,
+            path_namespace, resource_path.split("/", 1)[0], author.get("name"),
+        ) if (name := _connector_name(candidate)) and name != action), "")
+        if not connector:
+            connector = _connector_name(recipient.split(".", 1)[0]) or "Tool"
         arguments = parsed.get("arguments", parsed.get("args", parsed or first))
         status = _text(parsed.get("status")) or "running"
         if status not in ("running", "completed", "error", "observed"):

@@ -9,10 +9,39 @@ from prompta.response_capture import CaptureResult, normalize_dom_snapshot, pars
 from prompta.response_store import ResponseStore
 from prompta.strict_types import string_object_dict
 from prompta.tool_call_store import merge_tool_calls
+from prompta.tool_events import ToolEventCollector
 
 
 def event(message: Mapping[str, object]) -> str:
     return "data: " + json.dumps({"conversation_id": "chat-1", "message": message}) + "\n\n"
+
+
+def test_stream_calls_recover_device_from_nonopaque_tool_namespace() -> None:
+    collector = ToolEventCollector()
+    sources = (
+        ("glass", {"tool": "mcp__codex_apps__glass_execute_python", "path": "/asdk_app_hidden/execute_python"}),
+        ("nox", {"path": "/nox_python_mcp/execute_python"}),
+        ("pi", {"path": "/asdk_app_hidden/execute_python"}),
+        ("unknown", {"path": "/asdk_app_hidden/execute_python"}),
+    )
+    for identifier, payload in sources:
+        message = {
+            "id": identifier,
+            "author": {"role": "assistant", "name": "asdk_app_hidden"},
+            "recipient": "api_tool.call_tool",
+            "content": {"content_type": "text", "parts": [json.dumps({
+                **payload, "args": {"code": "print(1)"},
+            })]},
+            **({"invoked_resource": {"resource_uri": "/pi_python_mcp/execute_python"}}
+               if identifier == "pi" else {}),
+        }
+        assert collector.observe(message)
+    assert [(call["id"], call["connector"]) for call in collector.snapshot()] == [
+        ("glass", "Glass"),
+        ("nox", "Nox Python MCP"),
+        ("pi", "Pi Python MCP"),
+        ("unknown", "Tool"),
+    ]
 
 
 def test_stream_tool_evidence_replaces_dom_summary_without_duplicates() -> None:
