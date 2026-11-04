@@ -152,7 +152,6 @@ export function createJobsPageController(initialProps: Props) {
   let schedule = signal<"interval" | "daily" | "once">("once");
   let interval = signal("40");
   let onceDelay = signal("0");
-  let pinChat = signal(false);
   let initialDelay = "0";
   let originalRunAt: number | null = null;
   let dailyAt = signal("09:00");
@@ -190,7 +189,6 @@ export function createJobsPageController(initialProps: Props) {
     schedule.value = "interval";
     interval.value = "40";
     onceDelay.value = "0";
-    pinChat.value = false;
     initialDelay = "0";
     originalRunAt = null;
     dailyAt.value = "09:00";
@@ -205,7 +203,6 @@ export function createJobsPageController(initialProps: Props) {
       schedule: schedule.value,
       interval: interval.value,
       onceDelay: onceDelay.value,
-      pinChat: pinChat.value,
       dailyAt: dailyAt.value,
       exact: exact.value,
     });
@@ -336,7 +333,6 @@ export function createJobsPageController(initialProps: Props) {
       else if (job.daily_at) schedule.value = "daily";
       else schedule.value = "interval";
       originalRunAt = job.run_at_epoch;
-      pinChat.value = job.pin_chat;
       onceDelay.value = String(
         job.run_at_epoch
           ? Math.max(0, Math.round((job.run_at_epoch - Date.now() / 1000) / 6) / 10)
@@ -656,11 +652,10 @@ export function createJobsPageController(initialProps: Props) {
           prompt: jobPrompt,
           images: refs,
           delay_minutes: delayMinutes,
-          pin_chat: pinChat.value,
         },
         delayMinutes ? `Scheduled once in ${delayMinutes} minutes.` : "Queued one fresh chat.",
         delayMinutes === 0
-          ? { prompt: jobPrompt, images: refs, scope: "jobs:run-once:" + pinChat.value }
+          ? { prompt: jobPrompt, images: refs, scope: "jobs:run-once:false" }
           : undefined,
       );
       if (queued) {
@@ -677,7 +672,7 @@ export function createJobsPageController(initialProps: Props) {
         prompt: jobPrompt,
         images: images.value.map((image) => image.ref),
         schedule: schedule.value,
-        pin_chat: schedule.value === "once" && pinChat.value,
+        pin_chat: false,
         daily_at: daily ? dailyAt.value : "",
         interval_minutes: schedule.value === "interval" ? Number(interval.value) : null,
         exact_interval: schedule.value === "interval" && exact.value,
@@ -802,7 +797,6 @@ export function createJobsPageController(initialProps: Props) {
     schedule,
     interval,
     onceDelay,
-    pinChat,
     dailyAt,
     exact,
     editorOpen,

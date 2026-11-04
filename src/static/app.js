@@ -21,7 +21,7 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 	enumerable: true
 }) : target, mod));
 //#endregion
-//#region ../../prompta/node_modules/scheduler/cjs/scheduler.production.js
+//#region node_modules/scheduler/cjs/scheduler.production.js
 /**
 * @license React
 * scheduler.production.js
@@ -276,12 +276,12 @@ var require_scheduler_production = /* @__PURE__ */ __commonJSMin(((exports) => {
 	};
 }));
 //#endregion
-//#region ../../prompta/node_modules/scheduler/index.js
+//#region node_modules/scheduler/index.js
 var require_scheduler = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_scheduler_production();
 }));
 //#endregion
-//#region ../../prompta/node_modules/react/cjs/react.production.js
+//#region node_modules/react/cjs/react.production.js
 /**
 * @license React
 * react.production.js
@@ -668,12 +668,12 @@ var require_react_production = /* @__PURE__ */ __commonJSMin(((exports) => {
 	exports.version = "19.3.1";
 }));
 //#endregion
-//#region ../../prompta/node_modules/react/index.js
+//#region node_modules/react/index.js
 var require_react = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_react_production();
 }));
 //#endregion
-//#region ../../prompta/node_modules/react-dom/cjs/react-dom.production.js
+//#region node_modules/react-dom/cjs/react-dom.production.js
 /**
 * @license React
 * react-dom.production.js
@@ -826,7 +826,7 @@ var require_react_dom_production = /* @__PURE__ */ __commonJSMin(((exports) => {
 	exports.version = "19.3.1";
 }));
 //#endregion
-//#region ../../prompta/node_modules/react-dom/index.js
+//#region node_modules/react-dom/index.js
 var require_react_dom = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	function checkDCE() {
 		if (typeof __REACT_DEVTOOLS_GLOBAL_HOOK__ === "undefined" || typeof __REACT_DEVTOOLS_GLOBAL_HOOK__.checkDCE !== "function") return;
@@ -840,7 +840,7 @@ var require_react_dom = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_react_dom_production();
 }));
 //#endregion
-//#region ../../prompta/node_modules/react-dom/cjs/react-dom-client.production.js
+//#region node_modules/react-dom/cjs/react-dom-client.production.js
 /**
 * @license React
 * react-dom-client.production.js
@@ -11415,7 +11415,7 @@ var require_react_dom_client_production = /* @__PURE__ */ __commonJSMin(((export
 	};
 }));
 //#endregion
-//#region ../../prompta/node_modules/react-dom/client.js
+//#region node_modules/react-dom/client.js
 var require_client = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	function checkDCE() {
 		if (typeof __REACT_DEVTOOLS_GLOBAL_HOOK__ === "undefined" || typeof __REACT_DEVTOOLS_GLOBAL_HOOK__.checkDCE !== "function") return;
@@ -11429,7 +11429,7 @@ var require_client = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_react_dom_client_production();
 }));
 //#endregion
-//#region ../../prompta/node_modules/@preact/signals-core/dist/signals-core.module.js
+//#region node_modules/@preact/signals-core/dist/signals-core.module.js
 var import_react = /* @__PURE__ */ __toESM(require_react());
 var import_client = require_client();
 var i$1 = Symbol.for("preact-signals");
@@ -11841,7 +11841,7 @@ function x$2(i, t) {
 	return n;
 }
 //#endregion
-//#region ../../prompta/node_modules/use-sync-external-store/cjs/use-sync-external-store-shim.production.js
+//#region node_modules/use-sync-external-store/cjs/use-sync-external-store-shim.production.js
 /**
 * @license React
 * use-sync-external-store-shim.production.js
@@ -11901,7 +11901,7 @@ var require_use_sync_external_store_shim_production = /* @__PURE__ */ __commonJS
 	exports.useSyncExternalStore = void 0 !== React.useSyncExternalStore ? React.useSyncExternalStore : shim;
 }));
 //#endregion
-//#region ../../prompta/node_modules/@preact/signals-react/runtime/dist/runtime.module.js
+//#region node_modules/@preact/signals-react/runtime/dist/runtime.module.js
 var import_shim = (/* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_use_sync_external_store_shim_production();
 })))();
@@ -14678,7 +14678,6 @@ function createJobsPageController(initialProps) {
 	let schedule = y$2("once");
 	let interval = y$2("40");
 	let onceDelay = y$2("0");
-	let pinChat = y$2(false);
 	let initialDelay = "0";
 	let originalRunAt = null;
 	let dailyAt = y$2("09:00");
@@ -14712,7 +14711,6 @@ function createJobsPageController(initialProps) {
 		schedule.value = "interval";
 		interval.value = "40";
 		onceDelay.value = "0";
-		pinChat.value = false;
 		initialDelay = "0";
 		originalRunAt = null;
 		dailyAt.value = "09:00";
@@ -14726,7 +14724,6 @@ function createJobsPageController(initialProps) {
 			schedule: schedule.value,
 			interval: interval.value,
 			onceDelay: onceDelay.value,
-			pinChat: pinChat.value,
 			dailyAt: dailyAt.value,
 			exact: exact.value
 		});
@@ -14845,7 +14842,6 @@ function createJobsPageController(initialProps) {
 			else if (job.daily_at) schedule.value = "daily";
 			else schedule.value = "interval";
 			originalRunAt = job.run_at_epoch;
-			pinChat.value = job.pin_chat;
 			onceDelay.value = String(job.run_at_epoch ? Math.max(0, Math.round((job.run_at_epoch - Date.now() / 1e3) / 6) / 10) : 0);
 			initialDelay = onceDelay.value;
 			dailyAt.value = job.daily_at || "09:00";
@@ -15113,12 +15109,11 @@ function createJobsPageController(initialProps) {
 				action: "run_once",
 				prompt: jobPrompt,
 				images: refs,
-				delay_minutes: delayMinutes,
-				pin_chat: pinChat.value
+				delay_minutes: delayMinutes
 			}, delayMinutes ? `Scheduled once in ${delayMinutes} minutes.` : "Queued one fresh chat.", delayMinutes === 0 ? {
 				prompt: jobPrompt,
 				images: refs,
-				scope: "jobs:run-once:" + pinChat.value
+				scope: "jobs:run-once"
 			} : void 0)) {
 				initialForm.value = formSnapshot();
 				leaveEditor();
@@ -15132,7 +15127,7 @@ function createJobsPageController(initialProps) {
 			prompt: jobPrompt,
 			images: images.value.map((image) => image.ref),
 			schedule: schedule.value,
-			pin_chat: schedule.value === "once" && pinChat.value,
+			pin_chat: false,
 			daily_at: daily ? dailyAt.value : "",
 			interval_minutes: schedule.value === "interval" ? Number(interval.value) : null,
 			exact_interval: schedule.value === "interval" && exact.value,
@@ -15246,7 +15241,6 @@ function createJobsPageController(initialProps) {
 		schedule,
 		interval,
 		onceDelay,
-		pinChat,
 		dailyAt,
 		exact,
 		editorOpen,
@@ -15284,7 +15278,7 @@ function createJobsPageController(initialProps) {
 	};
 }
 //#endregion
-//#region ../../prompta/node_modules/react/cjs/react-jsx-runtime.production.js
+//#region node_modules/react/cjs/react-jsx-runtime.production.js
 /**
 * @license React
 * react-jsx-runtime.production.js
@@ -15329,7 +15323,7 @@ function JobEditor({ model, refs }) {
 	const keepEditingRef = (0, import_react.useRef)(null);
 	const cancelRef = (0, import_react.useRef)(null);
 	const wasConfirmingRef = (0, import_react.useRef)(false);
-	const { saving, editing, runOnce, name, schedule, interval, onceDelay, pinChat, dailyAt, exact, prompt, images, uploadingImage, imageInput, editorError, confirmDiscard, dirty, duplicateName, requestClose, discardEditor, keepFocusedPromptVisible, addImages, submit } = model;
+	const { saving, editing, runOnce, name, schedule, interval, onceDelay, dailyAt, exact, prompt, images, uploadingImage, imageInput, editorError, confirmDiscard, dirty, duplicateName, requestClose, discardEditor, keepFocusedPromptVisible, addImages, submit } = model;
 	function editorFeedback() {
 		if (editorError.value || duplicateName.value) return {
 			text: "",
@@ -15479,14 +15473,6 @@ function JobEditor({ model, refs }) {
 								checked: exact.value,
 								onChange: (event) => exact.value = event.currentTarget.checked
 							}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Exact interval" })]
-						}),
-						schedule.value === "once" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
-							className: "checkbox-row",
-							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
-								type: "checkbox",
-								checked: pinChat.value,
-								onChange: (event) => pinChat.value = event.currentTarget.checked
-							}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Pin chat" })]
 						}),
 						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
 							className: "prompt-field",
@@ -15898,7 +15884,7 @@ function JobsTable({ model }) {
 									}, "Queued one fresh chat for " + job.name + ".", {
 										prompt: job.prompt,
 										images: job.images.map((image) => image.ref),
-										scope: "jobs:fire:" + job.name + ":" + job.pin_chat
+										scope: "jobs:fire:" + job.name
 									}),
 									className: "row-action",
 									children: "Fire now"
@@ -17990,7 +17976,7 @@ function SidebarSearchField({ model, inputRef }) {
 	});
 }
 //#endregion
-//#region ../../prompta/node_modules/marked/lib/marked.esm.js
+//#region node_modules/marked/lib/marked.esm.js
 /**
 * marked v16.4.2 - a markdown parser
 * Copyright (c) 2018-2025, MarkedJS. (MIT License)
@@ -19531,7 +19517,7 @@ x.lex;
 * @public
 */
 //#endregion
-//#region ../../prompta/node_modules/prismjs/components/prism-typescript.js
+//#region node_modules/prismjs/components/prism-typescript.js
 var import_prism = /* @__PURE__ */ __toESM((/* @__PURE__ */ __commonJSMin(((exports, module) => {
 	var Prism = function(_self) {
 		var lang = /(?:^|\s)lang(?:uage)?-([\w-]+)(?=\s|$)/i;
@@ -20994,7 +20980,7 @@ highlight: function highlight(container) {
 	Prism.languages.ts = Prism.languages.typescript;
 })(Prism);
 //#endregion
-//#region ../../prompta/node_modules/prismjs/components/prism-python.js
+//#region node_modules/prismjs/components/prism-python.js
 Prism.languages.python = {
 	"comment": {
 		pattern: /(^|[^\\])#.*/,
@@ -21056,7 +21042,7 @@ Prism.languages.python = {
 Prism.languages.python["string-interpolation"].inside["interpolation"].inside.rest = Prism.languages.python;
 Prism.languages.py = Prism.languages.python;
 //#endregion
-//#region ../../prompta/node_modules/prismjs/components/prism-bash.js
+//#region node_modules/prismjs/components/prism-bash.js
 (function(Prism) {
 	var envVars = "\\b(?:BASH|BASHOPTS|BASH_ALIASES|BASH_ARGC|BASH_ARGV|BASH_CMDS|BASH_COMPLETION_COMPAT_DIR|BASH_LINENO|BASH_REMATCH|BASH_SOURCE|BASH_VERSINFO|BASH_VERSION|COLORTERM|COLUMNS|COMP_WORDBREAKS|DBUS_SESSION_BUS_ADDRESS|DEFAULTS_PATH|DESKTOP_SESSION|DIRSTACK|DISPLAY|EUID|GDMSESSION|GDM_LANG|GNOME_KEYRING_CONTROL|GNOME_KEYRING_PID|GPG_AGENT_INFO|GROUPS|HISTCONTROL|HISTFILE|HISTFILESIZE|HISTSIZE|HOME|HOSTNAME|HOSTTYPE|IFS|INSTANCE|JOB|LANG|LANGUAGE|LC_ADDRESS|LC_ALL|LC_IDENTIFICATION|LC_MEASUREMENT|LC_MONETARY|LC_NAME|LC_NUMERIC|LC_PAPER|LC_TELEPHONE|LC_TIME|LESSCLOSE|LESSOPEN|LINES|LOGNAME|LS_COLORS|MACHTYPE|MAILCHECK|MANDATORY_PATH|NO_AT_BRIDGE|OLDPWD|OPTERR|OPTIND|ORBIT_SOCKETDIR|OSTYPE|PAPERSIZE|PATH|PIPESTATUS|PPID|PS1|PS2|PS3|PS4|PWD|RANDOM|REPLY|SECONDS|SELINUX_INIT|SESSION|SESSIONTYPE|SESSION_MANAGER|SHELL|SHELLOPTS|SHLVL|SSH_AUTH_SOCK|TERM|UID|UPSTART_EVENTS|UPSTART_INSTANCE|UPSTART_JOB|UPSTART_SESSION|USER|WINDOWID|XAUTHORITY|XDG_CONFIG_DIRS|XDG_CURRENT_DESKTOP|XDG_DATA_DIRS|XDG_GREETER_DATA_DIR|XDG_MENU_PREFIX|XDG_RUNTIME_DIR|XDG_SEAT|XDG_SEAT_PATH|XDG_SESSION_DESKTOP|XDG_SESSION_ID|XDG_SESSION_PATH|XDG_SESSION_TYPE|XDG_VTNR|XMODIFIERS)\\b";
 	var commandAfterHeredoc = {
@@ -21237,7 +21223,7 @@ Prism.languages.py = Prism.languages.python;
 	Prism.languages.shell = Prism.languages.bash;
 })(Prism);
 //#endregion
-//#region ../../prompta/node_modules/prismjs/components/prism-json.js
+//#region node_modules/prismjs/components/prism-json.js
 Prism.languages.json = {
 	"property": {
 		pattern: /(^|[^\\])"(?:\\.|[^\\"\r\n])*"(?=\s*:)/,

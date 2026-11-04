@@ -1636,61 +1636,6 @@ class PatchrightDriver(ModelPickerMixin):
                 f"ChatGPT send mutation failed while {mutation}; the prompt may have been submitted"
             ) from exc
 
-    async def pin_current_chat(self) -> None:
-        """Pin only the newly submitted chat, without reading or storing chat data."""
-        page = self._page()
-        await page.wait_for_url(re.compile(r"^https://chatgpt\.com/c/[^/?#]+"), timeout=15_000)
-        path = urlsplit(page.url).path
-        if not re.fullmatch(r"/c/[^/]+", path):
-            raise RuntimeError("Fresh chat has no pin-capable conversation route")
-
-        show_sidebar = page.get_by_role("button", name=re.compile(r"^(show|open) sidebar$", re.I))
-        if await show_sidebar.count() == 1 and await show_sidebar.is_visible():
-            await show_sidebar.click()
-
-        link = page.locator(f'nav[aria-label="Chat history"] a[href$={json.dumps(path)}]')
-        await link.wait_for(state="visible", timeout=12_000)
-
-        async def open_options() -> None:
-            await link.hover()
-            for ancestor in range(1, 7):
-                row = link.locator(f"xpath=ancestor::div[{ancestor}]")
-                options = row.get_by_role(
-                    "button",
-                    name=re.compile(
-                        r"^(?:Chat actions|(?:conversation|chat)? ?(?:more |other )?options)$", re.I
-                    ),
-                )
-                if await options.count() == 1:
-                    await options.click()
-                    return
-                buttons = row.locator("button")
-                if await buttons.count() == 1:
-                    await buttons.click()
-                    return
-            raise RuntimeError("Chat history row has no options button")
-
-        async def menu_action(action: str) -> Locator:
-            label = re.compile(rf"^{action}(?: chat)?$", re.I)
-            item = page.get_by_role("menuitem", name=label)
-            if await item.count() == 1:
-                return item
-            return page.get_by_text(label)
-
-        try:
-            await open_options()
-            if await (await menu_action("Unpin")).count() == 1:
-                return
-            pin = await menu_action("Pin")
-            if await pin.count() != 1:
-                raise RuntimeError("Chat history menu has no Pin chat action")
-            await pin.click()
-            await open_options()
-            if await (await menu_action("Unpin")).count() != 1:
-                raise RuntimeError("ChatGPT did not verify the pinned chat")
-        finally:
-            await page.keyboard.press("Escape")
-
     async def _rate_limit_texts(self, page: _RateLimitPage[_RateT]) -> list[str]:
         # Rate-limit UI has changed wrappers and private test IDs repeatedly.
         # Search durable accessibility surfaces first, then matching text inside

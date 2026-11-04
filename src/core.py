@@ -184,13 +184,13 @@ def build_parser() -> argparse.ArgumentParser:
         dest="pin_chat",
         action="store_true",
         default=None,
-        help="Pin the created chat",
+        help="Deprecated compatibility option; never pins on ChatGPT.com",
     )
     once.add_argument(
         "--no-pin",
         dest="pin_chat",
         action="store_false",
-        help="Do not pin the created chat (default)",
+        help="ChatGPT.com pinning is disabled (default)",
     )
     once.add_argument("--state", type=Path, default=DEFAULT_STATE_PATH)
     once.add_argument("--jobs-file", type=Path, default=DEFAULT_JOBS_PATH)
@@ -212,7 +212,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--no-pin",
         dest="pin_chat",
         action="store_false",
-        help="Do not pin the created chat (default)",
+        help="ChatGPT.com pinning is disabled (default)",
     )
     at.add_argument("--jobs-file", type=Path, default=DEFAULT_JOBS_PATH)
     at.add_argument("--state", type=Path, default=DEFAULT_STATE_PATH)

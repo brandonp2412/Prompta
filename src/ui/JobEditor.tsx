@@ -30,7 +30,6 @@ export default function JobEditor({ model, refs }: { model: Controller; refs: Ed
     schedule,
     interval,
     onceDelay,
-    pinChat,
     dailyAt,
     exact,
     prompt,
@@ -213,16 +212,6 @@ export default function JobEditor({ model, refs }: { model: Controller; refs: Ed
                 onChange={(event) => (exact.value = event.currentTarget.checked)}
               />
               <span>Exact interval</span>
-            </label>
-          )}
-          {schedule.value === "once" && (
-            <label className="checkbox-row">
-              <input
-                type="checkbox"
-                checked={pinChat.value}
-                onChange={(event) => (pinChat.value = event.currentTarget.checked)}
-              />
-              <span>Pin chat</span>
             </label>
           )}
 

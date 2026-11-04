@@ -142,56 +142,33 @@ async def test_fresh_chat_is_discarded_immediately_after_dispatch_confirmation(
 
 
 @pytest.mark.asyncio
-async def test_once_chat_is_pinned_after_acceptance_before_tab_cleanup(tmp_path: Path) -> None:
-    actions: list[str] = []
-
-    class PinDriver(FakeDriver):
+async def test_legacy_pin_choice_does_not_mutate_chatgpt_pins(tmp_path: Path) -> None:
+    class NoPinDriver(FakeDriver):
         async def pin_current_chat(self) -> None:
-            actions.append("pin")
-            assert self.closed_contexts == []
-            assert self.composer == ""
+            raise AssertionError("Prompta must never pin chats on ChatGPT.com")
 
-        async def close_context(self, context: str) -> None:
-            actions.append("close")
-            await super().close_context(context)
-
-    driver = PinDriver()
+    driver = NoPinDriver()
     sender = BrowserDeliverySender(tmp_path / "runtime.sqlite3", driver_factory=lambda: driver)
-    await sender._send_browser("Once job", pin_chat=True)
-    assert actions == ["pin", "close"]
 
+    # Older once jobs can retain pin_chat=True in their durable queue record.
+    await sender._send_browser("Legacy once job", pin_chat=True)
 
-@pytest.mark.asyncio
-async def test_pin_failure_never_resends_accepted_once_job(
-    tmp_path: Path, caplog: pytest.LogCaptureFixture
-) -> None:
-    class PinFailureDriver(FakeDriver):
-        async def pin_current_chat(self) -> None:
-            raise RuntimeError("Pin control unavailable")
-
-    driver = PinFailureDriver()
-    sender = BrowserDeliverySender(tmp_path / "runtime.sqlite3", driver_factory=lambda: driver)
-    await sender._send_browser("Once job", pin_chat=True)
-    assert "could not be pinned" in caplog.text
     assert driver.closed_contexts == ["fresh-tab"]
+    assert sender.results.local_pinned_runs() == []
 
 
 @pytest.mark.asyncio
-async def test_slow_optional_pin_never_blocks_durable_acceptance(
+async def test_legacy_pin_choice_does_not_interrupt_owned_capture(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    pin_started = asyncio.Event()
-    release_pin = asyncio.Event()
-
-    class SlowPinDriver(FakeDriver):
+    class NoPinDriver(FakeDriver):
         async def pin_current_chat(self) -> None:
-            pin_started.set()
-            await release_pin.wait()
+            raise AssertionError("Prompta must never pin chats on ChatGPT.com")
 
-    driver = SlowPinDriver()
+    driver = NoPinDriver()
     sender = BrowserDeliverySender(tmp_path / "runtime.sqlite3", driver_factory=lambda: driver)
-    sender.results.ensure_queued("pinned-owned-send", "Pin verification")
+    sender.results.ensure_queued("owned-send", "Capture verification")
     acknowledged = threading.Event()
     confirmed = threading.Event()
 
@@ -207,25 +184,17 @@ async def test_slow_optional_pin_never_blocks_durable_acceptance(
         assert sender.results.finish(send_id, owner, "interrupted")
 
     monkeypatch.setattr(sender, "_capture_until_complete", finish_capture)
-    task = asyncio.create_task(
-        sender._send_browser(
-            "Pin verification",
-            send_id="pinned-owned-send",
-            pin_chat=True,
-            accepted=acknowledged,
-            confirmed=confirmed,
-        )
+    await sender._send_browser(
+        "Capture verification",
+        send_id="owned-send",
+        pin_chat=True,
+        accepted=acknowledged,
+        confirmed=confirmed,
     )
-    try:
-        await asyncio.wait_for(pin_started.wait(), timeout=2.0)
-        # The pin is still blocked, but the send is already durably accepted.
-        assert acknowledged.is_set() and confirmed.is_set()
-        saved = sender.results.get("pinned-owned-send")
-        assert saved is not None and saved["status"] == "accepted"
-    finally:
-        release_pin.set()
-        await asyncio.wait_for(task, timeout=5.0)
+
+    assert acknowledged.is_set() and confirmed.is_set()
     assert driver.closed_contexts == ["fresh-tab"]
+    assert sender.results.get("owned-send") is not None
 
 
 def test_delivery_deadline_before_dispatch_is_retryable_and_closes_tab(tmp_path: Path) -> None:
