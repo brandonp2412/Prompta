@@ -611,7 +611,10 @@ class ManualReplyDispatcher:
                     if changed and (
                         update is not None
                         and (update.source == "sse" or (
-                            update.message_id and update.message_id != parent_id
+                            update.source == "dom"
+                            and update.conversation_id == conversation_id
+                            and (not update.message_id or update.message_id != parent_id)
+                            and (update.message_id or update.observer_id)
                             and await driver.eval("location.pathname") == "/c/" + conversation_id
                         ))
                         and driver.record_verified_activity()

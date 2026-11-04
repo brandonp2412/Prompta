@@ -310,13 +310,20 @@ async def test_final_probe_failure_keeps_latest_unsaved_partial(tmp_path: Path) 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ("conversation_id", "message_id", "expect_renewal"),
-    [(_RECOVERED_CHAT, "m1", True), (None, "m1", False), (_RECOVERED_CHAT, None, False)],
+    ("conversation_id", "message_id", "observer_id", "expect_renewal"),
+    [
+        (_RECOVERED_CHAT, "m1", None, True),
+        (_RECOVERED_CHAT, None, "fallback-turn-0", True),
+        (None, "m1", None, False),
+        (None, None, "fallback-turn-0", False),
+        (_RECOVERED_CHAT, None, None, False),
+    ],
 )
 async def test_partial_response_activity_renews_lease_without_parent_id(
     tmp_path: Path,
     conversation_id: str | None,
     message_id: str | None,
+    observer_id: str | None,
     expect_renewal: bool,
 ) -> None:
     from prompta.browser_ownership import MAX_OWNED_TAB_AGE_SECONDS
@@ -334,7 +341,10 @@ async def test_partial_response_activity_renews_lease_without_parent_id(
             self.touches += 1
             return True
 
-    partial = CaptureResult("dom", "partial", "Still working", conversation_id, message_id, None)
+    partial = CaptureResult(
+        "dom", "partial", "Still working", conversation_id, message_id, None,
+        observer_id=observer_id,
+    )
     driver = OwnedDriver([partial])
     driver.stop_after_first = True
     await sender._capture_until_complete(

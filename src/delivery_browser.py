@@ -630,7 +630,7 @@ class BrowserDeliverySender:
                 )
                 verified_branch = bool(update is not None and (
                     (update.source == "dom" and update.conversation_id
-                     and update.message_id)
+                     and (update.message_id or update.observer_id))
                     or (update.source == "sse" and capture.get("sse_stream")
                         and not capture.get("ambiguous_request"))
                 ))
