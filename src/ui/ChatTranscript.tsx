@@ -107,6 +107,7 @@ export default function ChatTranscript({
     const preceding = turns.value[index - 1];
     if (preceding?.status === "queued") return "Follow-up queued · waiting for earlier follow-up";
     if (!preceding?.message_id) return "Follow-up queued · reviving chat";
+    if (preceding.status === "completed") return "Follow-up queued · waiting for dispatch";
     return "Follow-up queued · waiting for the preceding response";
   }
 
