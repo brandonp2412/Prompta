@@ -37,6 +37,11 @@ export type Props = {
   retryablePreflight?: boolean;
   offerFreshContinuation?: boolean;
 };
+export function isMobileComposerKeyboard(): boolean {
+  // A phone keyboard’s Return should always insert a newline, even in landscape.
+  return window.matchMedia("(pointer: coarse)").matches;
+}
+
 export function createChatComposerController(initialProps: Props) {
   type ImageRef = ComposerImageRef;
 
@@ -369,7 +374,12 @@ export function createChatComposerController(initialProps: Props) {
   }
 
   function keydown(event: React.KeyboardEvent<HTMLTextAreaElement>) {
-    if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+    if (
+      event.key === "Enter" &&
+      !event.shiftKey &&
+      !event.nativeEvent.isComposing &&
+      !isMobileComposerKeyboard()
+    ) {
       event.preventDefault();
       if (showStop.value) void stop();
       else void submit();

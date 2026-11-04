@@ -1,6 +1,10 @@
 import React, { useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { useSignals } from "@preact/signals-react/runtime";
-import { createChatComposerController, type Props } from "./ChatComposerController";
+import {
+  createChatComposerController,
+  isMobileComposerKeyboard,
+  type Props,
+} from "./ChatComposerController";
 import { rememberComposerImages } from "./composerDraftMemory";
 import { attachmentAccept, isVideoAttachment } from "./mediaAttachments";
 import { feedbackTone, useToastSignal } from "./toast";
@@ -352,6 +356,8 @@ export default function ChatComposer(props: Props) {
               updateMention(event.currentTarget, true);
             }}
             onKeyDown={(event) => {
+              // Mobile Return is text input, never Send or autocomplete selection.
+              if (event.key === "Enter" && isMobileComposerKeyboard()) return;
               if (slashOptions.length) {
                 if (event.key === "ArrowDown" || event.key === "ArrowUp") {
                   event.preventDefault();
@@ -431,6 +437,7 @@ export default function ChatComposer(props: Props) {
             aria-activedescendant={autocompleteActiveOption}
             onPaste={pasted}
             rows={1}
+            enterKeyHint="enter"
             maxLength={32000}
             disabled={disabled.value}
             readOnly={sending.value}
