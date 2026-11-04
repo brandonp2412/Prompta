@@ -163,9 +163,9 @@ test("nonadjacent identical tools remain separate in chronological order", () =>
     }),
   );
   expect(html.match(/class="tool-type-group"/g)?.length).toBe(3);
-  const firstA = html.indexOf("Used A · check");
-  const b = html.indexOf("Used B · check", firstA);
-  const secondA = html.indexOf("Used A · check", b);
+  const firstA = html.indexOf("A · Check");
+  const b = html.indexOf("B · Check", firstA);
+  const secondA = html.indexOf("A · Check", b);
   expect(firstA).toBeGreaterThan(-1);
   expect(firstA).toBeLessThan(b);
   expect(b).toBeLessThan(secondA);

@@ -73,6 +73,15 @@ def test_tool_calls_display_code_instead_of_json_wrappers(
             page.goto(f"http://127.0.0.1:{port}/?view=chats&run={send_id}")
             groups = page.locator(".tool-type-group")
             expect(groups).to_have_count(3)
+            expect(groups.nth(0).locator(".tool-type-label")).to_contain_text(
+                "Nox Python · Execute Python"
+            )
+            expect(groups.nth(1).locator(".tool-type-label")).to_contain_text(
+                "Nox Serena · Execute shell command"
+            )
+            expect(groups.nth(2).locator(".tool-type-label")).to_contain_text(
+                "Search · Lookup"
+            )
             for index in range(3):
                 groups.nth(index).locator(":scope > summary").click()
                 groups.nth(index).locator(".tool-call-summary").click()

@@ -17,6 +17,51 @@ function call(id: string, observed_at?: number): CapturedToolCall {
   };
 }
 
+test("collapsed labels name the connector before the readable action", () => {
+  const calls = [
+    { ...call("glass"), connector: "Glass Python MCP" },
+    { ...call("nox"), connector: "Nox Python MCP" },
+    { ...call("pi"), connector: "Pi Python MCP" },
+    { ...call("serena"), connector: "Nox Serena", action: "search_for_pattern" },
+  ];
+  const { container, unmount } = render(<ToolCalls calls={calls} />);
+  const labels = [...container.querySelectorAll(".tool-type-label")].map((node) =>
+    node.textContent?.trim(),
+  );
+  expect(labels).toEqual([
+    "Glass Python MCP · Execute Python · 1 call",
+    "Nox Python MCP · Execute Python · 1 call",
+    "Pi Python MCP · Execute Python · 1 call",
+    "Nox Serena · Search for pattern · 1 call",
+  ]);
+  expect(
+    [...container.querySelectorAll(".tool-call-name")].map((node) => node.textContent),
+  ).toEqual([
+    "Glass Python MCP · Execute Python",
+    "Nox Python MCP · Execute Python",
+    "Pi Python MCP · Execute Python",
+    "Nox Serena · Search for pattern",
+  ]);
+  unmount();
+});
+
+test("built-in and missing connectors are not confused with a device", () => {
+  const calls = [
+    { ...call("web"), connector: "web", action: "search" },
+    { ...call("python"), connector: "python", action: "execute_python" },
+    { ...call("unknown"), connector: "", action: "execute_python" },
+  ];
+  const { container, unmount } = render(<ToolCalls calls={calls} />);
+  expect(
+    [...container.querySelectorAll(".tool-call-name")].map((node) => node.textContent),
+  ).toEqual([
+    "Web · Searched the web",
+    "Python · Analyzed data",
+    "Unknown device · Execute Python",
+  ]);
+  unmount();
+});
+
 test("collapsed tool type shows first and last observed timestamps in Auckland time", () => {
   const first = Date.UTC(2026, 10, 2, 2, 0) / 1000;
   const last = first + 900;

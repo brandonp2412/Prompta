@@ -21622,11 +21622,11 @@ var statusMark = {
 	Completed: "✓"
 };
 function title(call) {
-	if (call.connector === "web") return call.status === "running" ? "Searching the web" : "Searched the web";
-	if (call.connector === "python") return call.status === "running" ? "Analyzing data" : "Analyzed data";
-	const name = [call.connector, call.action].filter(Boolean).join(" · ") || "Tool call";
-	if (!call.connector) return name;
-	return `${call.status === "running" ? "Using" : "Used"} ${name}`;
+	const connector = call.connector.trim();
+	if (connector.toLowerCase() === "web") return `Web · ${call.status === "running" ? "Searching" : "Searched"} the web`;
+	if (connector.toLowerCase() === "python") return `Python · ${call.status === "running" ? "Analyzing" : "Analyzed"} data`;
+	const action = call.action.trim().replace(/([a-z])([A-Z])/g, "$1 $2").replace(/[_-]+/g, " ").replace(/\s+/g, " ").replace(/^\w/, (initial) => initial.toUpperCase()).replace(/\bpython\b/gi, "Python");
+	return [connector || (action === "Execute Python" ? "Unknown device" : ""), action].filter(Boolean).join(" · ") || "Tool call";
 }
 function status(call) {
 	if (call.status === "error" || call.error) return "Failed";
