@@ -336,7 +336,7 @@ def create_app(
     @app.head("/api/queue-status", include_in_schema=False)
     @app.get("/api/queue-status")
     def queue_status() -> dict[str, object]:
-        return dict(local.queue_view.concurrency_queue_snapshot())
+        return dict(local.queue_view.concurrency_queue_snapshot(replies=local.replies))
 
     @app.post("/api/queue/{send_id}/front")
     def bump_queue(send_id: str) -> dict[str, bool]:

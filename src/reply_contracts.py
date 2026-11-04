@@ -353,6 +353,24 @@ class ManualReplyStore(ReplyReadState):
                 parent_id = str(previous["message_id"])
         return None
 
+    def pending_queued_followup_send_ids(self) -> list[str]:
+        """Return user-authorized follow-ups in enqueue order, without message text.
+
+        Each reply occupies its own future dispatch slot, even if several
+        follow-ups belong to the same sidebar chat. Unsent prepared drafts and
+        replies already claimed by a worker must not inflate queue ETAs.
+        """
+        with self.engine.connect() as connection:
+            rows = connection.execute(
+                select(replies.c.send_id)
+                .where(
+                    replies.c.queued_by_user.is_(True),
+                    replies.c.status.in_(("queued", "prepared")),
+                )
+                .order_by(replies.c.created_at, replies.c.reply_id)
+            ).scalars().all()
+        return [str(send_id) for send_id in rows]
+
     def next_queued_intent(
         self, *, exclude: set[str] | None = None, now: float | None = None,
     ) -> tuple[str, ReplyIntent] | None:

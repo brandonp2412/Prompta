@@ -14,6 +14,7 @@ from .jobs import PromptJob, remove_job
 from .logging_config import configure_logging
 from .persistence import DEFAULT_RUNTIME_PATH
 from .queue_eta import QueueEtaEstimator
+from .reply_contracts import ManualReplyStore
 from .scheduler_policy import (
     occurrence_key,
     pending_delivery_updates,
@@ -79,7 +80,9 @@ class DurableSchedulerProducer:
             for other in jobs
         )
 
-    def concurrency_queue_snapshot(self, *, now: float | None = None) -> dict[str, object]:
+    def concurrency_queue_snapshot(
+        self, *, now: float | None = None, replies: ManualReplyStore | None = None,
+    ) -> dict[str, object]:
         """Read-only approximate start ETAs for queued deliveries and scheduled jobs.
 
         The projection respects manual-chat dispatch priority and never reads or
@@ -97,23 +100,19 @@ class DurableSchedulerProducer:
             "waiting_runs": [],
         }
         pending = self.queue.pending_dispatch_metadata()
-        if not pending:
+        pending_replies = replies.pending_queued_followup_send_ids() if replies is not None else []
+        if not pending and not pending_replies:
             return baseline
 
         estimator = QueueEtaEstimator(self.queue, now=at, active_ids=active)
         projection = estimator.projection(limit, active) if limit is not None else None
         waiting: list[dict[str, object]] = []
-        waiting_runs: list[dict[str, object]] = []
+        eta_by_send: dict[str, int] = {}
         for receipt in pending:
             eta = projection.enqueue() if projection is not None else 0
             # Retry and account rate-limit delays are a lower bound on start time.
             eta = max(eta, math.ceil(max(0.0, float_value(receipt["retry_at"]) - at)))
-            waiting_runs.append(
-                {
-                    "send_id": receipt["send_id"],
-                    "eta_seconds": eta,
-                }
-            )
+            eta_by_send[str(receipt["send_id"])] = eta
             client_id = str(receipt["client_id"])
             if limit is None or not client_id.startswith("scheduled:"):
                 continue
@@ -128,13 +127,21 @@ class DurableSchedulerProducer:
                     "eta_seconds": eta,
                 }
             )
+        # Explicit follow-ups share the same concurrency slots as fresh sends.
+        # A second queued turn in one chat advances that chat's displayed ETA
+        # to the last outstanding reply, rather than the first one's start.
+        for send_id in pending_replies:
+            eta_by_send[send_id] = projection.enqueue() if projection is not None else 0
         return {
             "max_workers": limit,
             "occupied_slots": len(active),
             "estimated_run_seconds": estimator.duration_seconds,
             "estimate_samples": estimator.samples,
             "waiting": waiting,
-            "waiting_runs": waiting_runs,
+            "waiting_runs": [
+                {"send_id": send_id, "eta_seconds": eta}
+                for send_id, eta in eta_by_send.items()
+            ],
         }
 
     def _external_mutex_group_busy(self, job: PromptJob) -> bool:

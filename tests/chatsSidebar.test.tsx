@@ -262,7 +262,7 @@ test("queued follow-ups show their ETA instead of a stale answer preview", async
       ...model.queueSnapshot.peek(),
       waiting_runs: [{ send_id: "7", eta_seconds: 120 }],
     };
-    model.items.value = [{ ...run(7), status: "queued", preview: "Older completed answer" }];
+    model.items.value = [{ ...run(7), status: "queued", queued_followup: true, preview: "Older completed answer" }];
   });
   expect(screen.getByText("Queued · ETA ~2 min")).toBeTruthy();
   expect(screen.queryByText("Older completed answer")).toBeNull();
