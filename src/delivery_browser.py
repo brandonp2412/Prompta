@@ -157,6 +157,7 @@ class BrowserDeliverySender:
         send_timeout_seconds: float = _DEFAULT_SEND_TIMEOUT_SECONDS,
         delivery_hard_timeout_seconds: float = _DELIVERY_HARD_TIMEOUT_SECONDS,
         connector_approval: bool | None = None,
+        fire_and_forget: bool = False,
     ) -> None:
         self.state_path = state_path.expanduser()
         state_dir = self.state_path.parent
@@ -175,6 +176,7 @@ class BrowserDeliverySender:
         self.driver_factory = driver_factory
         self.send_timeout_seconds = max(1.0, float(send_timeout_seconds))
         self.delivery_hard_timeout_seconds = max(0.01, float(delivery_hard_timeout_seconds))
+        self.fire_and_forget = fire_and_forget
         self.connector_approval = (
             ConnectorApproval.load().enabled if connector_approval is None else connector_approval
         )
@@ -258,6 +260,17 @@ class BrowserDeliverySender:
 
         image_paths = tuple(self.images.path(ref) for ref in image_refs(images))
         dispatch_started = threading.Event()
+        if self.fire_and_forget:
+            if send_id:
+                self.results.ensure_queued(send_id, message, job_name)
+                previous = self.results.get(send_id)
+                if previous is not None and previous["status"] == "submitted":
+                    return
+            asyncio.run(self._send_fire_and_forget(
+                message, send_id=send_id, images=image_paths,
+                dispatch_started=dispatch_started,
+            ))
+            return
         if send_id:
             self.results.ensure_queued(send_id, message, job_name)
             handshake = threading.Event()
@@ -708,6 +721,75 @@ class BrowserDeliverySender:
                     await approval_task
                 except asyncio.CancelledError:
                     pass
+
+    async def _send_fire_and_forget(
+        self,
+        message: str,
+        *,
+        send_id: str,
+        images: tuple[Path, ...],
+        dispatch_started: threading.Event,
+    ) -> None:
+        """Submit once; never observe the remote response, history or completion.
+
+        Keep the owned browser tab alive so closing the transport cannot cancel
+        ChatGPT's streaming request. The independent watchdog reaps idle tabs.
+        """
+        driver = self._new_driver()
+        context = ""
+        attempted = False
+        try:
+            if not driver.is_connected:
+                await _timed_stage("cdp_connect", driver.connect(), timeout=45.0)
+            context = await _timed_stage("fresh_tab_navigation", driver.new_tab(), timeout=40.0)
+            await _timed_stage("composer_readiness", driver.wait_for_composer(), timeout=25.0)
+            await self._ensure_high_effort(driver)
+            await _timed_stage("prompt_insertion", driver.type_message(message), timeout=30.0)
+            if images:
+                await _timed_stage("image_upload", driver.attach_images(images), timeout=140.0)
+            dispatch_started.set()
+            attempted = True
+            await _timed_stage(
+                "send_dispatch", driver.click_send(message),
+                timeout=_SEND_DISPATCH_TIMEOUT_SECONDS,
+            )
+            if send_id and not self.results.mark_submitted(send_id):
+                raise SendOutcomeUnknownError(
+                    "Prompt was submitted but its local receipt could not be saved",
+                    stage="receipt_persistence",
+                )
+            logger.info("Prompta prompt submitted without remote reads send_id=%s", send_id)
+        except SendOutcomeUnknownError:
+            raise
+        except RateLimitError as exc:
+            if attempted:
+                raise SendOutcomeUnknownError(
+                    "Rate limit during submission; acceptance is unknown",
+                    stage="send_dispatch",
+                ) from exc
+            raise
+        except Exception as exc:
+            if attempted:
+                raise SendOutcomeUnknownError(
+                    "Prompt submission outcome is unknown; automatic resend disabled",
+                    stage="send_dispatch",
+                ) from exc
+            raise DeliveryBackendUnavailableError(
+                "Browser unavailable before the send action"
+            ) from exc
+        finally:
+            if context and not attempted:
+                try:
+                    await driver.close_context(context)
+                except Exception:
+                    logger.warning("Prompta pre-send tab cleanup failed")
+            try:
+                if isinstance(driver, PatchrightDriver):
+                    await driver.close(preserve_owned_tabs=attempted)
+                else:
+                    await driver.close()
+            except Exception:
+                logger.warning("Prompta browser detachment failed")
 
     async def _send_browser(
         self,

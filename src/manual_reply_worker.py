@@ -14,6 +14,7 @@ from pathlib import Path
 from types import FrameType
 
 from .deployment_gate import mark_worker_ready
+from .fire_and_forget import enabled as fire_and_forget_enabled
 from .logging_config import configure_logging
 from .manual_reply_dispatch import ManualReplyDispatcher
 from .persistence import DEFAULT_RUNTIME_PATH
@@ -26,6 +27,14 @@ logger = logging.getLogger(__name__)
 def run(state_path: Path = DEFAULT_RUNTIME_PATH, *, stop: threading.Event | None = None) -> None:
     shutdown = stop or threading.Event()
     state_path = state_path.expanduser()
+    if fire_and_forget_enabled():
+        health = ServiceHealthStore(state_path)
+        mark_worker_ready(state_path, "prompta-manual-reply")
+        logger.info("Fire-and-forget: remote reply dispatch and recovery disabled")
+        while not shutdown.is_set():
+            health.beat("manual_reply_worker")
+            shutdown.wait(1.0)
+        return
     store = ManualReplyStore(state_path.parent / "chat-results.sqlite3")
     dispatcher = ManualReplyDispatcher(store, state_path)
     health = ServiceHealthStore(state_path)

@@ -7,6 +7,7 @@ from uuid import UUID
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import Response
 
+from .fire_and_forget import enabled as fire_and_forget_enabled
 from .image_store import image_refs
 from .reply_contracts import ReplyConflict, ReplyIntent
 from .stop_jobs import StopJobService
@@ -31,6 +32,10 @@ logger = logging.getLogger(__name__)
 
 
 def register_chat_routes(app: FastAPI, local: WebServices) -> None:
+    def require_response_tracking() -> None:
+        if fire_and_forget_enabled():
+            raise HTTPException(409, "Fire-and-forget mode disables remote reads and replies")
+
     @app.head("/api/chats/requests/{request_id}", include_in_schema=False)
     @app.get("/api/chats/requests/{request_id}")
     def receipt(request_id: RequestId) -> dict[str, object]:
@@ -127,6 +132,7 @@ def register_chat_routes(app: FastAPI, local: WebServices) -> None:
 
     @app.post("/api/results/{send_id}/manual-recover", status_code=202)
     def manual_recover(send_id: str, payload: EmptyRequest) -> dict[str, object]:
+        require_response_tracking()
         """Queue one guarded history read per unfinished, verified turn; never resend."""
         original = local.results.get(send_id)
         if original is None:
@@ -165,10 +171,12 @@ def register_chat_routes(app: FastAPI, local: WebServices) -> None:
 
     @app.post("/api/results/{send_id}/reply-recover")
     def recover(send_id: str, payload: EmptyRequest) -> dict[str, object]:
+        require_response_tracking()
         return {"ok": True, **local.reply_dispatch.recover(send_id)}
 
     @app.post("/api/results/{send_id}/reply-queue", status_code=202)
     def followup(send_id: str, payload: FollowupRequest) -> dict[str, object]:
+        require_response_tracking()
         return {
             "ok": True,
             "turn": local.replies.queue_followup(
@@ -178,6 +186,7 @@ def register_chat_routes(app: FastAPI, local: WebServices) -> None:
 
     @app.post("/api/results/{send_id}/reply-intents", status_code=202)
     def prepare_reply(send_id: str, payload: ReplyRequest) -> dict[str, object]:
+        require_response_tracking()
         turn = local.replies.prepare(
             send_id,
             ReplyIntent(payload.reply_id, payload.conversation_id, payload.parent_id, payload.text),
@@ -186,6 +195,7 @@ def register_chat_routes(app: FastAPI, local: WebServices) -> None:
 
     @app.post("/api/results/{send_id}/reply-send", status_code=202)
     def send_reply(send_id: str, payload: ReplyRequest) -> dict[str, object]:
+        require_response_tracking()
         turn = local.replies.queue_explicit_send(
             send_id,
             ReplyIntent(payload.reply_id, payload.conversation_id, payload.parent_id, payload.text),

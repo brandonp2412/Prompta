@@ -156,6 +156,20 @@ class ResponseStore:
                 ).values(job_name=job_name))
         self._secure_files()
 
+    def mark_submitted(self, send_id: str, *, now: float | None = None) -> bool:
+        """Persist a terminal send-only receipt without claiming response completion."""
+        at = time.time() if now is None else now
+        with self.engine.begin() as connection:
+            changed = connection.execute(update(results).where(
+                results.c.send_id == send_id,
+                results.c.status == "queued",
+            ).values(
+                status="submitted", source="fire_and_forget", accepted_at=at,
+                updated_at=at, finished_at=at, capture_owner="",
+                capture_deadline=0,
+            ))
+        return changed.rowcount == 1
+
     def accept(self, send_id: str, owner: str, *, deadline: float, now: float | None = None) -> bool:
         at = time.time() if now is None else now
         if deadline <= at:

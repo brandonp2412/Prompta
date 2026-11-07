@@ -8,6 +8,7 @@ Slice=prompta.slice
 Type=simple
 WorkingDirectory=%h/prompta
 Environment=PYTHONUNBUFFERED=1
+Environment=PROMPTA_FIRE_AND_FORGET=1
 Environment=PYTHONPATH=%h/prompta
 Environment=TMPDIR=%h/.local/state/prompta/tmp
 Environment=PROMPTA_CHROME_DEBUGGER_ADDRESS=127.0.0.1:9222

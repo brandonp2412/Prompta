@@ -1833,12 +1833,12 @@ class PatchrightDriver(ModelPickerMixin):
         except PatchrightError:
             pass
 
-    async def close(self) -> None:
+    async def close(self, *, preserve_owned_tabs: bool = False) -> None:
         pages = [
             self._pages[context] for context in list(self._owned_contexts) if context in self._pages
         ]
         if self._attached:
-            for page in pages:
+            for page in ([] if preserve_owned_tabs else pages):
                 if not page.is_closed():
                     try:
                         await page.close()

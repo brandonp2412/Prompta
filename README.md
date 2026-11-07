@@ -1,6 +1,6 @@
 # Prompta
 
-Prompta schedules one-off and recurring ChatGPT prompts. Each scheduled run starts a fresh chat. The web UI manages jobs, displays saved responses, and sends replies when you click Send.
+Prompta schedules one-off and recurring ChatGPT prompts. Each scheduled run starts a fresh chat. The web UI manages jobs and locally recorded sends. In production (`PROMPTA_FIRE_AND_FORGET=1`), it sends once and never reads ChatGPT responses or history, checks completion, or sends replies; tabs remain open for ChatGPT generation until idle cleanup.
 
 <p align="center">
   <img src="docs/prompta-cli.png" alt="Prompta CLI" width="900">

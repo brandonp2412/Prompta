@@ -4,6 +4,7 @@ export type ResultStatus =
   | "generating"
   | "stopped"
   | "completed"
+  | "submitted"
   | "interrupted"
   | "unavailable"
   | "outcome_unknown";
@@ -131,6 +132,8 @@ export function responseBadge(status: LocalTurn["status"]): string {
       return "Stopped";
     case "completed":
       return "Final";
+    case "submitted":
+      return "Sent · not tracked";
     case "generating":
       return "Live";
     case "interrupted":
@@ -195,6 +198,8 @@ export function turnStatus(status: LocalTurn["status"]): string {
       return "Response unavailable";
     case "queued":
       return "Waiting for job dispatch";
+    case "submitted":
+      return "Sent to ChatGPT · response not tracked";
     case "merged":
       return "Appended to first prompt";
     case "cancelled":
@@ -238,6 +243,8 @@ export function statusLabel(status: ResultStatus): string {
       return "Stopped";
     case "completed":
       return "Completed";
+    case "submitted":
+      return "Sent · not tracked";
     case "interrupted":
       return "Interrupted";
     case "unavailable":

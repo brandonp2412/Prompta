@@ -112,6 +112,7 @@ button:disabled { cursor: default; opacity: 0.45; }
 .chat-preview { color: #8d8d8d; font-size: .77rem; line-height: 1.45; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
 .result-dot { display: inline-block; flex: none; width: 7px; height: 7px; background: #6f6f6f; border-radius: 50%; }
 .result-dot.status-completed { background: #70b990; }
+.result-dot.status-submitted { background: #7e858b; }
 .result-dot.status-generating { background: #81a8eb; }
 .result-dot.status-accepted { background: #c9ae70; }
 .result-dot.status-interrupted, .result-dot.status-unavailable { background: #db8686; }
@@ -148,6 +149,7 @@ button:disabled { cursor: default; opacity: 0.45; }
 .chat-header-back svg { width: 24px; height: 24px; }
 .result-pill { border: 1px solid #454545; border-radius: 99px; padding: 5px 9px; font-size: .71rem; color: #aaa; }
 .result-pill.status-completed { border-color: #456550; color: #93d5ad; }
+.result-pill.status-submitted { border-color: #555c66; color: #b0b8c5; }
 .result-pill.status-generating { border-color: #475e80; color: #a1c3ff; }
 .result-pill.status-interrupted, .result-pill.status-unavailable { border-color: #794848; color: #f0a2a2; }
 .result-pill.status-prepared, .result-pill.status-dispatching, .result-pill.status-accepted { border-color: #695c39; color: #dec489; }

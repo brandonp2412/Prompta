@@ -25,6 +25,7 @@ from .delivery_browser import (
 )
 from .delivery_queue import DeliveryQueueStore
 from .deployment_gate import DeploymentGate, mark_worker_ready
+from .fire_and_forget import enabled as fire_and_forget_enabled
 from .history_recovery import run_history_recovery
 from .logging_config import configure_logging
 from .persistence import DEFAULT_RUNTIME_PATH
@@ -373,7 +374,7 @@ def _deliver_one(
             logger.error("Could not commit successful delivery receipt send_id=%s", send_id)
             return
         logger.info(
-            "Prompta accepted fresh chat and handed off passive capture send_id=%s", send_id
+            "Prompta fresh-chat dispatch recorded send_id=%s", send_id
         )
     finally:
         lease_stop.set()
@@ -404,6 +405,7 @@ def run(
         chrome_path=chrome_path,
         debugger_address=chrome_debugger_address,
         auth_timeout_seconds=chrome_auth_timeout_seconds,
+        fire_and_forget=fire_and_forget_enabled(),
     )
     owner = socket.gethostname() + ":" + str(os.getpid()) + ":" + uuid.uuid4().hex[:8]
 
@@ -413,14 +415,18 @@ def run(
     health.reset_activity("delivery_worker")
     notify_watchdog()
     recovery_stop = threading.Event()
-    recovery_thread = threading.Thread(
-        target=run_history_recovery,
-        args=(sender.results, runtime, sender._new_driver),
-        kwargs={"stop": recovery_stop, "debugger_address": chrome_debugger_address},
-        name="prompta-history-recovery",
-        daemon=True,
-    )
-    recovery_thread.start()
+    recovery_thread: threading.Thread | None = None
+    if not fire_and_forget_enabled():
+        recovery_thread = threading.Thread(
+            target=run_history_recovery,
+            args=(sender.results, runtime, sender._new_driver),
+            kwargs={"stop": recovery_stop, "debugger_address": chrome_debugger_address},
+            name="prompta-history-recovery",
+            daemon=True,
+        )
+        recovery_thread.start()
+    else:
+        logger.info("Fire-and-forget: response and history recovery disabled")
     mark_worker_ready(state_path, "prompta-delivery")
     last_lease_sweep = float("-inf")
 
@@ -473,7 +479,7 @@ def run(
         pass
     finally:
         recovery_stop.set()
-        while recovery_thread.is_alive():
+        while recovery_thread is not None and recovery_thread.is_alive():
             health.beat("delivery_worker")
             notify_watchdog()
             recovery_thread.join(timeout=1.0)
