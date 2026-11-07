@@ -8,6 +8,7 @@ import pytest
 from _browser_fakes import FakeDriver
 
 from prompta.delivery_browser import BrowserDeliverySender
+from prompta.delivery_queue import DeliveryQueueStore
 from prompta.response_capture import CaptureResult
 from prompta.send_outcome import SendOutcomeUnknownError
 
@@ -75,6 +76,23 @@ def test_failed_send_action_is_quarantined_not_retried(tmp_path: Path) -> None:
     uncertain = sender.results.get("uncertain")
     assert uncertain is not None
     assert uncertain["status"] == "queued"
+
+
+def test_old_capture_leases_do_not_block_fire_and_forget_sends(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    queue = DeliveryQueueStore(tmp_path / "ui-send-jobs.sqlite3")
+    queue.results.ensure_queued("manual-previous", "Old work", now=100)
+    assert queue.results.accept("manual-previous", "old-owner", deadline=500, now=101)
+    queue.upsert({
+        "send_id": "manual-next", "client_id": "new-client", "message": "New work",
+        "status": "queued", "created_at": 110.0,
+    })
+    monkeypatch.setenv("PROMPTA_FIRE_AND_FORGET", "1")
+    assert queue.active_delivery_send_ids(now=111) == set()
+    claimed = queue.claim_next("new-owner", now=111, lease_seconds=30, max_active=1)
+    assert claimed is not None and claimed["send_id"] == "manual-next"
+    assert queue.active_delivery_send_ids(now=112) == {"manual-next"}
 
 
 def test_send_only_never_reports_response_complete(tmp_path: Path) -> None:

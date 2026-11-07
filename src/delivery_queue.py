@@ -21,6 +21,7 @@ from .delivery_state import (
     CompletionAction,
     completion_action,
 )
+from .fire_and_forget import enabled as fire_and_forget_enabled
 from .image_store import image_refs
 from .persistence import create_database, job_deliveries
 from .reply_contracts import ManualReplyStore
@@ -292,7 +293,7 @@ class DeliveryQueueStore:
 
     def active_delivery_send_ids(self, *, now: float) -> set[str]:
         """Count in-flight queue claims and all live chat/reply captures once each."""
-        active = self.results.active_capture_send_ids(now=now)
+        active: set[str] = set() if fire_and_forget_enabled() else self.results.active_capture_send_ids(now=now)
         with self.engine.connect() as connection:
             running = connection.execute(
                 select(job_deliveries.c.send_id).where(
@@ -333,7 +334,7 @@ class DeliveryQueueStore:
             running = set(str(send_id) for send_id in connection.execute(
                 select(job_deliveries.c.send_id).where(job_deliveries.c.status == "running")
             ).scalars())
-            active = self.results.active_capture_send_ids(now=at)
+            active = set() if fire_and_forget_enabled() else self.results.active_capture_send_ids(now=at)
             if max_active is not None and len(running | active) >= max_active:
                 return False
             return store.claim(reply_id, owner, deadline=deadline, now=at)
@@ -612,7 +613,7 @@ class DeliveryQueueStore:
                     )
                 ).scalars().all()
             )
-            active = self.results.active_capture_send_ids(now=at)
+            active = set() if fire_and_forget_enabled() else self.results.active_capture_send_ids(now=at)
             row = None
             if max_active is None or len(running | active) < max_active:
                 claimable = or_(
